@@ -66,7 +66,11 @@ applies when the project and environment are both on **Inherit**.
 
 After continuing a conversation in Claude Code or Codex outside J1 Code, use **Refresh history** in the sidebar footer to reread saved conversations for your existing projects. Messages must have been saved by the provider before they can appear. Refresh can also import newly saved conversations.
 
-Refresh preserves conversations you have continued inside J1 Code. It also skips changed or truncated source histories, archived conversations, and active app sessions instead of overwriting saved messages. Repeated refreshes do not duplicate messages. This is a manual refresh; it does not continuously sync or refresh other providers.
+**Live external chat viewing** is enabled by default. It follows new saved messages in previously imported Claude and Codex conversations while the external session keeps running. Open **Settings → General** to pause or resume it for an environment. Connected desktop, web and mobile clients receive the saved messages; J1 must keep running as their server. Use Refresh history to discover new conversations.
+
+Refresh preserves conversations you have continued inside J1 Code, archived conversations and active J1 sessions. Long conversations and compaction keep already saved messages intact. Ambiguous, rewritten or truncated histories are skipped. Repeated refreshes do not duplicate messages.
+
+Live viewing shows text after the provider saves it, usually within a few seconds. It does not mirror unsaved tokens, tool activity or control of the external worker, and does not sync other providers. Failed reads retry more slowly.
 
 ## Storage cleanup
 

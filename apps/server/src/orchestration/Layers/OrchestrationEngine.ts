@@ -242,9 +242,28 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           envelope.command.type === "thread.user-input.dismiss"
             ? yield* projectionSnapshotQuery.getUserInputActivity(envelope.command)
             : Option.none();
+        let decisionReadModel = commandReadModel;
+        if (envelope.command.type === "thread.history.import") {
+          // The startup command model intentionally omits message bodies.
+          // Hydrate only this history inside the command queue, after preceding
+          // writes committed, so prefix validation also protects restarted apps.
+          const historyThread = yield* projectionSnapshotQuery.getThreadDetailById(
+            envelope.command.threadId,
+          );
+          if (Option.isSome(historyThread)) {
+            decisionReadModel = {
+              ...commandReadModel,
+              threads: commandReadModel.threads.map((thread) =>
+                thread.id === historyThread.value.id
+                  ? { ...thread, messages: historyThread.value.messages }
+                  : thread,
+              ),
+            };
+          }
+        }
         const eventBase = yield* decideOrchestrationCommand({
           command: envelope.command,
-          readModel: commandReadModel,
+          readModel: decisionReadModel,
           ...(Option.isSome(userInputActivity)
             ? { userInputActivity: userInputActivity.value }
             : {}),
@@ -286,6 +305,24 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               }
 
               const lastSavedEvent = committedEvents.at(-1) ?? null;
+              if (lastSavedEvent === null && envelope.command.type === "thread.history.import") {
+                // Another reader may have appended this exact suffix while
+                // the import waited in the queue. Persist its successful receipt.
+                yield* commandReceiptRepository.upsert({
+                  commandId: envelope.command.commandId,
+                  ...aggregateRef,
+                  acceptedAt: yield* nowIso,
+                  resultSequence: commandReadModel.snapshotSequence,
+                  status: "accepted",
+                  error: null,
+                });
+                return {
+                  committedEvents,
+                  attachmentCleanups,
+                  lastSequence: commandReadModel.snapshotSequence,
+                  nextCommandReadModel,
+                } as const;
+              }
               if (lastSavedEvent === null) {
                 return yield* new OrchestrationCommandInvariantError({
                   commandType: envelope.command.type,

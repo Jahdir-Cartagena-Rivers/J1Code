@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - FileSystem loses Windows bigint file indexes; retain them at this boundary.
 /**
  * AgentSessionScanner - discovery of projects a user already works on.
  *
@@ -14,6 +15,8 @@
  * @module project/AgentSessionScanner
  */
 import * as NodeOS from "node:os";
+import * as NodeCrypto from "node:crypto";
+import * as NodeFSP from "node:fs/promises";
 
 import {
   AgentSessionScanError,
@@ -111,6 +114,7 @@ const CodexTurnMetadata = Schema.Struct({
 });
 
 const TranscriptRecord = Schema.Struct({
+  uuid: Schema.optional(Schema.String),
   type: Schema.optional(Schema.String),
   timestamp: Schema.optional(Schema.String),
   cwd: Schema.optional(Schema.String),
@@ -145,6 +149,7 @@ const decodeCodexTurnMetadata = Schema.decodeUnknownOption(CodexTurnMetadata);
 type DecodedTranscriptRecord = typeof TranscriptRecord.Type;
 
 interface AgentSessionTranscriptMetadata {
+  readonly fullHistory?: boolean;
   readonly source: AgentSessionSource;
   readonly providerInstanceId: ProviderInstanceId;
   readonly fallbackSessionId: string;
@@ -152,6 +157,7 @@ interface AgentSessionTranscriptMetadata {
 }
 
 export interface AgentSessionThreadMessage {
+  readonly sourceMessageId?: string;
   readonly role: "user" | "assistant";
   readonly text: string;
   readonly createdAt: string;
@@ -192,6 +198,7 @@ export class AgentSessionScanner extends Context.Service<
     readonly recentThreads: (
       workspaceRoot: string,
       completedSources?: ReadonlyArray<AgentSessionImportSource>,
+      sourcesOnly?: boolean,
     ) => Stream.Stream<AgentSessionRecentThread, AgentSessionScanError>;
   }
 >()("t3/project/AgentSessionScanner") {}
@@ -373,7 +380,7 @@ function parseAgentSessionRecords(
       firstUserMessage = message;
     }
     messages.push(message);
-    if (messages.length > MAX_IMPORTED_MESSAGES) messages.shift();
+    if (!input.fullHistory && messages.length > MAX_IMPORTED_MESSAGES) messages.shift();
   };
 
   const hasMatchingCodexEventInTurn = (text: string) => {
@@ -416,6 +423,7 @@ function parseAgentSessionRecords(
       const text = extractText(record.message?.content);
       if (text.length === 0) continue;
       retainMessage({
+        ...(input.fullHistory && record.uuid ? { sourceMessageId: record.uuid } : {}),
         role: record.type,
         text,
         createdAt: normalizeTimestamp(record.timestamp, fallbackTimestamp),
@@ -493,6 +501,8 @@ function parseAgentSessionRecords(
     ? visibleMessages
     : [visibleFirstUserMessage, ...visibleMessages.slice(-(MAX_IMPORTED_MESSAGES - 1))];
   const derivedTitle = visibleFirstUserMessage.text.trim().split("\n")[0]?.slice(0, 100).trim();
+  const seenSourceIds = new Set<string>();
+  const fallbackOccurrences = new Map<string, number>();
 
   return {
     source: input.source,
@@ -502,7 +512,25 @@ function parseAgentSessionRecords(
     model,
     createdAt: retainedMessages[0]?.createdAt ?? fallbackTimestamp,
     updatedAt: fallbackTimestamp,
-    messages: retainedMessages,
+    messages: input.fullHistory
+      ? retainedMessages
+          .map((message) => {
+            const fingerprint = NodeCrypto.createHash("sha256")
+              .update(JSON.stringify([message.role, message.text, message.createdAt]))
+              .digest("hex");
+            const occurrence = fallbackOccurrences.get(fingerprint) ?? 0;
+            fallbackOccurrences.set(fingerprint, occurrence + 1);
+            return {
+              ...message,
+              sourceMessageId: message.sourceMessageId ?? `${fingerprint}:${occurrence}`,
+            };
+          })
+          .filter((message) => {
+            if (seenSourceIds.has(message.sourceMessageId)) return false;
+            seenSourceIds.add(message.sourceMessageId);
+            return true;
+          })
+      : retainedMessages,
   };
 }
 
@@ -587,9 +615,18 @@ function extractCwd(line: string): string | null {
   return null;
 }
 
-function transcriptIdentity(filePath: string, stats: FileSystem.File.Info) {
+type TranscriptIdentity = Pick<
+  AgentSessionImportSource,
+  "filePath" | "fileId" | "size" | "mtimeMs" | "device" | "inode" | "birthtimeMs"
+>;
+function transcriptIdentity(
+  filePath: string,
+  stats: FileSystem.File.Info,
+  fileId?: string,
+): TranscriptIdentity {
   return {
     filePath,
+    ...(fileId === undefined ? {} : { fileId }),
     size: Number(stats.size),
     mtimeMs: Option.match(stats.mtime, { onNone: () => null, onSome: (date) => date.getTime() }),
     device: stats.dev,
@@ -607,6 +644,7 @@ function sameTranscriptIdentity(
 ): boolean {
   return (
     left.filePath === right.filePath &&
+    left.fileId === right.fileId &&
     left.size === right.size &&
     left.mtimeMs === right.mtimeMs &&
     left.device === right.device &&
@@ -618,6 +656,16 @@ function sameTranscriptIdentity(
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
+  const incompleteLiveReads = new Map<string, TranscriptIdentity>();
+  // Windows file indexes can exceed Number.MAX_SAFE_INTEGER, so Effect's
+  // numeric inode becomes None. Preserve the native bigint identity as text.
+  const identityAt = Effect.fn("AgentSessionScanner.identityAt")(function* (
+    filePath: string,
+    stats: FileSystem.File.Info,
+  ) {
+    const native = yield* Effect.tryPromise(() => NodeFSP.stat(filePath, { bigint: true }));
+    return transcriptIdentity(filePath, stats, `${native.dev}:${native.ino}`);
+  });
   // Different project imports can arrive concurrently from multiple clients.
   // Only one transcript may hold its selected-history budget at a time.
   const importReadLock = yield* Semaphore.make(1);
@@ -826,7 +874,7 @@ export const make = Effect.gen(function* () {
       fileSystem.open(filePath, { flag: "r" }).pipe(
         Effect.flatMap((file) =>
           Effect.gen(function* () {
-            if (!sameTranscriptIdentity(expected, transcriptIdentity(filePath, yield* file.stat))) {
+            if (!sameTranscriptIdentity(expected, yield* identityAt(filePath, yield* file.stat))) {
               return null;
             }
             const records: Array<DecodedTranscriptRecord> = [];
@@ -845,12 +893,15 @@ export const make = Effect.gen(function* () {
             let reader = createTranscriptJsonReader(reserve, selectTranscriptPath);
             let decoder = new TextDecoder();
             let recordStarted = false;
+            let lastRecordComplete = true;
 
             const finishRecord = () => {
               reader.write(decoder.decode());
               recordCount += 1;
               if (recordCount > recordLimit) return false;
-              const decoded = decodeTranscriptValue(reader.finish());
+              const value = reader.finish();
+              lastRecordComplete = value !== undefined;
+              const decoded = decodeTranscriptValue(value);
               if (Option.isSome(decoded) && shouldRetainDecodedRecord(source, decoded.value)) {
                 records.push(decoded.value);
                 historyBytes += recordBytes;
@@ -887,9 +938,22 @@ export const make = Effect.gen(function* () {
               if (!withinBudget) return null;
             }
 
-            if (recordStarted && !(yield* Effect.try(finishRecord))) return null;
-            return sameTranscriptIdentity(expected, transcriptIdentity(filePath, yield* file.stat))
-              ? { records, recordCount }
+            // A writer may have flushed only part of the last JSON record.
+            // Never mark that byte range completed; the next refresh retries it.
+            let complete = true;
+            if (recordStarted) {
+              if (!(yield* Effect.try(finishRecord))) return null;
+              complete = lastRecordComplete;
+            }
+            const actual = yield* identityAt(filePath, yield* file.stat);
+            const appendOnlyGrowth =
+              actual.size > expected.size &&
+              actual.fileId === expected.fileId &&
+              actual.device === expected.device &&
+              actual.inode === expected.inode &&
+              actual.birthtimeMs === expected.birthtimeMs;
+            return sameTranscriptIdentity(expected, actual) || appendOnlyGrowth
+              ? { records, recordCount, complete }
               : null;
           }),
         ),
@@ -1328,7 +1392,9 @@ export const make = Effect.gen(function* () {
   const prepareRecentThreads = Effect.fn("AgentSessionScanner.prepareRecentThreads")(function* (
     workspaceRoot: string,
     completedSources: ReadonlyArray<AgentSessionImportSource>,
+    sourcesOnly: boolean,
   ) {
+    if (sourcesOnly && completedSources.length === 0) return Stream.empty;
     const root = path.resolve(expandHomePath(workspaceRoot));
     const realRoot = yield* fileSystem.realPath(root).pipe(Effect.orElseSucceed(() => root));
     if (isExcludedProjectPath(root) || isExcludedProjectPath(realRoot)) return Stream.empty;
@@ -1336,8 +1402,17 @@ export const make = Effect.gen(function* () {
     const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
     const cutoffMs = nowMs - RECENT_THREAD_WINDOW_MS;
 
-    const candidates = cachedCandidates ?? (yield* collectCandidates()).candidates;
-    cachedCandidates = candidates;
+    const candidates: ReadonlyArray<RawCandidate> = sourcesOnly
+      ? completedSources.map((source) => ({
+          cwd: workspaceRoot,
+          source: source.provider,
+          providerInstanceId: source.providerInstanceId,
+          threadCount: 1,
+          lastActiveAtMs: source.mtimeMs,
+          transcripts: [{ filePath: source.filePath, mtimeMs: nowMs }],
+        }))
+      : (cachedCandidates ?? (yield* collectCandidates()).candidates);
+    if (!sourcesOnly) cachedCandidates = candidates;
 
     const eligibleTranscripts: Array<{
       readonly candidate: RawCandidate;
@@ -1395,11 +1470,27 @@ export const make = Effect.gen(function* () {
           if (Option.isNone(stats) || stats.value.type !== "File") {
             return Option.some<AgentSessionRecentThread>({ _tag: "Skipped" });
           }
-          const identity = transcriptIdentity(transcript.filePath, stats.value);
+          const identity = yield* identityAt(transcript.filePath, stats.value).pipe(
+            Effect.orElseSucceed(() => null),
+          );
+          if (identity === null) return Option.some<AgentSessionRecentThread>({ _tag: "Skipped" });
           const completedSource = completed?.find(
             (source) =>
               source.provider === candidate.source && sameTranscriptIdentity(source, identity),
           );
+          const waitingSource = completed?.find((source) => source.provider === candidate.source);
+          const pendingWrite = incompleteLiveReads.get(transcript.filePath);
+          if (
+            sourcesOnly &&
+            waitingSource !== undefined &&
+            pendingWrite !== undefined &&
+            sameTranscriptIdentity(pendingWrite, identity)
+          ) {
+            return Option.some<AgentSessionRecentThread>({
+              _tag: "AlreadyImported",
+              source: waitingSource,
+            });
+          }
           if (completedSource !== undefined) {
             const sessionKey = `${completedSource.providerInstanceId}\0${completedSource.providerSessionId}`;
             if (importedSessions.has(sessionKey)) return Option.none<AgentSessionRecentThread>();
@@ -1429,6 +1520,10 @@ export const make = Effect.gen(function* () {
           if (snapshot === null) {
             return Option.some<AgentSessionRecentThread>({ _tag: "Skipped" });
           }
+          if (sourcesOnly) {
+            if (snapshot.complete) incompleteLiveReads.delete(transcript.filePath);
+            else incompleteLiveReads.set(transcript.filePath, identity);
+          }
           recordsRemaining -= snapshot.recordCount;
 
           // A stable replacement file can belong to a different project than the cached candidate.
@@ -1453,16 +1548,29 @@ export const make = Effect.gen(function* () {
               source: candidate.source,
               providerInstanceId: candidate.providerInstanceId,
               fallbackSessionId: path.basename(transcript.filePath, ".jsonl"),
-              lastActiveAtMs: transcript.mtimeMs,
+              lastActiveAtMs: identity.birthtimeMs ?? identity.mtimeMs ?? transcript.mtimeMs,
+              fullHistory: true,
             },
             snapshot.records,
           );
           if (parsedThread === null) {
             return Option.some<AgentSessionRecentThread>({ _tag: "Skipped" });
           }
+          if (
+            sourcesOnly &&
+            !completed?.some(
+              (source) =>
+                source.providerSessionId === parsedThread.providerSessionId &&
+                source.provider === parsedThread.source,
+            )
+          ) {
+            return Option.some<AgentSessionRecentThread>({ _tag: "Skipped" });
+          }
 
           const source: AgentSessionImportSource = {
             ...identity,
+            // Retry an unfinished trailing record even when its stat is unchanged.
+            ...(snapshot.complete ? {} : { mtimeMs: -1 }),
             provider: parsedThread.source,
             providerInstanceId: parsedThread.providerInstanceId,
             providerSessionId: parsedThread.providerSessionId,
@@ -1487,7 +1595,8 @@ export const make = Effect.gen(function* () {
   const recentThreads: AgentSessionScanner["Service"]["recentThreads"] = (
     workspaceRoot,
     completedSources = [],
-  ) => Stream.unwrap(prepareRecentThreads(workspaceRoot, completedSources));
+    sourcesOnly = false,
+  ) => Stream.unwrap(prepareRecentThreads(workspaceRoot, completedSources, sourcesOnly));
 
   return AgentSessionScanner.of({ scan, recentThreads });
 });

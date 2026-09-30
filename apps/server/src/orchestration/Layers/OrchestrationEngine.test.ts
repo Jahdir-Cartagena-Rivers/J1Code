@@ -130,6 +130,96 @@ const hasMetricSnapshot = (
   );
 
 describe("OrchestrationEngine", () => {
+  it("refreshes imported history after restarting without re-emitting old messages", async () => {
+    const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-history-restart-"));
+    const databasePath = NodePath.join(directory, "state.sqlite");
+    const threadId = ThreadId.make("import:codex:restart-history");
+    const projectId = ProjectId.make("restart-history-project");
+    const messages = ["First prompt", "First answer", "External progress"].map((text, index) => ({
+      messageId: MessageId.make(`${threadId}:${String(index).padStart(6, "0")}`),
+      role: index === 0 ? ("user" as const) : ("assistant" as const),
+      text,
+      createdAt: now(),
+    }));
+    let system = await createOrchestrationSystem(databasePath);
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.make("restart-project"),
+          projectId,
+          title: "Restart project",
+          workspaceRoot: directory,
+          defaultModelSelection: null,
+          createdAt: now(),
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("restart-thread"),
+          threadId,
+          projectId,
+          title: "Imported history",
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "default" },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdAt: now(),
+          historyImport: true,
+        }),
+      );
+      const initial = await system.run(
+        system.engine.dispatch({
+          type: "thread.history.import",
+          commandId: CommandId.make("restart-first-history"),
+          threadId,
+          messages: messages.slice(0, 2),
+        }),
+      );
+      const before = Option.getOrThrow(await system.readThread(threadId));
+      await system.dispose();
+      system = await createOrchestrationSystem(databasePath);
+      const refreshed = await system.run(
+        system.engine.dispatch({
+          type: "thread.history.import",
+          commandId: CommandId.make("restart-refresh"),
+          threadId,
+          messages,
+        }),
+      );
+      expect(refreshed.sequence).toBe(initial.sequence + 1);
+      const after = Option.getOrThrow(await system.readThread(threadId));
+      expect(after.messages.slice(0, 2)).toEqual(before.messages);
+      expect(after.settledAt).toBe(before.settledAt);
+      const repeat = await system.run(
+        system.engine.dispatch({
+          type: "thread.history.import",
+          commandId: CommandId.make("restart-repeat"),
+          threadId,
+          messages,
+        }),
+      );
+      expect(repeat.sequence).toBe(refreshed.sequence);
+      await expect(
+        system.run(
+          system.engine.dispatch({
+            type: "thread.history.import",
+            commandId: CommandId.make("restart-rewrite"),
+            threadId,
+            messages: messages.map((message, index) =>
+              index === 0 ? { ...message, text: "Rewritten" } : message,
+            ),
+          }),
+        ),
+      ).rejects.toThrow();
+      expect(Option.getOrThrow(await system.readThread(threadId)).messages).toEqual(after.messages);
+    } finally {
+      await system.dispose();
+    }
+  });
+
   it.each(["running", "stopped"] as const)(
     "sends async answers with a %s session and rejects old duplicate replies",
     async (status) => {

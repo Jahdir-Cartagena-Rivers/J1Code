@@ -72,6 +72,32 @@ const seed = Effect.fn("seedImportedHistory")(function* () {
 });
 
 it.layer(NodeServices.layer)("history refresh", (it) => {
+  it.effect("accepts stable external IDs once and rejects duplicated IDs", () =>
+    Effect.gen(function* () {
+      const before = yield* seed();
+      const history = [
+        ...messages.slice(0, 2),
+        ...messages.slice(2).map((message, index) => ({
+          ...message,
+          messageId: MessageId.make(`${threadId}:source:${String(index).repeat(64)}`),
+        })),
+      ];
+      const events = yield* decideOrchestrationCommand({
+        readModel: before,
+        command: command(history),
+      });
+      const after = yield* apply(before, events);
+      expect(
+        yield* decideOrchestrationCommand({ readModel: after, command: command(history) }),
+      ).toEqual([]);
+      const invalid = [...history, { ...history[2]!, text: "Duplicate identity" }];
+      expect(
+        (yield* Effect.flip(
+          decideOrchestrationCommand({ readModel: after, command: command(invalid) }),
+        ))._tag,
+      ).toBe("OrchestrationCommandInvariantError");
+    }),
+  );
   it.effect("appends new messages once through existing events and preserves settlement", () =>
     Effect.gen(function* () {
       const before = yield* seed();

@@ -9,7 +9,6 @@ import {
   AgentSessionSource,
   AgentSessionScanError,
   isImportedAgentSessionMessageId,
-  MessageId,
   ProjectId,
   ProviderDriverKind,
   ThreadId,
@@ -28,6 +27,7 @@ import * as OrchestrationEngine from "../orchestration/Services/OrchestrationEng
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as ProviderSessionDirectory from "../provider/Services/ProviderSessionDirectory.ts";
 import * as AgentSessionScanner from "./AgentSessionScanner.ts";
+import { reconcileAgentHistory } from "./AgentSessionHistory.ts";
 
 const CLAUDE_SESSION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -100,6 +100,8 @@ function hasImportBlockingActivity(
 /** Import recent transcript text and persist the cursor needed to resume its provider session. */
 export const importRecentAgentThreads = Effect.fn("importRecentAgentThreads")(function* (
   input: AgentSessionImportInput,
+  sourcesOnly = false,
+  eligibleThreadIds?: ReadonlySet<ThreadId>,
 ) {
   const scanner = yield* AgentSessionScanner.AgentSessionScanner;
   const engine = yield* OrchestrationEngine.OrchestrationEngineService;
@@ -131,7 +133,13 @@ export const importRecentAgentThreads = Effect.fn("importRecentAgentThreads")(fu
     );
   const threads = scanner.recentThreads(
     workspaceRoot,
-    completedSources.map((entry) => entry.source),
+    completedSources
+      .filter(
+        (entry) =>
+          !sourcesOnly || eligibleThreadIds === undefined || eligibleThreadIds.has(entry.threadId),
+      )
+      .map((entry) => entry.source),
+    sourcesOnly,
   );
   const importedThreadIds = new Set<ThreadId>();
   let importedCount = 0;
@@ -249,29 +257,20 @@ export const importRecentAgentThreads = Effect.fn("importRecentAgentThreads")(fu
           });
         }
 
+        const messages = reconcileAgentHistory(
+          threadId,
+          Option.isSome(existingThread) ? existingThread.value.messages : [],
+          thread.messages,
+        );
+        if (messages === null) return yield* new AgentSessionThreadModifiedError({ threadId });
         const unchanged =
-          Option.isSome(existingThread) &&
-          existingThread.value.messages.length === thread.messages.length &&
-          existingThread.value.messages.every((message, index) => {
-            const source = thread.messages[index];
-            return (
-              source !== undefined &&
-              message.role === source.role &&
-              message.text === source.text &&
-              message.createdAt === source.createdAt
-            );
-          });
+          Option.isSome(existingThread) && existingThread.value.messages.length === messages.length;
         if (!unchanged) {
           yield* engine.dispatch({
             type: "thread.history.import",
             commandId: CommandId.make(yield* crypto.randomUUIDv4),
             threadId,
-            messages: thread.messages.map((message, index) => ({
-              messageId: MessageId.make(`${threadId}:${String(index).padStart(6, "0")}`),
-              role: message.role,
-              text: message.text,
-              createdAt: message.createdAt,
-            })),
+            messages,
           });
         }
 

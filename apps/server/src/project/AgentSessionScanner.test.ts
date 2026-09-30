@@ -1888,6 +1888,74 @@ it.layer(NodeServices.layer)("AgentSessionScanner", (it) => {
       }
     }
 
+    it.effect("reads long histories and retries partial live writes without rediscovery", () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const nowMs = Date.parse("2026-08-24T12:00:00.000Z");
+        yield* TestClock.setTime(nowMs);
+        const claudeHomePath = yield* makeTempDir("j1-live-claude-");
+        const codexHomePath = yield* makeTempDir("j1-live-codex-");
+        const workspace = yield* makeTempDir("j1-live-workspace-");
+        const filePath = path.join(claudeHomePath, "projects", "project", "long-session.jsonl");
+        const records = Array.from({ length: 251 }, (_, index) =>
+          encodeTranscriptRecord({
+            type: index === 0 ? "user" : "assistant",
+            cwd: workspace,
+            sessionId: "long-session",
+            uuid: `uuid-${index}`,
+            timestamp: "2026-08-24T11:00:00.000Z",
+            message: { content: `Message ${index}` },
+          }),
+        );
+        const partial =
+          records.join("\n") + '\n{"type":"assistant","uuid":"uuid-new","message":{"content":"New';
+        yield* writeTranscript({ filePath, contents: partial, mtimeMs: nowMs });
+        yield* Effect.gen(function* () {
+          const scanner = yield* AgentSessionScanner.AgentSessionScanner;
+          const first = (yield* scanner.recentThreads(workspace).pipe(Stream.runCollect))[0];
+          expect(first?._tag).toBe("Importable");
+          if (first?._tag !== "Importable") return;
+          expect(first.thread.messages).toHaveLength(251);
+          expect(first.thread.messages[0]?.sourceMessageId).toBe("uuid-0");
+          const retry = (yield* scanner
+            .recentThreads(workspace, [first.source], true)
+            .pipe(Stream.runCollect))[0];
+          expect(retry?._tag).toBe("Importable");
+          expect(
+            (yield* scanner
+              .recentThreads(workspace, [first.source], true)
+              .pipe(Stream.runCollect))[0]?._tag,
+          ).toBe("AlreadyImported");
+          yield* writeTranscript({ filePath, contents: partial + ' message"}}\n', mtimeMs: nowMs });
+          const complete = (yield* scanner
+            .recentThreads(workspace, [first.source], true)
+            .pipe(Stream.runCollect))[0];
+          expect(complete?._tag).toBe("Importable");
+          if (complete?._tag !== "Importable") return;
+          expect(complete.thread.messages).toHaveLength(252);
+          const unchanged = (yield* scanner
+            .recentThreads(workspace, [complete.source], true)
+            .pipe(Stream.runCollect))[0];
+          expect(unchanged?._tag).toBe("AlreadyImported");
+          yield* writeTranscript({
+            filePath,
+            contents: encodeTranscriptRecord({
+              type: "user",
+              cwd: workspace,
+              sessionId: "unrelated-session",
+              message: { content: "Unrelated replacement" },
+            }),
+            mtimeMs: nowMs,
+          });
+          expect(
+            yield* scanner
+              .recentThreads(workspace, [complete.source], true)
+              .pipe(Stream.runCollect),
+          ).toEqual([{ _tag: "Skipped" }]);
+        }).pipe(Effect.provide(makeScannerTestLayer({ claudeHomePath, codexHomePath })));
+      }),
+    );
+
     it.effect("checks file identity and provider before skipping completed history", () =>
       Effect.gen(function* () {
         const path = yield* Path.Path;
@@ -2177,75 +2245,82 @@ it.layer(NodeServices.layer)("AgentSessionScanner", (it) => {
       }),
     );
 
-    it.effect("skips growth during reading without exceeding the reserved bytes", () =>
-      Effect.gen(function* () {
-        const path = yield* Path.Path;
-        const fileSystem = yield* FileSystem.FileSystem;
-        const nowMs = Date.parse("2026-08-24T12:00:00.000Z");
-        yield* TestClock.setTime(nowMs);
-        const claudeHomePath = yield* makeTempDir("t3code-claude-home-");
-        const codexHomePath = yield* makeTempDir("t3code-codex-home-");
-        const workspace = yield* makeTempDir("t3code-workspace-");
-        const transcriptPath = path.join(
-          codexHomePath,
-          "sessions",
-          "2026",
-          "08",
-          "24",
-          "rollout-growing.jsonl",
-        );
-        const contents = [
-          encodeTranscriptRecord({
-            type: "session_meta",
-            payload: { id: "growing-session", cwd: workspace },
-          }),
-          encodeTranscriptRecord({
-            type: "event_msg",
-            payload: { type: "user_message", message: "Do not import a changing file" },
-          }),
-        ].join("\n");
-        yield* writeTranscript({ filePath: transcriptPath, contents, mtimeMs: nowMs });
-        let transcriptOpenCount = 0;
-        let fullReadBytes = 0;
-        let grew = false;
-        const simulatedFileSystem = FileSystem.FileSystem.of({
-          ...fileSystem,
-          open: (filePath, options) => {
-            if (filePath !== transcriptPath) return fileSystem.open(filePath, options);
-            transcriptOpenCount += 1;
-            if (transcriptOpenCount === 1) return fileSystem.open(filePath, options);
-            return fileSystem.open(filePath, options).pipe(
-              Effect.map((file) => ({
-                ...file,
-                stat: file.stat,
-                readAlloc: (size: number) =>
-                  file.readAlloc(size).pipe(
-                    Effect.tap((chunk) =>
-                      Effect.gen(function* () {
-                        if (chunk._tag === "None") return;
-                        fullReadBytes += chunk.value.byteLength;
-                        if (!grew) {
-                          grew = true;
-                          yield* fileSystem.writeFileString(filePath, `${contents}\nchanged`);
-                        }
-                      }),
+    it.effect(
+      "imports the complete prefix during append-only growth without exceeding reserved bytes",
+      () =>
+        Effect.gen(function* () {
+          const path = yield* Path.Path;
+          const fileSystem = yield* FileSystem.FileSystem;
+          const nowMs = Date.parse("2026-08-24T12:00:00.000Z");
+          yield* TestClock.setTime(nowMs);
+          const claudeHomePath = yield* makeTempDir("t3code-claude-home-");
+          const codexHomePath = yield* makeTempDir("t3code-codex-home-");
+          const workspace = yield* makeTempDir("t3code-workspace-");
+          const transcriptPath = path.join(
+            codexHomePath,
+            "sessions",
+            "2026",
+            "08",
+            "24",
+            "rollout-growing.jsonl",
+          );
+          const contents = [
+            encodeTranscriptRecord({
+              type: "session_meta",
+              payload: { id: "growing-session", cwd: workspace },
+            }),
+            encodeTranscriptRecord({
+              type: "event_msg",
+              payload: { type: "user_message", message: "Do not import a changing file" },
+            }),
+          ].join("\n");
+          yield* writeTranscript({ filePath: transcriptPath, contents, mtimeMs: nowMs });
+          let transcriptOpenCount = 0;
+          let fullReadBytes = 0;
+          let grew = false;
+          const simulatedFileSystem = FileSystem.FileSystem.of({
+            ...fileSystem,
+            open: (filePath, options) => {
+              if (filePath !== transcriptPath) return fileSystem.open(filePath, options);
+              transcriptOpenCount += 1;
+              if (transcriptOpenCount === 1) return fileSystem.open(filePath, options);
+              return fileSystem.open(filePath, options).pipe(
+                Effect.map((file) => ({
+                  ...file,
+                  stat: file.stat,
+                  readAlloc: (size: number) =>
+                    file.readAlloc(size).pipe(
+                      Effect.tap((chunk) =>
+                        Effect.gen(function* () {
+                          if (chunk._tag === "None") return;
+                          fullReadBytes += chunk.value.byteLength;
+                          if (!grew) {
+                            grew = true;
+                            yield* fileSystem.writeFileString(filePath, `${contents}\nchanged`);
+                          }
+                        }),
+                      ),
                     ),
-                  ),
-              })),
-            );
-          },
-        });
+                })),
+              );
+            },
+          });
 
-        const outcomes = yield* runRecentThreadOutcomes({
-          claudeHomePath,
-          codexHomePath,
-          workspaceRoot: workspace,
-        }).pipe(Effect.provideService(FileSystem.FileSystem, simulatedFileSystem));
+          const outcomes = yield* runRecentThreadOutcomes({
+            claudeHomePath,
+            codexHomePath,
+            workspaceRoot: workspace,
+          }).pipe(Effect.provideService(FileSystem.FileSystem, simulatedFileSystem));
 
-        expect(transcriptOpenCount).toBe(2);
-        expect(fullReadBytes).toBe(new TextEncoder().encode(contents).byteLength);
-        expect(outcomes).toEqual([{ _tag: "Skipped" }]);
-      }),
+          expect(transcriptOpenCount).toBe(2);
+          expect(fullReadBytes).toBe(new TextEncoder().encode(contents).byteLength);
+          expect(outcomes).toMatchObject([
+            {
+              _tag: "Importable",
+              thread: { messages: [{ text: "Do not import a changing file" }] },
+            },
+          ]);
+        }),
     );
 
     it.effect("skips a transcript that shrinks after its size check", () =>

@@ -74,7 +74,9 @@ export function SidebarHistoryRefresh() {
           }
         />
         <TooltipPopup side="top">
-          {refreshing ? "Refreshing history…" : "Refresh saved Claude and Codex history"}
+          {refreshing
+            ? "Refreshing history…"
+            : "Refresh saved history · Live viewing: Settings → General"}
         </TooltipPopup>
       </Tooltip>
     </SidebarMenuItem>
