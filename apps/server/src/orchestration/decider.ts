@@ -2037,7 +2037,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             const incoming = command.messages[index];
             return (
               incoming === undefined ||
-              message.id !== `${command.threadId}:${String(index).padStart(6, "0")}` ||
+              !message.id.startsWith(`${command.threadId}:`) ||
               incoming.messageId !== message.id ||
               message.role !== incoming.role ||
               message.text !== incoming.text ||
@@ -2048,8 +2048,14 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           }) ||
           command.messages.some(
             (message, index) =>
-              message.messageId !== `${command.threadId}:${String(index).padStart(6, "0")}`,
-          ))
+              message.messageId !== `${command.threadId}:${String(index).padStart(6, "0")}` &&
+              !(
+                message.messageId.startsWith(`${command.threadId}:source:`) &&
+                /^[a-f0-9]{64}$/.test(message.messageId.slice(`${command.threadId}:source:`.length))
+              ),
+          ) ||
+          new Set(command.messages.map((message) => message.messageId)).size !==
+            command.messages.length)
       ) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,

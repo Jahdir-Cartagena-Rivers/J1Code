@@ -385,6 +385,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     scope: "environment-defaults",
   },
   {
+    id: "live-agent-history",
+    title: "Live external chat viewing",
+    to: "/settings/general",
+    scope: "environment-defaults",
+    searchTerms: ["refresh history sync imported saved claude codex compaction transcript"],
+  },
+  {
     id: "continue-threads-after-server-update",
     title: "Continue threads after restarts",
     to: "/settings/general",

@@ -605,6 +605,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks
         ? ["Provider update checks"]
         : []),
+      ...(settings.liveAgentHistory !== DEFAULT_UNIFIED_SETTINGS.liveAgentHistory
+        ? ["Live external chat viewing"]
+        : []),
       ...(settings.continueThreadsAfterServerUpdate !==
       DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate
         ? ["Continue threads after restarts"]
@@ -680,6 +683,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.panelAnimationDurationMs,
       settings.responseStreamingMode,
       settings.enableProviderUpdateChecks,
+      settings.liveAgentHistory,
       settings.continueThreadsAfterServerUpdate,
       settings.sidebarAutoSettleAfterDays,
       settings.sidebarAutoSettleOnMerge,
@@ -785,6 +789,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
       responseStreamingMode: DEFAULT_UNIFIED_SETTINGS.responseStreamingMode,
       enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
+      liveAgentHistory: DEFAULT_UNIFIED_SETTINGS.liveAgentHistory,
       continueThreadsAfterServerUpdate: DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate,
       backgroundActivity: DEFAULT_UNIFIED_SETTINGS.backgroundActivity,
       backgroundActivityProfile: DEFAULT_UNIFIED_SETTINGS.backgroundActivityProfile,
@@ -2798,6 +2803,31 @@ export function GeneralSettingsPanel() {
                 updateSettings({ enableProviderUpdateChecks: Boolean(checked) })
               }
               aria-label="Check provider versions"
+            />
+          }
+        />
+
+        <SettingsRow
+          serverScoped
+          settingKeys={["liveAgentHistory"]}
+          {...searchableSetting("live-agent-history")}
+          description="Automatically show newly saved Claude and Codex messages in imported chats. The external session stays in its current app. Chats continued in J1 Code are preserved."
+          resetAction={
+            settings.liveAgentHistory !== DEFAULT_UNIFIED_SETTINGS.liveAgentHistory ? (
+              <SettingResetButton
+                label="live external chat viewing"
+                onClick={() =>
+                  updateSettings({ liveAgentHistory: DEFAULT_UNIFIED_SETTINGS.liveAgentHistory })
+                }
+              />
+            ) : null
+          }
+          control={
+            <ScopedSwitch
+              settingKeys={["liveAgentHistory"]}
+              checked={settings.liveAgentHistory}
+              onCheckedChange={(checked) => updateSettings({ liveAgentHistory: Boolean(checked) })}
+              aria-label="Live external chat viewing"
             />
           }
         />

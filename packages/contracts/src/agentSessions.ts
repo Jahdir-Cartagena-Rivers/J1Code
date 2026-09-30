@@ -12,6 +12,7 @@ export const AgentSessionImportSource = Schema.Struct({
   providerInstanceId: ProviderInstanceId,
   providerSessionId: TrimmedNonEmptyString,
   filePath: TrimmedNonEmptyString,
+  fileId: Schema.optional(Schema.String),
   size: NonNegativeInt,
   mtimeMs: Schema.NullOr(Schema.Number),
   device: Schema.Number,

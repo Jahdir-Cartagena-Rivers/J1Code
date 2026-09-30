@@ -61,6 +61,7 @@ import { VcsStatusBroadcaster } from "../vcs/VcsStatusBroadcaster.ts";
 import * as RepositoryIdentityResolver from "./RepositoryIdentityResolver.ts";
 import { importRecentAgentThreads } from "./AgentSessionImporter.ts";
 import * as AgentSessionScanner from "./AgentSessionScanner.ts";
+import { makeLiveHistoryRefresh } from "./AgentHistoryLive.ts";
 
 const PROJECT_ID = ProjectId.make("project-1");
 const WORKSPACE_ROOT = "/tmp/project-from-server";
@@ -584,6 +585,105 @@ const integrationLayer = Layer.mergeAll(
 );
 
 it.layer(integrationLayer)("AgentSessionImporter integration", (it) => {
+  it.effect(
+    "live refresh follows saved changes, can be paused, and preserves native follow-ups",
+    () =>
+      Effect.gen(function* () {
+        const engine = yield* OrchestrationEngine.OrchestrationEngineService;
+        const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+        const projectId = ProjectId.make("live-history-project");
+        const initial = { ...integrationThread, providerSessionId: "live-history-session" };
+        const threadId = ThreadId.make("import:codex:live-history-session");
+        let current = initial;
+        const scanner = AgentSessionScanner.AgentSessionScanner.of({
+          scan: Effect.die("live refresh must not discover unrelated files"),
+          recentThreads: (_root, _sources, sourcesOnly) => {
+            expect(sourcesOnly).toBe(true);
+            return Stream.fromIterable([makeThreadOutcome(current)]);
+          },
+        });
+        yield* engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.make("live-project-create"),
+          projectId,
+          title: "Live project",
+          workspaceRoot: `${WORKSPACE_ROOT}-live`,
+          defaultModelSelection: null,
+          createdAt: initial.createdAt,
+        });
+        yield* importRecentAgentThreads({ projectId }, true).pipe(
+          Effect.provideService(AgentSessionScanner.AgentSessionScanner, scanner),
+        );
+        const liveSnapshots = {
+          ...snapshots,
+          getShellSnapshot: () =>
+            snapshots.getShellSnapshot().pipe(
+              Effect.map((shell) => ({
+                ...shell,
+                projects: shell.projects.filter((project) => project.id === projectId),
+              })),
+            ),
+        };
+        const program = Effect.gen(function* () {
+          const settings = yield* ServerSettingsService;
+          const { refresh } = yield* makeLiveHistoryRefresh;
+          yield* settings.updateSettings({ liveAgentHistory: false });
+          yield* refresh;
+          expect(
+            Option.getOrThrow(yield* snapshots.getThreadDetailById(threadId)).messages,
+          ).toHaveLength(12);
+          yield* settings.updateSettings({ liveAgentHistory: true });
+          yield* refresh;
+          current = {
+            ...initial,
+            messages: [
+              ...initial.messages,
+              {
+                role: "assistant",
+                text: "Live saved response",
+                createdAt: "2026-09-30T12:00:00.000Z",
+              },
+            ],
+          };
+          yield* refresh;
+          yield* refresh;
+          expect(
+            Option.getOrThrow(yield* snapshots.getThreadDetailById(threadId)).messages,
+          ).toHaveLength(13);
+          yield* engine.dispatch({
+            type: "thread.message.user.append",
+            commandId: CommandId.make("live-native-followup"),
+            threadId,
+            message: {
+              messageId: MessageId.make("native-live-message"),
+              text: "Continue inside J1",
+              attachments: [],
+            },
+            createdAt: "2026-09-30T12:01:00.000Z",
+          });
+          current = {
+            ...current,
+            messages: [
+              ...current.messages,
+              {
+                role: "assistant",
+                text: "External response after native follow-up",
+                createdAt: "2026-09-30T12:02:00.000Z",
+              },
+            ],
+          };
+          yield* refresh;
+          expect(
+            Option.getOrThrow(yield* snapshots.getThreadDetailById(threadId)).messages.at(-1)?.text,
+          ).toBe("Continue inside J1");
+        }).pipe(
+          Effect.provide(ServerSettingsService.layerTest()),
+          Effect.provideService(ProjectionSnapshotQuery.ProjectionSnapshotQuery, liveSnapshots),
+          Effect.provideService(AgentSessionScanner.AgentSessionScanner, scanner),
+        );
+        yield* program;
+      }),
+  );
   it.effect(
     "persists appended external history without duplicates or changing its resume cursor",
     () =>

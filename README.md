@@ -2,7 +2,7 @@
 
 J1 Code is a personal fork of [T3 Code](https://github.com/pingdotgg/t3code), based on upstream **0.0.44**, commit c18e5ea6ed741443a8ec4a5d22d4b6939b0ecd21. Upstream authors and MIT licensing are retained.
 
-The sidebar footer's circular-arrow button now **refreshes saved Claude Code and Codex history** across your existing projects. It imports new conversations and appends new saved messages to previously imported conversations. Repeated refreshes do not duplicate messages. Chats continued inside J1 Code, active app sessions, and rewritten or truncated transcripts are preserved and skipped.
+The sidebar footer's circular-arrow button **refreshes saved Claude Code and Codex history** across your existing projects. It imports new conversations and appends new saved messages to previously imported conversations. **Live external chat viewing** is enabled by default and follows saved messages automatically while the external session continues. Toggle it in Settings → General. Long and compacted conversations preserve their saved history; ambiguous, rewritten or truncated histories and chats continued inside J1 are skipped.
 
 J1 Code uses separate desktop and server profiles: %APPDATA%/j1code and ~/.j1. Fork release versions use the -j1.N suffix and omit the automatic desktop update feed. Upstream updates are merged and built manually.
 
