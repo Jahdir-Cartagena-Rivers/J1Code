@@ -11,10 +11,12 @@ import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as SynchronizedRef from "effect/SynchronizedRef";
+import * as Ref from "effect/Ref";
 
 import serverPackageJson from "../../../server/package.json" with { type: "json" };
 
 import * as DesktopBackendManager from "./DesktopBackendManager.ts";
+import * as BackgroundBackend from "./DesktopBackgroundBackend.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopServerExposure from "./DesktopServerExposure.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
@@ -548,6 +550,21 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
     const environment = yield* DesktopEnvironment.DesktopEnvironment;
     const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
     const backendExposure = yield* serverExposure.backendConfig;
+    const background = BackgroundBackend.backgroundEnabled(environment)
+      ? {
+          baseDir: environment.baseDir,
+          version: environment.appVersion,
+          sourceRuntimeDir: environment.path.dirname(process.execPath),
+          workerPath: environment.path.join(
+            environment.dirname,
+            "backend",
+            "DesktopBackgroundWorker.cjs",
+          ),
+        }
+      : undefined;
+    const existingBackground = background
+      ? yield* Effect.promise(() => BackgroundBackend.readBackgroundRecord(environment.baseDir))
+      : undefined;
 
     const bootstrap = {
       mode: "desktop" as const,
@@ -568,7 +585,7 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
     };
 
     return {
-      executablePath: process.execPath,
+      executablePath: existingBackground?.executablePath ?? process.execPath,
       // Packaged builds only, so a dev instance never shares the cache with the
       // prod app it is often run from. `--require` rather than NODE_COMPILE_CACHE,
       // so the setting does not leak into the provider and terminal processes
@@ -579,7 +596,7 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
         "--bootstrap-fd",
         "3",
       ],
-      entryPath: environment.backendEntryPath,
+      entryPath: existingBackground?.entryPath ?? environment.backendEntryPath,
       cwd: environment.backendCwd,
       env: {
         ...backendChildEnvPatch(),
@@ -587,7 +604,8 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
       },
       // Primary wants process.env (PATH, dev-runner's T3CODE_HOME, etc.).
       extendEnv: true,
-      bootstrap,
+      bootstrap: existingBackground?.bootstrap ?? bootstrap,
+      ...(background ? { background } : {}),
       bootstrapDelivery: "fd3",
       httpBaseUrl: backendExposure.httpBaseUrl,
       captureOutput: true,
@@ -828,6 +846,10 @@ export const make = Effect.gen(function* () {
   const wslServerTree = yield* DesktopWslServerTree.DesktopWslServerTree;
   const settings = yield* DesktopAppSettings.DesktopAppSettings;
   const crypto = yield* Crypto.Crypto;
+  const existingBackground = BackgroundBackend.backgroundEnabled(environment)
+    ? yield* Effect.promise(() => BackgroundBackend.readBackgroundRecord(environment.baseDir))
+    : undefined;
+  const backgroundPrimary = yield* Ref.make(existingBackground !== undefined);
   // SynchronizedRef (not a plain Ref) so the read-generate-write is atomic.
   // crypto.randomBytes is a yield point, and resolvePrimary + resolveWsl can
   // resolve concurrently; with a plain Ref both could observe None, generate
@@ -840,12 +862,23 @@ export const make = Effect.gen(function* () {
     Option.match(current, {
       onSome: (token) => Effect.succeed([token, current] as const),
       onNone: () =>
-        crypto.randomBytes(24).pipe(
-          Effect.map((bytes) => {
-            const token = Encoding.encodeHex(bytes);
+        Effect.gen(function* () {
+          const existing = BackgroundBackend.backgroundEnabled(environment)
+            ? yield* Effect.promise(() =>
+                BackgroundBackend.readBackgroundRecord(environment.baseDir),
+              )
+            : undefined;
+          if (existing?.bootstrap.desktopBootstrapToken) {
+            const token = existing.bootstrap.desktopBootstrapToken;
             return [token, Option.some(token)] as const;
-          }),
-        ),
+          }
+          return yield* crypto.randomBytes(24).pipe(
+            Effect.map((bytes) => {
+              const token = Encoding.encodeHex(bytes);
+              return [token, Option.some(token)] as const;
+            }),
+          );
+        }),
     }),
   );
 
@@ -892,10 +925,12 @@ export const make = Effect.gen(function* () {
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
     );
-    return yield* resolvePrimaryStartConfig({ ...shared, resourceMonitorPath }).pipe(
+    const resolved = yield* resolvePrimaryStartConfig({ ...shared, resourceMonitorPath }).pipe(
       Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
       Effect.provideService(DesktopServerExposure.DesktopServerExposure, serverExposure),
     );
+    if (resolved.background) yield* Ref.set(backgroundPrimary, true);
+    return resolved;
   });
 
   // Single source of truth for what the primary actually runs as. Both
@@ -914,7 +949,9 @@ export const make = Effect.gen(function* () {
     // looping forever on preflight failures: the Connections backend
     // control is hidden while WSL is unavailable, so a stuck WSL primary
     // would otherwise leave no in-app way back to Windows.
-    const useWsl = wslRequested && (yield* wslEnvironment.isAvailable);
+    const runningBackground = yield* Ref.get(backgroundPrimary);
+    // Switching backend families waits for an explicit stop of the running Windows server.
+    const useWsl = !runningBackground && wslRequested && (yield* wslEnvironment.isAvailable);
     return { useWsl, wslRequested, distro: persistedSettings.wslDistro };
   });
 

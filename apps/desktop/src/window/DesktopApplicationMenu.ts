@@ -13,6 +13,8 @@ import * as ElectronMenu from "../electron/ElectronMenu.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopUpdates from "../updates/DesktopUpdates.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
+import * as BackgroundBackend from "../backend/DesktopBackgroundBackend.ts";
+import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
 
 export class DesktopApplicationMenuActionError extends Schema.TaggedError<DesktopApplicationMenuActionError>()(
   "DesktopApplicationMenuActionError",
@@ -110,6 +112,7 @@ export const make = Effect.gen(function* () {
   const electronApp = yield* ElectronApp.ElectronApp;
   const electronMenu = yield* ElectronMenu.ElectronMenu;
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
+  const pool = yield* DesktopBackendPool.DesktopBackendPool;
   const appName = yield* electronApp.name;
   const context = yield* Effect.context<DesktopApplicationMenuRuntimeServices>();
   const runPromise = Effect.runPromiseWith(context);
@@ -131,6 +134,39 @@ export const make = Effect.gen(function* () {
   };
 
   const configure = Effect.gen(function* () {
+    const backgroundClick = () => {
+      runMenuEffect(
+        "background-server",
+        Effect.gen(function* () {
+          const dialog = yield* ElectronDialog.ElectronDialog;
+          const record = yield* Effect.promise(() =>
+            BackgroundBackend.readBackgroundRecord(environment.baseDir),
+          );
+          const response = yield* dialog.showMessageBox({
+            type: "info",
+            title: "J1 background server",
+            message: record
+              ? `Server ${record.version} is running.`
+              : "No background server is running.",
+            detail:
+              "Closing or updating J1 keeps your chats running. Your computer must remain awake. Stop the server to end running chats and load the latest backend on your next launch.",
+            buttons: record ? ["Keep running", "Stop server and quit"] : ["OK"],
+            defaultId: 0,
+            cancelId: 0,
+          });
+          if (record && response.response === 1) {
+            const instances = yield* pool.list;
+            yield* Effect.forEach(instances, (instance) => instance.stop(), {
+              concurrency: "unbounded",
+            });
+            yield* Effect.promise(() =>
+              BackgroundBackend.stopBackgroundServer(environment.baseDir),
+            );
+            yield* electronApp.quit;
+          }
+        }),
+      );
+    };
     const checkForUpdatesClick = () => {
       runMenuEffect("check-for-updates", handleCheckForUpdatesMenuClick);
     };
@@ -186,6 +222,12 @@ export const make = Effect.gen(function* () {
       {
         label: "File",
         submenu: [
+          ...(BackgroundBackend.backgroundEnabled(environment)
+            ? [
+                { label: "Background Server...", click: backgroundClick },
+                { type: "separator" as const },
+              ]
+            : []),
           ...(environment.platform === "darwin"
             ? []
             : [
