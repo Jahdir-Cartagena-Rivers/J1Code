@@ -62,6 +62,12 @@ itself, or **Skip** to leave them for a setup script. It resolves in the same or
 workspace default: a `"worktreeSubmodules"` value in the `t3.json` of the branch being checked out
 applies when the project and environment are both on **Inherit**.
 
+## Refresh external conversations
+
+After continuing a conversation in Claude Code or Codex outside J1 Code, use **Refresh history** in the sidebar footer to reread saved conversations for your existing projects. Messages must have been saved by the provider before they can appear. Refresh can also import newly saved conversations.
+
+Refresh preserves conversations you have continued inside J1 Code. It also skips changed or truncated source histories, archived conversations, and active app sessions instead of overwriting saved messages. Repeated refreshes do not duplicate messages. This is a manual refresh; it does not continuously sync or refresh other providers.
+
 ## Storage cleanup
 
 Open **Settings → Storage** to enable automatic cleanup on one machine or all connected
@@ -92,7 +98,7 @@ working. Current logs, message attachments, and browser profiles are kept.
 
 Select the project and open Project to choose an icon, emoji, monogram, or image. The choice applies to
 every checkout in the project group and appears on connected clients. Choose **Automatic** to let
-T3 Code detect an icon again.
+J1 Code detect an icon again.
 
 Choose **Monogram** in the icon picker to set one or two letters or numbers and a color.
 
@@ -106,6 +112,6 @@ In Source Control, enable **Automatically pull** to keep the default-branch chec
 with its configured upstream. Choose an environment to set the default or a project to override it.
 On mobile, use **Settings → Source control** to change selected environment defaults or project overrides.
 
-T3 Code only pulls when it can fast-forward and the checkout has no changed files, untracked files,
+J1 Code only pulls when it can fast-forward and the checkout has no changed files, untracked files,
 or local commits. It skips checkouts on another branch or without an upstream. If a checkout has
 local work, resolve it yourself before automatic pulls can resume.

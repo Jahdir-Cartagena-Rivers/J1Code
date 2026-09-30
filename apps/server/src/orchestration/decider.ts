@@ -2009,14 +2009,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       if (
         thread.deletedAt !== null ||
         thread.archivedAt !== null ||
-        thread.messages.length > 0 ||
         thread.latestTurn !== null ||
         thread.session !== null ||
         openRequests(thread).size > 0
       ) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
-          detail: `Thread '${command.threadId}' must be active and empty before history can be imported.`,
+          detail: `Thread '${command.threadId}' cannot refresh history after it has continued in the app.`,
         });
       }
       const firstMessage = command.messages[0];
@@ -2027,8 +2026,39 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         });
       }
 
+      // A refresh carries the complete source transcript. Validate its prefix
+      // inside the serialized decider so a concurrent turn or refresh cannot
+      // overwrite, duplicate, or truncate history after the scanner read it.
+      if (
+        thread.messages.length > 0 &&
+        (!command.threadId.startsWith("import:") ||
+          thread.messages.length > command.messages.length ||
+          thread.messages.some((message, index) => {
+            const incoming = command.messages[index];
+            return (
+              incoming === undefined ||
+              message.id !== `${command.threadId}:${String(index).padStart(6, "0")}` ||
+              incoming.messageId !== message.id ||
+              message.role !== incoming.role ||
+              message.text !== incoming.text ||
+              compareDateTimeStrings(message.createdAt, incoming.createdAt) !== 0 ||
+              message.turnId !== null ||
+              message.streaming
+            );
+          }) ||
+          command.messages.some(
+            (message, index) =>
+              message.messageId !== `${command.threadId}:${String(index).padStart(6, "0")}`,
+          ))
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.threadId}' history diverged. Its saved messages were preserved.`,
+        });
+      }
+
       const events: Array<PlannedOrchestrationEvent> = [];
-      for (const message of command.messages) {
+      for (const message of command.messages.slice(thread.messages.length)) {
         events.push({
           ...(yield* withEventBase({
             aggregateKind: "thread",
@@ -2050,6 +2080,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           },
         });
       }
+      // Refreshing messages preserves the user's pin, settled state and sidebar
+      // arrangement. Only the initial import parks the conversation.
+      if (thread.messages.length > 0) return events;
       const settledAt = command.messages.reduce(
         (latest, message) =>
           compareDateTimeStrings(message.createdAt, latest) > 0 ? message.createdAt : latest,

@@ -311,7 +311,7 @@ it.layer(NodeServices.layer)("thread history import", (it) => {
       );
 
       expect(error._tag).toBe("OrchestrationCommandInvariantError");
-      expect(error.message).toContain("must be active and empty");
+      expect(error.message).toContain("history diverged");
       expect(readModel.threads[0]?.updatedAt).toBe(liveMessageAt);
     }),
   );
@@ -390,7 +390,7 @@ it.layer(NodeServices.layer)("thread history import", (it) => {
         );
 
         expect(error._tag).toBe("OrchestrationCommandInvariantError");
-        expect(error.message).toContain("must be active and empty");
+        expect(error.message).toContain("cannot refresh history");
       }),
     );
   }
