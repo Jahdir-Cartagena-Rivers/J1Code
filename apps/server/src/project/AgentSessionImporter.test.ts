@@ -434,13 +434,15 @@ it.layer(NodeServices.layer)("AgentSessionImporter", (it) => {
         expect(yield* importOnce()).toEqual({ importedCount: 1, skippedCount: 0 });
         const historyAttemptsAfterCompletion = historyAttemptCount;
         expect(yield* importOnce()).toEqual({ importedCount: 1, skippedCount: 0 });
-        expect(historyAttemptCount).toBe(historyAttemptsAfterCompletion);
-        expect(historyAttemptCount).toBe(2);
+        // The mock snapshot contains only the first source message, so refresh
+        // attempts the missing suffix; the real decider makes repeats idempotent.
+        expect(historyAttemptCount).toBe(historyAttemptsAfterCompletion + 1);
+        expect(historyAttemptCount).toBe(3);
         expect(bindings).toHaveLength(1);
       }),
     );
 
-    it.effect("does not replace completed history or an active binding on retry", () =>
+    it.effect("reports an active binding as skipped without replacing its history", () =>
       Effect.gen(function* () {
         const scanner = AgentSessionScanner.AgentSessionScanner.of({
           scan: Effect.die("unused"),
@@ -484,7 +486,7 @@ it.layer(NodeServices.layer)("AgentSessionImporter", (it) => {
           }),
         });
 
-        expect(result).toEqual({ importedCount: 1, skippedCount: 0 });
+        expect(result).toEqual({ importedCount: 0, skippedCount: 1 });
       }),
     );
 
@@ -582,6 +584,76 @@ const integrationLayer = Layer.mergeAll(
 );
 
 it.layer(integrationLayer)("AgentSessionImporter integration", (it) => {
+  it.effect(
+    "persists appended external history without duplicates or changing its resume cursor",
+    () =>
+      Effect.gen(function* () {
+        const engine = yield* OrchestrationEngine.OrchestrationEngineService;
+        const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+        const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+        const projectId = ProjectId.make("project-history-refresh");
+        const threadId = ThreadId.make("import:codex:history-refresh-session");
+        const initial = { ...integrationThread, providerSessionId: "history-refresh-session" };
+        const updated = {
+          ...initial,
+          messages: [
+            ...initial.messages,
+            {
+              role: "user" as const,
+              text: "External follow-up",
+              createdAt: "2026-08-24T11:00:00.000Z",
+            },
+            {
+              role: "assistant" as const,
+              text: "External answer",
+              createdAt: "2026-08-24T11:01:00.000Z",
+            },
+          ],
+        };
+        const scan = (thread: AgentSessionScanner.AgentSessionThread) =>
+          Layer.succeed(AgentSessionScanner.AgentSessionScanner, {
+            scan: Effect.die("unused"),
+            recentThreads: () => Stream.fromIterable([makeThreadOutcome(thread)]),
+          });
+        yield* engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.make("create-history-refresh-project"),
+          projectId,
+          title: "Refresh project",
+          workspaceRoot: `${WORKSPACE_ROOT}-history-refresh`,
+          defaultModelSelection: null,
+          createdAt: "2026-08-24T09:00:00.000Z",
+        });
+        yield* importRecentAgentThreads({ projectId }).pipe(Effect.provide(scan(initial)));
+        const before = Option.getOrThrow(yield* snapshots.getThreadDetailById(threadId));
+        const binding = Option.getOrThrow(yield* directory.getBinding(threadId));
+        expect(
+          yield* importRecentAgentThreads({ projectId }).pipe(Effect.provide(scan(updated))),
+        ).toEqual({ importedCount: 1, skippedCount: 0 });
+        yield* importRecentAgentThreads({ projectId }).pipe(Effect.provide(scan(updated)));
+        const after = Option.getOrThrow(yield* snapshots.getThreadDetailById(threadId));
+        expect(after.messages.map((message) => message.text)).toEqual(
+          updated.messages.map((message) => message.text),
+        );
+        expect(after.settledAt).toBe(before.settledAt);
+        expect(Option.getOrThrow(yield* directory.getBinding(threadId)).resumeCursor).toEqual(
+          binding.resumeCursor,
+        );
+        const changed = {
+          ...updated,
+          messages: updated.messages.map((message, index) =>
+            index === 0 ? { ...message, text: "Rewritten externally" } : message,
+          ),
+        };
+        expect(
+          yield* importRecentAgentThreads({ projectId }).pipe(Effect.provide(scan(changed))),
+        ).toEqual({ importedCount: 0, skippedCount: 1 });
+        expect(Option.getOrThrow(yield* snapshots.getThreadDetailById(threadId)).messages).toEqual(
+          after.messages,
+        );
+      }),
+  );
+
   it.effect("imports once after the real engine persists an old rejected receipt", () =>
     Effect.gen(function* () {
       const engine = yield* OrchestrationEngine.OrchestrationEngineService;
@@ -811,16 +883,15 @@ it.layer(integrationLayer)("AgentSessionImporter integration", (it) => {
         });
 
         const first = yield* runAttempt(new Set());
-        expect(first.result).toEqual({ importedCount: 99, skippedCount: 2 });
+        expect(first.result).toEqual({ importedCount: 98, skippedCount: 3 });
         expect(failHistory).toBe(false);
         expect(first.fullReads).toEqual(transcripts.slice(0, 100).map((entry) => entry.filePath));
         expect(first.openCounts.get(remaining.filePath)).toBe(1);
         const completedSources = yield* snapshots.getImportedAgentSessionSources(projectId);
-        expect(completedSources).toHaveLength(99);
-        expect(completedSources).toContainEqual({
-          threadId: legacy.threadId,
-          source: expect.objectContaining({ filePath: legacy.filePath }),
-        });
+        expect(completedSources).toHaveLength(98);
+        // The legacy text differs from the source. Preserve it and leave its
+        // source unrecorded so a future refresh does not hide the conflict.
+        expect(completedSources.some((entry) => entry.threadId === legacy.threadId)).toBe(false);
         expect(
           Option.getOrThrow(yield* snapshots.getThreadDetailById(failed.threadId)).messages,
         ).toEqual([]);
@@ -832,14 +903,14 @@ it.layer(integrationLayer)("AgentSessionImporter integration", (it) => {
 
         const completedPaths = new Set(completedSources.map((entry) => entry.source.filePath));
         const second = yield* runAttempt(completedPaths);
-        expect(second.result).toEqual({ importedCount: 101, skippedCount: 0 });
-        expect(second.fullReads).toEqual([failed.filePath, remaining.filePath]);
+        expect(second.result).toEqual({ importedCount: 100, skippedCount: 1 });
+        expect(second.fullReads).toEqual([legacy.filePath, failed.filePath, remaining.filePath]);
         for (const transcript of transcripts) {
           expect(second.openCounts.get(transcript.filePath)).toBe(
             completedPaths.has(transcript.filePath) ? 1 : 2,
           );
         }
-        expect(yield* snapshots.getImportedAgentSessionSources(projectId)).toHaveLength(101);
+        expect(yield* snapshots.getImportedAgentSessionSources(projectId)).toHaveLength(100);
         expect(
           Option.getOrThrow(yield* snapshots.getThreadDetailById(legacy.threadId)).messages.map(
             (message) => message.text,

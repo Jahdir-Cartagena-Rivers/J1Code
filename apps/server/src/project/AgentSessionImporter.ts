@@ -83,17 +83,17 @@ function hasImportBlockingActivity(
     thread.proposedPlans.length > 0 ||
     thread.activities.length > 0 ||
     thread.checkpoints.length > 0 ||
-    thread.snoozedUntil != null ||
-    thread.snoozedAt != null ||
-    thread.pinnedAt != null ||
-    thread.pinOrderKey != null ||
-    thread.autoSettleDisabledAt != null ||
     thread.titleRegeneration != null ||
     thread.linkedPullRequest != null ||
-    thread.unsettledAt != null ||
-    (importedHistoryPresent
-      ? thread.settledOverride !== "settled"
-      : thread.settledOverride !== null || thread.settledAt !== null)
+    (!importedHistoryPresent &&
+      (thread.snoozedUntil != null ||
+        thread.snoozedAt != null ||
+        thread.pinnedAt != null ||
+        thread.pinOrderKey != null ||
+        thread.autoSettleDisabledAt != null ||
+        thread.unsettledAt != null ||
+        thread.settledOverride !== null ||
+        thread.settledAt !== null))
   );
 }
 
@@ -197,15 +197,6 @@ export const importRecentAgentThreads = Effect.fn("importRecentAgentThreads")(fu
           : false;
         if (
           Option.isSome(existingThread) &&
-          importedHistoryPresent &&
-          Option.isSome(existingBinding)
-        ) {
-          yield* directory.recordImportedTranscript({ threadId, source: outcome.source });
-          return true;
-        }
-
-        if (
-          Option.isSome(existingThread) &&
           hasImportBlockingActivity(existingThread.value, importedHistoryPresent)
         ) {
           return yield* new AgentSessionThreadModifiedError({ threadId });
@@ -258,7 +249,19 @@ export const importRecentAgentThreads = Effect.fn("importRecentAgentThreads")(fu
           });
         }
 
-        if (!importedHistoryPresent) {
+        const unchanged =
+          Option.isSome(existingThread) &&
+          existingThread.value.messages.length === thread.messages.length &&
+          existingThread.value.messages.every((message, index) => {
+            const source = thread.messages[index];
+            return (
+              source !== undefined &&
+              message.role === source.role &&
+              message.text === source.text &&
+              message.createdAt === source.createdAt
+            );
+          });
+        if (!unchanged) {
           yield* engine.dispatch({
             type: "thread.history.import",
             commandId: CommandId.make(yield* crypto.randomUUIDv4),
