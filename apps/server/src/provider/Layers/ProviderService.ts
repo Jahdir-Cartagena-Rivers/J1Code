@@ -10,6 +10,8 @@
  * @module ProviderServiceLive
  */
 import {
+  AGENT_DELEGATION_ACTIVITY_KIND,
+  AgentDelegationRecord,
   EventId,
   MessageId,
   ModelSelection,
@@ -335,6 +337,7 @@ const ProviderRollbackConversationInput = Schema.Struct({
   threadId: ThreadId,
   numTurns: NonNegativeInt,
 });
+const decodeDelegationRecord = Schema.decodeUnknownEffect(AgentDelegationRecord);
 
 function toValidationError(
   operation: string,
@@ -493,6 +496,54 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   );
   const issueMcpCredential =
     options?.issueMcpCredential ?? McpSessionRegistry.issueActiveMcpCredential;
+  const assertDelegatedWorkerActive = Effect.fn("ProviderService.assertDelegatedWorkerActive")(
+    function* (threadId: ThreadId, operation: string) {
+      if (!threadId.startsWith("j1-agent:")) return;
+      if (Option.isNone(projectionQuery)) {
+        return yield* toValidationError(
+          operation,
+          "Worker lifecycle is unavailable; refusing to start it.",
+        );
+      }
+      const detail = yield* projectionQuery.value
+        .getThreadDetailById(threadId, {
+          activityKinds: [AGENT_DELEGATION_ACTIVITY_KIND],
+        })
+        .pipe(
+          Effect.mapError(
+            () =>
+              new ProviderValidationError({
+                operation,
+                issue: "Could not verify the delegated worker lifecycle.",
+              }),
+          ),
+        );
+      const entry = Option.isSome(detail)
+        ? detail.value.activities.findLast(
+            (activity) => activity.kind === AGENT_DELEGATION_ACTIVITY_KIND,
+          )
+        : undefined;
+      if (!entry) return yield* toValidationError(operation, "Worker lifecycle record is missing.");
+      const record = yield* decodeDelegationRecord(entry.payload).pipe(
+        Effect.mapError(
+          () =>
+            new ProviderValidationError({ operation, issue: "Invalid worker lifecycle record." }),
+        ),
+      );
+      const now = yield* DateTime.now;
+      if (
+        record.threadId !== threadId ||
+        !["starting", "running", "waiting"].includes(record.status) ||
+        DateTime.toEpochMillis(now) >=
+          DateTime.toEpochMillis(DateTime.makeUnsafe(record.deadlineAt))
+      ) {
+        return yield* toValidationError(
+          operation,
+          "This delegated worker has ended or expired. Spawn a new worker for another task.",
+        );
+      }
+    },
+  );
   const fileSystem = yield* FileSystem.FileSystem;
   const pathService = yield* Path.Path;
   const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
@@ -932,7 +983,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   const agentAccessCapabilities = Effect.fn("ProviderService.agentAccessCapabilities")(function* (
     threadId: ThreadId,
   ) {
-    const capabilities = new Set<McpInvocationContext.McpCapability>(["pull-requests"]);
+    const capabilities = new Set<McpInvocationContext.McpCapability>(["pull-requests", "agents"]);
     const access = yield* agentAccessSettings(threadId);
     if (access.browser) capabilities.add("preview");
     if (access.device) capabilities.add("device");
@@ -1296,6 +1347,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       const persistedModelSelection = readPersistedModelSelection(input.binding.runtimePayload);
 
       yield* prepareMcpSession(input.binding.threadId, bindingInstanceId);
+      yield* assertDelegatedWorkerActive(input.binding.threadId, input.operation);
       const resumed = yield* adapter
         .startSession({
           threadId: input.binding.threadId,
@@ -1306,7 +1358,17 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           ...(hasResumeCursor ? { resumeCursor: input.binding.resumeCursor } : {}),
           runtimeMode: input.binding.runtimeMode ?? "full-access",
         })
-        .pipe(Effect.onError(() => clearMcpSession(input.binding.threadId)));
+        .pipe(
+          Effect.tap(() => assertDelegatedWorkerActive(input.binding.threadId, input.operation)),
+          Effect.onError(() =>
+            Effect.all([
+              input.binding.threadId.startsWith("j1-agent:")
+                ? adapter.stopSession(input.binding.threadId).pipe(Effect.ignore({ log: true }))
+                : Effect.void,
+              clearMcpSession(input.binding.threadId),
+            ]),
+          ),
+        );
       if (resumed.provider !== adapter.provider) {
         yield* clearMcpSession(input.binding.threadId);
         return yield* toValidationError(
@@ -1422,6 +1484,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
   const startSession: ProviderServiceMethod<"startSession"> = Effect.fn("startSession")(
     function* (threadId, rawInput) {
+      yield* assertDelegatedWorkerActive(threadId, "ProviderService.startSession");
       const parsed = yield* decodeInputOrValidationError({
         operation: "ProviderService.startSession",
         schema: ProviderSessionStartInput,
@@ -1534,7 +1597,17 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
             ...(effectiveCwd !== undefined ? { cwd: effectiveCwd } : {}),
             ...(effectiveResumeCursor !== undefined ? { resumeCursor: effectiveResumeCursor } : {}),
           })
-          .pipe(Effect.onError(() => clearMcpSession(threadId)));
+          .pipe(
+            Effect.tap(() => assertDelegatedWorkerActive(threadId, "ProviderService.startSession")),
+            Effect.onError(() =>
+              Effect.all([
+                threadId.startsWith("j1-agent:")
+                  ? adapter.stopSession(threadId).pipe(Effect.ignore({ log: true }))
+                  : Effect.void,
+                clearMcpSession(threadId),
+              ]),
+            ),
+          );
 
         if (session.provider !== adapter.provider) {
           yield* clearMcpSession(threadId);
@@ -1598,6 +1671,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       schema: ProviderSendTurnInput,
       payload: rawInput,
     });
+    yield* assertDelegatedWorkerActive(parsed.threadId, "ProviderService.sendTurn");
 
     const attachments = parsed.attachments ?? [];
     if (!parsed.input && attachments.length === 0 && parsed.continuation !== true) {
@@ -1768,6 +1842,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
               model: input.modelSelection?.model,
               runtimeMode: routed.runtimeMode,
             });
+            yield* assertDelegatedWorkerActive(input.threadId, "ProviderService.sendTurn");
             const turn = yield* routed.adapter.sendTurn(input).pipe(
               Effect.tapError((error) =>
                 analytics.record("provider.turn.rejected", {
