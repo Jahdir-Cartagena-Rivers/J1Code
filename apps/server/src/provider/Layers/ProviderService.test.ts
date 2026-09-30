@@ -13,6 +13,8 @@ import type {
   ProviderUploadFeedbackResult,
 } from "@t3tools/contracts";
 import {
+  AGENT_DELEGATION_ACTIVITY_KIND,
+  OrchestrationThread,
   ASSISTANT_CITATION_MAX_TEXT_LENGTH,
   AssistantCitation,
   ApprovalRequestId,
@@ -420,6 +422,7 @@ function makeProviderServiceLayer(
     readonly analyticsLayer?: Layer.Layer<AnalyticsService.AnalyticsService>;
     readonly settingsLayer?: typeof defaultServerSettingsLayer;
     readonly registry?: ProviderAdapterRegistry.ProviderAdapterRegistry["Service"];
+    readonly projectionLayer?: Layer.Layer<ProjectionSnapshotQuery.ProjectionSnapshotQuery>;
   } = {},
 ) {
   const codex = makeFakeCodexAdapter(CODEX_DRIVER, input.supportsConversationRollback);
@@ -452,6 +455,7 @@ function makeProviderServiceLayer(
         Layer.provide(providerAdapterLayer),
         Layer.provide(directoryLayer),
         Layer.provide(input.settingsLayer ?? defaultServerSettingsLayer),
+        Layer.provide(input.projectionLayer ?? Layer.empty),
         Layer.provide(serverConfigTestLayer),
         Layer.provideMerge(input.analyticsLayer ?? AnalyticsService.layerTest),
         Layer.provide(
@@ -475,6 +479,111 @@ function makeProviderServiceLayer(
     layer,
   };
 }
+
+describe("delegated worker lifecycle gate", () => {
+  const decodeThread = Schema.decodeUnknownEffect(OrchestrationThread);
+  const threadId = ThreadId.make("j1-agent:lifecycle-test");
+  let status = "starting";
+  const projectionLayer = Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
+    getThreadDetailById: () =>
+      decodeThread({
+        id: threadId,
+        projectId: "project-test",
+        title: "Worker",
+        modelSelection: { instanceId: "codex", model: "gpt-5" },
+        runtimeMode: "approval-required",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        latestTurn: null,
+        createdAt: "2026-09-30T00:00:00.000Z",
+        updatedAt: "2026-09-30T00:00:00.000Z",
+        deletedAt: null,
+        messages: [],
+        checkpoints: [],
+        session: null,
+        activities: [
+          {
+            id: "record",
+            kind: AGENT_DELEGATION_ACTIVITY_KIND,
+            tone: "info",
+            summary: "Worker lifecycle",
+            turnId: null,
+            createdAt: "2026-09-30T00:00:00.000Z",
+            payload: {
+              version: 1,
+              parentThreadId: "lead",
+              rootThreadId: "lead",
+              rootTurnKey: "turn",
+              threadId,
+              requestId: "task",
+              fingerprint: "test",
+              title: "Worker",
+              modelSelection: { instanceId: "codex", model: "gpt-5" },
+              depth: 1,
+              status,
+              createdAt: "2026-09-30T00:00:00.000Z",
+              deadlineAt: "2099-01-01T00:00:00.000Z",
+              updatedAt: "2026-09-30T00:00:00.000Z",
+              error: null,
+            },
+          },
+        ],
+      }).pipe(Effect.map(Option.some), Effect.orDie),
+  });
+  const { layer, codex } = makeProviderServiceLayer({ projectionLayer });
+  layer("stopped delegated workers", (it) => {
+    it.effect("rejects queued starts and sends before invoking the adapter", () =>
+      Effect.gen(function* () {
+        status = "cancelled";
+        const provider = yield* ProviderService.ProviderService;
+        codex.startSession.mockClear();
+        codex.sendTurn.mockClear();
+        const start = yield* provider
+          .startSession(threadId, {
+            threadId,
+            providerInstanceId: codexInstanceId,
+            runtimeMode: "approval-required",
+          })
+          .pipe(Effect.flip);
+        assert.match(start.message, /ended or expired/);
+        const send = yield* provider.sendTurn({ threadId, input: "Late task" }).pipe(Effect.flip);
+        assert.match(send.message, /ended or expired/);
+        assert.equal(codex.startSession.mock.calls.length, 0);
+        assert.equal(codex.sendTurn.mock.calls.length, 0);
+      }),
+    );
+    it.effect("closes a worker cancelled while its adapter was starting", () =>
+      Effect.gen(function* () {
+        status = "starting";
+        const provider = yield* ProviderService.ProviderService;
+        codex.stopSession.mockClear();
+        codex.startSession.mockImplementationOnce((input) =>
+          Effect.sync(() => {
+            status = "cancelled";
+            return {
+              provider: CODEX_DRIVER,
+              threadId: input.threadId,
+              status: "ready",
+              runtimeMode: input.runtimeMode,
+              createdAt: "2026-09-30T00:00:00.000Z",
+              updatedAt: "2026-09-30T00:00:00.000Z",
+            };
+          }),
+        );
+        const error = yield* provider
+          .startSession(threadId, {
+            threadId,
+            providerInstanceId: codexInstanceId,
+            runtimeMode: "approval-required",
+          })
+          .pipe(Effect.flip);
+        assert.match(error.message, /ended or expired/);
+        assert.deepEqual(codex.stopSession.mock.calls, [[threadId]]);
+      }),
+    );
+  });
+});
 
 for (const [enabled, completed] of [
   [false, false],
@@ -5198,7 +5307,7 @@ describe("agent browser access", () => {
 
       const issued = yield* startSessionWith(false, threadId);
 
-      assert.deepEqual(issued, [{ threadId, capabilities: ["pull-requests"] }]);
+      assert.deepEqual(issued, [{ threadId, capabilities: ["agents", "pull-requests"] }]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
@@ -5209,7 +5318,7 @@ describe("agent browser access", () => {
       const issued = yield* startSessionWith(true, threadId);
 
       assert.deepEqual(issued, [
-        { threadId, capabilities: ["device", "preview", "pull-requests"] },
+        { threadId, capabilities: ["agents", "device", "preview", "pull-requests"] },
       ]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
@@ -5220,7 +5329,7 @@ describe("agent browser access", () => {
 
       const issued = yield* startSessionWith({ browser: false, device: true }, threadId);
 
-      assert.deepEqual(issued, [{ threadId, capabilities: ["device", "pull-requests"] }]);
+      assert.deepEqual(issued, [{ threadId, capabilities: ["agents", "device", "pull-requests"] }]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
@@ -5228,7 +5337,7 @@ describe("agent browser access", () => {
     Effect.gen(function* () {
       const threadId = asThreadId("thread-project-browser-off");
       const issued = yield* startSessionWith({ browser: true, device: false }, threadId, false);
-      assert.deepEqual(issued, [{ threadId, capabilities: ["pull-requests"] }]);
+      assert.deepEqual(issued, [{ threadId, capabilities: ["agents", "pull-requests"] }]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
@@ -5236,7 +5345,7 @@ describe("agent browser access", () => {
     Effect.gen(function* () {
       const threadId = asThreadId("thread-project-browser-off-device-on");
       const issued = yield* startSessionWith(true, threadId, false);
-      assert.deepEqual(issued, [{ threadId, capabilities: ["device", "pull-requests"] }]);
+      assert.deepEqual(issued, [{ threadId, capabilities: ["agents", "device", "pull-requests"] }]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
@@ -5244,7 +5353,9 @@ describe("agent browser access", () => {
     Effect.gen(function* () {
       const threadId = asThreadId("thread-project-browser-on");
       const issued = yield* startSessionWith({ browser: false, device: false }, threadId, true);
-      assert.deepEqual(issued, [{ threadId, capabilities: ["preview", "pull-requests"] }]);
+      assert.deepEqual(issued, [
+        { threadId, capabilities: ["agents", "preview", "pull-requests"] },
+      ]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
@@ -5254,7 +5365,7 @@ describe("agent browser access", () => {
       const issued = yield* startSessionWith({ browser: false, device: false }, threadId, {
         device: true,
       });
-      assert.deepEqual(issued, [{ threadId, capabilities: ["device", "pull-requests"] }]);
+      assert.deepEqual(issued, [{ threadId, capabilities: ["agents", "device", "pull-requests"] }]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
@@ -5269,7 +5380,9 @@ describe("agent browser access", () => {
         { device: false },
         { withoutOrchestration: true },
       );
-      assert.deepEqual(issued, [{ threadId, capabilities: ["preview", "pull-requests"] }]);
+      assert.deepEqual(issued, [
+        { threadId, capabilities: ["agents", "preview", "pull-requests"] },
+      ]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 });

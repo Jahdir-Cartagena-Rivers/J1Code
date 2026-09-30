@@ -135,7 +135,13 @@ it.effect("marks active running sessions that have persisted resume state", () =
   return ServerRuntimeStartup.markRunningProviderSessionsForContinuation.pipe(
     Effect.provideService(
       ProjectionSnapshotQuery.ProjectionSnapshotQuery,
-      queryWithThreads([active, archived, ready, missingResumeState]),
+      queryWithThreads([
+        active,
+        archived,
+        ready,
+        missingResumeState,
+        makeThread("j1-agent:worker", "running", TurnId.make("worker-turn")),
+      ]),
     ),
     Effect.provideService(ProviderSessionDirectory.ProviderSessionDirectory, {
       getBinding: (threadId) =>
@@ -193,22 +199,23 @@ it.effect.each(
         recovery === "marked update" ? null : fallbackContinuationTurnId,
       );
       const fallbackProviderInstanceId = ProviderInstanceId.make("claudeAgent");
+      const worker = makeThread("j1-agent:restart-test", "running", TurnId.make("worker-turn"));
       const continuationSent = yield* Deferred.make<void>();
       const continuationCleared = yield* Deferred.make<void>();
       const sends: ProviderSendTurnInput[] = [];
       const dispatched: OrchestrationCommand[] = [];
       const upserts: ProviderSessionDirectory.ProviderRuntimeBinding[] = [];
       const bindings = new Map<ThreadId, ProviderSessionDirectory.ProviderRuntimeBinding>(
-        [codex, fallback].map((thread) => [
+        [codex, fallback, worker].map((thread) => [
           thread.id,
           {
             threadId: thread.id,
             provider:
-              thread.id === codex.id
+              thread.id !== fallback.id
                 ? ProviderDriverKind.make("codex")
                 : ProviderDriverKind.make("claudeAgent"),
             providerInstanceId:
-              thread.id === codex.id ? providerInstanceId : fallbackProviderInstanceId,
+              thread.id !== fallback.id ? providerInstanceId : fallbackProviderInstanceId,
             status: "running" as const,
             resumeCursor: { threadId: thread.id },
             runtimePayload: {
@@ -251,7 +258,7 @@ it.effect.each(
       };
 
       yield* runReconciliation({
-        threads: [codex, fallback],
+        threads: [codex, fallback, worker],
         continueAfterRestart: recovery === "opt-in restart",
         providerService,
         directory: {
@@ -293,7 +300,8 @@ it.effect.each(
       assert.isTrue(
         dispatched.every(
           (command) =>
-            command.type === "thread.session.set" && command.session.status === "starting",
+            command.type === "thread.session.set" &&
+            command.session.status === (command.threadId === worker.id ? "error" : "starting"),
         ),
       );
       yield* Deferred.await(continuationSent);
@@ -331,6 +339,11 @@ it.effect.each(
           {
             threadId: fallback.id,
             status: "starting",
+            activeTurnId: null,
+          },
+          {
+            threadId: worker.id,
+            status: "error",
             activeTurnId: null,
           },
         ],

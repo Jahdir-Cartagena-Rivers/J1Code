@@ -14,4 +14,6 @@ Use the locally built Windows portable executable in release/. It does not repla
 
 Configure and authenticate your existing coding providers before starting agent work. Refresh history only reads saved transcripts; it does not invoke a model.
 
+Agents can delegate tasks across configured providers and models through J1's MCP tools. For example, ask Claude to use a Codex worker for a bounded task and review its result. Workers appear as **Worker:** chats and in the lead's Agents panel. They share the lead's workspace and permission mode; the lead supplies the task context. Workers can delegate further, up to three levels, with eight active workers per lead and a default ten-minute deadline (up to thirty minutes). Stop the lead or use `cancel_agent` to cancel its descendants. Worker approvals remain in their own chats. Interrupted work is preserved and is not automatically rerun after a server restart.
+
 User guides: [project settings](docs/user/project-settings.md), [permissions](docs/user/permission-modes.md), and [remote access](docs/user/remote-access.md).

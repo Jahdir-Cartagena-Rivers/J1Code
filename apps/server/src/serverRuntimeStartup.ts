@@ -408,6 +408,7 @@ export const markRunningProviderSessionsForContinuation = Effect.gen(function* (
   const { threads } = yield* query.getCommandReadModel();
   const running = threads.filter(
     (thread) =>
+      !thread.id.startsWith("j1-agent:") &&
       thread.archivedAt === null &&
       thread.deletedAt === null &&
       thread.session?.status === "running" &&
@@ -563,6 +564,7 @@ export const reconcileProviderSessions = Effect.gen(function* () {
       ? readServerUpdateContinuationTurnId(binding.value.runtimePayload)
       : null;
     const continuationMarked =
+      !thread.id.startsWith("j1-agent:") &&
       continuationTurnId !== null &&
       (session.activeTurnId === null || continuationTurnId === session.activeTurnId) &&
       Option.isSome(binding) &&
@@ -579,6 +581,7 @@ export const reconcileProviderSessions = Effect.gen(function* () {
     // Runtime events advance the projection's turn, but not the directory's
     // last admitted turn. Use the projection to identify interrupted work.
     const interruptedByRestart =
+      !thread.id.startsWith("j1-agent:") &&
       continueAfterRestartFor(thread.projectId) &&
       session.status === "running" &&
       session.activeTurnId !== null &&
