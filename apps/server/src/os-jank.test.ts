@@ -1,5 +1,5 @@
 import * as NodeOS from "node:os";
-import * as NodePath from "node:path";
+import * as Path from "effect/Path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import { assert } from "vite-plus/test";
@@ -9,12 +9,10 @@ import { hydratePosixHome, resolveBaseDir } from "./os-jank.ts";
 
 it.effect("isolates J1 default state while preserving explicit data-directory overrides", () =>
   Effect.gen(function* () {
-    assert.equal(yield* resolveBaseDir(undefined), NodePath.join(NodeOS.homedir(), ".j1"));
-    assert.equal(yield* resolveBaseDir(" "), NodePath.join(NodeOS.homedir(), ".j1"));
-    assert.equal(
-      yield* resolveBaseDir("./explicit-profile"),
-      NodePath.resolve("./explicit-profile"),
-    );
+    const path = yield* Path.Path;
+    assert.equal(yield* resolveBaseDir(undefined), path.join(NodeOS.homedir(), ".j1"));
+    assert.equal(yield* resolveBaseDir(" "), path.join(NodeOS.homedir(), ".j1"));
+    assert.equal(yield* resolveBaseDir("./explicit-profile"), path.resolve("./explicit-profile"));
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 
