@@ -213,7 +213,8 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
   const updateRestartMarkers = new Set<string>();
   const fileSystemLayer = FileSystem.layerNoop({
     readFileString: (path) =>
-      path === "/missing/resources/package-type" && options.packageType !== undefined
+      path.replaceAll("\\", "/") === "/missing/resources/package-type" &&
+      options.packageType !== undefined
         ? Effect.succeed(options.packageType)
         : Effect.fail(
             PlatformError.systemError({

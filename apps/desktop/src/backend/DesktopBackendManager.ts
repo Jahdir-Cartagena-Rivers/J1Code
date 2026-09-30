@@ -53,6 +53,7 @@ import { waitForHttpReady as waitForHttpReadyShared } from "@t3tools/shared/http
 import * as DesktopObservability from "../app/DesktopObservability.ts";
 import * as DesktopTelemetryPublisher from "../telemetry/DesktopTelemetryPublisher.ts";
 import * as DesktopWslEnvironment from "../wsl/DesktopWslEnvironment.ts";
+import * as BackgroundBackend from "./DesktopBackgroundBackend.ts";
 
 const INITIAL_RESTART_DELAY = Duration.millis(500);
 const MAX_RESTART_DELAY = Duration.seconds(10);
@@ -86,6 +87,7 @@ export interface BackendProcessContext {
 export type DesktopBackendBootstrapDelivery = "fd3" | "stdin";
 
 export interface DesktopBackendStartConfig extends BackendProcessContext {
+  readonly background?: BackgroundBackend.BackgroundOptions;
   readonly args: ReadonlyArray<string>;
   readonly env: Record<string, string | undefined>;
   // When true the spawner merges the desktop process.env on top of `env`;
@@ -440,6 +442,38 @@ const decodeDesktopTelemetryControlLine = Schema.decodeUnknownEffect(
 export const runBackendProcess = Effect.fn("runBackendProcess")(function* (
   options: RunBackendProcessOptions,
 ): Effect.fn.Return<BackendProcessExit, BackendProcessError, BackendProcessRunRequirements> {
+  if (options.background) {
+    const background = options.background;
+    const record = yield* Effect.tryPromise({
+      try: () => BackgroundBackend.ensureBackgroundServer(options, background),
+      catch: (cause) => new BackendProcessSpawnError({ ...options, cause }),
+    });
+    yield* options.onStarted?.(record.serverPid) ?? Effect.void;
+    const ready = yield* waitForHttpReady({
+      ...options,
+      timeout: options.readinessTimeout ?? DEFAULT_BACKEND_READINESS_TIMEOUT,
+    }).pipe(
+      Effect.tapError((error) => options.onReadinessFailure?.(error) ?? Effect.void),
+      Effect.option,
+    );
+    if (Option.isNone(ready)) {
+      return { code: Option.none(), reason: "background server readiness failed" };
+    }
+    yield* options.onReady?.() ?? Effect.void;
+    // Cancelling this observer detaches the desktop; the independently owned host stays alive.
+    while (true) {
+      yield* Effect.sleep(Duration.seconds(1));
+      const alive = yield* Effect.tryPromise({
+        try: () => BackgroundBackend.backgroundRequest(background.baseDir, record.secret, "status"),
+        catch: (cause) =>
+          new BackendProcessExitStatusError({ ...options, pid: record.serverPid, cause }),
+      }).pipe(Effect.option);
+      if (Option.isNone(alive)) {
+        yield* options.onExitObserved?.() ?? Effect.void;
+        return { code: Option.none(), reason: "background host exited" };
+      }
+    }
+  }
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const bootstrapJson = yield* encodeBootstrapJson(options.bootstrap).pipe(
     Effect.mapError(

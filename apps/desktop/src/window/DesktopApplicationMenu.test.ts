@@ -14,6 +14,15 @@ import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopUpdates from "../updates/DesktopUpdates.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
+import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
+
+const backgroundPoolLayer = Layer.succeed(DesktopBackendPool.DesktopBackendPool, {
+  get: () => Effect.succeedNone,
+  list: Effect.succeed([]),
+  primary: Effect.die("unexpected primary read"),
+  register: () => Effect.die("unexpected register"),
+  unregister: () => Effect.die("unexpected unregister"),
+});
 
 const environmentInput = {
   dirname: "/repo/apps/desktop/dist-electron",
@@ -110,6 +119,7 @@ const configureMenu = (
   }).pipe(
     Effect.provide(
       DesktopApplicationMenu.layer.pipe(
+        Layer.provideMerge(backgroundPoolLayer),
         Layer.provideMerge(makeElectronMenuLayer(applicationMenuTemplate)),
         Layer.provideMerge(makeDesktopWindowLayer(selectedAction)),
         Layer.provideMerge(desktopUpdatesLayer),

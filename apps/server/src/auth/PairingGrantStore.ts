@@ -448,7 +448,13 @@ export const make = Effect.gen(function* () {
           }
 
           const next = new Map(current);
-          if (DateTime.isGreaterThanOrEqualTo(now, grant.expiresAt)) {
+          // Only a trusted detached-desktop seed lives for this server's lifetime.
+          // Each exchange still receives a bounded expiry; ordinary seeds and pairing links expire normally.
+          const expiresAt =
+            config.desktopBackgroundBootstrap && grant.method === "desktop-bootstrap"
+              ? DateTime.add(now, { milliseconds: Duration.toMillis(DESKTOP_BOOTSTRAP_TTL_HOURS) })
+              : grant.expiresAt;
+          if (DateTime.isGreaterThanOrEqualTo(now, expiresAt)) {
             next.delete(credential);
             return [
               {
@@ -494,7 +500,7 @@ export const make = Effect.gen(function* () {
                 ...(grant.proofKeyThumbprint
                   ? { proofKeyThumbprint: grant.proofKeyThumbprint }
                   : {}),
-                expiresAt: grant.expiresAt,
+                expiresAt,
               } satisfies BootstrapGrant,
             },
             next,
