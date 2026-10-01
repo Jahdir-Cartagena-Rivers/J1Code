@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { DesktopCloseBehavior } from "@t3tools/contracts";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SettingsRow } from "./settingsLayout";
@@ -13,6 +13,14 @@ export function DesktopCloseSetting() {
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    // The native close dialog can remember a choice while this page stays mounted in the tray.
+    const refresh = () => {
+      if (bridge?.getCloseBehavior) setBehavior(bridge.getCloseBehavior());
+    };
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [bridge]);
   if (bridge?.getClientPlatform?.() !== "win32" || !bridge.setCloseBehavior) return null;
   const save = async (value: DesktopCloseBehavior) => {
     setBusy(true);
