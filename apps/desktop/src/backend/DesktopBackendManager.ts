@@ -305,6 +305,7 @@ export interface BackendInstanceSpec {
 
 interface ActiveBackendRun {
   readonly id: number;
+  readonly backgroundObserver: boolean;
   readonly scope: Scope.Closeable;
   readonly fiber: Option.Option<Fiber.Fiber<void, never>>;
   readonly pid: Option.Option<number>;
@@ -356,7 +357,10 @@ const closeRun = (
 ): Effect.Effect<boolean> => {
   const waitForFiber = Option.match(run.fiber, {
     onNone: () => Effect.void,
-    onSome: (fiber) => Fiber.await(fiber).pipe(Effect.asVoid),
+    // A detached host has no child-process scope finalizer to end this fiber.
+    // Detach its observer explicitly; the authenticated host stop is separate.
+    onSome: (fiber) =>
+      (run.backgroundObserver ? Fiber.interrupt(fiber) : Fiber.await(fiber)).pipe(Effect.asVoid),
   });
   const close = Scope.close(run.scope, Exit.void).pipe(Effect.andThen(waitForFiber));
   const timeout = options?.timeout;
@@ -850,6 +854,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
             ...latest,
             active: Option.some({
               id: latest.nextRunId,
+              backgroundObserver: config.value.background !== undefined,
               scope: runScope,
               fiber: Option.none(),
               pid: Option.none(),

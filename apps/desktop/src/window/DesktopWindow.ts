@@ -100,6 +100,7 @@ export class DesktopWindow extends Context.Service<
     readonly ensureMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
     readonly revealOrCreateMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
     readonly activate: Effect.Effect<void, DesktopWindowError>;
+    readonly hideMain: Effect.Effect<void>;
     readonly createMainIfBackendReady: Effect.Effect<void, DesktopWindowError>;
     // Show a lightweight "Connecting to WSL" splash window immediately (wsl-only
     // mode), before the WSL backend that acts as the primary is ready. It is
@@ -963,6 +964,11 @@ export const make = Effect.gen(function* () {
     createMain,
     ensureMain,
     revealOrCreateMain,
+    hideMain: Effect.gen(function* () {
+      yield* flushMainWindowBounds;
+      const window = yield* currentMainWindow;
+      if (Option.isSome(window)) yield* Effect.sync(() => window.value.hide());
+    }).pipe(Effect.withSpan("desktop.window.hideMain")),
     prepareCaptureReveal: Effect.gen(function* () {
       const existingWindow = yield* currentMainWindow;
       if (Option.isSome(existingWindow)) {

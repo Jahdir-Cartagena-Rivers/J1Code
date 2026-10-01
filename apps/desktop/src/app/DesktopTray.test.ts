@@ -97,6 +97,9 @@ describe("desktop tray lifecycle", () => {
               }),
               Layer.succeed(DesktopWindow.DesktopWindow, {
                 activate: Effect.void,
+                hideMain: Effect.sync(() => {
+                  closes++;
+                }),
                 flushMainWindowBounds: Effect.void,
               } as unknown as DesktopWindow.DesktopWindow["Service"]),
               Layer.succeed(Pool.DesktopBackendPool, {

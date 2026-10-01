@@ -23,6 +23,8 @@ import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstab
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import * as DesktopBackendManager from "./DesktopBackendManager.ts";
+import * as Background from "./DesktopBackgroundBackend.ts";
+import { vi } from "vite-plus/test";
 import * as DesktopApp from "../app/DesktopApp.ts";
 import * as DesktopBackendPool from "./DesktopBackendPool.ts";
 import * as DesktopObservability from "../app/DesktopObservability.ts";
@@ -191,6 +193,47 @@ function makeTestInstance(input: MakeInstanceInput) {
 }
 
 describe("DesktopBackendManager", () => {
+  it.effect("detaches a live background observer without waiting for or stopping the host", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const ready = yield* Deferred.make<void>();
+        const ensure = vi.spyOn(Background, "ensureBackgroundServer").mockResolvedValue({
+          serverPid: 123,
+          secret: "a".repeat(64),
+        } as Background.BackgroundRecord);
+        const stop = vi.spyOn(Background, "stopBackgroundServer");
+        try {
+          const instance = yield* makeTestInstance({
+            spawnerLayer: Layer.succeed(
+              ChildProcessSpawner.ChildProcessSpawner,
+              ChildProcessSpawner.make(() =>
+                Effect.die("Detached hosts must not spawn a managed child"),
+              ),
+            ),
+            config: {
+              ...baseConfig,
+              background: {
+                baseDir: "/test",
+                version: "test",
+                workerPath: "/worker",
+                sourceRuntimeDir: "/runtime",
+              },
+            },
+            onReady: Deferred.succeed(ready, undefined).pipe(Effect.asVoid),
+          });
+          yield* instance.start;
+          yield* Deferred.await(ready);
+          yield* instance.stop();
+          assert.equal((yield* instance.snapshot).ready, false);
+          assert.equal(stop.mock.calls.length, 0);
+          assert.equal(ensure.mock.calls.length, 1);
+        } finally {
+          ensure.mockRestore();
+          stop.mockRestore();
+        }
+      }),
+    ),
+  );
   it.effect("spawns the backend with fd3 bootstrap and fd4 telemetry", () =>
     Effect.scoped(
       Effect.gen(function* () {
