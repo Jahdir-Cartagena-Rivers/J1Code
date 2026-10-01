@@ -13,6 +13,7 @@ import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import * as DesktopLifecycle from "./DesktopLifecycle.ts";
 import * as DesktopShutdown from "./DesktopShutdown.ts";
 import * as DesktopState from "./DesktopState.ts";
+import * as DesktopTray from "./DesktopTray.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
 
 function makeElectronAppLayer(
@@ -124,6 +125,7 @@ describe("DesktopLifecycle", () => {
         Layer.provideMerge(environmentLayer),
         Layer.provideMerge(DesktopShutdown.layer),
         Layer.provideMerge(DesktopState.layer),
+        Layer.provideMerge(DesktopTray.layer),
       );
 
       return Effect.scoped(
@@ -196,6 +198,7 @@ describe("DesktopLifecycle", () => {
         Layer.provideMerge(environmentLayer),
         Layer.provideMerge(desktopShutdownLayer),
         Layer.provideMerge(DesktopState.layer),
+        Layer.provideMerge(DesktopTray.layer),
       );
 
       yield* Effect.scoped(
@@ -237,6 +240,7 @@ describe("DesktopLifecycle", () => {
         Layer.provideMerge(environmentLayer),
         Layer.provideMerge(DesktopShutdown.layer),
         Layer.provideMerge(DesktopState.layer),
+        Layer.provideMerge(DesktopTray.layer),
       );
 
       yield* Effect.scoped(
@@ -252,5 +256,62 @@ describe("DesktopLifecycle", () => {
         }),
       ).pipe(Effect.provide(layer));
     }),
+  );
+  it.effect("Close and ordinary Quit keep the tray and server alive", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const listeners = new Map<string, (...args: readonly unknown[]) => void>();
+        const hidden = yield* Deferred.make<void>();
+        let quits = 0;
+        let prevented = 0;
+        const tray = {
+          active: Effect.succeed(true),
+          requestClose: Deferred.succeed(hidden, undefined).pipe(Effect.asVoid),
+          exitAllowed: Effect.succeed(false),
+          allowExit: Effect.void,
+          configure: Effect.void,
+          stopAndQuit: Effect.void,
+        };
+        const layer = DesktopLifecycle.layer.pipe(
+          Layer.provideMerge(
+            makeElectronAppLayer(
+              listeners,
+              Effect.sync(() => {
+                quits++;
+              }),
+            ),
+          ),
+          Layer.provideMerge(electronThemeLayer),
+          Layer.provideMerge(
+            makeElectronWindowLayer(Deferred.succeed(hidden, undefined).pipe(Effect.asVoid)),
+          ),
+          Layer.provideMerge(makeDesktopWindowLayer()),
+          Layer.provideMerge(
+            Layer.succeed(DesktopEnvironment.DesktopEnvironment, {
+              platform: "win32",
+              isDevelopment: false,
+            } as DesktopEnvironment.DesktopEnvironment["Service"]),
+          ),
+          Layer.provideMerge(DesktopShutdown.layer),
+          Layer.provideMerge(DesktopState.layer),
+          Layer.provideMerge(Layer.succeed(DesktopTray.DesktopTray, tray)),
+        );
+        yield* Effect.gen(function* () {
+          const lifecycle = yield* DesktopLifecycle.DesktopLifecycle;
+          const state = yield* DesktopState.DesktopState;
+          yield* lifecycle.register;
+          listeners.get("window-all-closed")?.();
+          listeners.get("before-quit")?.({
+            preventDefault: () => {
+              prevented++;
+            },
+          });
+          yield* Deferred.await(hidden);
+          assert.equal(quits, 0);
+          assert.equal(prevented, 1);
+          assert.isFalse(yield* Ref.get(state.quitting));
+        }).pipe(Effect.provide(layer));
+      }),
+    ),
   );
 });

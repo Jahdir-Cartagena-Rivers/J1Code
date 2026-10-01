@@ -67,6 +67,7 @@ import {
   useRelativeTimeTick,
 } from "./settingsLayout";
 import { LocalEnvironmentSetting } from "./LocalEnvironmentSetting";
+import { DesktopCloseSetting } from "./DesktopCloseSetting";
 import { searchableSetting } from "./settingsSearch";
 import { EnvironmentIconMenu } from "./EnvironmentIconPicker";
 import {
@@ -3325,6 +3326,7 @@ export function ConnectionsSettings() {
               ) : null
             }
           >
+            <DesktopCloseSetting />
             <LocalEnvironmentSetting />
             {canManageLocalBackend ? (
               <SettingsRow

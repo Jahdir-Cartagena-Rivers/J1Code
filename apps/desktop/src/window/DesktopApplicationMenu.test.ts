@@ -14,12 +14,12 @@ import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopUpdates from "../updates/DesktopUpdates.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
+import * as DesktopTray from "../app/DesktopTray.ts";
 import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
-
 const backgroundPoolLayer = Layer.succeed(DesktopBackendPool.DesktopBackendPool, {
   get: () => Effect.succeedNone,
   list: Effect.succeed([]),
-  primary: Effect.die("unexpected primary read"),
+  primary: Effect.die("unexpected primary"),
   register: () => Effect.die("unexpected register"),
   unregister: () => Effect.die("unexpected unregister"),
 });
@@ -119,6 +119,7 @@ const configureMenu = (
   }).pipe(
     Effect.provide(
       DesktopApplicationMenu.layer.pipe(
+        Layer.provideMerge(DesktopTray.layer),
         Layer.provideMerge(backgroundPoolLayer),
         Layer.provideMerge(makeElectronMenuLayer(applicationMenuTemplate)),
         Layer.provideMerge(makeDesktopWindowLayer(selectedAction)),

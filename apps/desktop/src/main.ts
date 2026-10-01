@@ -44,6 +44,8 @@ import * as DesktopLocalEnvironmentAuth from "./backend/DesktopLocalEnvironmentA
 import * as DesktopNetworkInterfaces from "./backend/DesktopNetworkInterfaces.ts";
 import * as DesktopEnvironment from "./app/DesktopEnvironment.ts";
 import * as DesktopLifecycle from "./app/DesktopLifecycle.ts";
+import * as DesktopTray from "./app/DesktopTray.ts";
+import * as ElectronTray from "./electron/ElectronTray.ts";
 import * as DesktopLinuxUrlHandler from "./app/DesktopLinuxUrlHandler.ts";
 import * as DesktopShutdown from "./app/DesktopShutdown.ts";
 import * as DesktopObservability from "./app/DesktopObservability.ts";
@@ -192,12 +194,14 @@ const desktopLocalEnvironmentAuthLayer = DesktopLocalEnvironmentAuth.layer.pipe(
 
 const desktopApplicationLayer = Layer.mergeAll(
   DesktopLifecycle.layer,
+  ElectronTray.layer,
   desktopAppActivationLayer,
   DesktopApplicationMenu.layer,
   DesktopLinuxUrlHandler.layer,
   DesktopShellEnvironment.layer,
   desktopSshLayer,
 ).pipe(
+  Layer.provideMerge(DesktopTray.layer),
   Layer.provideMerge(desktopSnapShotLayer),
   Layer.provideMerge(DesktopUpdates.layer),
   Layer.provideMerge(desktopWslBackendLayer),

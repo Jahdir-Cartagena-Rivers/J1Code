@@ -125,6 +125,7 @@ describe("DesktopSettings", () => {
       {
         linuxPasswordStore: "auto",
         localEnvironmentEnabled: true,
+        closeBehavior: "ask",
         mainWindowBounds: null,
         mainWindowMaximized: false,
         serverExposureMode: "local-only",
@@ -155,6 +156,7 @@ describe("DesktopSettings", () => {
         assert.deepEqual(yield* settings.load, {
           linuxPasswordStore: "gnome-libsecret",
           localEnvironmentEnabled: true,
+          closeBehavior: "ask",
           mainWindowBounds: null,
           mainWindowMaximized: false,
           serverExposureMode: "network-accessible",
@@ -263,6 +265,7 @@ describe("DesktopSettings", () => {
         assert.deepEqual(yield* settings.load, {
           linuxPasswordStore: "auto",
           localEnvironmentEnabled: true,
+          closeBehavior: "ask",
           mainWindowBounds: { x: 120, y: 80, width: 1280, height: 900 },
           mainWindowMaximized: false,
           serverExposureMode: "network-accessible",
@@ -320,6 +323,7 @@ describe("DesktopSettings", () => {
           assert.deepEqual(yield* settings.load, {
             linuxPasswordStore: "auto",
             localEnvironmentEnabled: true,
+            closeBehavior: "ask",
             mainWindowBounds: null,
             mainWindowMaximized: false,
             serverExposureMode: "network-accessible",
@@ -369,6 +373,7 @@ describe("DesktopSettings", () => {
         assert.deepEqual(yield* settings.load, {
           linuxPasswordStore: "auto",
           localEnvironmentEnabled: true,
+          closeBehavior: "ask",
           mainWindowBounds: null,
           mainWindowMaximized: false,
           serverExposureMode: "local-only",
@@ -398,6 +403,7 @@ describe("DesktopSettings", () => {
         assert.deepEqual(yield* settings.load, {
           linuxPasswordStore: "auto",
           localEnvironmentEnabled: true,
+          closeBehavior: "ask",
           mainWindowBounds: null,
           mainWindowMaximized: false,
           serverExposureMode: "local-only",
@@ -426,6 +432,7 @@ describe("DesktopSettings", () => {
         assert.deepEqual(yield* settings.load, {
           linuxPasswordStore: "auto",
           localEnvironmentEnabled: true,
+          closeBehavior: "ask",
           mainWindowBounds: null,
           mainWindowMaximized: false,
           serverExposureMode: "local-only",
@@ -529,5 +536,21 @@ describe("DesktopSettings", () => {
         assert.equal(loaded.wslDistro, null);
       }),
     ),
+  );
+  it.effect(
+    "remembers the close choice and can return to asking without changing other settings",
+    () =>
+      withSettings(
+        Effect.gen(function* () {
+          const settings = yield* DesktopAppSettings.DesktopAppSettings;
+          const initial = yield* settings.load;
+          yield* settings.setCloseBehavior("tray");
+          assert.deepEqual(yield* settings.load, { ...initial, closeBehavior: "tray" });
+          yield* settings.setCloseBehavior("quit");
+          assert.equal((yield* settings.load).closeBehavior, "quit");
+          yield* settings.setCloseBehavior("ask");
+          assert.deepEqual(yield* settings.load, initial);
+        }),
+      ),
   );
 });
