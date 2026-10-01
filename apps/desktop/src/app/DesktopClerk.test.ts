@@ -1,3 +1,4 @@
+import * as DesktopWindow from "../window/DesktopWindow.ts";
 // @effect-diagnostics nodeBuiltinImport:off globalFetchInEffect:off - Hosted handoff test uses a real localhost listener without an OpenAI account.
 import * as NodeHttp from "node:http";
 import { codexAuthHandoffUrl, readCodexAuthDelivery } from "@t3tools/shared/codexAuthHandoff";
@@ -183,6 +184,9 @@ describe("DesktopClerk", () => {
       Effect.provide(makeDesktopClerkLayer()),
       Effect.provideService(ElectronApp.ElectronApp, electronApp),
       Effect.provideService(ElectronWindow.ElectronWindow, electronWindow),
+      Effect.provideService(DesktopWindow.DesktopWindow, {
+        activate: Effect.void,
+      } as unknown as DesktopWindow.DesktopWindow["Service"]),
     );
   });
 
@@ -211,8 +215,43 @@ describe("DesktopClerk", () => {
       Effect.provide(makeDesktopClerkLayer()),
       Effect.provideService(ElectronApp.ElectronApp, electronApp),
       Effect.provideService(ElectronWindow.ElectronWindow, electronWindow),
+      Effect.provideService(DesktopWindow.DesktopWindow, {
+        activate: Effect.void,
+      } as unknown as DesktopWindow.DesktopWindow["Service"]),
     );
   });
+  it.effect(
+    "reopens a tray session with no main window when the taskbar shortcut launches again",
+    () => {
+      storageMock.mockReturnValue(storageAdapter);
+      createClerkBridgeMock.mockReturnValue({ cleanup: vi.fn(), isPrimaryInstance: true });
+      const listeners = new Map<string, (...args: readonly unknown[]) => void>();
+      const activated = Promise.withResolvers<void>();
+      const app = {
+        quit: Effect.die("must not quit the primary"),
+        on: (event: string, listener: (...args: readonly unknown[]) => void) =>
+          Effect.sync(() => {
+            listeners.set(event, listener);
+          }),
+      } as unknown as ElectronApp.ElectronApp["Service"];
+      return Effect.scoped(
+        Effect.gen(function* () {
+          yield* (yield* DesktopClerk.DesktopClerk).configure;
+          listeners.get("second-instance")!({}, []);
+          yield* Effect.promise(() => activated.promise);
+        }),
+      ).pipe(
+        Effect.provide(makeDesktopClerkLayer()),
+        Effect.provideService(ElectronApp.ElectronApp, app),
+        Effect.provideService(ElectronWindow.ElectronWindow, {
+          currentMainOrFirst: Effect.succeedNone,
+        } as ElectronWindow.ElectronWindow["Service"]),
+        Effect.provideService(DesktopWindow.DesktopWindow, {
+          activate: Effect.sync(() => activated.resolve()),
+        } as unknown as DesktopWindow.DesktopWindow["Service"]),
+      );
+    },
+  );
 });
 
 it.effect(
@@ -257,6 +296,9 @@ it.effect(
       Effect.provide(makeDesktopClerkLayer()),
       Effect.provideService(ElectronApp.ElectronApp, electronApp),
       Effect.provideService(ElectronWindow.ElectronWindow, electronWindow),
+      Effect.provideService(DesktopWindow.DesktopWindow, {
+        activate: Effect.void,
+      } as unknown as DesktopWindow.DesktopWindow["Service"]),
     );
   },
 );
@@ -332,6 +374,9 @@ for (const entry of ["startup", "open-url"] as const) {
         assert.strictEqual(delivery?.returnUrl, request.returnUrl);
       }).pipe(
         Effect.provide(makeDesktopClerkLayer(true, [], shell)),
+        Effect.provideService(DesktopWindow.DesktopWindow, {
+          activate: Effect.void,
+        } as unknown as DesktopWindow.DesktopWindow["Service"]),
         Effect.provideService(HostProcessArguments, entry === "startup" ? ["t3", link] : ["t3"]),
         Effect.provideService(ElectronApp.ElectronApp, electronApp),
         Effect.provideService(
