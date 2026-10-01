@@ -96,6 +96,7 @@ function makeFakeBrowserWindow() {
   };
 
   const window = {
+    hide: vi.fn(),
     close: vi.fn(),
     focus: vi.fn(),
     getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1100, height: 780 })),
@@ -128,6 +129,7 @@ function makeFakeBrowserWindow() {
 
   return {
     window: window as unknown as Electron.BrowserWindow,
+    hide: window.hide,
     getBounds: window.getBounds,
     getNormalBounds: window.getNormalBounds,
     isDestroyed: window.isDestroyed,
@@ -432,6 +434,29 @@ const captureOne = DesktopSnapShotId.make("11111111-1111-4111-8111-111111111111"
 const captureTwo = DesktopSnapShotId.make("22222222-2222-4222-8222-222222222222");
 
 describe("DesktopWindow", () => {
+  it.effect("reopens the same tray window even if backend readiness changes while hidden", () =>
+    Effect.gen(function* () {
+      const fake = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const revealed = vi.fn();
+      yield* Effect.gen(function* () {
+        const window = yield* DesktopWindow.DesktopWindow;
+        yield* window.handleBackendReady(new URL("http://127.0.0.1:3773"));
+        yield* window.hideMain;
+        yield* window.handleBackendNotReady;
+        yield* window.activate;
+        assert.equal(fake.hide.mock.calls.length, 1);
+        assert.equal(revealed.mock.calls.length, 1);
+        assert.equal(yield* Ref.get(createCount), 1);
+        assert.equal(Option.getOrThrow(yield* Ref.get(mainWindow)), fake.window);
+      }).pipe(
+        Effect.provide(
+          makeTestLayer({ window: fake.window, createCount, mainWindow, onReveal: revealed }),
+        ),
+      );
+    }),
+  );
   it.effect("shows native context menus for browser guests and sign-in popups", () =>
     Effect.gen(function* () {
       const host = makeFakeBrowserWindow();

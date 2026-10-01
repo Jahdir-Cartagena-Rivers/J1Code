@@ -129,8 +129,8 @@ export const make = Effect.gen(function* () {
         }
         if (behavior === "quit") yield* stopAndQuit;
         else {
-          yield* window.flushMainWindowBounds;
-          yield* (yield* ElectronWindow.ElectronWindow).destroyAll;
+          // Keep the renderer and its window identity for tray activation.
+          yield* window.hideMain;
         }
       }).pipe(Effect.ensuring(Ref.set(closing, false)));
     }).pipe(Effect.catchCause((cause) => logError("Could not close J1 Code", { cause })));
