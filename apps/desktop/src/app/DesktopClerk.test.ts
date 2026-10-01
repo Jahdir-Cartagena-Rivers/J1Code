@@ -245,7 +245,7 @@ describe("DesktopClerk", () => {
         Effect.provideService(ElectronApp.ElectronApp, app),
         Effect.provideService(ElectronWindow.ElectronWindow, {
           currentMainOrFirst: Effect.succeedNone,
-        } as ElectronWindow.ElectronWindow["Service"]),
+        } as unknown as ElectronWindow.ElectronWindow["Service"]),
         Effect.provideService(DesktopWindow.DesktopWindow, {
           activate: Effect.sync(() => activated.resolve()),
         } as unknown as DesktopWindow.DesktopWindow["Service"]),
