@@ -14,6 +14,7 @@ import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopUpdates from "../updates/DesktopUpdates.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
 import * as BackgroundBackend from "../backend/DesktopBackgroundBackend.ts";
+import * as DesktopTray from "../app/DesktopTray.ts";
 import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
 
 export class DesktopApplicationMenuActionError extends Schema.TaggedError<DesktopApplicationMenuActionError>()(
@@ -38,6 +39,10 @@ export class DesktopApplicationMenu extends Context.Service<
 type DesktopApplicationMenuRuntimeServices =
   | DesktopUpdates.DesktopUpdates
   | DesktopWindow.DesktopWindow
+  | DesktopTray.DesktopTray
+  | DesktopBackendPool.DesktopBackendPool
+  | DesktopEnvironment.DesktopEnvironment
+  | ElectronApp.ElectronApp
   | ElectronDialog.ElectronDialog;
 
 const { logInfo: logUpdaterInfo } = makeComponentLogger("desktop-updater");
@@ -112,7 +117,7 @@ export const make = Effect.gen(function* () {
   const electronApp = yield* ElectronApp.ElectronApp;
   const electronMenu = yield* ElectronMenu.ElectronMenu;
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
-  const pool = yield* DesktopBackendPool.DesktopBackendPool;
+  const tray = yield* DesktopTray.DesktopTray;
   const appName = yield* electronApp.name;
   const context = yield* Effect.context<DesktopApplicationMenuRuntimeServices>();
   const runPromise = Effect.runPromiseWith(context);
@@ -155,14 +160,7 @@ export const make = Effect.gen(function* () {
             cancelId: 0,
           });
           if (record && response.response === 1) {
-            const instances = yield* pool.list;
-            yield* Effect.forEach(instances, (instance) => instance.stop(), {
-              concurrency: "unbounded",
-            });
-            yield* Effect.promise(() =>
-              BackgroundBackend.stopBackgroundServer(environment.baseDir),
-            );
-            yield* electronApp.quit;
+            yield* tray.stopAndQuit;
           }
         }),
       );

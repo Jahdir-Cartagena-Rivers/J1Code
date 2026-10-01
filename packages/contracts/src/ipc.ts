@@ -1121,6 +1121,9 @@ export const DesktopPreviewAutomationWaitForInputSchema = Schema.Struct({
 export const SystemSettingsPaneSchema = Schema.Literals(["full-disk-access"]);
 export type SystemSettingsPane = typeof SystemSettingsPaneSchema.Type;
 
+export const DesktopCloseBehaviorSchema = Schema.Literals(["ask", "tray", "quit"]);
+export type DesktopCloseBehavior = typeof DesktopCloseBehaviorSchema.Type;
+
 export interface DesktopBridge {
   getAppBranding: () => DesktopAppBranding | null;
   /** Absolute path of a dropped or picked file; absent on desktop builds predating it. */
@@ -1142,6 +1145,8 @@ export interface DesktopBridge {
   // The primary backend is identified by id === PRIMARY_LOCAL_ENVIRONMENT_ID.
   getLocalEnvironmentBootstraps: () => readonly DesktopEnvironmentBootstrap[];
   getLocalEnvironmentEnabled?: () => boolean;
+  getCloseBehavior?: () => DesktopCloseBehavior;
+  setCloseBehavior?: (behavior: DesktopCloseBehavior) => Promise<void>;
   setLocalEnvironmentEnabled?: (enabled: boolean) => Promise<void>;
   getLocalEnvironmentBearerToken: () => Promise<string>;
   getClientSettings: () => Promise<ClientSettings | null>;

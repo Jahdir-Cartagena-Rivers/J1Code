@@ -751,6 +751,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     localBackendManagementOnly: true,
   },
   {
+    id: "desktop-close-behavior",
+    title: "When closing J1 Code",
+    to: "/settings/connections",
+    targetId: "connections-environment",
+    searchTerms: ["tray close quit exit background remember popup"],
+    desktopOnly: true,
+  },
+  {
     id: "local-environment",
     title: "Local environment",
     to: "/settings/connections",

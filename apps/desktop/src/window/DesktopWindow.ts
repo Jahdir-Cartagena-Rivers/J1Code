@@ -1,3 +1,4 @@
+import { windowsRelaunchDetails } from "../app/DesktopWindowsRelaunch.ts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -420,6 +421,17 @@ export const make = Effect.gen(function* () {
       },
     });
 
+    if (environment.platform === "win32") {
+      window.setAppDetails(
+        windowsRelaunchDetails({
+          appId: environment.appUserModelId,
+          appName: environment.displayName,
+          executablePath: process.execPath,
+          portableExecutable: process.env.PORTABLE_EXECUTABLE_FILE,
+          iconPath: Option.getOrElse(iconPaths.ico, () => process.execPath),
+        }),
+      );
+    }
     if (environment.platform === "darwin") {
       window.setAutoHideCursor(false);
     }
