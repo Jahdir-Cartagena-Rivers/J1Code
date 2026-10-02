@@ -1,5 +1,9 @@
 # Updating J1 Code
 
+For installed J1 Windows builds, use the sidebar update control to download and install a published release. Private release feeds require your own GitHub CLI authentication or runtime GitHub token. Portable builds need a manual download from [J1 Releases](https://github.com/Jahdir-Rivers/J1Code/releases).
+
+The connected-server update commands below are retained from T3 Code. Official package feeds distribute upstream T3; a J1 source build should be rebuilt or replaced with the matching J1 runtime archive.
+
 The app you use and the server running your agents can be on different machines.
 When a server is behind your web or desktop app, an update notice appears in the
 conversation and **Settings → Connections**. Update the machine named in that

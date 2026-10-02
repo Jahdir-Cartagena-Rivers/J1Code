@@ -8,6 +8,8 @@
 - [Permission modes](./user/permission-modes.md)
 - [Terminal history](./user/terminal.md)
 - [Source control](./user/source-control.md)
+- [Hive Mind](./user/hive-mind.md)
+- [Windows background server](./user/j1-background-server.md)
 - [Project settings](./user/project-settings.md)
 - [Appearance and themes](./user/appearance.md)
 - [Keyboard shortcuts](./user/keybindings.md)

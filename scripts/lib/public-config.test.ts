@@ -15,6 +15,20 @@ afterEach(() => {
 });
 
 describe("loadRepoEnv", () => {
+  it("keeps cloud integrations disabled after copying the example environment", () => {
+    const repoRoot = makeTemporaryDirectory();
+    NodeFS.copyFileSync(
+      new URL("../../.env.example", import.meta.url),
+      NodePath.join(repoRoot, ".env"),
+    );
+    const env = loadRepoEnv({ baseEnv: {}, repoRoot });
+    expect(env.VITE_CLERK_PUBLISHABLE_KEY).toBeUndefined();
+    expect(env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY).toBeUndefined();
+    expect(env.VITE_T3CODE_RELAY_URL).toBeUndefined();
+    expect(env.T3CODE_DESKTOP_UPDATE_REPOSITORY).toBe("");
+    expect(env.T3CODE_DESKTOP_UPDATE_PRIVATE).toBe("false");
+  });
+
   it("does not project cloud configuration for an unconfigured clone", () => {
     const env = loadRepoEnv({ baseEnv: {}, repoRoot: makeTemporaryDirectory() });
 

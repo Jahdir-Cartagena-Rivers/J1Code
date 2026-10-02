@@ -1,19 +1,85 @@
-# J1 Code
+<p align="center">
+  <img src="assets/j1/icon.svg" width="96" alt="J1 Code logo" />
+</p>
 
-J1 Code is a personal fork of [T3 Code](https://github.com/pingdotgg/t3code), based on upstream **0.0.44**, commit c18e5ea6ed741443a8ec4a5d22d4b6939b0ecd21. Upstream authors and MIT licensing are retained.
+<h1 align="center">J1 Code</h1>
 
-The sidebar footer's circular-arrow button **refreshes saved Claude Code and Codex history** across your existing projects. It imports new conversations and appends new saved messages to previously imported conversations. **Live external chat viewing** is enabled by default and follows saved messages automatically while the external session continues. Toggle it in Settings → General. Long and compacted conversations preserve their saved history; ambiguous, rewritten or truncated histories and chats continued inside J1 are skipped.
+<p align="center">A local workspace for coding agents, shared memory, and work across providers.</p>
 
-J1 Code uses separate desktop and server profiles: %APPDATA%/j1code and ~/.j1. Fork release versions use the -j1.N suffix and omit the automatic desktop update feed. Upstream updates are merged and built manually.
+<p align="center">
+  <a href="https://github.com/Jahdir-Rivers/J1Code/releases">Downloads</a> ?
+  <a href="docs/README.md">Documentation</a> ?
+  <a href="CONTRIBUTING.md">Contributing</a> ?
+  <a href="LICENSE">MIT license</a>
+</p>
 
-The server retains the T3 wire protocol and history events. Official T3 mobile/web clients are expected to remain compatible with this base version; phone and relay behavior still require device validation. A separately branded mobile build uses its own app identifiers and no upstream OTA feed. Publishing it requires your own signing and Expo configuration.
+J1 Code brings your coding providers into one desktop, web, and mobile workspace. Use your own provider accounts, keep your projects and conversations on your machine, and coordinate work across configured agents.
 
-## Run and maintain
+Built on [T3 Code](https://github.com/pingdotgg/t3code), with its architecture and MIT attribution preserved. J1 is an independently maintained derivative, based on upstream **0.0.44**. It is not an official T3 Tools release.
 
-Use the locally built Windows portable executable in release/. It does not replace your installed T3 Code. See [fork maintenance](docs/operations/j1-fork.md) for builds, upstream updates, and data migration.
+## What J1 adds
 
-Configure and authenticate your existing coding providers before starting agent work. Refresh history only reads saved transcripts; it does not invoke a model.
+| Feature                 | What it does                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Shared Hive Mind        | Remember, recall, correct, and forget facts across provider chats and projects.                              |
+| Agent delegation        | Give bounded tasks to workers on configured providers and models; inspect their saved chats and results.     |
+| Saved history import    | Refresh Claude Code and Codex conversations from local transcripts, including supported compacted histories. |
+| Live external history   | Follow new saved messages while an external session continues.                                               |
+| Windows background work | Keep the server and active agent work running when the desktop closes to the tray.                           |
+| Separate profiles       | Keep J1 desktop and server data separate from your T3 installation.                                          |
 
-Agents can delegate tasks across configured providers and models through J1's MCP tools. For example, ask Claude to use a Codex worker for a bounded task and review its result. Workers appear as **Worker:** chats and in the lead's Agents panel. They share the lead's workspace and permission mode; the lead supplies the task context. Workers can delegate further, up to three levels, with eight active workers per lead and a default ten-minute deadline (up to thirty minutes). Stop the lead or use `cancel_agent` to cancel its descendants. Worker approvals remain in their own chats. Interrupted work is preserved and is not automatically rerun after a server restart.
+Provider adapters include Codex, Claude Code, Cursor, Grok, OpenCode, and Antigravity. Availability and capabilities depend on the provider runtime installed and authenticated on your machine.
 
-User guides: [project settings](docs/user/project-settings.md), [permissions](docs/user/permission-modes.md), and [remote access](docs/user/remote-access.md).
+## Get started
+
+1. Download the Windows x64 installer from [Releases](https://github.com/Jahdir-Rivers/J1Code/releases/latest). Current releases are unsigned; verify the published checksums before installing.
+2. Install and authenticate the coding provider you want to use.
+3. Open J1 Code, add your project, and configure your providers in Settings.
+
+Windows is the currently published desktop target. The source includes macOS, Linux, web, and mobile clients; those targets need their own builds and validation. Mobile distribution requires your own signing and Expo configuration. See [installation](docs/user/install.md) and [fork maintenance](docs/operations/j1-fork.md).
+
+## Build from source
+
+Use Node.js **24** within the version range in [package.json](package.json), and the repository's pinned pnpm/Vite+ tooling.
+
+### Install vp
+
+Install Vite+ using its [official setup instructions](https://viteplus.dev/guide/). Then, from your clone:
+
+```sh
+git clone https://github.com/Jahdir-Rivers/J1Code.git
+cd J1Code
+vp i
+vp run dev
+```
+
+Use the pairing URL printed by the dev runner to connect. To build the desktop client:
+
+```sh
+vp run build:desktop
+vp run dist:desktop:win:x64
+```
+
+Packaging prerequisites, portable builds, and the optional embedded WSL runtime are covered in [fork maintenance](docs/operations/j1-fork.md). Development commands and isolated test data are in the [development runbook](docs/operations/development.md).
+
+## Bring your own configuration
+
+Local use does not require a cloud service account. Authenticate providers through their own CLIs and configure local or LAN connections in J1.
+
+For optional cloud sign-in, a self-hosted relay, or desktop updates, copy [.env.example](.env.example) to `.env` and fill in your own values. Relay server credentials belong in the relay deployment's environment; see [infra/relay/.env.example](infra/relay/.env.example). Mobile builds use your own `J1CODE_*` signing and Expo identifiers.
+
+Desktop update feeds are opt-in when building. Set `T3CODE_DESKTOP_UPDATE_REPOSITORY=your-owner/your-repository`; set `T3CODE_DESKTOP_UPDATE_PRIVATE=true` only for a private feed. Provider tokens, GitHub credentials, pairing tokens, and user memories are runtime data, not release configuration to commit.
+
+J1 stores desktop preferences under `%APPDATA%/j1code` on Windows and server state under `~/.j1`. Keep these profiles, transcripts, memory exports, and `.env` files private. [Hive Mind](docs/user/hive-mind.md) starts with your own facts; imported personal memories are not part of the repository.
+
+## Learn more
+
+- [User guides](docs/README.md): providers, permissions, projects, connections, and source control.
+- [Hive Mind](docs/user/hive-mind.md): shared memory and corrections.
+- [Windows background server](docs/user/j1-background-server.md): tray and shutdown behavior.
+- [Maintenance and releases](docs/operations/j1-fork.md): builds, upstream updates, and migration.
+- [Security policy](.github/SECURITY.md): reporting a vulnerability.
+
+## Attribution
+
+J1 Code retains the [MIT license](LICENSE) and upstream attribution to T3 Tools. Third-party notices ship with the application. The `T3CODE_*` configuration names, `t3` CLI, and shared wire protocol remain for compatibility.

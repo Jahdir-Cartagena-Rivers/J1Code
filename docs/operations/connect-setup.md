@@ -6,14 +6,14 @@ provisioning instructions.
 
 ## Public application configuration
 
-T3 Connect is disabled in a fresh clone. To build against the production deployment, copy the
-repository-root example:
+Cloud sign-in and relay services are disabled in a fresh clone. Copy the
+repository-root example, then supply your own deployment's public identifiers:
 
 ```sh
 cp .env.example .env
 ```
 
-For another deployment, set these values in the repository-root `.env` or `.env.local`:
+Set these values in the repository-root `.env` or `.env.local`:
 
 ```dotenv
 T3CODE_CLERK_PUBLISHABLE_KEY=<publishable key>

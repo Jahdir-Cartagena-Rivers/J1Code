@@ -1,0 +1,59 @@
+name: J1 Code checks
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [j1-code]
+    paths:
+      - "apps/server/src/hiveMind/**"
+      - "apps/desktop/src/updates/**"
+      - "scripts/build-desktop-artifact*"
+      - "scripts/lib/public-config*"
+      - ".env.example"
+      - ".github/workflows/j1-checks.yml"
+  pull_request:
+    paths:
+      - "apps/server/src/hiveMind/**"
+      - "apps/desktop/src/updates/**"
+      - "scripts/build-desktop-artifact*"
+      - "scripts/lib/public-config*"
+      - ".env.example"
+      - ".github/workflows/j1-checks.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: j1-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+      - name: Test configuration, packaging, updates, and memory imports
+        run: >-
+          vp test run scripts/build-desktop-artifact.test.ts
+          scripts/lib/public-config.test.ts
+          apps/desktop/src/updates/DesktopUpdates.test.ts
+          apps/server/src/hiveMind/store.test.ts
+          apps/server/src/hiveMind/importNative.test.ts
+      - name: Lint the covered code
+        run: >-
+          vp lint scripts/build-desktop-artifact.ts scripts/build-desktop-artifact.test.ts
+          scripts/lib/public-config.ts scripts/lib/public-config.test.ts
+          apps/desktop/src/updates/DesktopUpdates.test.ts
+          apps/server/src/hiveMind/store.ts apps/server/src/hiveMind/store.test.ts
+          apps/server/src/hiveMind/importNative.test.ts
