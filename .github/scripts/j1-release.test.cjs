@@ -16,6 +16,21 @@ const version = "0.0.44-j1.11";
 const sha = "a".repeat(40);
 const repository = "example/J1Code";
 
+function releaseView(release) {
+  if (!release) {
+    const error = new Error("not found");
+    error.stderr = "release not found";
+    throw error;
+  }
+  return JSON.stringify({
+    targetCommitish: release.target_commitish,
+    isDraft: release.draft,
+    isPrerelease: release.prerelease,
+    assets: release.assets,
+    url: release.html_url,
+  });
+}
+
 function fixture(t) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "j1-release-test-"));
   t.after(() => {
@@ -84,6 +99,11 @@ test("blocks superseded builds and tags owned by a different commit", () => {
       assertPublishable({ ...args, release: { target_commitish: sha }, tagSha: "b".repeat(40) }),
     /different commit/,
   );
+  assert.equal(
+    assertPublishable({ ...args, release: { target_commitish: sha, draft: true }, tagSha: null }),
+    "publish-draft",
+  );
+  assert.throws(() => assertPublishable({ ...args, tagSha: "b".repeat(40) }), /different commit/);
 });
 
 test("never rewrites an existing complete published release", () => {
@@ -110,22 +130,20 @@ test("never rewrites an existing complete published release", () => {
   );
 });
 
-test("publishes only after a complete draft upload and second head check", (t) => {
+test("publishes a complete pending-tag draft and leaves published retries unchanged", (t) => {
   const { directory } = fixture(t);
   const calls = [];
   let release = null;
   const fakeGh = (args) => {
     calls.push(args);
     if (args[0] === "api") {
-      if (args[1].endsWith("git/ref/heads/j1-code") || args[1].includes("git/ref/tags/"))
-        return JSON.stringify({ object: { sha } });
-      if (!release) {
-        const error = new Error("not found");
-        error.stderr = "HTTP 404";
-        throw error;
-      }
-      return JSON.stringify(release);
+      if (args[1].endsWith("git/ref/heads/j1-code")) return JSON.stringify({ object: { sha } });
+      if (release && !release.draft) return JSON.stringify({ object: { sha } });
+      const error = new Error("pending tag");
+      error.stderr = "HTTP 404";
+      throw error;
     }
+    if (args[1] === "view") return releaseView(release);
     if (args[1] === "create")
       release = {
         target_commitish: sha,
@@ -137,15 +155,24 @@ test("publishes only after a complete draft upload and second head check", (t) =
       release.assets = args
         .slice(args.indexOf("--clobber") + 1)
         .map((file) => ({ name: path.basename(file), size: fs.statSync(file).size }));
+    if (args[1] === "edit") release.draft = false;
     return "";
   };
   assert.equal(
     publishRelease(directory, version, { GITHUB_REPOSITORY: repository, GITHUB_SHA: sha }, fakeGh),
     "https://example.test/release",
   );
-  const mutations = calls.filter((args) => args[0] === "release").map((args) => args[1]);
+  const mutations = calls
+    .filter((args) => args[0] === "release" && args[1] !== "view")
+    .map((args) => args[1]);
   assert.deepEqual(mutations, ["create", "upload", "edit"]);
   assert.ok(calls.at(-1).includes("--draft=false"));
+  calls.length = 0;
+  assert.equal(
+    publishRelease(directory, version, { GITHUB_REPOSITORY: repository, GITHUB_SHA: sha }, fakeGh),
+    "https://example.test/release",
+  );
+  assert.ok(!calls.some((args) => args[0] === "release" && args[1] !== "view"));
 });
 
 test("partial upload stays a draft and API failures are not treated as missing releases", (t) => {
@@ -154,12 +181,13 @@ test("partial upload stays a draft and API failures are not treated as missing r
   const calls = [];
   const fakeGh = (args) => {
     calls.push(args);
+    if (args[1] === "view")
+      return releaseView(created ? { target_commitish: sha, draft: true, assets: [] } : null);
     if (args[0] !== "api") {
       if (args[1] === "create") created = true;
       return "";
     }
     if (args[1].endsWith("git/ref/heads/j1-code")) return JSON.stringify({ object: { sha } });
-    if (created) return JSON.stringify({ target_commitish: sha, draft: true, assets: [] });
     const error = new Error("not found");
     error.stderr = "HTTP 404";
     throw error;
