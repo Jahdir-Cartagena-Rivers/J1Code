@@ -58,6 +58,7 @@ import * as Stream from "effect/Stream";
 import { appendUserInputAttachmentPaths } from "../userInputAttachments.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import * as ServerConfig from "../../config.ts";
+import { hiveContext } from "../../hiveMind/store.ts";
 import * as DeviceService from "../../device/DeviceService.ts";
 import { ensureAgentDeviceShim } from "../../device/AgentDeviceShim.ts";
 import type * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
@@ -1769,6 +1770,27 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
             ].join("\n")
           : undefined,
       );
+    }
+
+    if (inputTextWithAttachmentContext) {
+      const context = yield* Effect.try({
+        try: () =>
+          hiveContext(`${serverConfig.stateDir}/hive-mind.json`, inputTextWithAttachmentContext!),
+        catch: (error) => String(error),
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("Hive Mind memory could not be read; continuing without it", {
+            error,
+          }).pipe(Effect.as("")),
+        ),
+      );
+      if (
+        context &&
+        inputTextWithAttachmentContext.length + context.length + 2 <=
+          PROVIDER_SEND_TURN_MAX_INPUT_CHARS
+      ) {
+        inputTextWithAttachmentContext = `${inputTextWithAttachmentContext}\n\n${context}`;
+      }
     }
 
     const input = {

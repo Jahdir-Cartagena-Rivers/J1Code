@@ -1,0 +1,47 @@
+name: J1 Linux runtime artifact
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+      - name: Build J1 server and web client
+        run: vp run --filter t3 build
+      - name: Build resource monitor
+        run: cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml
+      - name: Build Linux executable
+        env:
+          VP_NODE_VERSION: "26.8.2"
+        run: node apps/server/scripts/cli.ts build-exe --verbose
+      - name: Package and smoke-test Linux runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          monitor_dir="$RUNNER_TEMP/cli-resource-monitor/linux-x64"
+          version="$(node -p "require('./apps/desktop/package.json').version")"
+          mkdir -p "$monitor_dir"
+          cp native/resource-monitor/target/release/t3-resource-monitor "$monitor_dir/"
+          node scripts/build-cli-archive.ts \
+            --platform linux --arch x64 --version "$version" \
+            --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
+            --output-dir release-cli
+          node scripts/smoke-cli-archive.ts \
+            --archive "release-cli/t3-${version}-linux-x64.tar.gz" \
+            --expect-version "$version"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: j1-linux-runtime
+          path: release-cli/t3-*-linux-x64.tar.gz
+          if-no-files-found: error

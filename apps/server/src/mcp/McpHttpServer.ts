@@ -34,6 +34,8 @@ import { PullRequestsToolkitHandlersLive } from "./toolkits/pullRequests/handler
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
 import { AgentsToolkitHandlersLive } from "./toolkits/agents/handlers.ts";
 import { AgentsToolkit } from "./toolkits/agents/tools.ts";
+import { HiveMindToolkitHandlersLive } from "./toolkits/hiveMind/handlers.ts";
+import { HiveMindToolkit } from "./toolkits/hiveMind/tools.ts";
 import { AgentDelegationLive } from "./AgentDelegation.ts";
 import {
   DeviceScreenshotToolkitHandlersLive,
@@ -655,6 +657,10 @@ export const AgentsToolkitRegistrationLive = McpServer.toolkit(AgentsToolkit).pi
   Layer.provide(AgentDelegationLive),
 );
 
+export const HiveMindToolkitRegistrationLive = McpServer.toolkit(HiveMindToolkit).pipe(
+  Layer.provide(HiveMindToolkitHandlersLive),
+);
+
 const DeviceStandardToolkitRegistrationLive = McpServer.toolkit(DeviceStandardToolkit).pipe(
   Layer.provide(DeviceStandardToolkitHandlersLive),
 );
@@ -679,5 +685,6 @@ export const layer = Layer.mergeAll(
   PreviewToolkitRegistrationLive,
   PullRequestsToolkitRegistrationLive,
   AgentsToolkitRegistrationLive,
+  HiveMindToolkitRegistrationLive,
   DeviceToolkitRegistrationLive,
 ).pipe(Layer.provideMerge(McpTransportLive));

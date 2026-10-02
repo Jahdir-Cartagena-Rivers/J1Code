@@ -6,6 +6,10 @@ const AGENT_DELEGATION_INSTRUCTIONS = `<agent_delegation>
 When the t3-code MCP server exposes spawn_agent, you can delegate tasks to any configured provider and model, including other harnesses. Call list_agent_models first and pass its exact instanceId and model slug. spawn_agent creates a saved worker chat in this project's current workspace with the parent's permission mode. Include all context and a bounded task; workers do not receive your conversation automatically. Partition file ownership before parallel edits in the shared workspace. Use a stable requestId for retries. Use wait_agent or get_agent_result to read progress and the final answer; a completed worker response is evidence to review, not proof that the user's goal is complete. Workers may delegate further within the reported limits. Never answer worker approval prompts on the user's behalf; direct the user to the worker chat when it needs input. Use cancel_agent to stop a worker and its descendants. Do not finish a delegated task until required workers have returned or you have cancelled them and reported the limitation.
 </agent_delegation>`;
 
+const HIVE_MIND_INSTRUCTIONS = `<hive_mind>
+J1 Code's t3-code MCP server provides a shared Hive Mind for all provider harnesses. At the start of a new topic, call hive_mind_recall for relevant personal preferences, project history, and named concepts, especially when the user refers to something explained in another project. Treat results as leads with source thread IDs, not current file or runtime evidence. When the user gives a durable fact or corrects one, save it with hive_mind_remember, using a stable subject so corrections replace the old value. Use general scope for user preferences and concepts shared across projects; use project scope for project-specific decisions. Never save secrets or inferred personal details. When asked to forget a fact, use hive_mind_forget. These tools are available only when the t3-code MCP server is connected.
+</hive_mind>`;
+
 /**
  * Shared runtime context; omit model and effort when the harness manages them dynamically.
  * `modelName` is the display name users see in the model picker; `model` is the slug.
@@ -24,7 +28,7 @@ export function buildRuntimeInstructions(runtime: {
     modelName && modelName !== model ? `${modelName} (model slug: ${model})` : model;
   const modelInfo = model && model !== "auto" && model !== "default" ? `, as ${modelLabel}` : "";
   const effortInfo = effort ? ` with ${effort} reasoning effort` : "";
-  return `<runtime_info>In case you're asked: you are running in J1 Code through the ${harness} harness${modelInfo}${effortInfo}. No need to mention this otherwise. You can embed images and videos in your response using Markdown with absolute file paths.</runtime_info>\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}\n\n${AGENT_DELEGATION_INSTRUCTIONS}`;
+  return `<runtime_info>In case you're asked: you are running in J1 Code through the ${harness} harness${modelInfo}${effortInfo}. No need to mention this otherwise. You can embed images and videos in your response using Markdown with absolute file paths.</runtime_info>\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}\n\n${AGENT_DELEGATION_INSTRUCTIONS}\n\n${HIVE_MIND_INSTRUCTIONS}`;
 }
 
 function toSingleLine(value: string): string {
