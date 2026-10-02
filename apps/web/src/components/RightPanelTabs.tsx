@@ -1112,9 +1112,14 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           // The sheet overlays from the viewport top, so its tab bar keeps
           // the titlebar's height: a compact row re-centers the layout
           // controls a few pixels higher and the cluster jumps on open.
-          props.mode === "inline" && !props.layoutControls ? "pr-28" : "pr-3",
+          props.mode === "inline" && !props.layoutControls
+            ? "pr-(--chat-panel-controls-inset,calc(var(--spacing)*28))"
+            : "pr-3",
           ownsDesktopTitleBar && "drag-region",
-          ownsDesktopTitleBar && "wco:pr-(--workspace-native-controls-inset)",
+          ownsDesktopTitleBar &&
+            (props.mode === "inline" && !props.layoutControls
+              ? "wco:pr-(--chat-panel-controls-native-inset,var(--workspace-native-controls-inset))"
+              : "wco:pr-(--workspace-native-controls-inset)"),
           props.mode === "inline" && props.maximized && COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
         )}
         data-right-panel-tabbar
@@ -1399,7 +1404,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
         {ownsDesktopTitleBar ? (
           <span
             aria-hidden
-            className="pointer-events-none fixed top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] h-[var(--workspace-topbar-height)] w-28 [-webkit-app-region:no-drag]"
+            className="pointer-events-none fixed top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] h-[var(--workspace-topbar-height)] w-(--chat-controls-width,calc(var(--spacing)*28)) [-webkit-app-region:no-drag]"
           />
         ) : null}
       </div>

@@ -492,9 +492,11 @@ export const ChatHeader = memo(function ChatHeader({
         data-chat-header-actions
         className={cn(
           "flex shrink-0 items-center justify-end gap-2 @3xl/header-actions:gap-3",
-          // Reserve two panel toggles plus their 4px gaps and 1px edge inset.
+          // The fixed toolbar reports its full width, including Dot and hidden panel toggles.
           // The page header adds 8px more right padding at sm.
-          rightPanelOpen ? "pr-0" : "pr-18.25 sm:pr-14.25",
+          rightPanelOpen
+            ? "pr-0"
+            : "pr-(--chat-controls-width) sm:pr-(--chat-controls-sm-inset) wco:pr-(--chat-controls-width)",
           "[[data-panel-animations=true]_&]:motion-safe:transition-[padding-right] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out",
         )}
       >

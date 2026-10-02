@@ -91,6 +91,7 @@ import { Atom } from "effect/unstable/reactivity";
 import {
   lazy,
   memo,
+  type CSSProperties,
   type SetStateAction,
   Suspense,
   useCallback,
@@ -1740,6 +1741,20 @@ export default function ChatView(props: ChatViewProps) {
     null,
   );
   const [dotView, setDotView] = useState<{ threadKey: string; tabId: string } | null>(null);
+  const [titlebarControlsElement, setTitlebarControlsElement] = useState<HTMLDivElement | null>(
+    null,
+  );
+  const [titlebarControlsWidth, setTitlebarControlsWidth] = useState(0);
+  useLayoutEffect(() => {
+    if (!titlebarControlsElement) return;
+    // Include hidden toggles and changing Dot labels when reserving space beside other actions.
+    const updateWidth = () =>
+      setTitlebarControlsWidth(titlebarControlsElement.getBoundingClientRect().width + 1);
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(titlebarControlsElement);
+    return () => observer.disconnect();
+  }, [titlebarControlsElement]);
   const [respondingRequestIds, setRespondingRequestIds] = useState<ApprovalRequestId[]>([]);
   const userInputResponsesInFlight = useRef(new Set<string>());
   const [respondingUserInputRequestIds, setRespondingUserInputRequestIds] = useState<
@@ -9505,6 +9520,7 @@ export default function ChatView(props: ChatViewProps) {
   );
   const panelLayoutControls = (
     <div
+      ref={setTitlebarControlsElement}
       className={cn(
         // Keep one viewport anchor inside the header's no-drag region. The
         // header can shrink behind the right panel without moving the controls.
@@ -9513,7 +9529,7 @@ export default function ChatView(props: ChatViewProps) {
       data-workspace-titlebar-controls
     >
       {activeThreadRef ? (
-        <div className="pointer-events-auto flex items-center">
+        <div className="pointer-events-auto flex shrink-0 items-center">
           <DotChatControl
             threadRef={activeThreadRef}
             active={
@@ -9724,7 +9740,20 @@ export default function ChatView(props: ChatViewProps) {
   });
 
   return (
-    <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background">
+    <div
+      className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background"
+      style={
+        {
+          "--chat-controls-width": `calc(${titlebarControlsWidth}px + var(--spacing) * 2)`,
+          "--chat-controls-sm-inset": "calc(var(--chat-controls-width) - var(--spacing) * 2)",
+          "--chat-panel-controls-inset":
+            "calc(var(--chat-controls-width) + var(--workspace-controls-right))",
+          // The native panel also reserves a 24-unit spacer beside its tabs.
+          "--chat-panel-controls-native-inset":
+            "calc(var(--chat-panel-controls-inset) - var(--spacing) * 24)",
+        } as CSSProperties
+      }
+    >
       <Dialog
         open={
           deviceSetupThread !== null &&
@@ -9766,7 +9795,7 @@ export default function ChatView(props: ChatViewProps) {
           {isElectron && rightPanelControlsAtRoot ? (
             <span
               aria-hidden
-              className="pointer-events-none fixed top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] h-[var(--workspace-topbar-height)] w-28 [-webkit-app-region:no-drag]"
+              className="pointer-events-none fixed top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] h-[var(--workspace-topbar-height)] w-(--chat-controls-width) [-webkit-app-region:no-drag]"
             />
           ) : null}
           {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
