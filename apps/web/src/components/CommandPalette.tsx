@@ -1,5 +1,7 @@
 "use client";
 
+import { getRootChats } from "@t3tools/client-runtime/worker-chats";
+
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 
@@ -775,7 +777,11 @@ function OpenCommandPaletteDialog(props: {
     }
   }, [activeThreadReferenceCopyTarget]);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
-  const threads = useThreadShells();
+  const allThreadShells = useThreadShells();
+  const threads = useMemo(
+    () => (clientSettings.workerChatsInSidebar ? allThreadShells : getRootChats(allThreadShells)),
+    [allThreadShells, clientSettings.workerChatsInSidebar],
+  );
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const {
     theme,

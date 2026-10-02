@@ -20,6 +20,16 @@ const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
 
+describe("worker chat presentation settings", () => {
+  it("enables folding for existing installations and persists the opt-out", () => {
+    expect(decodeClientSettings({}).workerChatsInSidebar).toBe(true);
+    const disabled = { workerChatsInSidebar: false };
+    expect(decodeClientSettingsPatch(disabled)).toEqual(disabled);
+    expect(encodeClientSettings(decodeClientSettings(disabled))).toMatchObject(disabled);
+    expect(decodeClientSettingsPatch({})).not.toHaveProperty("workerChatsInSidebar");
+  });
+});
+
 describe("storage cleanup settings", () => {
   it("keeps cleanup disabled for existing installations", () => {
     expect(decodeServerSettings({}).worktreeCleanup).toBeNull();

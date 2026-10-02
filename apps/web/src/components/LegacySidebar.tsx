@@ -1,6 +1,8 @@
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
 import { Spinner } from "~/components/ui/spinner";
+import { useRootChatShells, WorkerChatTree } from "./WorkerChats";
+import { getRootChats } from "@t3tools/client-runtime/worker-chats";
 import {
   ArchiveIcon,
   ArrowUpDownIcon,
@@ -84,12 +86,7 @@ import { isTerminalFocused } from "../lib/terminalFocus";
 import { isMacPlatform } from "../lib/utils";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
-import {
-  readThreadShell,
-  useProjects,
-  useThreadShells,
-  useThreadShellsForProjectRefs,
-} from "../state/entities";
+import { readThreadShell, useProjects, useThreadShellsForProjectRefs } from "../state/entities";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useThreadRunningTerminalIds } from "../state/terminalSessions";
 import { useThreadDiscoveredPorts } from "../portDiscoveryState";
@@ -946,6 +943,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           </div>
         </div>
       </div>
+      <WorkerChatTree parent={threadRef} onFileDropThreads={onFileDropThreads} />
     </SidebarMenuSubItem>
   );
 });
@@ -1251,7 +1249,8 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     },
   });
   const openPrLink = useOpenPrLink();
-  const sidebarThreads = useThreadShellsForProjectRefs(project.memberProjectRefs);
+  const projectThreadShells = useThreadShellsForProjectRefs(project.memberProjectRefs);
+  const sidebarThreads = useMemo(() => getRootChats(projectThreadShells), [projectThreadShells]);
   const sidebarThreadByKey = useMemo(
     () =>
       new Map(
@@ -3126,7 +3125,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
 
 export default function LegacySidebar() {
   const projects = useProjects();
-  const sidebarThreads = useThreadShells();
+  const sidebarThreads = useRootChatShells();
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);

@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./worker-chats": {
+      "types": "./src/workerChats.ts",
+      "default": "./src/workerChats.ts"
+    },
     "./device/stream": {
       "types": "./src/device/stream.ts",
       "default": "./src/device/stream.ts"

@@ -556,6 +556,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.inAppNotificationsEnabled !== DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled
         ? ["In-app notifications"]
         : []),
+      ...(settings.workerChatsInSidebar !== DEFAULT_UNIFIED_SETTINGS.workerChatsInSidebar
+        ? ["Worker chats in sidebar"]
+        : []),
       ...(settings.sidebarThreadPreviewCount !== DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount
         ? ["Visible threads"]
         : []),
@@ -689,6 +692,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sidebarAutoSettleOnMerge,
       settings.sidebarProjectGroupingMode,
       settings.sidebarThreadPreviewCount,
+      settings.workerChatsInSidebar,
       settings.showSkillsInSlashMenu,
       settings.timestampFormat,
       settings.notificationMode,
@@ -784,6 +788,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
+      workerChatsInSidebar: DEFAULT_UNIFIED_SETTINGS.workerChatsInSidebar,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,
       sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
@@ -2238,6 +2243,30 @@ export function GeneralSettingsPanel() {
     <SettingsPageContainer>
       <ProjectDefaultsSettings category="general" />
       <SettingsSection id="organization" title="Organization">
+        <SettingsRow
+          {...searchableSetting("worker-chats-in-sidebar")}
+          description="Unfold up to four worker chats beneath their parent in the sidebar. New workers replace the oldest visible chat. Turn off to open workers only from their parent chat."
+          resetAction={
+            settings.workerChatsInSidebar !== DEFAULT_UNIFIED_SETTINGS.workerChatsInSidebar ? (
+              <SettingResetButton
+                label="worker chats in sidebar"
+                onClick={() =>
+                  updateSettings({
+                    workerChatsInSidebar: DEFAULT_UNIFIED_SETTINGS.workerChatsInSidebar,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.workerChatsInSidebar}
+              onCheckedChange={(checked) =>
+                updateSettings({ workerChatsInSidebar: Boolean(checked) })
+              }
+            />
+          }
+        />
         <SettingsRow
           {...searchableSetting("project-grouping")}
           description="Combine matching repositories across environments."

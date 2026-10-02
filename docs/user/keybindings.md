@@ -40,7 +40,7 @@ or “Copy Number”. They copy the selected PR and leave terminal input alone.
 ## iPad
 
 With a hardware keyboard, use `Cmd+1` through `Cmd+9` to open the first nine
-displayed threads. The shortcuts follow the current list filters and order.
+displayed top-level threads. The shortcuts follow the current list filters and order.
 `Cmd+K` opens the command palette to search commands, projects, and threads.
 Use the arrow keys and Return to choose a result, or `Cmd+1` through `Cmd+9` to
 choose directly. Escape or `Cmd+K` closes the palette. Start a search with `>`
@@ -89,7 +89,7 @@ Available context keys are `terminalFocus`, `terminalOpen`, `previewFocus`,
 the keyboard. `isWeb` is true in a browser tab. `isDesktop` is true in the
 desktop app. Unknown keys evaluate to `false`.
 
-`mod+1` through `mod+9` jump to the first nine threads, and to models while the
+`mod+1` through `mod+9` jump to the first nine top-level threads, and to models while the
 model picker is open. Those defaults use `isDesktop` so they do not steal the
 browser's tab-switch shortcuts. Remove that condition in Settings if you want
 the same jumps in a browser.

@@ -1,3 +1,4 @@
+import { WorkerChatTree } from "./WorkerChats";
 import {
   THREAD_LIST_V2_MONO_FONT as MONO_FONT,
   THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME,
@@ -1231,6 +1232,10 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           </ControlPillMenu>
         )}
       </ThreadSwipeable>
+      <WorkerChatTree
+        parent={{ environmentId: thread.environmentId, threadId: thread.id }}
+        onSelectThread={onSelectThread}
+      />
     </View>
   );
 });

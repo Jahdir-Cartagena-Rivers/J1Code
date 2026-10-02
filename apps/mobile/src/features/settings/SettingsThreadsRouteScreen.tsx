@@ -43,6 +43,7 @@ export function SettingsThreadsRouteScreen() {
           contentContainerClassName="gap-6 px-5 pt-4"
           contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
         >
+          <WorkerChatSettingsSection />
           <AutoSettleSettingsRows />
           <LegacySettingsSection />
         </ScrollView>
@@ -239,6 +240,29 @@ function LegacySettingsSection() {
       <Text className="px-2 text-sm text-foreground-muted">
         Opt into retired interfaces kept for compatibility. Plan Mode restores the Build/Plan
         control; otherwise every task runs in Build mode.
+      </Text>
+    </View>
+  );
+}
+
+function WorkerChatSettingsSection() {
+  const save = useAtomSet(updateMobilePreferencesAtom);
+  const result = useAtomValue(mobilePreferencesAtom);
+  const loaded = AsyncResult.isSuccess(result);
+  return (
+    <View className="gap-3">
+      <SettingsSection title="Worker chats">
+        <SettingsSwitchRow
+          icon="arrow.triangle.branch"
+          label="Worker chats in sidebar"
+          value={!loaded || result.value.workerChatsInSidebar !== false}
+          disabled={!loaded}
+          onValueChange={(value) => save({ workerChatsInSidebar: value })}
+        />
+      </SettingsSection>
+      <Text className="px-2 text-sm text-foreground-muted">
+        Unfold up to four workers beneath their parent. New workers replace the oldest visible chat.
+        Turn off to open workers only from their parent chat.
       </Text>
     </View>
   );

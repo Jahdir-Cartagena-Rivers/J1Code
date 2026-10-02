@@ -25,6 +25,18 @@ in a new thread's model picker to add or remove them. A regular click returns to
 single model. Choose a base branch and send. Each selection starts a separate thread
 and worktree while you stay in the new thread composer. This requires a Git project.
 
+## Worker chats
+
+Saved worker chats appear beneath the chat that spawned them. Fold a worker or
+its group to hide it, and use **Worker chats** inside the parent chat to open any
+worker or unfold it again. Each parent shows at most four unfolded workers; a
+new worker replaces the oldest visible one. Folding never deletes a chat or stops
+its agent. Thread jump shortcuts target top-level chats.
+
+Turn off **Worker chats in sidebar** in **Settings → General → Organization**
+to access workers only inside their parent chat. On mobile, this preference is
+in **Settings → Thread behavior**. Fold choices are remembered on each device.
+
 ## Pin and reorder threads
 
 Pin a thread from its menu to keep it above your active work.
