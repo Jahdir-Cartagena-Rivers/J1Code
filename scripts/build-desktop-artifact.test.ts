@@ -658,6 +658,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
     assert.deepStrictEqual(DESKTOP_FILE_EXCLUSIONS, [
       "!**/node_modules/@anthropic-ai/claude-agent-sdk-*/**/*",
+      "!**/node_modules/.modules.yaml",
+      "!**/node_modules/.pnpm-workspace-state-v1.json",
       "!**/*.map",
       "!**/*.d.cts",
       "!apps/desktop/resources/browser-secret",
@@ -762,6 +764,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         "**/node_modules/@anthropic-ai/claude-agent-sdk-*/**",
         "**/node_modules/.bin",
         "**/node_modules/.bin/**",
+        "**/node_modules/.modules.yaml",
+        "**/node_modules/.pnpm-workspace-state-v1.json",
         "**/*.map",
       ]);
       assert.deepStrictEqual(mac.dmg, {
@@ -895,50 +899,65 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     ]);
   });
 
-  it.effect("keeps target native files while excluding the other Windows architecture", () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const tempDir = yield* fs.makeTempDirectoryScoped({
-          prefix: "t3-windows-architecture-test-",
-        });
-        const sourceDir = path.join(tempDir, "server");
-        const nativeFiles = [
-          "node_modules/node-pty/prebuilds/win32-x64/conpty/OpenConsole.exe",
-          "node_modules/node-pty/prebuilds/win32-arm64/conpty/OpenConsole.exe",
-          "node_modules/node-pty/third_party/conpty/1.0.0/win10-x64/OpenConsole.exe",
-          "node_modules/node-pty/third_party/conpty/1.0.0/win10-arm64/OpenConsole.exe",
-        ];
+  it.effect(
+    "keeps target native files while excluding other architectures and private install metadata",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const tempDir = yield* fs.makeTempDirectoryScoped({
+            prefix: "t3-windows-architecture-test-",
+          });
+          const sourceDir = path.join(tempDir, "server");
+          const nativeFiles = [
+            "node_modules/node-pty/prebuilds/win32-x64/conpty/OpenConsole.exe",
+            "node_modules/node-pty/prebuilds/win32-arm64/conpty/OpenConsole.exe",
+            "node_modules/node-pty/third_party/conpty/1.0.0/win10-x64/OpenConsole.exe",
+            "node_modules/node-pty/third_party/conpty/1.0.0/win10-arm64/OpenConsole.exe",
+          ];
 
-        for (const nativeFile of nativeFiles) {
-          const nativePath = path.join(sourceDir, nativeFile);
-          yield* fs.makeDirectory(path.dirname(nativePath), { recursive: true });
-          yield* fs.writeFileString(nativePath, "native");
-        }
+          for (const nativeFile of nativeFiles) {
+            const nativePath = path.join(sourceDir, nativeFile);
+            yield* fs.makeDirectory(path.dirname(nativePath), { recursive: true });
+            yield* fs.writeFileString(nativePath, "native");
+          }
 
-        const asarPath = path.join(tempDir, "server.asar");
-        yield* packWindowsServerAsar({ sourceDir, asarPath, arch: "x64" });
-        const unpackedRoot = `${asarPath}.unpacked`;
+          for (const name of [".modules.yaml", ".pnpm-workspace-state-v1.json"]) {
+            yield* fs.writeFileString(
+              path.join(sourceDir, "node_modules", name),
+              "fixture-build-user-private-path",
+            );
+          }
 
-        assert.isTrue(
-          yield* fs.exists(
-            path.join(
-              unpackedRoot,
-              "node_modules/node-pty/prebuilds/win32-x64/conpty/OpenConsole.exe",
+          const asarPath = path.join(tempDir, "server.asar");
+          yield* packWindowsServerAsar({ sourceDir, asarPath, arch: "x64" });
+          const archived = new TextDecoder().decode(yield* fs.readFile(asarPath));
+          assert.isFalse(archived.includes("fixture-build-user-private-path"));
+          assert.isFalse(archived.includes(".modules.yaml"));
+          assert.isFalse(archived.includes(".pnpm-workspace-state-v1.json"));
+          const unpackedRoot = `${asarPath}.unpacked`;
+
+          assert.isTrue(
+            yield* fs.exists(
+              path.join(
+                unpackedRoot,
+                "node_modules/node-pty/prebuilds/win32-x64/conpty/OpenConsole.exe",
+              ),
             ),
-          ),
-        );
-        assert.isFalse(
-          yield* fs.exists(path.join(unpackedRoot, "node_modules/node-pty/prebuilds/win32-arm64")),
-        );
-        assert.isFalse(
-          yield* fs.exists(
-            path.join(unpackedRoot, "node_modules/node-pty/third_party/conpty/1.0.0/win10-arm64"),
-          ),
-        );
-      }),
-    ),
+          );
+          assert.isFalse(
+            yield* fs.exists(
+              path.join(unpackedRoot, "node_modules/node-pty/prebuilds/win32-arm64"),
+            ),
+          );
+          assert.isFalse(
+            yield* fs.exists(
+              path.join(unpackedRoot, "node_modules/node-pty/third_party/conpty/1.0.0/win10-arm64"),
+            ),
+          );
+        }),
+      ),
   );
 
   it.effect("stages a cached resource monitor without invoking Cargo", () =>
