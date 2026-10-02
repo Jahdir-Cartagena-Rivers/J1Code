@@ -34,6 +34,7 @@ import {
   selectCliRuntimeExternalDependencies,
 } from "./lib/cli-external-packages.ts";
 import { loadRepoEnv } from "./lib/public-config.ts";
+import * as ConfigProvider from "effect/ConfigProvider";
 import { selectDesktopRuntimeExternalDependencies } from "./lib/desktop-external-packages.ts";
 import { resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
 
@@ -3970,9 +3971,15 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
 const cliRuntimeLayer = Layer.mergeAll(Logger.layer([Logger.consolePretty()]), NodeServices.layer);
 
 if (import.meta.main) {
+  const env: Record<string, string> = {};
+  for (const [name, value] of Object.entries(loadRepoEnv())) {
+    if (value !== undefined) env[name] = value;
+  }
   Command.run(buildDesktopArtifactCli, { version: "0.0.0" }).pipe(
     Effect.scoped,
-    Effect.provide(cliRuntimeLayer),
+    Effect.provide(
+      Layer.mergeAll(cliRuntimeLayer, ConfigProvider.layer(ConfigProvider.fromEnv({ env }))),
+    ),
     NodeRuntime.runMain,
   );
 }
