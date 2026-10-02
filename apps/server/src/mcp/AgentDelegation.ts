@@ -13,6 +13,8 @@ import {
   type OrchestrationCommand,
   type OrchestrationEvent,
   type OrchestrationThreadShell,
+  type ProjectId,
+  type RuntimeMode,
   SpawnAgentInput,
   ThreadId,
 } from "@t3tools/contracts";
@@ -40,6 +42,20 @@ import type { OrchestrationDispatchError } from "../orchestration/Errors.ts";
 import type { ProjectionRepositoryError } from "../persistence/Errors.ts";
 import { type McpInvocationScope } from "./McpInvocationContext.ts";
 
+/** Created only by the Dot adapter after checking its durable project grant. */
+export interface DotTaskInvocation {
+  readonly kind: "dot";
+  readonly connectionId: string;
+  readonly projectId: ProjectId;
+  readonly runtimeMode: RuntimeMode;
+  readonly threadId: ThreadId;
+  readonly taskThreadId?: ThreadId;
+  readonly capabilities: ReadonlySet<"agents">;
+}
+type TaskInvocation = McpInvocationScope | DotTaskInvocation;
+const isDotInvocation = (invocation: TaskInvocation): invocation is DotTaskInvocation =>
+  "kind" in invocation && invocation.kind === "dot";
+
 const active = (status: AgentDelegationStatus) =>
   status === "starting" || status === "running" || status === "waiting";
 const failure = (message: string) => new AgentDelegationError({ message });
@@ -57,7 +73,7 @@ interface Job {
 export class AgentDelegation extends Context.Service<
   AgentDelegation,
   {
-    readonly models: (invocation: McpInvocationScope) => Effect.Effect<
+    readonly models: (invocation: TaskInvocation) => Effect.Effect<
       {
         providers: ReadonlyArray<{
           instanceId: string;
@@ -74,23 +90,23 @@ export class AgentDelegation extends Context.Service<
     >;
     readonly spawn: (
       input: SpawnAgentInput,
-      invocation: McpInvocationScope,
+      invocation: TaskInvocation,
     ) => Effect.Effect<AgentDelegationResult, AgentDelegationError>;
     readonly get: (
       threadId: ThreadId,
-      invocation: McpInvocationScope,
+      invocation: TaskInvocation,
     ) => Effect.Effect<AgentDelegationResult, AgentDelegationError>;
     readonly list: (
-      invocation: McpInvocationScope,
+      invocation: TaskInvocation,
     ) => Effect.Effect<ReadonlyArray<AgentDelegationResult>, AgentDelegationError>;
     readonly wait: (
       threadId: ThreadId,
       seconds: number,
-      invocation: McpInvocationScope,
+      invocation: TaskInvocation,
     ) => Effect.Effect<AgentDelegationResult, AgentDelegationError>;
     readonly cancel: (
       threadId: ThreadId,
-      invocation: McpInvocationScope,
+      invocation: TaskInvocation,
     ) => Effect.Effect<AgentDelegationResult, AgentDelegationError>;
   }
 >()("t3/mcp/AgentDelegation") {}
@@ -264,12 +280,24 @@ const make = Effect.gen(function* () {
 
   const result = Effect.fn("AgentDelegation.result")(function* (
     job: Job,
+    bounded = false,
   ): Effect.fn.Return<AgentDelegationResult, AgentDelegationError> {
-    const detail = yield* snapshots
-      .getThreadDetailById(job.record.threadId)
-      .pipe(Effect.catchCause((cause) => Effect.fail(wrapFailure(cause))));
+    const detail = yield* (
+      bounded
+        ? snapshots.getThreadDetailSnapshot(job.record.threadId, { turnLimit: 1 }).pipe(
+            Effect.map(
+              Option.map((snapshot) => ({
+                thread: snapshot.thread,
+                hasMore: snapshot.page?.hasMore === true,
+              })),
+            ),
+          )
+        : snapshots
+            .getThreadDetailById(job.record.threadId)
+            .pipe(Effect.map(Option.map((thread) => ({ thread, hasMore: false }))))
+    ).pipe(Effect.catchCause((cause) => Effect.fail(wrapFailure(cause))));
     const text = Option.isSome(detail)
-      ? detail.value.messages
+      ? detail.value.thread.messages
           .filter((message) => message.role === "assistant")
           .map((message) => message.text)
           .join("\n\n")
@@ -281,14 +309,16 @@ const make = Effect.gen(function* () {
       modelSelection: job.record.modelSelection,
       status: job.record.status,
       deadlineAt: job.record.deadlineAt,
-      output: text.slice(-OUTPUT_LIMIT),
-      outputTruncated: text.length > OUTPUT_LIMIT,
+      output: text.slice(-(bounded ? 8_000 : OUTPUT_LIMIT)),
+      outputTruncated:
+        text.length > (bounded ? 8_000 : OUTPUT_LIMIT) ||
+        (Option.isSome(detail) && detail.value.hasMore),
       error: job.record.error,
     };
   });
 
   const requireParent = Effect.fn("AgentDelegation.requireParent")(function* (
-    invocation: McpInvocationScope,
+    invocation: TaskInvocation,
   ) {
     const parent = yield* snapshots.getThreadShellById(invocation.threadId);
     if (
@@ -297,6 +327,14 @@ const make = Effect.gen(function* () {
       blockedParents.has(invocation.threadId)
     ) {
       return yield* failure("The lead chat is unavailable or stopped.");
+    }
+    if (isDotInvocation(invocation)) {
+      if (
+        parent.value.projectId !== invocation.projectId ||
+        parent.value.runtimeMode !== invocation.runtimeMode
+      )
+        return yield* failure("The Dot coordinator no longer matches its project grant.");
+      return parent.value;
     }
     const session = parent.value.session;
     if (
@@ -311,9 +349,10 @@ const make = Effect.gen(function* () {
     return parent.value;
   });
 
-  const owned = (invocation: McpInvocationScope, id: ThreadId) => {
+  const owned = (invocation: TaskInvocation, id: ThreadId) => {
     const job = jobs.get(id);
     return job &&
+      (!isDotInvocation(invocation) || job.record.ownerConnectionId === invocation.connectionId) &&
       (job.record.parentThreadId === invocation.threadId ||
         job.record.rootThreadId === invocation.threadId)
       ? job
@@ -444,17 +483,17 @@ const make = Effect.gen(function* () {
     ),
   ).pipe(Effect.forkIn(scope));
 
-  const authorize = (invocation: McpInvocationScope) =>
+  const authorize = (invocation: TaskInvocation) =>
     invocation.capabilities.has("agents")
       ? Deferred.await(ready)
       : Effect.fail(failure("This session has no agent delegation capability."));
 
   const inspect = Effect.fn("AgentDelegation.inspect")(
-    function* (id: ThreadId, invocation: McpInvocationScope) {
+    function* (id: ThreadId, invocation: TaskInvocation) {
       yield* authorize(invocation);
       const job = owned(invocation, id);
       if (!job) return yield* failure("This worker does not belong to your lead chat.");
-      return yield* result(job);
+      return yield* result(job, isDotInvocation(invocation));
     },
     Effect.catchCause((cause) => Effect.fail(wrapFailure(cause))),
   );
@@ -491,11 +530,12 @@ const make = Effect.gen(function* () {
             if (depth > AGENT_DELEGATION_MAX_DEPTH)
               return yield* failure("Worker delegation depth limit reached.");
             const rootThreadId = parentJob?.record.rootThreadId ?? parent.id;
-            const rootTurnKey =
-              parentJob?.record.rootTurnKey ??
-              parent.latestTurn?.turnId ??
-              parent.session?.activeTurnId ??
-              invocation.providerSessionId;
+            const rootTurnKey = isDotInvocation(invocation)
+              ? input.requestId
+              : (parentJob?.record.rootTurnKey ??
+                parent.latestTurn?.turnId ??
+                parent.session?.activeTurnId ??
+                invocation.providerSessionId);
             const encoded = yield* encodeSpawn(input);
             const fingerprintBytes = yield* crypto.digest(
               "SHA-256",
@@ -509,7 +549,7 @@ const make = Effect.gen(function* () {
             if (existing) {
               if (existing.record.fingerprint !== fingerprint)
                 return yield* failure("This requestId was already used for a different task.");
-              return yield* result(existing);
+              return yield* result(existing, isDotInvocation(invocation));
             }
             const family = [...jobs.values()].filter(
               (job) => job.record.rootThreadId === rootThreadId,
@@ -544,7 +584,10 @@ const make = Effect.gen(function* () {
               );
             const routing = yield* providers.getInstanceInfo(input.modelSelection.instanceId);
             if (!routing.enabled) return yield* failure("That provider instance is disabled.");
-            const id = ThreadId.make(`j1-agent:${yield* uuid}`);
+            const id =
+              isDotInvocation(invocation) && invocation.taskThreadId
+                ? invocation.taskThreadId
+                : ThreadId.make(`j1-agent:${yield* uuid}`);
             const now = yield* timestamp;
             const deadline = Math.min(
               Date.parse(now) + (input.timeoutSeconds ?? 600) * 1000,
@@ -566,6 +609,11 @@ const make = Effect.gen(function* () {
               deadlineAt: DateTime.formatIso(DateTime.makeUnsafe(deadline)),
               updatedAt: now,
               error: null,
+              ...(isDotInvocation(invocation)
+                ? { ownerConnectionId: invocation.connectionId }
+                : parentJob?.record.ownerConnectionId
+                  ? { ownerConnectionId: parentJob.record.ownerConnectionId }
+                  : {}),
             };
             yield* dispatch({
               type: "thread.create",
@@ -605,7 +653,7 @@ const make = Effect.gen(function* () {
                 change(job, "failed", Cause.pretty(cause).slice(0, 2000)),
               ),
             );
-            return yield* result(job);
+            return yield* result(job, isDotInvocation(invocation));
           }),
         );
       },
@@ -617,7 +665,7 @@ const make = Effect.gen(function* () {
         yield* authorize(invocation);
         return yield* Effect.forEach(
           [...jobs.keys()].filter((id) => owned(invocation, id)),
-          (id) => result(jobs.get(id)!),
+          (id) => result(jobs.get(id)!, isDotInvocation(invocation)),
         );
       }),
     wait: Effect.fn("AgentDelegation.wait")(function* (id, seconds, invocation) {
@@ -629,7 +677,7 @@ const make = Effect.gen(function* () {
           Effect.timeoutOption(Math.min(60, Math.max(1, seconds)) * 1000),
         );
       }
-      return yield* result(job);
+      return yield* result(job, isDotInvocation(invocation));
     }),
     cancel: Effect.fn("AgentDelegation.cancel")(
       function* (id, invocation) {
@@ -637,7 +685,7 @@ const make = Effect.gen(function* () {
         const job = owned(invocation, id);
         if (!job) return yield* failure("This worker does not belong to your lead chat.");
         yield* mutex.withPermits(1)(stopTree(id, "cancelled", "Cancelled by the lead."));
-        return yield* result(job);
+        return yield* result(job, isDotInvocation(invocation));
       },
       Effect.catchCause((cause) => Effect.fail(wrapFailure(cause))),
     ),

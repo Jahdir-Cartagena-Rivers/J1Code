@@ -74,6 +74,14 @@ import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import { ProviderInstanceRegistryHydrationLive } from "./provider/Layers/ProviderInstanceRegistryHydration.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
+import { AgentDelegationLive } from "./mcp/AgentDelegation.ts";
+import * as DotConnections from "./dot/DotConnections.ts";
+import * as DotService from "./dot/DotService.ts";
+import * as DotHiveMind from "./dot/DotHiveMind.ts";
+import * as DotHttpServer from "./dot/DotHttpServer.ts";
+import * as DotAdminHttp from "./dot/adminHttp.ts";
+import * as DotOAuth from "./dot/DotOAuth.ts";
+import * as DotOAuthHttp from "./dot/DotOAuthHttp.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as DeviceService from "./device/DeviceService.ts";
@@ -600,6 +608,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   Layer.mergeAll(
     HttpApiBuilder.layer(EnvironmentHttpApi).pipe(
       Layer.provide(authHttpApiLayer),
+      Layer.provide(DotAdminHttp.layer),
       Layer.provide(connectHttpApiLayer),
       Layer.provide(orchestrationHttpApiLayer),
       Layer.provide(pullRequestHttpApiLayer),
@@ -614,12 +623,19 @@ export const makeRoutesLayer = Layer.mergeAll(
     websocketRpcRouteLayer,
   ),
   McpHttpServer.layer.pipe(Layer.provide(McpSessionRegistry.layer)),
+  DotHttpServer.layer,
+  DotOAuthHttp.layer,
   // Last, so no route layer can replace the server's one TracerDisabledWhen.
   untracedRequestsLayer,
 ).pipe(
   // Both transports consume the same service instance, so caches single-flight across clients
   // and mutations observed on WebSocket invalidate patches subsequently read over HTTP.
   Layer.provide(PullRequestServiceLive),
+  Layer.provide(DotService.layer),
+  Layer.provide(DotHiveMind.layer),
+  Layer.provide(DotOAuth.layer),
+  Layer.provide(DotConnections.layer),
+  Layer.provide(AgentDelegationLive),
   Layer.provide(PreviewAutomationBroker.layer),
   Layer.provide(ServerSelfUpdate.layer.pipe(Layer.provide(DesktopAppUpdateLayerLive))),
   Layer.provide(commandReadinessLayer),
