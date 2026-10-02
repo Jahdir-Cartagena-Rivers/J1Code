@@ -6,11 +6,16 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import type { ProviderInstanceId, SidebarProjectGroupingMode } from "@t3tools/contracts";
+import { WorkerChatExpansion } from "@t3tools/client-runtime/worker-chats";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
 import { MOBILE_THEME_IDS, type MobileThemeId, type MobileThemeMode } from "../lib/mobileTheme";
 import * as MobileDatabase from "./mobile-database";
 import * as MobileSecureStorage from "./mobile-secure-storage";
 import { MobileStorageDecodeError, MobileStorageEncodeError } from "./mobile-storage";
+
+const decodeWorkerChatExpansion = Schema.decodeUnknownOption(
+  Schema.Record(Schema.String, WorkerChatExpansion),
+);
 
 const PREFERENCES_KEY = "t3code.preferences";
 const PREFERENCES_FALLBACK_KEY = "t3code.preferences.fallback";
@@ -35,6 +40,8 @@ export interface Preferences {
   readonly projectGroupingMode?: SidebarProjectGroupingMode;
   /** Device-local counterpart of desktop's `planModeEnabled` legacy flag. */
   readonly planModeEnabled?: boolean;
+  readonly workerChatsInSidebar?: boolean;
+  readonly workerChatExpansionByParent?: Readonly<Record<string, WorkerChatExpansion>>;
   /** Model favorites belong to this device, like the web client setting. */
   readonly modelFavorites?: ReadonlyArray<{
     readonly provider: ProviderInstanceId;
@@ -100,6 +107,8 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     projectGroupingEnabled?: boolean;
     projectGroupingMode?: SidebarProjectGroupingMode;
     planModeEnabled?: boolean;
+    workerChatsInSidebar?: boolean;
+    workerChatExpansionByParent?: Preferences["workerChatExpansionByParent"];
     modelFavorites?: Preferences["modelFavorites"];
     threadListSettledShelfExpanded?: boolean;
     threadListSnoozedShelfExpanded?: boolean;
@@ -169,6 +178,13 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (typeof parsed.planModeEnabled === "boolean") {
     preferences.planModeEnabled = parsed.planModeEnabled;
+  }
+  if (typeof parsed.workerChatsInSidebar === "boolean") {
+    preferences.workerChatsInSidebar = parsed.workerChatsInSidebar;
+  }
+  const workerExpansion = decodeWorkerChatExpansion(parsed.workerChatExpansionByParent);
+  if (Option.isSome(workerExpansion)) {
+    preferences.workerChatExpansionByParent = workerExpansion.value;
   }
   if (Array.isArray(parsed.modelFavorites)) {
     preferences.modelFavorites = parsed.modelFavorites.filter(

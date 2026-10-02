@@ -274,6 +274,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["combine matching repositories environments sidebar"],
   },
   {
+    id: "worker-chats-in-sidebar",
+    title: "Worker chats in sidebar",
+    to: "/settings/general",
+    searchTerms: ["subagent workers parent child tree fold unfold collapse expand four chats"],
+  },
+  {
     id: "auto-settle-inactive-threads",
     title: "Auto-settle inactive threads",
     to: "/settings/general",

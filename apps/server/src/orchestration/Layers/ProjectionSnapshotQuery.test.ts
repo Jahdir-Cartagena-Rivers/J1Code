@@ -38,6 +38,7 @@ const asTurnId = (value: string): TurnId => TurnId.make(value);
 const asMessageId = (value: string): MessageId => MessageId.make(value);
 const asEventId = (value: string): EventId => EventId.make(value);
 const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.make(value);
+const encodeWorkerNavigationPayload = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const encodeChatAttachments = Schema.encodeEffect(
   Schema.fromJsonString(Schema.Array(ChatAttachment)),
 );
@@ -111,6 +112,121 @@ const projectionSnapshotLayer = it.layer(
 );
 
 projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
+  it.effect("exposes saved worker lineage in initial, streamed, and archived shells", () =>
+    Effect.gen(function* () {
+      const query = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+      try {
+        yield* sql`INSERT INTO projection_projects
+        (project_id, title, workspace_root, scripts_json, created_at, updated_at)
+        VALUES ('worker-navigation-project', 'Workers', '/workers', '[]',
+          '2026-10-02T00:00:00Z', '2026-10-02T00:00:00Z')`;
+        for (const id of [
+          "worker-navigation-parent",
+          "worker-navigation-child",
+          "worker-navigation-grandchild",
+          "worker-navigation-unlinked",
+        ]) {
+          yield* sql`INSERT INTO projection_threads
+          (thread_id, project_id, title, model_selection_json, runtime_mode, interaction_mode, created_at, updated_at)
+          VALUES (${id}, 'worker-navigation-project', 'Worker: title is not lineage',
+            '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+            '2026-10-02T00:00:00Z', '2026-10-02T00:00:00Z')`;
+        }
+        const childRecord = {
+          version: 1,
+          threadId: "worker-navigation-child",
+          parentThreadId: "worker-navigation-parent",
+        };
+        const grandchildRecord = {
+          version: 1,
+          threadId: "worker-navigation-grandchild",
+          parentThreadId: "worker-navigation-child",
+        };
+        const records = [
+          ["worker-navigation-parent", childRecord],
+          ["worker-navigation-child", childRecord],
+          ["worker-navigation-child", grandchildRecord],
+          ["worker-navigation-grandchild", grandchildRecord],
+          [
+            "worker-navigation-unlinked",
+            { version: 1, threadId: "worker-navigation-unlinked", parentThreadId: 42 },
+          ],
+          [
+            "worker-navigation-unlinked",
+            { version: 1, threadId: "worker-navigation-unlinked", parentThreadId: "" },
+          ],
+          [
+            "worker-navigation-unlinked",
+            {
+              version: 1,
+              threadId: "worker-navigation-unlinked",
+              parentThreadId: "worker-navigation-unlinked",
+            },
+          ],
+          [
+            "worker-navigation-unlinked",
+            {
+              version: 2,
+              threadId: "worker-navigation-unlinked",
+              parentThreadId: "worker-navigation-parent",
+            },
+          ],
+        ] as const;
+        for (const [index, [id, payload]] of records.entries()) {
+          yield* sql`INSERT INTO projection_thread_activities
+          (activity_id, thread_id, tone, kind, summary, payload_json, created_at)
+          VALUES (${`worker-navigation-activity-${index}`}, ${id}, 'info', 'agent.delegation', 'Worker',
+            ${encodeWorkerNavigationPayload(payload)}, '2026-10-02T00:00:01Z')`;
+        }
+        yield* sql`INSERT INTO projection_thread_activities
+          (activity_id, thread_id, tone, kind, summary, payload_json, created_at)
+          VALUES ('worker-navigation-malformed', 'worker-navigation-unlinked', 'info',
+            'agent.delegation', 'Malformed linkage', 'invalid-json', '2026-10-02T00:00:00Z')`;
+        const snapshot = yield* query.getShellSnapshot();
+        assert.equal(
+          snapshot.threads.find((thread) => thread.id === "worker-navigation-child")
+            ?.parentThreadId,
+          "worker-navigation-parent",
+        );
+        assert.equal(
+          snapshot.threads.find((thread) => thread.id === "worker-navigation-grandchild")
+            ?.parentThreadId,
+          "worker-navigation-child",
+        );
+        assert.equal(
+          snapshot.threads.find((thread) => thread.id === "worker-navigation-parent")
+            ?.parentThreadId,
+          undefined,
+        );
+        assert.equal(
+          snapshot.threads.find((thread) => thread.id === "worker-navigation-unlinked")
+            ?.parentThreadId,
+          undefined,
+        );
+        const streamed = yield* query.getThreadShellById(ThreadId.make("worker-navigation-child"));
+        assert.ok(Option.isSome(streamed));
+        assert.equal(streamed.value.parentThreadId, "worker-navigation-parent");
+        yield* sql`UPDATE projection_threads SET archived_at = '2026-10-02T01:00:00Z' WHERE thread_id = 'worker-navigation-child'`;
+        const archived = yield* query.getArchivedShellSnapshot();
+        assert.equal(
+          archived.threads.find((thread) => thread.id === "worker-navigation-child")
+            ?.parentThreadId,
+          "worker-navigation-parent",
+        );
+        const plan = yield* sql<{ detail: string }>`EXPLAIN QUERY PLAN
+        SELECT payload_json FROM projection_thread_activities
+        WHERE thread_id = 'worker-navigation-child' AND kind = 'agent.delegation'
+        ORDER BY created_at, activity_id LIMIT 1`;
+        assert.ok(plan.some((row) => row.detail.includes("idx_projection_worker_chat_lookup")));
+      } finally {
+        yield* sql`DELETE FROM projection_thread_activities WHERE thread_id LIKE 'worker-navigation-%'`;
+        yield* sql`DELETE FROM projection_threads WHERE project_id = 'worker-navigation-project'`;
+        yield* sql`DELETE FROM projection_projects WHERE project_id = 'worker-navigation-project'`;
+      }
+    }),
+  );
+
   it.effect("hydrates read model from projection tables and computes snapshot sequence", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;

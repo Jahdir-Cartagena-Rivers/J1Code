@@ -1,3 +1,5 @@
+import { WorkerChatsInChat } from "./WorkerChats";
+import { useHomeThreadSelection } from "../home/home-thread-navigation";
 import { makeTurnCommandMetadata } from "../../lib/commandMetadata";
 import { enqueueThreadOutboxMessage } from "../../state/thread-outbox";
 import {
@@ -334,6 +336,7 @@ function ThreadRouteContent(
     selectedThreadProject,
     selectedEnvironmentConnection,
   } = useThreadSelection();
+  const selectWorkerChat = useHomeThreadSelection();
   const selectedThreadDetailState = props.selectedThreadDetailState;
   const selectedThreadDetail = Option.getOrNull(selectedThreadDetailState.data);
   // "Load earlier turns" header state for windowed (paginated) thread loads.
@@ -1057,6 +1060,10 @@ function ThreadRouteContent(
         onReturnToThread={props.onReturnToThread}
       />
 
+      <WorkerChatsInChat
+        parent={{ environmentId: selectedThread.environmentId, threadId: selectedThread.id }}
+        onSelectThread={selectWorkerChat}
+      />
       {renderThreadRouteBody()}
     </>
   );

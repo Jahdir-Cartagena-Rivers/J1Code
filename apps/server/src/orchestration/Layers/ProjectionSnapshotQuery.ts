@@ -128,6 +128,7 @@ const ProjectionThreadPullRequestDbRowSchema = ProjectionThreadPullRequest.mapFi
 );
 const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
   Struct.assign({
+    parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
     modelSelection: Schema.fromJsonString(ModelSelection),
     titleState: Schema.NullOr(Schema.fromJsonString(ThreadTitleState)),
     linkedPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
@@ -614,6 +615,21 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           thread_id AS "threadId",
+          (
+            SELECT json_extract(worker.payload_json, '$.parentThreadId')
+            FROM projection_thread_activities worker
+            WHERE worker.thread_id = threads.thread_id
+              AND worker.kind = 'agent.delegation'
+              AND CASE WHEN json_valid(worker.payload_json) THEN
+                json_extract(worker.payload_json, '$.version') = 1
+                AND json_extract(worker.payload_json, '$.threadId') = worker.thread_id
+                AND json_type(worker.payload_json, '$.parentThreadId') = 'text'
+                AND length(json_extract(worker.payload_json, '$.parentThreadId')) > 0
+                AND json_extract(worker.payload_json, '$.parentThreadId') <> worker.thread_id
+              ELSE 0 END
+            ORDER BY worker.created_at ASC, worker.activity_id ASC
+            LIMIT 1
+          ) AS "parentThreadId",
           project_id AS "projectId",
           title,
           title_state_json AS "titleState",
@@ -689,6 +705,21 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           thread_id AS "threadId",
+          (
+            SELECT json_extract(worker.payload_json, '$.parentThreadId')
+            FROM projection_thread_activities worker
+            WHERE worker.thread_id = projection_threads.thread_id
+              AND worker.kind = 'agent.delegation'
+              AND CASE WHEN json_valid(worker.payload_json) THEN
+                json_extract(worker.payload_json, '$.version') = 1
+                AND json_extract(worker.payload_json, '$.threadId') = worker.thread_id
+                AND json_type(worker.payload_json, '$.parentThreadId') = 'text'
+                AND length(json_extract(worker.payload_json, '$.parentThreadId')) > 0
+                AND json_extract(worker.payload_json, '$.parentThreadId') <> worker.thread_id
+              ELSE 0 END
+            ORDER BY worker.created_at ASC, worker.activity_id ASC
+            LIMIT 1
+          ) AS "parentThreadId",
           project_id AS "projectId",
           title,
           title_state_json AS "titleState",
@@ -1293,6 +1324,21 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           thread_id AS "threadId",
+          (
+            SELECT json_extract(worker.payload_json, '$.parentThreadId')
+            FROM projection_thread_activities worker
+            WHERE worker.thread_id = projection_threads.thread_id
+              AND worker.kind = 'agent.delegation'
+              AND CASE WHEN json_valid(worker.payload_json) THEN
+                json_extract(worker.payload_json, '$.version') = 1
+                AND json_extract(worker.payload_json, '$.threadId') = worker.thread_id
+                AND json_type(worker.payload_json, '$.parentThreadId') = 'text'
+                AND length(json_extract(worker.payload_json, '$.parentThreadId')) > 0
+                AND json_extract(worker.payload_json, '$.parentThreadId') <> worker.thread_id
+              ELSE 0 END
+            ORDER BY worker.created_at ASC, worker.activity_id ASC
+            LIMIT 1
+          ) AS "parentThreadId",
           project_id AS "projectId",
           title,
           title_state_json AS "titleState",
@@ -2773,6 +2819,7 @@ pending_approval_requests AS (
                   row.deletedAt === null
                     ? Result.succeed({
                         id: row.threadId,
+                        ...(row.parentThreadId ? { parentThreadId: row.parentThreadId } : {}),
                         projectId: row.projectId,
                         title: row.title,
                         modelSelection: row.modelSelection,
@@ -2959,6 +3006,7 @@ pending_approval_requests AS (
                 ),
                 threads: threadRows.map((row): OrchestrationThreadShell => ({
                   id: row.threadId,
+                  ...(row.parentThreadId ? { parentThreadId: row.parentThreadId } : {}),
                   projectId: row.projectId,
                   title: row.title,
                   modelSelection: row.modelSelection,
@@ -3305,6 +3353,9 @@ pending_approval_requests AS (
 
       return Option.some({
         id: threadRow.value.threadId,
+        ...(threadRow.value.parentThreadId
+          ? { parentThreadId: threadRow.value.parentThreadId }
+          : {}),
         projectId: threadRow.value.projectId,
         title: threadRow.value.title,
         modelSelection: threadRow.value.modelSelection,

@@ -374,6 +374,39 @@ describe("getThreadListV2OrderedSection", () => {
 });
 
 describe("buildThreadListV2Items", () => {
+  it("keeps workers beneath their parent while ordinary chats and orphaned workers stay in the list", () => {
+    const parent = makeThread({ id: ThreadId.make("lead"), title: "Lead" });
+    const worker = makeThread({
+      id: ThreadId.make("worker"),
+      title: "Worker: linked",
+      parentThreadId: parent.id,
+    });
+    const ordinary = makeThread({ id: ThreadId.make("ordinary"), title: "Worker: ordinary title" });
+    const orphan = makeThread({
+      id: ThreadId.make("orphan"),
+      title: "Worker: deleted parent",
+      parentThreadId: ThreadId.make("deleted"),
+    });
+    const layout = buildThreadListV2Items({
+      threads: [parent, worker, ordinary, orphan],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+    expect(layout.items.map((item) => item.thread.id)).toEqual(
+      expect.arrayContaining(["lead", "ordinary", "orphan"]),
+    );
+    expect(layout.items).toHaveLength(3);
+    const ordered = getThreadListV2OrderedSection({
+      threads: [parent, worker, ordinary, orphan],
+      section: "active",
+      now: NOW,
+    });
+    expect(ordered.map((thread) => thread.id)).toEqual(
+      expect.arrayContaining(["lead", "ordinary", "orphan"]),
+    );
+    expect(ordered).toHaveLength(3);
+  });
   it("places a persisted settled thread in the settled shelf", () => {
     const thread = makeThread({
       id: ThreadId.make("linked-merged"),

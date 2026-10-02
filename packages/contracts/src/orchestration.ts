@@ -883,6 +883,8 @@ export type OrchestrationProjectShell = typeof OrchestrationProjectShell.Type;
 
 export const OrchestrationThreadShell = Schema.Struct({
   id: ThreadId,
+  /** Saved worker lineage; absent on servers predating worker chat navigation. */
+  parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   projectId: ProjectId,
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
