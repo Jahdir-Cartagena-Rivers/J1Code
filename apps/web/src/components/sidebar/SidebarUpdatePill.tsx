@@ -297,6 +297,8 @@ function SidebarUpdateControl() {
     );
   }, [prefersReducedMotion, state?.status]);
 
+  if (!showUpdateDetails && !showCheckIcon) return null;
+
   const updateButton = (
     <button
       type="button"
@@ -306,10 +308,7 @@ function SidebarUpdateControl() {
         "inline-flex size-8 items-center justify-center rounded-full outline-hidden ring-ring transition-colors focus-visible:ring-2",
         isInteractionDisabled ? "cursor-not-allowed" : "cursor-pointer",
         showUpdateIconState
-          ? cn(
-              "bg-sidebar-control-surface text-sidebar-foreground",
-              !isInteractionDisabled && "hover:bg-sidebar-row-hover",
-            )
+          ? cn("bg-info text-background", !isInteractionDisabled && "hover:bg-info/85")
           : cn(
               "text-(--sidebar-icon-color)",
               !isInteractionDisabled && "hover:bg-sidebar-row-hover hover:text-sidebar-foreground",

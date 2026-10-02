@@ -370,6 +370,24 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         undefined,
       );
       assert.notProperty(fork, "publish");
+      const j1Installer = yield* createBuildConfig(
+        "win",
+        "nsis",
+        "0.0.44-j1.9",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+      assert.deepStrictEqual(j1Installer.publish, [
+        {
+          provider: "github",
+          owner: "Jahdir-Rivers",
+          repo: "J1Code",
+          private: true,
+          releaseType: "release",
+        },
+      ]);
       assert.deepStrictEqual(release.publish, [
         {
           provider: "github",

@@ -2573,7 +2573,7 @@ export function resolveDesktopUpdateChannel(version: string): "latest" | "nightl
 // install can be pointed at one of these releases, and the build itself
 // reports that no update feed is configured instead of polling.
 export function isDesktopPreviewVersion(version: string): boolean {
-  return /-j1\./.test(version) || /-pr\./.test(version) || /-preview\.\d{8}\.\d+$/.test(version);
+  return /-pr\./.test(version) || /-preview\.\d{8}\.\d+$/.test(version);
 }
 
 export function resolveDesktopWebAssetBrand(version: string): WebAssetBrand {
@@ -2669,7 +2669,21 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     ],
   };
   const updateChannel = resolveDesktopUpdateChannel(version);
-  if (!isDesktopPreviewVersion(version)) {
+  if (/-j1\./.test(version)) {
+    // J1 releases live in a private repository. Only NSIS artifacts can be
+    // installed by electron-updater on Windows; portable builds have no feed.
+    if (platform === "win" && target === "nsis") {
+      buildConfig.publish = [
+        {
+          provider: "github",
+          owner: "Jahdir-Rivers",
+          repo: "J1Code",
+          private: true,
+          releaseType: "release",
+        },
+      ];
+    }
+  } else if (!isDesktopPreviewVersion(version)) {
     const publishConfig = yield* resolveGitHubPublishConfig(updateChannel);
     if (publishConfig) {
       buildConfig.publish = [publishConfig];
@@ -3663,7 +3677,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       ? path.join(stageAppDir, WINDOWS_SERVER_RESOURCE_SOURCE_DIR, WINDOWS_SERVER_ASAR_RESOURCE)
       : undefined;
   const stagePackageJson: StagePackageJson = {
-    name: "t3code",
+    name: "j1code",
     version: appVersion,
     buildVersion: appVersion,
     t3codeCommitHash: commitHash,

@@ -37,6 +37,8 @@ export interface UpdatesHarnessOptions {
   readonly platform?: NodeJS.Platform;
   /** Contents of the resources/package-type marker a Linux package ships. */
   readonly packageType?: string | undefined;
+  readonly appUpdateYml?: string | undefined;
+  readonly privateGitHubToken?: string | null | undefined;
 }
 
 export function makeHarness(options: UpdatesHarnessOptions = {}) {
@@ -68,6 +70,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
   };
 
   const updaterLayer = Layer.succeed(ElectronUpdater.ElectronUpdater, {
+    privateGitHubToken: Effect.succeed(options.privateGitHubToken ?? null),
     setFeedURL: (options) =>
       Effect.sync(() => {
         feedUrls.push(options);
@@ -217,14 +220,17 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
       path.replaceAll("\\", "/") === "/missing/resources/package-type" &&
       options.packageType !== undefined
         ? Effect.succeed(options.packageType)
-        : Effect.fail(
-            PlatformError.systemError({
-              module: "FileSystem",
-              method: "readFileString",
-              _tag: "NotFound",
-              pathOrDescriptor: path,
-            }),
-          ),
+        : path.replaceAll("\\", "/") === "/missing/resources/app-update.yml" &&
+            options.appUpdateYml !== undefined
+          ? Effect.succeed(options.appUpdateYml)
+          : Effect.fail(
+              PlatformError.systemError({
+                module: "FileSystem",
+                method: "readFileString",
+                _tag: "NotFound",
+                pathOrDescriptor: path,
+              }),
+            ),
     makeDirectory: () => Effect.void,
     writeFileString: (path) =>
       Effect.sync(() => {
