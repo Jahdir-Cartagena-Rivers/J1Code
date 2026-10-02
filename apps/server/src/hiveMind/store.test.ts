@@ -96,6 +96,48 @@ describe("Hive Mind", () => {
     }
   });
 
+  it("deduplicates normalized import subjects without crossing projects or replacing corrections", async () => {
+    const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-hive-mind-"));
+    const file = NodePath.join(directory, "hive-mind.json");
+    try {
+      const native = {
+        scope: "project" as const,
+        project: "SampleApp",
+        subject: "Build settings",
+        fact: "Original note",
+        sourceThreadId: "import:example:build",
+      };
+      const result = await importHiveFacts(
+        file,
+        [
+          native,
+          { ...native, project: " sampleapp ", subject: " BUILD SETTINGS ", fact: "Updated note" },
+          { ...native, project: "OtherApp" },
+          {
+            ...native,
+            project: "SAMPLEAPP",
+            sourceThreadId: "import:other:build",
+            fact: "Untrusted replacement",
+          },
+        ],
+        2,
+      );
+      NodeAssert.deepEqual(result, {
+        sources: 2,
+        created: 2,
+        updated: 1,
+        unchanged: 0,
+        protected: 1,
+      });
+      const data = await readHiveMind(file);
+      NodeAssert.equal(data.memories.length, 2);
+      NodeAssert.equal(data.memories[0]?.fact, "Updated note");
+      NodeAssert.equal(data.memories[1]?.project, "OtherApp");
+    } finally {
+      await NodeFSP.rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("selects a named concept from another project before broad profile notes", async () => {
     const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-hive-mind-"));
     const file = NodePath.join(directory, "hive-mind.json");

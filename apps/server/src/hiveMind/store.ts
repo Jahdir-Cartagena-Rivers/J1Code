@@ -236,16 +236,14 @@ export function importHiveFacts(
 ): Promise<HiveImportResult> {
   return mutate(filePath, (data) => {
     const memories = [...data.memories];
+    const identity = (memory: HiveImportFact) =>
+      JSON.stringify([memory.scope, key(memory.project ?? ""), key(memory.subject)]);
+    const indexes = new Map(memories.map((memory, index) => [identity(memory), index]));
     const counts = { sources, created: 0, updated: 0, unchanged: 0, protected: 0 };
     // @effect-diagnostics-next-line globalDate:off - this Promise store runs outside an Effect clock.
     const now = new Date().toISOString();
     for (const input of facts) {
-      const index = memories.findIndex(
-        (memory) =>
-          memory.scope === input.scope &&
-          key(memory.project ?? "") === key(input.project ?? "") &&
-          key(memory.subject) === key(input.subject),
-      );
+      const index = indexes.get(identity(input)) ?? -1;
       const existing = memories[index];
       if (existing && existing.sourceThreadId !== input.sourceThreadId) {
         counts.protected++;
@@ -259,6 +257,7 @@ export function importHiveFacts(
         memories[index] = { ...existing, fact: input.fact, updatedAt: now };
         counts.updated++;
       } else {
+        indexes.set(identity(input), memories.length);
         memories.push({ ...input, id: NodeCrypto.randomUUID(), createdAt: now, updatedAt: now });
         counts.created++;
       }
