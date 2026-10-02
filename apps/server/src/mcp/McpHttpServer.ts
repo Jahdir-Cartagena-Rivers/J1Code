@@ -36,7 +36,6 @@ import { AgentsToolkitHandlersLive } from "./toolkits/agents/handlers.ts";
 import { AgentsToolkit } from "./toolkits/agents/tools.ts";
 import { HiveMindToolkitHandlersLive } from "./toolkits/hiveMind/handlers.ts";
 import { HiveMindToolkit } from "./toolkits/hiveMind/tools.ts";
-import { AgentDelegationLive } from "./AgentDelegation.ts";
 import {
   DeviceScreenshotToolkitHandlersLive,
   DeviceStandardToolkitHandlersLive,
@@ -654,7 +653,6 @@ export const PullRequestsToolkitRegistrationLive = McpServer.toolkit(PullRequest
 
 export const AgentsToolkitRegistrationLive = McpServer.toolkit(AgentsToolkit).pipe(
   Layer.provide(AgentsToolkitHandlersLive),
-  Layer.provide(AgentDelegationLive),
 );
 
 export const HiveMindToolkitRegistrationLive = McpServer.toolkit(HiveMindToolkit).pipe(
@@ -674,7 +672,7 @@ export const DeviceToolkitRegistrationLive = Layer.mergeAll(
   DeviceScreenshotRegistrationLive,
 );
 
-const McpTransportLive = McpServer.layerHttp({
+export const McpTransportLive = McpServer.layerHttp({
   name: "J1 Code",
   version: packageJson.version,
   path: "/mcp",

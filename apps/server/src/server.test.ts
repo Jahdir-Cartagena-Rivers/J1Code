@@ -1006,6 +1006,7 @@ const buildAppUnderTest = (options?: {
               }),
             dispatch: () => Effect.succeed({ sequence: 0 }),
             streamDomainEvents: Stream.empty,
+            subscribeDomainEvents: Effect.succeed(Stream.empty),
             latestSequence: Effect.succeed(0),
             ...options?.layers?.orchestrationEngine,
           }),
@@ -1056,6 +1057,7 @@ const buildAppUnderTest = (options?: {
           getFirstActiveThreadIdByProjectId: () => Effect.succeedNone,
           getImportedAgentSessionSources: () => Effect.succeed([]),
           getThreadCheckpointContext: () => Effect.succeedNone,
+          listActivitiesByKind: () => Effect.succeed([]),
           ...options?.layers?.projectionSnapshotQuery,
         }),
       ),
@@ -2156,6 +2158,16 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       assert.equal(response.status, 302);
       assert.equal(response.headers.location, "http://127.0.0.1:5173/foo/bar?token=test-token");
+      for (const pathname of ["/dot/not-found", "/oauth/not-found"]) {
+        const backendUrl = yield* getHttpServerUrl(pathname);
+        const backendResponse = yield* fetchEffect(backendUrl, { redirect: "manual" });
+        assert.equal(backendResponse.status, 404);
+        assert.equal(backendResponse.headers.location, undefined);
+      }
+      const adjacentUrl = yield* getHttpServerUrl("/dotty/client");
+      const adjacentResponse = yield* fetchEffect(adjacentUrl, { redirect: "manual" });
+      assert.equal(adjacentResponse.status, 302);
+      assert.equal(adjacentResponse.headers.location, "http://127.0.0.1:5173/dotty/client");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
@@ -2401,6 +2413,31 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         "relay:write",
       ]);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect(
+    "serves Dot connection administration through the composed routes with separate MCP credentials",
+    () =>
+      Effect.gen(function* () {
+        yield* buildAppUnderTest();
+        const url = yield* getHttpServerUrl("/api/dot/connections");
+        assert.equal((yield* fetchEffect(url)).status, 401);
+        const { body } = yield* exchangeAccessToken();
+        const response = yield* fetchEffect(url, {
+          headers: { authorization: `Bearer ${body.access_token ?? ""}` },
+        });
+        assert.equal(response.status, 200);
+        assert.equal(response.headers["cache-control"], "no-store");
+        assert.deepEqual(yield* responseJsonEffect(response), []);
+        const mcpUrl = yield* getHttpServerUrl("/dot/mcp");
+        assert.equal(
+          (yield* fetchEffect(mcpUrl, {
+            method: "POST",
+            headers: { authorization: `Bearer ${body.access_token ?? ""}` },
+          })).status,
+          401,
+        );
+      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
   it.effect("replaces the local desktop credential on repeated bootstrap exchanges", () =>

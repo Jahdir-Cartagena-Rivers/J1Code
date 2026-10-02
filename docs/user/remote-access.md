@@ -3,6 +3,59 @@
 Connect a phone, browser, or another desktop app to J1 Code running on a different
 machine. That machine must stay running and reachable while you work.
 
+## Chat with Dot inside J1
+
+In J1 desktop, open a project chat and choose **Dot** in the header. Save your
+existing `https://chatgpt.com/dots/…` conversation link and select the browser
+profile where you signed in to ChatGPT. J1 opens that conversation in a
+full-width view. **Back to J1 chat** returns to your coding conversation without
+signing out or closing Dot. You can change or forget the saved link in
+**Settings → Connections → Dot chat**. Forgetting the link does not delete the
+ChatGPT conversation.
+
+You chat directly with your actual Dot using ChatGPT's composer; J1 workers are
+optional. The embedded view requires J1 desktop. A web client can open the
+saved link in ChatGPT; on mobile, use ChatGPT directly. Dot's ChatGPT memory
+and J1's Hive Mind remain separate.
+
+## Prepare access for ChatGPT Dot
+
+In the web or desktop app, open **Settings → Connections → ChatGPT Dot** to
+prepare access for your existing Dot. Choose the projects it may read and whether
+it may create and manage its own tasks. Task permissions are set here; approval
+and input requests appear in the saved worker chat.
+
+For direct memory access, enable **Read all shared memories**. Also enable
+**Save, correct and forget shared facts** if Dot should update Hive Mind.
+These grants cover shared memories across projects and providers, independently
+of project or task access. Memory tools do not launch workers or change
+ChatGPT's own memory. Existing prepared connections have no memory access.
+After adding these permissions, refresh the plugin's tools in ChatGPT and
+reconnect to the prepared connection when prompted for the new permissions.
+When configuring the plugin, include `dot:memory:read` and, for updates,
+`dot:memory:write` under **Advanced OAuth settings → Default scopes**.
+Check that the J1 consent page actually requests those scopes. If an existing
+plugin keeps requesting its old scopes, a separate private Hive Mind plugin can
+connect to the same server with the memory scopes selected.
+
+Save the credential when it is shown. Prepared connections expire after 30 days
+and can be revoked from the same settings page. Revocation stops new tool calls;
+already running tasks remain in J1.
+
+To connect a personal ChatGPT plugin, save its HTTPS OAuth issuer, MCP resource,
+client ID and callback in **Plugin OAuth setup**. The issuer must be reachable
+from your browser for sign-in. The official OpenAI tunnel can relay registered
+token endpoints, but does not relay the browser sign-in page.
+Use the configured client ID as a predefined public OAuth client in ChatGPT.
+Sign in to J1 on the issuer origin, then choose the prepared connection when
+ChatGPT opens the consent page. OAuth access stays within that connection's
+project and memory grants and expires or revokes with it.
+
+Preparing access does not finish the ChatGPT connection. The official OpenAI
+tunnel needs its own runtime credential and matching ChatGPT workspace. Keep
+the J1 host and tunnel running for tool calls. Dot's identity, memory, computer,
+and original conversation remain in ChatGPT.
+
 ## T3 Connect
 
 T3 Connect makes an environment available to your other devices without setting

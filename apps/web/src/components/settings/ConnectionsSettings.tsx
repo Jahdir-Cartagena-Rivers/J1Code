@@ -68,6 +68,8 @@ import {
 } from "./settingsLayout";
 import { LocalEnvironmentSetting } from "./LocalEnvironmentSetting";
 import { DesktopCloseSetting } from "./DesktopCloseSetting";
+import { DotConnectionsSettings } from "./DotConnectionsSettings";
+import { DotChatSetup } from "../dot/DotChatSetup";
 import { searchableSetting } from "./settingsSearch";
 import { EnvironmentIconMenu } from "./EnvironmentIconPicker";
 import {
@@ -3387,6 +3389,19 @@ export function ConnectionsSettings() {
             ) : null}
           </SettingsSection>
 
+          {primaryEnvironmentId ? (
+            <SettingsSection {...searchableSetting("dot-chat")}>
+              <DotChatSetup key={primaryEnvironmentId} environmentId={primaryEnvironmentId} />
+            </SettingsSection>
+          ) : null}
+
+          {currentSessionScopes?.includes(AuthAccessReadScope) ? (
+            <DotConnectionsSettings
+              canManage={currentSessionScopes.includes(AuthAccessWriteScope)}
+              canReadProjects={currentSessionScopes.includes(AuthOrchestrationReadScope)}
+              canCreateTasks={currentSessionScopes.includes(AuthOrchestrationOperateScope)}
+            />
+          ) : null}
           {isLocalBackendRemotelyReachable ? (
             <FoldedSettingsSection
               id="authorized-clients"

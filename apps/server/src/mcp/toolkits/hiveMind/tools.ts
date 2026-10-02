@@ -5,7 +5,7 @@ import * as ServerConfig from "../../../config.ts";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";
 
 const dependencies = [ServerConfig.ServerConfig, McpInvocationContext];
-const Memory = Schema.Struct({
+export const HiveMindMemory = Schema.Struct({
   id: Schema.String,
   scope: Schema.Literals(["general", "project"]),
   project: Schema.NullOr(Schema.String),
@@ -27,7 +27,7 @@ const Recall = Tool.make("hive_mind_recall", {
     query: Schema.String,
     project: Schema.optional(Schema.String),
   }),
-  success: Schema.Struct({ memories: Schema.Array(Memory) }),
+  success: Schema.Struct({ memories: Schema.Array(HiveMindMemory) }),
   failure: HiveMindError,
   dependencies,
 }).annotate(Tool.Readonly, true);
@@ -41,7 +41,7 @@ const Remember = Tool.make("hive_mind_remember", {
     subject: Schema.String,
     fact: Schema.String,
   }),
-  success: Schema.Struct({ memory: Memory }),
+  success: Schema.Struct({ memory: HiveMindMemory }),
   failure: HiveMindError,
   dependencies,
 })
