@@ -58,7 +58,11 @@ function assertPublishable({ headSha, sha, release, tagSha, requiredNames }) {
   if (!/^[a-f0-9]{40}$/.test(sha) || headSha !== sha) {
     throw new Error("This build is no longer the head of j1-code; keep the current release.");
   }
-  if (release && (release.target_commitish !== sha || tagSha !== sha)) {
+  if (
+    (tagSha != null && tagSha !== sha) ||
+    (release && release.target_commitish !== sha) ||
+    (release && !release.draft && tagSha !== sha)
+  ) {
     throw new Error("The release tag already belongs to a different commit.");
   }
   if (release && !release.draft) {
@@ -96,13 +100,42 @@ function publishRelease(directory, version, env = process.env, runGh = gh) {
   );
   const api = (endpoint) => JSON.parse(runGh(["api", `repos/${repository}/${endpoint}`]));
   const headSha = api("git/ref/heads/j1-code").object.sha;
-  let release = null;
-  try {
-    release = api(`releases/tags/${tag}`);
-  } catch (error) {
-    if (!String(error.stderr).includes("HTTP 404")) throw error;
-  }
-  const tagSha = release ? api(`git/ref/tags/${tag}`).object.sha : null;
+  // REST's tag endpoint cannot find drafts with a pending tag; the CLI can.
+  const readRelease = () => {
+    try {
+      const result = JSON.parse(
+        runGh([
+          "release",
+          "view",
+          tag,
+          "--repo",
+          repository,
+          "--json",
+          "targetCommitish,isDraft,isPrerelease,assets,url",
+        ]),
+      );
+      return {
+        target_commitish: result.targetCommitish,
+        draft: result.isDraft,
+        prerelease: result.isPrerelease,
+        assets: result.assets,
+        html_url: result.url,
+      };
+    } catch (error) {
+      if (String(error.stderr).trim() !== "release not found") throw error;
+      return null;
+    }
+  };
+  const readTag = () => {
+    try {
+      return api(`git/ref/tags/${tag}`).object.sha;
+    } catch (error) {
+      if (!String(error.stderr).includes("HTTP 404")) throw error;
+      return null;
+    }
+  };
+  const release = readRelease();
+  const tagSha = readTag();
   const state = assertPublishable({ headSha, sha, release, tagSha, requiredNames: names });
   if (state === "already-published") return release.html_url;
   const notesPath = path.join(directory, "release-notes.md");
@@ -134,9 +167,16 @@ function publishRelease(directory, version, env = process.env, runGh = gh) {
     "--clobber",
     ...names.map((name) => path.join(directory, name)),
   ]);
-  const uploaded = api(`releases/tags/${tag}`);
+  const uploaded = readRelease();
   if (
-    names.some((name) => !uploaded.assets?.some((asset) => asset.name === name && asset.size > 0))
+    !uploaded ||
+    names.some(
+      (name) =>
+        !uploaded.assets?.some(
+          (asset) =>
+            asset.name === name && asset.size === fs.statSync(path.join(directory, name)).size,
+        ),
+    )
   ) {
     throw new Error("Draft release upload is incomplete; leaving it hidden from the updater.");
   }
@@ -145,7 +185,7 @@ function publishRelease(directory, version, env = process.env, runGh = gh) {
     headSha: api("git/ref/heads/j1-code").object.sha,
     sha,
     release: uploaded,
-    tagSha: api(`git/ref/tags/${tag}`).object.sha,
+    tagSha: readTag(),
     requiredNames: names,
   });
   runGh([
