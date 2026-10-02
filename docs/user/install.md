@@ -1,7 +1,5 @@
 # Install J1 Code
 
-For this personal fork, use the J1 Windows portable build from your local `release/` directory. It keeps its profile under `~/.j1`. The upstream installation commands below install official T3 Code, not J1; see [fork maintenance](../operations/j1-fork.md) for J1 builds and upgrades.
-
 J1 Code runs coding agents on your computer and lets you control them from its
 desktop, web, or mobile app. Set up the machine where the agents will work first.
 
@@ -10,67 +8,17 @@ desktop, web, or mobile app. Set up the machine where the agents will work first
 You need an installed, authenticated provider before starting a thread. You can
 launch J1 Code and configure providers afterwards.
 
-## Command line
+## Windows desktop
 
-```bash
-curl -fsSL https://t3.codes/install.sh | sh
-```
+Download the Windows x64 installer from [J1 Code Releases](https://github.com/Jahdir-Rivers/J1Code/releases/latest). Current releases are unsigned. Verify the published checksums before installing, then authenticate your provider CLIs on the machine that runs your agents.
 
-On Windows, in PowerShell:
+Use the installer for in-app updates. Portable builds are for manual installation and have no update feed. J1 keeps its own profile separate from T3 Code.
 
-```powershell
-irm https://t3.codes/install.ps1 | iex
-```
+## Source and other platforms
 
-This puts `t3` in `~/.local/bin`. If your shell reports `command not found`
-afterwards, that directory is not on your `PATH` yet; the installer prints the
-line to add. Set `T3CODE_CHANNEL=nightly` to install the nightly train, or
-`T3CODE_VERSION` to pin an exact version.
+Build J1 from this repository using the [development runbook](../operations/development.md) and [fork maintenance guide](../operations/j1-fork.md). macOS, Linux, web, and mobile sources are included; published J1 desktop releases currently target Windows x64. Mobile builds need your own signing and Expo configuration.
 
-| Task                                             | Command                                                   |
-| ------------------------------------------------ | --------------------------------------------------------- |
-| Start the server and open the web app            | `t3`                                                      |
-| Start the server without a browser               | `t3 serve`                                                |
-| Keep it running in the background (macOS, Linux) | `t3 service install` ([details](./background-service.md)) |
-| Move to the newest release                       | `t3 update`                                               |
-| Remove it again                                  | `t3 uninstall`                                            |
-
-Run `t3 --help` for the full reference.
-
-To try J1 Code once without installing it, run `npx t3@latest` instead (needs
-Node.js for `npx`).
-
-### Intel Macs
-
-There is no `t3` executable for Intel Macs (the desktop app is available). To
-run a server there, build it from source with Node.js 24 and `vp`
-([Install vp](https://github.com/pingdotgg/t3code#install-vp)):
-
-```bash
-git clone https://github.com/pingdotgg/t3code
-cd t3code && vp i && vp run build:desktop
-node apps/server/dist/bin.mjs
-```
-
-`t3 update` and the background service do not apply to a server run this way;
-update it with `git pull` and a rebuild.
-
-## Desktop app
-
-Download a release from [GitHub Releases](https://github.com/pingdotgg/t3code/releases),
-or use a package manager:
-
-| Platform           | Install                            |
-| ------------------ | ---------------------------------- |
-| Windows            | `winget install T3Tools.T3Code`    |
-| macOS              | `brew install --cask t3-code`      |
-| Debian, Ubuntu     | `sudo apt install ./T3-Code-*.deb` |
-| Arch Linux         | `yay -S t3code-bin`                |
-| Arch Linux nightly | `yay -S t3code-nightly-bin`        |
-
-The `.deb` updates itself like the other desktop builds. It asks for your
-password to install each update. If your desktop has no password prompt, the
-update fails. Download the new `.deb` and install it the same way.
+The `t3` binary and protocol names are retained in J1 builds. Official `npx t3`, winget, Homebrew, and `t3.codes` installers distribute upstream T3 Code. To run J1's server, use your source build or the matching runtime archive from a J1 release.
 
 ### Windows Subsystem for Linux
 
@@ -94,11 +42,7 @@ command cannot reach the app, start or update the desktop app and try again.
 
 ## Mobile app
 
-Install J1 Code from the
-[App Store](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824) or
-[Google Play](https://play.google.com/store/apps/details?id=com.t3tools.t3code).
-The phone connects to a server on another machine. Follow
-[remote access](./remote-access.md) to link it through T3 Connect or a pairing URL.
+J1 mobile source is included, but no branded J1 release is currently published to the app stores. Build it using the [mobile setup guide](../../apps/mobile/README.md) with your own signing and Expo configuration, then pair it with your J1 server. Official T3 mobile clients are separate products; compatibility with this J1 base still needs device validation.
 
 If the app crashes during launch, open Settings → Diagnostics on the next launch
 that succeeds. It lists startup crashes from the last 7 days with the error and

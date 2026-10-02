@@ -44,3 +44,17 @@ node_modules/
 
 # pnpm content-addressable store; never belongs in the repo.
 .pnpm-store/
+
+# Local profiles, transcripts, credentials, and signing material.
+.j1/
+userdata/
+hive-mind.json
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.p12
+*.pfx
+*.key
+*.mobileprovision
+*.provisionprofile

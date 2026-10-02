@@ -23,7 +23,7 @@ import { flushCallbacks, makeHarness } from "./updatesTestHarness.ts";
 describe("DesktopUpdates", () => {
   it.effect("uses authenticated private J1 releases and disables checks without credentials", () =>
     Effect.gen(function* () {
-      const appUpdateYml = "provider: github\nowner: Jahdir-Rivers\nrepo: J1Code\nprivate: true\n";
+      const appUpdateYml = "provider: github\nowner: example\nrepo: private-app\nprivate: true\n";
       const withToken = makeHarness({
         appUpdateYml,
         privateGitHubToken: "test-token",
@@ -40,8 +40,8 @@ describe("DesktopUpdates", () => {
       assert.deepEqual(withToken.feedUrls(), [
         {
           provider: "github",
-          owner: "Jahdir-Rivers",
-          repo: "J1Code",
+          owner: "example",
+          repo: "private-app",
           private: true,
           token: "test-token",
         },

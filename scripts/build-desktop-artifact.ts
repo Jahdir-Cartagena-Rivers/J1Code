@@ -2541,6 +2541,9 @@ export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig"
   const env = yield* Config.all({
     updateRepository: Config.String("T3CODE_DESKTOP_UPDATE_REPOSITORY").pipe(Config.option),
     githubRepository: Config.String("GITHUB_REPOSITORY").pipe(Config.option),
+    privateRepository: Config.Boolean("T3CODE_DESKTOP_UPDATE_PRIVATE").pipe(
+      Config.withDefault(false),
+    ),
   });
   const rawRepo = (
     Option.getOrUndefined(env.updateRepository)?.trim() ||
@@ -2550,12 +2553,15 @@ export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig"
   if (!rawRepo) return undefined;
 
   const [owner, repo, ...rest] = rawRepo.split("/");
-  if (!owner || !repo || rest.length > 0) return undefined;
+  if (!owner || !repo || rest.length > 0 || !/^[\w.-]+\/[\w.-]+$/.test(rawRepo)) {
+    return undefined;
+  }
 
   return {
     provider: "github",
     owner,
     repo,
+    ...(env.privateRepository ? { private: true } : {}),
     releaseType: updateChannel === "nightly" ? "prerelease" : "release",
     ...(updateChannel === "nightly" ? { channel: "nightly" as const } : {}),
   };
@@ -2641,7 +2647,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   const buildConfig: Record<string, unknown> = {
     appId: DESKTOP_APP_ID,
     productName: resolveDesktopProductName(version),
-    artifactName: "J1-Code-${version}-${arch}.${ext}",
+    artifactName: `J1-Code-\${version}-${platform === "win" ? "windows" : platform}-\${arch}${platform === "win" ? (target === "nsis" ? "-setup" : `-${target}`) : ""}.\${ext}`,
     electronLanguages: [...DESKTOP_ELECTRON_LANGUAGES],
     files: [
       ...DESKTOP_FILE_EXCLUSIONS,
@@ -2669,21 +2675,9 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     ],
   };
   const updateChannel = resolveDesktopUpdateChannel(version);
-  if (/-j1\./.test(version)) {
-    // J1 releases live in a private repository. Only NSIS artifacts can be
-    // installed by electron-updater on Windows; portable builds have no feed.
-    if (platform === "win" && target === "nsis") {
-      buildConfig.publish = [
-        {
-          provider: "github",
-          owner: "Jahdir-Rivers",
-          repo: "J1Code",
-          private: true,
-          releaseType: "release",
-        },
-      ];
-    }
-  } else if (!isDesktopPreviewVersion(version)) {
+  // Windows portable builds cannot install updates. A fresh clone has no
+  // update feed until the builder chooses a repository explicitly.
+  if (!isDesktopPreviewVersion(version) && !(platform === "win" && target !== "nsis")) {
     const publishConfig = yield* resolveGitHubPublishConfig(updateChannel);
     if (publishConfig) {
       buildConfig.publish = [publishConfig];
@@ -3686,7 +3680,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     description: "J1 Code desktop build",
     // Required by the .deb control file.
     homepage: "https://t3.codes",
-    author: "T3 Tools",
+    author: "J1 Code contributors; based on T3 Code by T3 Tools",
     main: "apps/desktop/dist-electron/boot.cjs",
     build: yield* createBuildConfig(
       options.platform,

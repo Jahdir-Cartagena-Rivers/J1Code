@@ -382,9 +382,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.deepStrictEqual(j1Installer.publish, [
         {
           provider: "github",
-          owner: "Jahdir-Rivers",
-          repo: "J1Code",
-          private: true,
+          owner: "pingdotgg",
+          repo: "t3code",
           releaseType: "release",
         },
       ]);
@@ -400,6 +399,77 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       Effect.provide(
         ConfigProvider.layer(
           ConfigProvider.fromEnv({ env: { GITHUB_REPOSITORY: "pingdotgg/t3code" } }),
+        ),
+      ),
+    ),
+  );
+
+  it.effect("builds J1 feeds only for the configured repository and supported artifacts", () =>
+    Effect.gen(function* () {
+      const build = (platform: "win" | "mac" | "linux", target: string) =>
+        createBuildConfig(platform, target, "0.0.44-j1.10", false, false, undefined, undefined);
+      const unconfigured = yield* build("win", "nsis").pipe(
+        Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} }))),
+      );
+      assert.notProperty(unconfigured, "publish");
+      const privateInstaller = yield* build("win", "nsis").pipe(
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({
+              env: {
+                T3CODE_DESKTOP_UPDATE_REPOSITORY: "example/private-app",
+                T3CODE_DESKTOP_UPDATE_PRIVATE: "true",
+                GITHUB_REPOSITORY: "ignored/fallback",
+              },
+            }),
+          ),
+        ),
+      );
+      assert.deepStrictEqual(privateInstaller.publish, [
+        {
+          provider: "github",
+          owner: "example",
+          repo: "private-app",
+          private: true,
+          releaseType: "release",
+        },
+      ]);
+      assert.equal(
+        privateInstaller.artifactName,
+        "J1-Code-${version}-windows-${arch}-setup.${ext}",
+      );
+
+      const portable = yield* build("win", "portable");
+      assert.notProperty(portable, "publish");
+      assert.equal(portable.artifactName, "J1-Code-${version}-windows-${arch}-portable.${ext}");
+      for (const [platform, target] of [
+        ["mac", "dmg"],
+        ["linux", "AppImage"],
+      ] as const) {
+        const config = yield* build(platform, target);
+        assert.deepStrictEqual(config.publish, [
+          { provider: "github", owner: "example", repo: "public-app", releaseType: "release" },
+        ]);
+        assert.equal(config.artifactName, `J1-Code-\${version}-${platform}-\${arch}.\${ext}`);
+      }
+      for (const repository of [
+        "https://github.com/example/app",
+        "example/app/extra",
+        "example /app",
+      ]) {
+        const rejected = yield* resolveGitHubPublishConfig("latest").pipe(
+          Effect.provide(
+            ConfigProvider.layer(
+              ConfigProvider.fromEnv({ env: { T3CODE_DESKTOP_UPDATE_REPOSITORY: repository } }),
+            ),
+          ),
+        );
+        assert.isUndefined(rejected);
+      }
+    }).pipe(
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromEnv({ env: { GITHUB_REPOSITORY: "example/public-app" } }),
         ),
       ),
     ),
