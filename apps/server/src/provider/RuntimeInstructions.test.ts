@@ -8,6 +8,7 @@ describe("buildRuntimeInstructions", () => {
     expect(instructions).toContain("including other harnesses");
     expect(instructions).toContain("workers do not receive your conversation automatically");
     expect(instructions).toContain("Never answer worker approval prompts on the user's behalf");
+    expect(instructions).toContain("hive_mind_recall");
   });
   it("requires explicit registration of every PR and stack layer", () => {
     const instructions = buildRuntimeInstructions({ harness: "Codex" });
