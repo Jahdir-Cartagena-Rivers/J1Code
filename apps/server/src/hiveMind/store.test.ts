@@ -138,6 +138,41 @@ describe("Hive Mind", () => {
     }
   });
 
+  it("protects the first stored correction when legacy subjects are duplicated", async () => {
+    const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-hive-mind-"));
+    const file = NodePath.join(directory, "hive-mind.json");
+    try {
+      const native = {
+        scope: "project" as const,
+        project: "SampleApp",
+        subject: "Build settings",
+        fact: "Native note",
+        sourceThreadId: "import:example:build",
+      };
+      const fields = { createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" };
+      const original = JSON.stringify({
+        version: 1,
+        memories: [
+          {
+            ...native,
+            ...fields,
+            id: "first",
+            fact: "User correction",
+            sourceThreadId: "thread-user",
+          },
+          { ...native, ...fields, id: "second", subject: "BUILD SETTINGS" },
+        ],
+      });
+      await NodeFSP.writeFile(file, original);
+      const result = await importHiveFacts(file, [{ ...native, fact: "Replacement" }], 1);
+      NodeAssert.equal(result.protected, 1);
+      NodeAssert.equal(result.updated, 0);
+      NodeAssert.equal(await NodeFSP.readFile(file, "utf8"), original);
+    } finally {
+      await NodeFSP.rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("selects a named concept from another project before broad profile notes", async () => {
     const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-hive-mind-"));
     const file = NodePath.join(directory, "hive-mind.json");

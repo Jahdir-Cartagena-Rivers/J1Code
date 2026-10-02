@@ -238,7 +238,11 @@ export function importHiveFacts(
     const memories = [...data.memories];
     const identity = (memory: HiveImportFact) =>
       JSON.stringify([memory.scope, key(memory.project ?? ""), key(memory.subject)]);
-    const indexes = new Map(memories.map((memory, index) => [identity(memory), index]));
+    const indexes = new Map<string, number>();
+    memories.forEach((memory, index) => {
+      const id = identity(memory);
+      if (!indexes.has(id)) indexes.set(id, index);
+    });
     const counts = { sources, created: 0, updated: 0, unchanged: 0, protected: 0 };
     // @effect-diagnostics-next-line globalDate:off - this Promise store runs outside an Effect clock.
     const now = new Date().toISOString();
