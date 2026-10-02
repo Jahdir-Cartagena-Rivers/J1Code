@@ -946,6 +946,9 @@ export const DESKTOP_FILE_EXCLUSIONS = [
   // so the SDK's optional platform packages (each a ~200MB bundled executable)
   // are dead weight. The trailing dash keeps the SDK's own JS package.
   "!**/node_modules/@anthropic-ai/claude-agent-sdk-*/**/*",
+  // Installer metadata records absolute paths on the builder's machine.
+  "!**/node_modules/.modules.yaml",
+  "!**/node_modules/.pnpm-workspace-state-v1.json",
   // Nothing in the packaged app enables source maps or serves them: the web
   // client's maps alone were 50 MB of app.asar that no request ever read.
   "!**/*.map",
@@ -1010,6 +1013,8 @@ export const WINDOWS_SERVER_ASAR_IGNORE_GLOBS = [
   "**/node_modules/@anthropic-ai/claude-agent-sdk-*/**",
   "**/node_modules/.bin",
   "**/node_modules/.bin/**",
+  "**/node_modules/.modules.yaml",
+  "**/node_modules/.pnpm-workspace-state-v1.json",
   "**/*.map",
 ] as const;
 
