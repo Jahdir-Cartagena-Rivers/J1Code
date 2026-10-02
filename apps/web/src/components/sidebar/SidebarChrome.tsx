@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
+import { ArrowLeftIcon, ChartNoAxesColumnIcon, CircleDotIcon, SettingsIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
@@ -126,6 +126,26 @@ function SidebarUtilityItem({
     </SidebarMenuItem>
   );
 }
+
+/** Opens the native chat with the user's own ChatGPT Dot. Render inside a SidebarMenu. */
+export const SidebarDotItem = memo(function SidebarDotItem() {
+  const { isMobile, setOpenMobile } = useSidebar();
+  const active = useLocation({ select: (location) => location.pathname === "/dot" });
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        isActive={active}
+        render={<Link to="/dot" />}
+        onClick={() => {
+          if (isMobile) setOpenMobile(false);
+        }}
+      >
+        <CircleDotIcon />
+        <span className="flex-1 truncate">Dot</span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+});
 
 export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const navigate = useNavigate();

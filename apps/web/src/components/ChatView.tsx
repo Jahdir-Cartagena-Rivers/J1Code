@@ -198,7 +198,6 @@ import {
 import { previewRuntimeTabId } from "../browser/previewRuntimeTabId";
 import { BrowserSettingsReadError } from "../browser/openFileInPreview";
 import { addBrowserSurface } from "./preview/addBrowserSurface";
-import { DotChatControl } from "./dot/DotChatControl";
 import { closePreviewSession } from "./preview/closePreviewSession";
 import { ThreadPreviewMiniPlayer } from "./preview/ThreadPreviewMiniPlayer";
 import { subscribePreviewAction } from "./preview/previewActionBus";
@@ -1740,14 +1739,13 @@ export default function ChatView(props: ChatViewProps) {
   const [maximizedRightPanelThreadKey, setMaximizedRightPanelThreadKey] = useState<string | null>(
     null,
   );
-  const [dotView, setDotView] = useState<{ threadKey: string; tabId: string } | null>(null);
   const [titlebarControlsElement, setTitlebarControlsElement] = useState<HTMLDivElement | null>(
     null,
   );
   const [titlebarControlsWidth, setTitlebarControlsWidth] = useState(0);
   useLayoutEffect(() => {
     if (!titlebarControlsElement) return;
-    // Include hidden toggles and changing Dot labels when reserving space beside other actions.
+    // Include hidden toggles when reserving space beside other actions.
     const updateWidth = () =>
       setTitlebarControlsWidth(titlebarControlsElement.getBoundingClientRect().width + 1);
     updateWidth();
@@ -9528,27 +9526,6 @@ export default function ChatView(props: ChatViewProps) {
       )}
       data-workspace-titlebar-controls
     >
-      {activeThreadRef ? (
-        <div className="pointer-events-auto flex shrink-0 items-center">
-          <DotChatControl
-            threadRef={activeThreadRef}
-            active={
-              rightPanelMaximized &&
-              renderedRightPanelSurface?.kind === "preview" &&
-              dotView?.threadKey === routeThreadKey &&
-              dotView.tabId === renderedRightPanelSurface.resourceId
-            }
-            onOpened={(tabId) => {
-              setDotView({ threadKey: routeThreadKey, tabId });
-              setMaximizedRightPanelThreadKey(routeThreadKey);
-            }}
-            onReturn={() => {
-              setMaximizedRightPanelThreadKey(null);
-              useRightPanelStore.getState().close(activeThreadRef);
-            }}
-          />
-        </div>
-      ) : null}
       {!shouldUseRightPanelSheet ? (
         <span
           aria-hidden={!rightPanelOpen}

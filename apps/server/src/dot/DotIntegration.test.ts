@@ -36,6 +36,8 @@ import { DotConnections, layer as connectionsLayer } from "./DotConnections.ts";
 import { DotInvocation, DotService, layer as serviceLayer } from "./DotService.ts";
 import * as DotHttpServer from "./DotHttpServer.ts";
 import * as DotHiveMind from "./DotHiveMind.ts";
+import * as DotChat from "./DotChat.ts";
+import * as DotChatWebhook from "./DotChatWebhook.ts";
 import * as McpHttpServer from "../mcp/McpHttpServer.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
@@ -48,6 +50,7 @@ import * as DotOAuthHttp from "./DotOAuthHttp.ts";
 import {
   AuthAccessReadScope,
   AuthAccessWriteScope,
+  AuthOrchestrationReadScope,
   AuthAdministrativeScopes,
   EnvironmentHttpApi,
 } from "@t3tools/contracts";
@@ -112,6 +115,9 @@ const base = Layer.mergeAll(
   }),
 );
 const services = serviceLayer.pipe(
+  Layer.provideMerge(
+    DotChat.layer.pipe(Layer.provide(DotChatWebhook.layer), Layer.provide(ServerSecretStore.layer)),
+  ),
   Layer.provideMerge(DotHiveMind.layer),
   Layer.provideMerge(connectionsLayer),
   Layer.provideMerge(oauthLayer.pipe(Layer.provide(connectionsLayer))),
@@ -261,6 +267,37 @@ describe("durable Dot connections and independent tasks", () => {
           const admin = yield* auth.issueSession({ scopes: AuthAdministrativeScopes });
           const reader = yield* auth.issueSession({ scopes: [AuthAccessReadScope] });
           const insufficient = yield* auth.issueSession({ scopes: [AuthAccessWriteScope] });
+          const chatReader = yield* auth.issueSession({ scopes: [AuthOrchestrationReadScope] });
+          expect((yield* http.get("/api/dot/chat")).status).toBe(401);
+          expect(
+            (yield* http.get("/api/dot/chat", {
+              headers: { authorization: `Bearer ${reader.token}` },
+            })).status,
+          ).toBe(403);
+          const chatPage = yield* http.get("/api/dot/chat", {
+            headers: { authorization: `Bearer ${chatReader.token}` },
+          });
+          expect(chatPage.status).toBe(200);
+          expect(chatPage.headers["cache-control"]).toBe("no-store");
+          expect(yield* chatPage.json).toMatchObject({ connectionId: null, messages: [] });
+          const sendJson = yield* encodeJson({
+            connectionId: issued.connection.id,
+            requestId: "read-only",
+            text: "hello",
+          });
+          expect(
+            (yield* http.post("/api/dot/chat/send", {
+              headers: { authorization: `Bearer ${chatReader.token}` },
+              body: HttpBody.text(sendJson, "application/json"),
+            })).status,
+          ).toBe(403);
+          const waitJson = yield* encodeJson({ revision: -1 });
+          expect(
+            (yield* http.post("/api/dot/chat/wait", {
+              headers: { authorization: `Bearer ${reader.token}` },
+              body: HttpBody.text(waitJson, "application/json"),
+            })).status,
+          ).toBe(403);
           expect((yield* http.get("/api/dot/connections")).status).toBe(401);
           const listed = yield* http.get("/api/dot/connections", {
             headers: { authorization: `Bearer ${admin.token}` },
@@ -563,8 +600,69 @@ describe("durable Dot connections and independent tasks", () => {
               "hive_mind_recall",
               "hive_mind_remember",
               "hive_mind_forget",
+              "post_dot_reply",
             ].sort(),
           );
+
+          const postMcp2 = Effect.fn("dot.test.mcp2")(function* (
+            method: string,
+            params: unknown,
+            bearer?: string,
+          ) {
+            const json = yield* encodeJson({ jsonrpc: "2.0", id: "mcp2-check", method, params });
+            const response = yield* http.post("/dot/mcp", {
+              headers: {
+                "content-type": "application/json",
+                "mcp-protocol-version": "2026-07-28",
+                ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
+              },
+              body: HttpBody.text(json, "application/json"),
+            });
+            return { status: response.status, body: yield* response.json };
+          });
+          expect(yield* postMcp2("server/discover", {})).toMatchObject({
+            status: 200,
+            body: {
+              id: "mcp2-check",
+              result: {
+                supportedVersions: ["2026-07-28", "2025-06-18"],
+                capabilities: { events: {} },
+              },
+            },
+          });
+          expect((yield* postMcp2("tools/list", {})).status).toBe(401);
+          expect((yield* postMcp2("tools/list", {}, issued.credential)).body).toMatchObject({
+            result: {
+              tools: expect.arrayContaining([
+                expect.objectContaining({
+                  name: "post_dot_reply",
+                  securitySchemes: [{ type: "oauth2", scopes: ["dot:chat"] }],
+                }),
+              ]),
+            },
+          });
+          expect(
+            (yield* postMcp2(
+              "tools/call",
+              { name: "list_projects", arguments: {} },
+              issued.credential,
+            )).body,
+          ).toMatchObject({
+            result: {
+              structuredContent: {
+                projects: expect.arrayContaining([expect.objectContaining({ id: projectId })]),
+              },
+            },
+          });
+          expect(
+            (yield* postMcp2(
+              "tools/call",
+              { name: "post_dot_reply", arguments: { messageId: "unknown", text: "denied" } },
+              issued.credential,
+            )).body,
+          ).toMatchObject({
+            error: { message: "This Dot connection does not have native chat permission." },
+          });
           const providerListResponse = yield* post(
             "/mcp",
             providerCredential.config.authorizationHeader,

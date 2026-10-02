@@ -94,6 +94,54 @@ const grantCode = (connectionId: string, scope = "dot:read dot:tasks") =>
   });
 
 describe("Dot OAuth", () => {
+  it.effect(
+    "registers a second exact ChatGPT callback and resource while preserving existing links",
+    () =>
+      Effect.gen(function* () {
+        yield* seed;
+        const oauth = yield* DotOAuth;
+        yield* oauth.configure(setup);
+        const oldId = yield* connect();
+        const oldTokens = yield* oauth.exchange(exchangeInput(yield* grantCode(oldId)));
+        const additional = {
+          clientId: setup.clientId,
+          redirectUri: "https://chatgpt.com/connector/oauth/native-chat",
+          resource: "https://tunnel.example.test/native-dot",
+        };
+        yield* oauth.configure({ ...setup, additionalClients: [additional] });
+        expect(Option.isSome(yield* oauth.resolve(oldTokens.access_token))).toBe(true);
+        const native = yield* (yield* DotConnections).create({
+          label: "Native Dot",
+          chat: true,
+          grants: [],
+          expiresInDays: 30,
+        });
+        expect(
+          yield* errorOf(oauth.begin(authorization({ resource: additional.resource }), session)),
+        ).toBe("invalid_request");
+        expect(
+          yield* errorOf(
+            oauth.begin(authorization({ redirect_uri: additional.redirectUri }), session),
+          ),
+        ).toBe("invalid_request");
+        const { requestId } = yield* oauth.begin(
+          authorization({
+            scope: "dot:chat",
+            redirect_uri: additional.redirectUri,
+            resource: additional.resource,
+          }),
+          session,
+        );
+        const code = codeFrom(yield* oauth.authorize(requestId, session, native.connection.id));
+        expect(yield* errorOf(oauth.exchange(exchangeInput(code)))).toBe("invalid_grant");
+        const tokens = yield* oauth.exchange(exchangeInput(code, additional));
+        expect(tokens.scope).toBe("dot:chat");
+        expect(Option.isSome(yield* oauth.resolve(tokens.access_token))).toBe(true);
+        yield* oauth.configure(setup);
+        expect(Option.isNone(yield* oauth.resolve(tokens.access_token))).toBe(true);
+        expect(Option.isSome(yield* oauth.resolve(oldTokens.access_token))).toBe(true);
+      }).pipe(Effect.provide(testLayer)),
+  );
   it.effect("issues memory scopes only when requested and granted, and rechecks the grant", () =>
     Effect.gen(function* () {
       yield* seed;

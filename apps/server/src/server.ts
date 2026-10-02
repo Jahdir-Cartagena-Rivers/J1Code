@@ -79,6 +79,8 @@ import * as DotConnections from "./dot/DotConnections.ts";
 import * as DotService from "./dot/DotService.ts";
 import * as DotHiveMind from "./dot/DotHiveMind.ts";
 import * as DotHttpServer from "./dot/DotHttpServer.ts";
+import * as DotChat from "./dot/DotChat.ts";
+import * as DotChatWebhook from "./dot/DotChatWebhook.ts";
 import * as DotAdminHttp from "./dot/adminHttp.ts";
 import * as DotOAuth from "./dot/DotOAuth.ts";
 import * as DotOAuthHttp from "./dot/DotOAuthHttp.ts";
@@ -633,6 +635,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   Layer.provide(PullRequestServiceLive),
   Layer.provide(DotService.layer),
   Layer.provide(DotHiveMind.layer),
+  Layer.provide(DotChat.layer.pipe(Layer.provide(DotChatWebhook.layer))),
   Layer.provide(DotOAuth.layer),
   Layer.provide(DotConnections.layer),
   Layer.provide(AgentDelegationLive),

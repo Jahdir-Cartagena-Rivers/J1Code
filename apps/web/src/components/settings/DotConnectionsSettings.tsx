@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import * as Effect from "effect/Effect";
 import {
   type DotConnection,
+  type DotOAuthSetup,
   type ProjectId,
   RuntimeMode,
   type RuntimeMode as RuntimeModeType,
@@ -9,6 +10,7 @@ import {
 import * as Schema from "effect/Schema";
 import { PrimaryEnvironmentHttpClient } from "../../environments/primary/httpClient";
 import { runPrimaryHttp } from "../../lib/runtime";
+import { randomUUID } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";
@@ -41,6 +43,7 @@ export function DotConnectionsSettings({
   const [tasks, setTasks] = useState(false);
   const [memoryRead, setMemoryRead] = useState(false);
   const [memoryWrite, setMemoryWrite] = useState(false);
+  const [chat, setChat] = useState(false);
   const [mode, setMode] = useState<RuntimeModeType>("approval-required");
   const [credential, setCredential] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -53,6 +56,9 @@ export function DotConnectionsSettings({
   const [oauthCallback, setOAuthCallback] = useState(
     "https://chatgpt.com/connector_platform_oauth_redirect",
   );
+  const [additionalClients, setAdditionalClients] = useState<
+    readonly (NonNullable<DotOAuthSetup["additionalClients"]>[number] & { id: string })[]
+  >([]);
   const load = useCallback(
     () =>
       runPrimaryHttp(
@@ -80,6 +86,9 @@ export function DotConnectionsSettings({
       setOAuthResource(data.oauth.resource);
       setOAuthClient(data.oauth.clientId);
       setOAuthCallback(data.oauth.redirectUri);
+      setAdditionalClients(
+        (data.oauth.additionalClients ?? []).map((client) => ({ ...client, id: randomUUID() })),
+      );
     }
   }, []);
   useEffect(() => {
@@ -114,6 +123,7 @@ export function DotConnectionsSettings({
                 label,
                 expiresInDays: 30,
                 hiveMind: { read: memoryRead, write: memoryWrite },
+                chat,
                 grants: selected.map((projectId) => ({
                   projectId,
                   read,
@@ -149,6 +159,11 @@ export function DotConnectionsSettings({
                 resource: oauthResource,
                 clientId: oauthClient,
                 redirectUri: oauthCallback,
+                additionalClients: additionalClients.map((client) => ({
+                  clientId: client.clientId,
+                  redirectUri: client.redirectUri,
+                  resource: client.resource,
+                })),
               },
             }),
           ),
@@ -183,8 +198,8 @@ export function DotConnectionsSettings({
   return (
     <SettingsSection id="dot-connections" title="ChatGPT Dot">
       <p className="text-sm text-muted-foreground">
-        Prepare project and Hive Mind access for your existing Dot. Connecting the plugin in ChatGPT
-        is a separate step.
+        Prepare native chat, project, and Hive Mind access for your existing Dot. Connecting the
+        plugin in ChatGPT is a separate step.
       </p>
       {error ? (
         <p role="alert" className="text-sm text-destructive">
@@ -231,6 +246,9 @@ export function DotConnectionsSettings({
                   {grant.createTasks ? `Create tasks (${modes[grant.runtimeMode]})` : ""}
                 </p>
               ))}
+              {connection.chat ? (
+                <p className="text-xs text-muted-foreground">Native Dot chat</p>
+              ) : null}
               {connection.hiveMind?.read ? (
                 <p className="text-xs text-muted-foreground">
                   Hive Mind: read all shared memories
@@ -258,7 +276,8 @@ export function DotConnectionsSettings({
             <legend className="text-sm font-medium">Plugin OAuth setup</legend>
             <p className="text-xs text-muted-foreground">
               Your browser must be able to reach the issuer for sign-in. The OpenAI tunnel can relay
-              registered token endpoints. Changing these values invalidates existing OAuth links.
+              registered token endpoints. Changing a registration invalidates its OAuth links. Add
+              another registration to preserve your existing connections.
             </p>
             <label className="block space-y-1 text-sm">
               HTTPS issuer origin
@@ -294,6 +313,54 @@ export function DotConnectionsSettings({
                 onChange={(event) => setOAuthCallback(event.currentTarget.value)}
               />
             </label>
+            {additionalClients.map((client, index) => (
+              <fieldset key={client.id} className="space-y-2 border p-3">
+                <legend className="text-sm">Additional ChatGPT registration {index + 1}</legend>
+                {(["clientId", "redirectUri", "resource"] as const).map((field) => (
+                  <label key={field} className="block space-y-1 text-sm">
+                    {field === "clientId"
+                      ? "OAuth client ID"
+                      : field === "redirectUri"
+                        ? "ChatGPT callback URL"
+                        : "MCP resource URL"}
+                    <Input
+                      value={client[field]}
+                      maxLength={field === "clientId" ? 256 : 2048}
+                      onChange={(event) => {
+                        const value = event.currentTarget.value;
+                        setAdditionalClients((current) =>
+                          current.map((entry, i) =>
+                            i === index ? { ...entry, [field]: value } : entry,
+                          ),
+                        );
+                      }}
+                    />
+                  </label>
+                ))}
+                <Button
+                  size="sm"
+                  variant="destructive-outline"
+                  onClick={() =>
+                    setAdditionalClients((current) => current.filter((_, i) => i !== index))
+                  }
+                >
+                  Remove registration
+                </Button>
+              </fieldset>
+            ))}
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy || additionalClients.length >= 10}
+              onClick={() =>
+                setAdditionalClients((current) => [
+                  ...current,
+                  { id: randomUUID(), clientId: oauthClient, redirectUri: "", resource: "" },
+                ])
+              }
+            >
+              Add ChatGPT registration
+            </Button>
             <Button
               size="sm"
               variant="outline"
@@ -325,7 +392,7 @@ export function DotConnectionsSettings({
               <legend className="mb-2 text-sm">Allowed projects</legend>
               {projects.length === 0 && !loading ? (
                 <p className="text-sm text-muted-foreground">
-                  Add a project for project access, or choose Hive Mind access below.
+                  Add a project for project access, or choose chat or Hive Mind access below.
                 </p>
               ) : null}
               {projects.map((project) => (
@@ -381,6 +448,17 @@ export function DotConnectionsSettings({
               </div>
             ) : null}
             <fieldset className="space-y-2">
+              <legend className="text-sm font-medium">Native Dot chat</legend>
+              <p className="text-xs text-muted-foreground">
+                Talk to this Dot from the Dot item in the J1 sidebar. Chat grants no project or Hive
+                Mind access and requires no workers.
+              </p>
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox checked={chat} onCheckedChange={setChat} />
+                Chat with Dot in J1
+              </label>
+            </fieldset>
+            <fieldset className="space-y-2">
               <legend className="text-sm font-medium">Hive Mind access</legend>
               <p className="text-xs text-muted-foreground">
                 Shared memories span all J1 projects and providers. This is separate from ChatGPT
@@ -410,7 +488,7 @@ export function DotConnectionsSettings({
               disabled={
                 busy ||
                 loading ||
-                (selected.length === 0 && !memoryRead) ||
+                (selected.length === 0 && !memoryRead && !chat) ||
                 !label.trim() ||
                 (selected.length > 0 && !read && !tasks) ||
                 credential !== null

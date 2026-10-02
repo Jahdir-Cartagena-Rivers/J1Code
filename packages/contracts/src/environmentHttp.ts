@@ -13,6 +13,12 @@ import {
   DotIntegrationError,
   IssuedDotConnection,
   DotOAuthSetup,
+  DotChatQuery,
+  DotChatSnapshot,
+  DotChatMessage,
+  DotChatSendInput,
+  DotChatWaitInput,
+  DotChatUpdate,
 } from "./dot.ts";
 
 import {
@@ -624,6 +630,30 @@ class EnvironmentConnectHttpApi extends HttpApiGroup.make("connect")
   ) {}
 
 class EnvironmentDotHttpApi extends HttpApiGroup.make("dot")
+  .add(
+    HttpApiEndpoint.get("chat", "/api/dot/chat", {
+      headers: OptionalBearerHeaders,
+      query: DotChatQuery,
+      success: DotChatSnapshot,
+      error: [...EnvironmentScopedOperationErrors, DotIntegrationError],
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post("sendChat", "/api/dot/chat/send", {
+      headers: OptionalBearerHeaders,
+      payload: DotChatSendInput,
+      success: DotChatMessage,
+      error: [...EnvironmentScopedOperationErrors, DotIntegrationError],
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post("waitChat", "/api/dot/chat/wait", {
+      headers: OptionalBearerHeaders,
+      payload: DotChatWaitInput,
+      success: DotChatUpdate,
+      error: [...EnvironmentScopedOperationErrors, DotIntegrationError],
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
   .add(
     HttpApiEndpoint.get("oauthSetup", "/api/dot/oauth-setup", {
       headers: OptionalBearerHeaders,

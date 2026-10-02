@@ -10,6 +10,20 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { DotConnections, connectionAllowsDotScope } from "./DotConnections.ts";
 
 export const scopes = DOT_OAUTH_SCOPES;
+export const registeredDotClients = (setup: DotOAuthSetup) => [
+  setup,
+  ...(setup.additionalClients ?? []),
+];
+export const matchesDotClient = (
+  setup: DotOAuthSetup,
+  binding: { clientId: string; resource: string; redirectUri: string },
+) =>
+  registeredDotClients(setup).some(
+    (client) =>
+      client.clientId === binding.clientId &&
+      client.resource === binding.resource &&
+      client.redirectUri === binding.redirectUri,
+  );
 export class DotOAuthError extends Schema.TaggedError<DotOAuthError>()("DotOAuthError", {
   error: Schema.Literals([
     "invalid_request",
@@ -89,12 +103,7 @@ export const make = Effect.gen(function* () {
   );
   const validateGrant = Effect.fn("DotOAuth.validateGrant")(function* (grant: Grant) {
     const current = yield* setup;
-    if (
-      grant.issuer !== current.issuer ||
-      grant.resource !== current.resource ||
-      grant.clientId !== current.clientId ||
-      grant.redirectUri !== current.redirectUri
-    )
+    if (grant.issuer !== current.issuer || !matchesDotClient(current, grant))
       return yield* fail("invalid_grant");
     const connection = yield* connections
       .getActive(grant.connectionId)
@@ -146,9 +155,11 @@ export const make = Effect.gen(function* () {
     const current = yield* setup;
     if (
       request.issuer !== current.issuer ||
-      request.resource !== current.resource ||
-      request.client_id !== current.clientId ||
-      request.redirect_uri !== current.redirectUri
+      !matchesDotClient(current, {
+        resource: request.resource,
+        clientId: request.client_id,
+        redirectUri: request.redirect_uri,
+      })
     )
       return yield* fail("invalid_request");
     return request;
@@ -159,7 +170,13 @@ export const make = Effect.gen(function* () {
       function* (input: DotOAuthSetup) {
         input = yield* decodeSetupInput(input).pipe(Effect.mapError(() => fail("invalid_request")));
         const urls = yield* Effect.try({
-          try: () => [new URL(input.issuer), new URL(input.resource), new URL(input.redirectUri)],
+          try: () => [
+            new URL(input.issuer),
+            ...registeredDotClients(input).flatMap((client) => [
+              new URL(client.resource),
+              new URL(client.redirectUri),
+            ]),
+          ],
           catch: () => fail("invalid_request"),
         });
         if (
@@ -187,8 +204,15 @@ export const make = Effect.gen(function* () {
           Effect.mapError(() => fail("invalid_request")),
         );
         const current = yield* setup;
-        if (request.client_id !== current.clientId) return yield* fail("invalid_client");
-        if (request.resource !== current.resource || request.redirect_uri !== current.redirectUri)
+        if (!registeredDotClients(current).some((client) => client.clientId === request.client_id))
+          return yield* fail("invalid_client");
+        if (
+          !matchesDotClient(current, {
+            resource: request.resource,
+            clientId: request.client_id,
+            redirectUri: request.redirect_uri,
+          })
+        )
           return yield* fail("invalid_request");
         const requestedScopes = [...new Set(request.scope.split(" "))];
         if (requestedScopes.some((value) => !scopes.some((scope) => scope === value)))

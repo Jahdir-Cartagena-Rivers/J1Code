@@ -53,6 +53,8 @@ export function connectionAllowsDotScope(connection: DotConnection, scope: DotOA
       return connection.hiveMind?.read === true;
     case "dot:memory:write":
       return connection.hiveMind?.read === true && connection.hiveMind.write;
+    case "dot:chat":
+      return connection.chat === true;
   }
 }
 
@@ -105,8 +107,10 @@ export const layer = Layer.effect(
           return yield* new DotIntegrationError({
             message: "Hive Mind write access requires read access.",
           });
-        if (!input.grants.length && !input.hiveMind?.read)
-          return yield* new DotIntegrationError({ message: "Choose project or Hive Mind access." });
+        if (!input.grants.length && !input.hiveMind?.read && !input.chat)
+          return yield* new DotIntegrationError({
+            message: "Choose native chat, project, or Hive Mind access.",
+          });
         for (const grant of input.grants) {
           if (!grant.read && !grant.createTasks)
             return yield* new DotIntegrationError({
@@ -130,6 +134,7 @@ export const layer = Layer.effect(
           label: input.label,
           grants: input.grants,
           ...(input.hiveMind ? { hiveMind: input.hiveMind } : {}),
+          ...(input.chat !== undefined ? { chat: input.chat } : {}),
           createdAt: DateTime.formatIso(now),
           expiresAt: DateTime.formatIso(DateTime.add(now, { days: input.expiresInDays })),
           revokedAt: null,
@@ -160,6 +165,8 @@ export const layer = Layer.effect(
               const revokedAt = DateTime.formatIso(yield* DateTime.now);
               const json = yield* encode({ ...connection, revokedAt });
               yield* sql`UPDATE dot_connections SET connection_json = ${json} WHERE id = ${id}`;
+              // The chat service expires these rows, marks undelivered messages, and removes secrets.
+              yield* sql`UPDATE dot_chat_subscriptions SET expires_at = 0 WHERE connection_id = ${id}`;
             }),
           )
           .pipe(Effect.mapError(storageError));

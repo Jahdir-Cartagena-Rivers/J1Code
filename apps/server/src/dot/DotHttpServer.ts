@@ -10,6 +10,8 @@ import { DotHiveMind, memoryScopeForTool } from "./DotHiveMind.ts";
 import { DotToolkit, handlers } from "./tools.ts";
 import { normalizeMcpHttpResponse } from "../mcp/McpHttpServer.ts";
 import { DotOAuth, scopes } from "./DotOAuth.ts";
+import { DotChat } from "./DotChat.ts";
+import * as DotMcp2 from "./DotMcp2.ts";
 import packageJson from "../../package.json" with { type: "json" };
 
 const decodeToolCall = Schema.decodeUnknownOption(
@@ -21,6 +23,7 @@ const decodeToolCall = Schema.decodeUnknownOption(
 );
 
 const isToolListRequest = Schema.is(Schema.Struct({ method: Schema.Literal("tools/list") }));
+const decodeRpc = Schema.decodeUnknownOption(DotMcp2.RpcRequest);
 
 const decodeToolList = Schema.decodeUnknownOption(
   Schema.fromJsonString(
@@ -54,11 +57,28 @@ const withToolSecuritySchemes = (response: HttpServerResponse.HttpServerResponse
 
 const auth = HttpRouter.middleware<{ provides: DotInvocation }>()(
   Effect.map(
-    Effect.all({ connections: DotConnections, oauth: DotOAuth }),
-    ({ connections, oauth }) =>
+    Effect.all({
+      connections: DotConnections,
+      oauth: DotOAuth,
+      mcp2: DotMcp2.make.pipe(Effect.provide(handlers)),
+    }),
+    ({ connections, oauth, mcp2 }) =>
       (httpEffect) =>
         Effect.gen(function* () {
           const request = yield* HttpServerRequest.HttpServerRequest;
+          const body =
+            request.method === "POST" ? yield* request.json.pipe(Effect.option) : Option.none();
+          const rpc = Option.flatMap(body, decodeRpc);
+          if (Option.isSome(rpc) && rpc.value.method.startsWith("events/"))
+            yield* Effect.logInfo("Dot event request", {
+              method: rpc.value.method,
+              protocol: request.headers["mcp-protocol-version"] ?? "unspecified",
+            });
+          if (Option.isSome(rpc) && rpc.value.method === "server/discover")
+            return HttpServerResponse.jsonUnsafe(
+              { jsonrpc: "2.0", id: rpc.value.id, result: DotMcp2.discovery },
+              { headers: { "cache-control": "no-store" } },
+            );
           const header = request.headers.authorization;
           const credential = header?.startsWith("Bearer ") ? header.slice(7).trim() : "";
           const principal = credential.startsWith("j1-dot-oauth-")
@@ -84,14 +104,17 @@ const auth = HttpRouter.middleware<{ provides: DotInvocation }>()(
           // The request body is cached by HttpServerRequest, so the MCP handler can read it again.
           let toolsListRequested = false;
           if (request.method === "POST") {
-            const body = yield* request.json.pipe(Effect.option);
             toolsListRequested = Option.isSome(body) && isToolListRequest(body.value);
             const call = Option.flatMap(body, decodeToolCall);
             if (Option.isSome(call)) {
-              const required = memoryScopeForTool(call.value.params.name);
+              const required =
+                call.value.params.name === "post_dot_reply"
+                  ? "dot:chat"
+                  : memoryScopeForTool(call.value.params.name);
               if (required && !principal.value.scopes.includes(required) && Option.isSome(setup)) {
                 const requested = [...new Set([...principal.value.scopes, required])].join(" ");
-                const challenge = `Bearer resource_metadata="${new URL("/.well-known/oauth-protected-resource/dot/mcp", setup.value.resource)}", error="insufficient_scope", error_description="Reconnect J1 Code Dot to grant Hive Mind access", scope="${requested}"`;
+                const permission = required === "dot:chat" ? "native chat" : "Hive Mind";
+                const challenge = `Bearer resource_metadata="${new URL("/.well-known/oauth-protected-resource/dot/mcp", setup.value.resource)}", error="insufficient_scope", error_description="Reconnect J1 Code Dot to grant ${permission} access", scope="${requested}"`;
                 return HttpServerResponse.jsonUnsafe(
                   {
                     jsonrpc: "2.0",
@@ -101,7 +124,10 @@ const auth = HttpRouter.middleware<{ provides: DotInvocation }>()(
                       content: [
                         {
                           type: "text",
-                          text: "Reconnect J1 Code Dot and choose a prepared Hive Mind connection.",
+                          text:
+                            required === "dot:chat"
+                              ? "Reconnect J1 Code Dot and choose a prepared native chat connection."
+                              : "Reconnect J1 Code Dot and choose a prepared Hive Mind connection.",
                         },
                       ],
                       _meta: { "mcp/www_authenticate": [challenge] },
@@ -111,6 +137,26 @@ const auth = HttpRouter.middleware<{ provides: DotInvocation }>()(
                 );
               }
             }
+          }
+          if (request.headers["mcp-protocol-version"] === "2026-07-28") {
+            if (Option.isNone(rpc))
+              return HttpServerResponse.jsonUnsafe(
+                {
+                  jsonrpc: "2.0",
+                  id: null,
+                  error: { code: -32600, message: "Invalid MCP request." },
+                },
+                { status: 400 },
+              );
+            return yield* mcp2(rpc.value).pipe(
+              Effect.provideService(DotInvocation, {
+                connectionId: principal.value.connection.id,
+                scopes: principal.value.scopes,
+              }),
+              Effect.map((result) =>
+                HttpServerResponse.jsonUnsafe(result, { headers: { "cache-control": "no-store" } }),
+              ),
+            );
           }
           return yield* httpEffect.pipe(
             Effect.provideService(DotInvocation, {
@@ -153,6 +199,7 @@ export const layer = Layer.unwrap(
     const hiveMind = yield* DotHiveMind;
     const connections = yield* DotConnections;
     const oauth = yield* DotOAuth;
+    const chat = yield* DotChat;
     return Layer.fresh(
       McpServer.toolkit(DotToolkit).pipe(
         Layer.provide(handlers),
@@ -168,6 +215,7 @@ export const layer = Layer.unwrap(
         Layer.provide(Layer.succeed(DotHiveMind, hiveMind)),
         Layer.provide(Layer.succeed(DotConnections, connections)),
         Layer.provide(Layer.succeed(DotOAuth, oauth)),
+        Layer.provide(Layer.succeed(DotChat, chat)),
       ),
     );
   }),
