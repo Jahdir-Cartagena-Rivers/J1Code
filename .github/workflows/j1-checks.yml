@@ -29,6 +29,7 @@ concurrency:
 
 jobs:
   check:
+    name: Packaging, configuration, updates, and memory
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
