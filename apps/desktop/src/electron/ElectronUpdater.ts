@@ -1,12 +1,32 @@
+// @effect-diagnostics nodeBuiltinImport:off - GitHub CLI credentials are read with a bounded, non-shell child process.
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
+import * as NodeChildProcess from "node:child_process";
+import * as NodeUtil from "node:util";
 
 import { autoUpdater } from "electron-updater";
 
 type AutoUpdater = typeof autoUpdater;
+const execFileAsync = NodeUtil.promisify(NodeChildProcess.execFile);
+
+export async function resolvePrivateGitHubUpdateToken(): Promise<string | null> {
+  const configured = process.env.GH_TOKEN?.trim() || process.env.GITHUB_TOKEN?.trim();
+  if (configured) return configured;
+  try {
+    // Use the user's existing GitHub CLI login without persisting or logging a token.
+    const { stdout } = await execFileAsync("gh", ["auth", "token", "--hostname", "github.com"], {
+      timeout: 5_000,
+      windowsHide: true,
+      maxBuffer: 16_384,
+    });
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
 
 export type ElectronUpdaterFeedUrl = Parameters<AutoUpdater["setFeedURL"]>[0];
 
@@ -59,6 +79,7 @@ export class ElectronUpdater extends Context.Service<
   ElectronUpdater,
   {
     readonly setFeedURL: (options: ElectronUpdaterFeedUrl) => Effect.Effect<void>;
+    readonly privateGitHubToken: Effect.Effect<string | null>;
     readonly setAutoDownload: (value: boolean) => Effect.Effect<void>;
     readonly setAutoInstallOnAppQuit: (value: boolean) => Effect.Effect<void>;
     readonly setChannel: (channel: string) => Effect.Effect<void>;
@@ -82,6 +103,7 @@ export class ElectronUpdater extends Context.Service<
 
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = ElectronUpdater.of({
+  privateGitHubToken: Effect.promise(resolvePrivateGitHubUpdateToken),
   setFeedURL: (options) =>
     Effect.suspend(() => {
       autoUpdater.setFeedURL(options);

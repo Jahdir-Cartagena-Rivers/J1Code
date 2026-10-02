@@ -21,6 +21,48 @@ import * as DesktopUpdates from "./DesktopUpdates.ts";
 import { flushCallbacks, makeHarness } from "./updatesTestHarness.ts";
 
 describe("DesktopUpdates", () => {
+  it.effect("uses authenticated private J1 releases and disables checks without credentials", () =>
+    Effect.gen(function* () {
+      const appUpdateYml = "provider: github\nowner: Jahdir-Rivers\nrepo: J1Code\nprivate: true\n";
+      const withToken = makeHarness({
+        appUpdateYml,
+        privateGitHubToken: "test-token",
+        env: { T3CODE_DESKTOP_MOCK_UPDATES: "false" },
+      });
+      const enabledState = yield* Effect.scoped(
+        Effect.gen(function* () {
+          const updates = yield* DesktopUpdates.DesktopUpdates;
+          yield* updates.configure;
+          return yield* updates.getState;
+        }),
+      ).pipe(Effect.provide(withToken.layer));
+      assert.equal(enabledState.enabled, true);
+      assert.deepEqual(withToken.feedUrls(), [
+        {
+          provider: "github",
+          owner: "Jahdir-Rivers",
+          repo: "J1Code",
+          private: true,
+          token: "test-token",
+        },
+      ]);
+
+      const withoutToken = makeHarness({
+        appUpdateYml,
+        env: { T3CODE_DESKTOP_MOCK_UPDATES: "false" },
+      });
+      const disabled = yield* Effect.scoped(
+        Effect.gen(function* () {
+          const updates = yield* DesktopUpdates.DesktopUpdates;
+          yield* updates.configure;
+          return { state: yield* updates.getState, reason: yield* updates.disabledReason };
+        }),
+      ).pipe(Effect.provide(withoutToken.layer));
+      assert.equal(disabled.state.enabled, false);
+      assert.isTrue(Option.isSome(disabled.reason));
+      assert.deepEqual(withoutToken.feedUrls(), []);
+    }),
+  );
   it("preserves complete causes for update poller and event failures", () => {
     const cause = Cause.combine(
       Cause.fail(new Error("updater failed")),

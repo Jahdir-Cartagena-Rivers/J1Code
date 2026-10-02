@@ -286,6 +286,7 @@ export const make = Effect.gen(function* () {
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
 
   const appUpdateYmlConfigRef = yield* Ref.make<Option.Option<AppUpdateYmlConfig>>(Option.none());
+  const privateGitHubAuthMissingRef = yield* Ref.make(false);
   const activeUpdateActionRef = yield* Ref.make<Option.Option<UpdateAction>>(Option.none());
   const finishedUpdateActions = yield* PubSub.unbounded<UpdateAction>();
   const updaterConfiguredRef = yield* Ref.make(false);
@@ -351,6 +352,9 @@ export const make = Effect.gen(function* () {
   );
 
   const resolveDisabledReason = Effect.gen(function* () {
+    if (yield* Ref.get(privateGitHubAuthMissingRef)) {
+      return Option.some("Sign in with GitHub CLI to check private J1 Code releases.");
+    }
     const hasFeedConfig = yield* hasUpdateFeedConfig;
     return Option.fromNullishOr(
       getAutoUpdateDisabledReason({
@@ -916,6 +920,30 @@ export const make = Effect.gen(function* () {
 
       const appUpdateYmlConfig = yield* readAppUpdateYml;
       yield* Ref.set(appUpdateYmlConfigRef, appUpdateYmlConfig);
+
+      if (
+        Option.isSome(appUpdateYmlConfig) &&
+        appUpdateYmlConfig.value.provider === "github" &&
+        appUpdateYmlConfig.value.private === "true"
+      ) {
+        const token = yield* electronUpdater.privateGitHubToken;
+        if (token) {
+          const { owner, repo } = appUpdateYmlConfig.value;
+          if (owner && repo) {
+            yield* electronUpdater.setFeedURL({
+              provider: "github",
+              owner,
+              repo,
+              private: true,
+              token,
+            } as ElectronUpdater.ElectronUpdaterFeedUrl);
+          } else {
+            yield* Ref.set(privateGitHubAuthMissingRef, true);
+          }
+        } else {
+          yield* Ref.set(privateGitHubAuthMissingRef, true);
+        }
+      }
 
       if (config.mockUpdates) {
         yield* electronUpdater.setFeedURL({
