@@ -14,6 +14,7 @@ import { requireEnvironmentScope } from "../auth/http.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { DotConnections } from "./DotConnections.ts";
 import { DotOAuth } from "./DotOAuth.ts";
+import { DotChat } from "./DotChat.ts";
 
 const noStore = HttpEffect.appendPreResponseHandler((_request, response) =>
   Effect.succeed(
@@ -26,7 +27,29 @@ export const layer = HttpApiBuilder.group(EnvironmentHttpApi, "dot", (handlers) 
     const connections = yield* DotConnections;
     const oauth = yield* DotOAuth;
     const snapshots = yield* ProjectionSnapshotQuery;
+    const chat = yield* DotChat;
     return handlers
+      .handle("chat", ({ query }) =>
+        Effect.gen(function* () {
+          yield* requireEnvironmentScope(AuthOrchestrationReadScope);
+          yield* noStore;
+          return yield* chat.snapshot(query);
+        }),
+      )
+      .handle("sendChat", ({ payload }) =>
+        Effect.gen(function* () {
+          yield* requireEnvironmentScope(AuthOrchestrationOperateScope);
+          yield* noStore;
+          return yield* chat.send(payload);
+        }),
+      )
+      .handle("waitChat", ({ payload }) =>
+        Effect.gen(function* () {
+          yield* requireEnvironmentScope(AuthOrchestrationReadScope);
+          yield* noStore;
+          return yield* chat.wait(payload);
+        }),
+      )
       .handle("oauthSetup", () =>
         Effect.gen(function* () {
           yield* requireEnvironmentScope(AuthAccessReadScope);
@@ -84,8 +107,11 @@ export const layer = HttpApiBuilder.group(EnvironmentHttpApi, "dot", (handlers) 
             yield* requireEnvironmentScope(AuthOrchestrationReadScope);
           if (payload.grants.some((grant) => grant.createTasks))
             yield* requireEnvironmentScope(AuthOrchestrationOperateScope);
+          if (payload.chat) yield* requireEnvironmentScope(AuthOrchestrationOperateScope);
           yield* noStore;
-          return yield* connections.create(payload);
+          const result = yield* connections.create(payload);
+          yield* chat.notify;
+          return result;
         }),
       )
       .handle("revokeConnection", ({ payload }) =>
@@ -93,6 +119,7 @@ export const layer = HttpApiBuilder.group(EnvironmentHttpApi, "dot", (handlers) 
           yield* requireEnvironmentScope(AuthAccessWriteScope);
           yield* noStore;
           yield* connections.revoke(payload.id);
+          yield* chat.notify;
           return { revoked: true };
         }),
       );

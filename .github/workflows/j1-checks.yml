@@ -47,13 +47,14 @@ jobs:
         working-directory: apps/server
         run: >-
           vp test run src/dot/DotIntegration.test.ts src/dot/DotOAuth.test.ts
+          src/dot/DotChat.test.ts src/dot/DotChatWebhook.test.ts
           src/mcp/AgentDelegation.test.ts
           src/orchestration/Layers/ProjectionSnapshotQuery.test.ts
       - name: Test chat navigation and saved settings
         working-directory: apps/web
         run: >-
           vp test run --project unit src/components/WorkerChats.test.tsx
-          src/workerChatStore.test.ts src/dotChatStore.test.ts
+          src/workerChatStore.test.ts src/components/dot/dotChat.logic.test.ts
           src/components/settings/settingsSearch.test.ts src/components/Sidebar.logic.test.ts
       - name: Lint the covered code
         run: >-

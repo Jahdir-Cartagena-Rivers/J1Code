@@ -757,19 +757,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     localBackendManagementOnly: true,
   },
   {
-    id: "dot-chat",
-    title: "Dot chat",
-    to: "/settings/connections",
-    targetId: "dot-chat",
-    searchTerms: ["ChatGPT", "Dot conversation", "browser profile", "dedicated view"],
-    scope: "connections",
-  },
-  {
     id: "dot-connections",
     title: "ChatGPT Dot",
     to: "/settings/connections",
     targetId: "dot-connections",
-    searchTerms: ["dot plugin project grants tasks permissions credential revoke"],
+    searchTerms: ["dot plugin native chat project grants tasks permissions credential revoke"],
   },
   {
     id: "desktop-close-behavior",

@@ -69,7 +69,6 @@ import {
 import { LocalEnvironmentSetting } from "./LocalEnvironmentSetting";
 import { DesktopCloseSetting } from "./DesktopCloseSetting";
 import { DotConnectionsSettings } from "./DotConnectionsSettings";
-import { DotChatSetup } from "../dot/DotChatSetup";
 import { searchableSetting } from "./settingsSearch";
 import { EnvironmentIconMenu } from "./EnvironmentIconPicker";
 import {
@@ -3388,12 +3387,6 @@ export function ConnectionsSettings() {
               </>
             ) : null}
           </SettingsSection>
-
-          {primaryEnvironmentId ? (
-            <SettingsSection {...searchableSetting("dot-chat")}>
-              <DotChatSetup key={primaryEnvironmentId} environmentId={primaryEnvironmentId} />
-            </SettingsSection>
-          ) : null}
 
           {currentSessionScopes?.includes(AuthAccessReadScope) ? (
             <DotConnectionsSettings

@@ -16,6 +16,7 @@ import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/unstable/ai";
 import { DotInvocation, DotService } from "./DotService.ts";
 import { DotHiveMind } from "./DotHiveMind.ts";
+import { DotChat, DotReplyInput } from "./DotChat.ts";
 import { HiveMindMemory } from "../mcp/toolkits/hiveMind/tools.ts";
 
 const dependencies = [DotService, DotInvocation];
@@ -30,6 +31,18 @@ const readTool = <Name extends string, S extends Schema.Top>(
   );
 
 export const DotToolkit = Toolkit.make(
+  Tool.make("post_dot_reply", {
+    description:
+      "Save your reply to a user message received through the j1.dot.message event in J1's native Dot chat. Use the event's exact messageId. Ordinary replies need no workers. Requires separate native chat permission; cannot reply to other connections. Repeating the same reply is safe.",
+    parameters: DotReplyInput,
+    success: Schema.Struct({ saved: Schema.Literal(true), messageId: Schema.String }),
+    failure: DotIntegrationError,
+    dependencies: [DotChat, DotInvocation],
+  })
+    .annotate(Tool.Readonly, false)
+    .annotate(Tool.Destructive, false)
+    .annotate(Tool.Idempotent, true)
+    .annotate(Tool.Meta, { securitySchemes: [{ type: "oauth2", scopes: ["dot:chat"] }] }),
   readTool(
     "list_projects",
     "List the projects explicitly granted to this Dot connection and their read/task permissions.",
@@ -168,7 +181,9 @@ export const handlers = DotToolkit.toLayer(
   Effect.gen(function* () {
     const dot = yield* DotService;
     const hiveMind = yield* DotHiveMind;
+    const chat = yield* DotChat;
     return DotToolkit.of({
+      post_dot_reply: (input) => chat.reply(input),
       list_projects: () => dot.projects,
       list_models: () => dot.models,
       list_threads: (input) => dot.threads(input),

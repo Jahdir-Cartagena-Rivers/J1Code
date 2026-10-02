@@ -5,18 +5,23 @@ machine. That machine must stay running and reachable while you work.
 
 ## Chat with Dot inside J1
 
-In J1 desktop, open a project chat and choose **Dot** in the header. Save your
-existing `https://chatgpt.com/dots/…` conversation link and select the browser
-profile where you signed in to ChatGPT. J1 opens that conversation in a
-full-width view. **Back to J1 chat** returns to your coding conversation without
-signing out or closing Dot. You can change or forget the saved link in
-**Settings → Connections → Dot chat**. Forgetting the link does not delete the
-ChatGPT conversation.
+Choose **Dot** above Projects in the web or desktop sidebar. Messages and replies
+use J1's native chat view. You talk to your existing ChatGPT Dot; ordinary
+conversation does not launch J1 workers. Replies arrive asynchronously rather
+than streaming token by token, and each message shows its delivery status.
 
-You chat directly with your actual Dot using ChatGPT's composer; J1 workers are
-optional. The embedded view requires J1 desktop. A web client can open the
-saved link in ChatGPT; on mobile, use ChatGPT directly. Dot's ChatGPT memory
-and J1's Hive Mind remain separate.
+For the first connection, open **Settings → Connections → ChatGPT Dot**, prepare
+**Native Dot chat** access, and connect or reconnect your ChatGPT plugin with the
+`dot:chat` OAuth scope. Refresh the plugin's tools and events. The Dot page gives
+you the instruction to ask your actual Dot to connect to that prepared chat.
+Once it connects, return to J1 and use its composer. Each person using J1 pairs
+their own Dot and ChatGPT account; a conversation URL is not required.
+
+J1 saves this chat's new messages and replies. It does not import your existing
+ChatGPT transcript. Dot's ChatGPT memory and J1's Hive Mind remain separate.
+Native chat alone grants no Hive Mind or project access; those permissions are
+optional. The native mobile app does not yet include this page; use J1's web
+client on a phone.
 
 ## Prepare access for ChatGPT Dot
 
@@ -49,7 +54,10 @@ token endpoints, but does not relay the browser sign-in page.
 Use the configured client ID as a predefined public OAuth client in ChatGPT.
 Sign in to J1 on the issuer origin, then choose the prepared connection when
 ChatGPT opens the consent page. OAuth access stays within that connection's
-project and memory grants and expires or revokes with it.
+native chat, project and memory grants and expires or revokes with it.
+If another ChatGPT plugin uses a different callback or tunnel resource, use
+**Add ChatGPT registration** and save that exact client ID, callback and resource.
+This keeps existing registrations working; removing one revokes its OAuth links.
 
 Preparing access does not finish the ChatGPT connection. The official OpenAI
 tunnel needs its own runtime credential and matching ChatGPT workspace. Keep

@@ -17,7 +17,7 @@ import {
 } from "effect/unstable/http";
 import { EnvironmentAuth } from "../auth/EnvironmentAuth.ts";
 import { DotConnections, connectionAllowsDotScope } from "./DotConnections.ts";
-import { DotOAuth, DotOAuthError, scopes } from "./DotOAuth.ts";
+import { DotOAuth, DotOAuthError, scopes, matchesDotClient } from "./DotOAuth.ts";
 
 const headers = {
   "cache-control": "no-store",
@@ -172,6 +172,7 @@ export const layer = Layer.unwrap(
                   begun.request.scope.split(" ").includes(scope) &&
                   connectionAllowsDotScope(connection, scope),
               ) &&
+              (!connection.chat || session.scopes.includes(AuthOrchestrationOperateScope)) &&
               connection.grants.every(
                 (grant) =>
                   (!grant.read || session.scopes.includes(AuthOrchestrationReadScope)) &&
@@ -179,7 +180,7 @@ export const layer = Layer.unwrap(
               ),
           );
           const consentPage = page(
-            `<h1>Connect your Dot to J1 Code</h1><p>Allow ${escape(begun.request.client_id)} to use a prepared connection on ${escape(begun.issuer)}.</p><p>Requested access: ${escape(begun.request.scope)}. Project grants, memory grants and expiry still apply. Hive Mind read spans all shared memories; write allows saving, correcting and forgetting shared facts. These permissions do not change ChatGPT memory. Your Dot stays in ChatGPT.</p><form method="post" action="/oauth/dot/authorize"><input type="hidden" name="request_id" value="${escape(begun.requestId)}"><label>Prepared connection <select name="connection_id">${choices.map((connection) => `<option value="${escape(connection.id)}">${escape(connection.label)} — ${escape([...connection.grants.map((grant) => `${grant.projectId}: ${grant.read ? "read chats" : ""}${grant.createTasks ? ` tasks (${grant.runtimeMode})` : ""}`), ...(connection.hiveMind?.read ? [`Hive Mind: read${connection.hiveMind.write ? ", write" : " only"}`] : [])].join("; "))}</option>`).join("")}</select></label><p><button name="decision" value="allow">Allow connection</button> <button name="decision" value="deny">Deny</button></p></form>`,
+            `<h1>Connect your Dot to J1 Code</h1><p>Allow ${escape(begun.request.client_id)} to use a prepared connection on ${escape(begun.issuer)}.</p><p>Requested access: ${escape(begun.request.scope)}. Native chat, project grants, memory grants and expiry still apply. Native chat lets this Dot receive messages from J1 and post correlated replies; it does not grant project or Hive Mind access. Hive Mind read spans all shared memories; write allows saving, correcting and forgetting shared facts. These permissions do not change ChatGPT memory. Your Dot stays in ChatGPT.</p><form method="post" action="/oauth/dot/authorize"><input type="hidden" name="request_id" value="${escape(begun.requestId)}"><label>Prepared connection <select name="connection_id">${choices.map((connection) => `<option value="${escape(connection.id)}">${escape(connection.label)} — ${escape([...connection.grants.map((grant) => `${grant.projectId}: ${grant.read ? "read chats" : ""}${grant.createTasks ? ` tasks (${grant.runtimeMode})` : ""}`), ...(connection.chat ? ["Native Dot chat"] : []), ...(connection.hiveMind?.read ? [`Hive Mind: read${connection.hiveMind.write ? ", write" : " only"}`] : [])].join("; "))}</option>`).join("")}</select></label><p><button name="decision" value="allow">Allow connection</button> <button name="decision" value="deny">Deny</button></p></form>`,
             200,
             new URL(begun.request.redirect_uri).origin,
           );
@@ -189,6 +190,7 @@ export const layer = Layer.unwrap(
             Effect.gen(function* () {
               const request = yield* HttpServerRequest.HttpServerRequest;
               const params = new URL(request.url, "http://localhost").searchParams;
+              yield* Effect.logWarning("Dot OAuth authorization rejected", { reason: error.error });
               const setup = yield* oauth.readSetup.pipe(
                 Effect.catchTag("DotOAuthError", () => Effect.succeedNone),
               );
@@ -198,8 +200,11 @@ export const layer = Layer.unwrap(
                 ["client_id", "redirect_uri", "state"].every(
                   (key) => params.getAll(key).length === 1,
                 ) &&
-                params.get("client_id") === setup.value.clientId &&
-                params.get("redirect_uri") === setup.value.redirectUri &&
+                matchesDotClient(setup.value, {
+                  clientId: params.get("client_id") ?? "",
+                  redirectUri: params.get("redirect_uri") ?? "",
+                  resource: params.get("resource") ?? "",
+                }) &&
                 (params.get("state")?.length ?? 0) > 0 &&
                 params.get("state")!.length <= 2048
               ) {
@@ -245,6 +250,7 @@ export const layer = Layer.unwrap(
               .getActive(input.connection_id)
               .pipe(Effect.mapError(() => new DotOAuthError({ error: "access_denied" })));
             if (
+              (connection.chat && !session.scopes.includes(AuthOrchestrationOperateScope)) ||
               connection.grants.some(
                 (grant) =>
                   (grant.read && !session.scopes.includes(AuthOrchestrationReadScope)) ||
