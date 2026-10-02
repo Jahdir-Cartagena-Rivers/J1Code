@@ -1,7 +1,17 @@
 name: J1 Linux runtime artifact
 
 on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
   workflow_dispatch:
+    inputs:
+      version:
+        description: Optional version override for a standalone runtime build
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -10,13 +20,30 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    env:
+      J1_RELEASE_VERSION: ${{ inputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - name: Install native Linux prerequisites
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
       - uses: voidzero-dev/setup-vp@v1
         with:
           node-version-file: package.json
           cache: true
           run-install: true
+      - name: Align build versions
+        shell: bash
+        run: |
+          if [[ -n "$J1_RELEASE_VERSION" ]]; then
+            node scripts/update-release-package-versions.ts "$J1_RELEASE_VERSION"
+          fi
       - name: Build J1 server and web client
         run: vp run --filter t3 build
       - name: Build resource monitor

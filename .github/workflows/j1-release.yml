@@ -1,0 +1,134 @@
+name: J1 Windows release
+
+on:
+  push:
+    branches: [j1-code]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: j1-windows-release
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/j1-code' && github.repository != 'pingdotgg/t3code'
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: package.json
+      - id: version
+        run: node .github/scripts/j1-release.cjs version
+
+  checks:
+    needs: prepare
+    uses: ./.github/workflows/j1-checks.yml
+
+  linux:
+    needs: prepare
+    uses: ./.github/workflows/j1-linux-runtime.yml
+    with:
+      version: ${{ needs.prepare.outputs.version }}
+
+  windows:
+    needs: [prepare, checks, linux]
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      J1_RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+      T3CODE_DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
+      T3CODE_DESKTOP_UPDATE_PRIVATE: "true"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Install Spectre-mitigated MSVC libraries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installPath = & $vswhere -products * -latest -property installationPath
+          if (!$installPath) { throw "Visual Studio installation was not found" }
+          $setupExe = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
+          $proc = Start-Process -FilePath $setupExe -ArgumentList "modify", "--installPath", "`"$installPath`"", "--add", "Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre", "--quiet", "--norestart" -Wait -PassThru -WindowStyle Hidden
+          if ($proc.ExitCode -notin @(0, 3010)) { throw "Visual Studio setup failed: $($proc.ExitCode)" }
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: false
+          run-install: false
+      - name: Install locked build dependencies
+        run: vp install --frozen-lockfile --filter=@t3tools/desktop... --filter=t3... --filter=@t3tools/scripts...
+      - name: Align build versions
+        run: node scripts/update-release-package-versions.ts "$env:J1_RELEASE_VERSION"
+      - uses: actions/download-artifact@v4
+        with:
+          name: j1-linux-runtime
+          path: wsl-runtime
+      - name: Build and validate Windows installer
+        run: node scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64 --build-version "$env:J1_RELEASE_VERSION" --wsl-runtime "wsl-runtime/t3-${env:J1_RELEASE_VERSION}-linux-x64.tar.gz" --output-dir release --verbose
+      - uses: actions/upload-artifact@v4
+        with:
+          name: j1-windows-update
+          path: |
+            release/*-setup.exe
+            release/*.blockmap
+            release/latest.yml
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [prepare, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      J1_RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: false
+      - run: vp install --frozen-lockfile --filter=t3...
+      - uses: actions/download-artifact@v4
+        with:
+          name: j1-windows-update
+          path: release
+      - uses: actions/download-artifact@v4
+        with:
+          name: j1-linux-runtime
+          path: release
+      - name: Verify and publish complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/scripts/j1-release.cjs publish release
