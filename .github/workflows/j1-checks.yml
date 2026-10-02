@@ -1,24 +1,10 @@
 name: J1 Code checks
 
 on:
+  workflow_call:
   workflow_dispatch:
-  push:
-    branches: [j1-code]
-    paths:
-      - "apps/server/src/hiveMind/**"
-      - "apps/desktop/src/updates/**"
-      - "scripts/build-desktop-artifact*"
-      - "scripts/lib/public-config*"
-      - ".env.example"
-      - ".github/workflows/j1-checks.yml"
   pull_request:
-    paths:
-      - "apps/server/src/hiveMind/**"
-      - "apps/desktop/src/updates/**"
-      - "scripts/build-desktop-artifact*"
-      - "scripts/lib/public-config*"
-      - ".env.example"
-      - ".github/workflows/j1-checks.yml"
+    branches: [j1-code]
 
 permissions:
   contents: read
@@ -29,12 +15,13 @@ concurrency:
 
 jobs:
   check:
-    name: Packaging, configuration, updates, and memory
+    name: J1 release regressions
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
         with:
+          persist-credentials: false
           sparse-checkout: |
             /*
             !/.repos/
@@ -51,6 +38,23 @@ jobs:
           apps/desktop/src/updates/DesktopUpdates.test.ts
           apps/server/src/hiveMind/store.test.ts
           apps/server/src/hiveMind/importNative.test.ts
+          packages/client-runtime/src/workerChats.test.ts
+          packages/contracts/src/settings.test.ts
+          apps/mobile/src/features/threads/threadListV2.test.ts
+      - name: Test release versioning and publication failures
+        run: node --test .github/scripts/j1-release.test.cjs
+      - name: Test Dot and worker projection regressions
+        working-directory: apps/server
+        run: >-
+          vp test run src/dot/DotIntegration.test.ts src/dot/DotOAuth.test.ts
+          src/mcp/AgentDelegation.test.ts
+          src/orchestration/Layers/ProjectionSnapshotQuery.test.ts
+      - name: Test chat navigation and saved settings
+        working-directory: apps/web
+        run: >-
+          vp test run --project unit src/components/WorkerChats.test.tsx
+          src/workerChatStore.test.ts src/dotChatStore.test.ts
+          src/components/settings/settingsSearch.test.ts src/components/Sidebar.logic.test.ts
       - name: Lint the covered code
         run: >-
           vp lint scripts/build-desktop-artifact.ts scripts/build-desktop-artifact.test.ts

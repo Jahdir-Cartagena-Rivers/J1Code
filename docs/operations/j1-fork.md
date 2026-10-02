@@ -4,7 +4,7 @@ J1 Code starts from T3 Code 0.0.44, upstream commit `c18e5ea6ed741443a8ec4a5d22d
 
 ## Upstream updates
 
-Commit local work, fetch `upstream`, inspect its changes, then merge the selected upstream commit on a maintenance branch. Resolve conflicts in history import, delegation, Hive Mind, branding, and packaging. Keep fork versions suffixed `-j1.N`. Build and validate before publishing a versioned J1 release. Git pushes alone never trigger desktop updates.
+Commit local work, fetch `upstream`, inspect its changes, then merge the selected upstream commit on a maintenance branch. Resolve conflicts in history import, delegation, Hive Mind, branding, and packaging. Keep fork versions suffixed `-j1.N`. Push accepted changes to `j1-code` to start the automatic release pipeline.
 
 The wire protocol, provider names, `T3CODE_*` environment variables, `t3.json` project files, and existing URL schemes are retained for compatibility. Product names, marks, desktop identity, and default data directories use J1. Upstream legal attribution is retained.
 
@@ -22,7 +22,13 @@ For a manual portable build, use `--target portable`. Packaging requires the Win
 
 Desktop files include the version, platform, and architecture. Windows installer and portable names end in `-setup.exe` and `-portable.exe`, respectively. The embedded Linux CLI archive retains its `t3-<version>-linux-x64.tar.gz` name for runtime compatibility.
 
-### Optional updates
+### Automatic Windows releases and updates
+
+The [J1 Windows release workflow](../../.github/workflows/j1-release.yml) runs on every push to `j1-code`, or by manual dispatch on that branch. It runs focused J1 regressions, builds and smoke-tests the matching Linux runtime, then builds and validates the Windows x64 NSIS installer. Versions use the checked-in J1 revision plus the workflow run number; package versions change only in the build checkout, so version bumps do not create recursive pushes. Keep the workflow file and its run counter when maintaining this pipeline.
+
+Publication verifies installer/version/checksums and uses a draft until all assets are present. A superseded commit cannot publish. Failed builds preserve the prior published release, and a retry cannot replace an already published release. The pipeline preserves the private repository and embeds its authenticated update feed. It uses the repository's short-lived Actions token only for publication; no runtime token is embedded. Installers remain unsigned until signing is configured.
+
+Older builds configured with a public feed cannot read a private repository. Install one new private-feed installer to transition those builds; subsequent releases appear through the app's update control after GitHub CLI sign-in.
 
 A source build has no update feed unless configured. In your untracked root `.env`, set:
 
@@ -51,4 +57,4 @@ Copy a consistent SQLite snapshot and preferences into a new `~/.j1/userdata` di
 
 A custom J1 mobile binary needs its own signing configuration (`J1CODE_APPLE_TEAM_ID`, `J1CODE_EAS_PROJECT_ID`, `J1CODE_EXPO_OWNER`) and service registration for cloud sign-in, notifications, or app links. The fork's mobile OTA updater is disabled.
 
-The retained upstream release/deployment workflows are reference tooling for the T3 npm, relay, signing, and app-store infrastructure. J1's Windows artifacts are currently built and uploaded manually. Configure your own services, runners, package namespaces, and repository secrets before adapting those workflows; they do not publish a complete J1 release as-is. Fork release/deployment jobs stay disabled unless you explicitly set the repository variables `J1CODE_ENABLE_UPSTREAM_RELEASES=true` or `J1CODE_ENABLE_UPSTREAM_DEPLOYMENTS=true`, respectively.
+The retained upstream release/deployment workflows are reference tooling for the T3 npm, relay, signing, and app-store infrastructure. J1's dedicated Windows pipeline operates independently of them. Configure your own services, runners, package namespaces, and repository secrets before adapting upstream workflows; they do not publish a complete J1 release as-is. Upstream fork release/deployment jobs stay disabled unless you explicitly set the repository variables `J1CODE_ENABLE_UPSTREAM_RELEASES=true` or `J1CODE_ENABLE_UPSTREAM_DEPLOYMENTS=true`, respectively.
