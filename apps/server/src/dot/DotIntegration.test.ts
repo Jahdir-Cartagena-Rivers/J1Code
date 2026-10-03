@@ -570,6 +570,10 @@ describe("durable Dot connections and independent tasks", () => {
             result: {
               tools: expect.arrayContaining([
                 expect.objectContaining({
+                  name: "read_dot_chat",
+                  securitySchemes: [{ type: "oauth2", scopes: ["dot:chat"] }],
+                }),
+                expect.objectContaining({
                   name: "hive_mind_recall",
                   securitySchemes: [{ type: "oauth2", scopes: ["dot:memory:read"] }],
                   _meta: { securitySchemes: [{ type: "oauth2", scopes: ["dot:memory:read"] }] },
@@ -601,6 +605,7 @@ describe("durable Dot connections and independent tasks", () => {
               "hive_mind_remember",
               "hive_mind_forget",
               "post_dot_reply",
+              "read_dot_chat",
             ].sort(),
           );
 
@@ -653,6 +658,15 @@ describe("durable Dot connections and independent tasks", () => {
                 projects: expect.arrayContaining([expect.objectContaining({ id: projectId })]),
               },
             },
+          });
+          expect(
+            (yield* postMcp2(
+              "tools/call",
+              { name: "read_dot_chat", arguments: { pendingOnly: true } },
+              issued.credential,
+            )).body,
+          ).toMatchObject({
+            error: { message: "This Dot connection does not have native chat permission." },
           });
           expect(
             (yield* postMcp2(

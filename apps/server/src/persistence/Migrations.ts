@@ -70,6 +70,7 @@ import Migration0055 from "./Migrations/055_DotConnections.ts";
 import Migration0056 from "./Migrations/056_DotOAuth.ts";
 import Migration0057 from "./Migrations/057_WorkerChatLookupIndex.ts";
 import Migration0058 from "./Migrations/058_DotNativeChat.ts";
+import Migration0059 from "./Migrations/059_DotReplyRecovery.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -140,6 +141,7 @@ const migrationEntries = [
   [56, "DotOAuth", Migration0056],
   [57, "WorkerChatLookupIndex", Migration0057],
   [58, "DotNativeChat", Migration0058],
+  [59, "DotReplyRecovery", Migration0059],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

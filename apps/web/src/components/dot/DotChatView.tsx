@@ -356,7 +356,7 @@ function DotMessage({
       )}
       {user || failed ? (
         <span className={cn("text-xs", failed ? "text-destructive" : "text-muted-foreground")}>
-          {failed ? (message.error ?? STATUS_LABEL.failed) : STATUS_LABEL[message.status]}
+          {message.error ?? STATUS_LABEL[message.status]}
         </span>
       ) : null}
     </div>

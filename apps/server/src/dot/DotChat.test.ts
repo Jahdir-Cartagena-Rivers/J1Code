@@ -7,6 +7,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
+import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { TestClock } from "effect/testing";
 import { ServerConfig } from "../config.ts";
@@ -15,7 +16,13 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { DotConnections, layer as connectionsLayer } from "./DotConnections.ts";
 import { DotInvocation } from "./DotService.ts";
-import { DotChat, layer as chatLayer, DOT_CHAT_EVENT, DotEventSubscribe } from "./DotChat.ts";
+import {
+  DotChat,
+  layer as chatLayer,
+  DOT_CHAT_EVENT,
+  DotEventSubscribe,
+  REPLY_CHECK_DELAY_MS,
+} from "./DotChat.ts";
 import { DotChatWebhook } from "./DotChatWebhook.ts";
 
 const infrastructure = Layer.mergeAll(
@@ -27,6 +34,9 @@ const base = Layer.mergeAll(connectionsLayer, ServerSecretStore.layer).pipe(
   Layer.provideMerge(infrastructure),
 );
 const secret = `whsec_${Buffer.alloc(32, 42).toString("base64")}`;
+const decodeEventId = Schema.decodeEffect(
+  Schema.fromJsonString(Schema.Struct({ eventId: Schema.String })),
+);
 const subscription = (id: string, suffix = "1"): typeof DotEventSubscribe.Type => ({
   name: DOT_CHAT_EVENT,
   arguments: { connectionId: id },
@@ -63,6 +73,260 @@ const test = <E>(run: Effect.Effect<void, E, DotChat | DotConnections | SqlClien
   );
 
 describe("durable native Dot chat", () => {
+  it.effect(
+    "resumes an overdue reply check after restart and keeps reminder ids stable across HTTP retries",
+    () =>
+      Effect.gen(function* () {
+        const requests = yield* Queue.unbounded<string>();
+        const a = yield* create();
+        let reminderAttempts = 0;
+        const transport = Layer.succeed(DotChatWebhook, {
+          post: (input) => {
+            const body = JSON.parse(input.body);
+            if (body.type === "verification")
+              return Effect.succeed({ status: 200, challenge: String(body.challenge) });
+            const reminder = String(body.eventId).includes(":reply-reminder:");
+            const status = reminder && reminderAttempts++ === 0 ? 503 : 200;
+            return Queue.offer(requests, input.body).pipe(Effect.as({ status, challenge: null }));
+          },
+        });
+        const first = yield* Effect.gen(function* () {
+          const chat = yield* DotChat;
+          yield* chat
+            .subscribe(subscription(a.connection.id))
+            .pipe(Effect.provideService(DotInvocation, invoke(a.connection.id)));
+          const before = yield* chat.snapshot({});
+          const message = yield* chat.send({
+            connectionId: a.connection.id,
+            requestId: "overdue",
+            text: "Hello",
+          });
+          yield* Queue.take(requests);
+          yield* chat.wait({ revision: before.revision + 1 });
+          return message;
+        }).pipe(Effect.provide(Layer.fresh(chatLayer).pipe(Layer.provide(transport))));
+        yield* TestClock.adjust(REPLY_CHECK_DELAY_MS);
+        yield* Effect.gen(function* () {
+          const chat = yield* DotChat;
+          const firstAttempt = yield* Queue.take(requests);
+          expect((yield* decodeEventId(firstAttempt)).eventId).toBe(`${first.id}:reply-reminder:1`);
+          yield* TestClock.adjust("1 second");
+          const secondAttempt = yield* Queue.take(requests);
+          expect(secondAttempt).toBe(firstAttempt);
+          yield* chat
+            .reply({ messageId: first.id, text: "Hello J" })
+            .pipe(Effect.provideService(DotInvocation, invoke(a.connection.id)));
+          yield* TestClock.adjust(REPLY_CHECK_DELAY_MS * 4);
+          expect(yield* Queue.size(requests)).toBe(0);
+          expect((yield* chat.snapshot({})).messages).toHaveLength(2);
+        }).pipe(Effect.provide(Layer.fresh(chatLayer).pipe(Layer.provide(transport))));
+      }).pipe(Effect.provide(base)),
+  );
+  it.effect("reads only the authorized native history and paginates unanswered messages", () =>
+    test(
+      Effect.gen(function* () {
+        const chat = yield* DotChat;
+        const a = yield* create();
+        const b = yield* create();
+        yield* chat
+          .subscribe(subscription(a.connection.id))
+          .pipe(Effect.provideService(DotInvocation, invoke(a.connection.id)));
+        yield* chat
+          .subscribe(subscription(b.connection.id))
+          .pipe(Effect.provideService(DotInvocation, invoke(b.connection.id)));
+        yield* chat.send({
+          connectionId: b.connection.id,
+          requestId: "private",
+          text: "Other account private message",
+        });
+        const sent = yield* Effect.forEach(
+          Array.from({ length: 21 }, (_, n) => n),
+          (n) =>
+            chat.send({
+              connectionId: a.connection.id,
+              requestId: `page-${n}`,
+              text: `Message ${n}`,
+            }),
+        );
+        const page = yield* chat
+          .read({ pendingOnly: true })
+          .pipe(Effect.provideService(DotInvocation, invoke(a.connection.id)));
+        expect(page.messages).toHaveLength(20);
+        expect(page.messages.every((m) => m.connectionId === a.connection.id)).toBe(true);
+        expect(page.beforeCursor).not.toBeNull();
+        const older = yield* chat
+          .read({ pendingOnly: true, before: page.beforeCursor! })
+          .pipe(Effect.provideService(DotInvocation, invoke(a.connection.id)));
+        expect(older.messages.map((m) => m.id)).toEqual([sent[0]!.id]);
+        yield* chat
+          .reply({ messageId: sent[20]!.id, text: "Answered" })
+          .pipe(Effect.provideService(DotInvocation, invoke(a.connection.id)));
+        const pending = yield* chat
+          .read({ pendingOnly: true })
+          .pipe(Effect.provideService(DotInvocation, invoke(a.connection.id)));
+        expect(pending.messages.some((m) => m.id === sent[20]!.id)).toBe(false);
+        expect(
+          yield* chat
+            .read({})
+            .pipe(
+              Effect.provideService(DotInvocation, { connectionId: a.connection.id, scopes: [] }),
+              Effect.flip,
+            ),
+        ).toMatchObject({ _tag: "DotIntegrationError" });
+        expect(
+          yield* chat
+            .read({ before: older.messages[0]!.id })
+            .pipe(Effect.provideService(DotInvocation, invoke(b.connection.id)), Effect.flip),
+        ).toMatchObject({ _tag: "DotIntegrationError" });
+        expect(
+          yield* chat
+            .read({ messageId: sent[0]!.id })
+            .pipe(Effect.provideService(DotInvocation, invoke(b.connection.id)), Effect.flip),
+        ).toMatchObject({ _tag: "DotIntegrationError" });
+        const long = yield* chat.send({
+          connectionId: a.connection.id,
+          requestId: "long-text",
+          text: "x".repeat(40000),
+        });
+        const bounded = yield* chat
+          .read({})
+          .pipe(Effect.provideService(DotInvocation, invoke(a.connection.id)));
+        expect(bounded.messages.reduce((n, m) => n + m.text.length, 0)).toBeLessThanOrEqual(16000);
+        expect(bounded.messages.find((m) => m.id === long.id)).toMatchObject({
+          textTruncated: true,
+        });
+        const full = yield* chat
+          .read({ messageId: long.id })
+          .pipe(Effect.provideService(DotInvocation, invoke(a.connection.id)));
+        expect(full.messages[0]).toMatchObject({ text: long.text, textTruncated: false });
+        yield* (yield* DotConnections).revoke(a.connection.id);
+        expect(
+          yield* chat
+            .read({})
+            .pipe(Effect.provideService(DotInvocation, invoke(a.connection.id)), Effect.flip),
+        ).toMatchObject({ _tag: "DotIntegrationError" });
+      }),
+    ),
+  );
+
+  it.effect(
+    "recovers omitted replies with bounded distinct reminders and accepts a late answer",
+    () =>
+      Effect.gen(function* () {
+        const requests = yield* Queue.unbounded<{
+          eventId: string;
+          timestamp: string;
+          data: { messageId: string; text: string };
+        }>();
+        yield* Effect.gen(function* () {
+          const chat = yield* DotChat;
+          const a = yield* create();
+          yield* chat
+            .subscribe(subscription(a.connection.id))
+            .pipe(Effect.provideService(DotInvocation, invoke(a.connection.id)));
+          const initial = yield* chat.snapshot({});
+          const sent = yield* chat.send({
+            connectionId: a.connection.id,
+            requestId: "recover-omission",
+            text: "Hello Dot",
+          });
+          const first = yield* Queue.take(requests);
+          expect(first.eventId).toBe(sent.id);
+          yield* chat.wait({ revision: initial.revision + 1 });
+          for (let n = 1; n <= 2; n++) {
+            yield* TestClock.adjust(REPLY_CHECK_DELAY_MS);
+            const reminder = yield* Queue.take(requests);
+            expect(reminder.eventId).toBe(`${sent.id}:reply-reminder:${n}`);
+            expect(reminder.data).toEqual(first.data);
+            expect(reminder.timestamp).not.toBe(first.timestamp);
+          }
+          yield* TestClock.adjust(REPLY_CHECK_DELAY_MS);
+          const failed = yield* chat.snapshot({});
+          expect(failed.messages[0]).toMatchObject({
+            id: sent.id,
+            status: "failed",
+            error: expect.stringContaining("not replied"),
+          });
+          expect(yield* Queue.size(requests)).toBe(0);
+          yield* chat
+            .reply({ messageId: sent.id, text: "Hi J" })
+            .pipe(Effect.provideService(DotInvocation, invoke(a.connection.id)));
+          expect(
+            (yield* chat
+              .read({ pendingOnly: true })
+              .pipe(Effect.provideService(DotInvocation, invoke(a.connection.id)))).messages,
+          ).toEqual([]);
+          expect((yield* chat.snapshot({})).messages.map((m) => m.status)).toEqual([
+            "answered",
+            "answered",
+          ]);
+        }).pipe(
+          Effect.provide(
+            chatLayer.pipe(
+              Layer.provide(
+                Layer.succeed(DotChatWebhook, {
+                  post: (input) => {
+                    const body = JSON.parse(input.body);
+                    return body.type === "verification"
+                      ? Effect.succeed({ status: 200, challenge: String(body.challenge) })
+                      : Queue.offer(requests, body).pipe(
+                          Effect.as({ status: 200, challenge: null }),
+                        );
+                  },
+                }),
+              ),
+            ),
+          ),
+        );
+      }).pipe(Effect.provide(base)),
+  );
+
+  it.effect("cancels reply reminders on answer, disconnect, and revoke", () =>
+    test(
+      Effect.gen(function* () {
+        const chat = yield* DotChat;
+        const connections = yield* DotConnections;
+        const messages = [];
+        for (let n = 0; n < 3; n++) {
+          const a = yield* create();
+          yield* chat
+            .subscribe(subscription(a.connection.id))
+            .pipe(Effect.provideService(DotInvocation, invoke(a.connection.id)));
+          const before = yield* chat.snapshot({ connectionId: a.connection.id });
+          const sent = yield* chat.send({
+            connectionId: a.connection.id,
+            requestId: `cancel-${n}`,
+            text: "Hello",
+          });
+          yield* chat.wait({ connectionId: a.connection.id, revision: before.revision + 1 });
+          messages.push({ id: sent.id, connectionId: a.connection.id });
+          if (n === 0)
+            yield* chat
+              .reply({ messageId: sent.id, text: "Hey" })
+              .pipe(Effect.provideService(DotInvocation, invoke(a.connection.id)));
+          if (n === 1)
+            yield* chat
+              .unsubscribe(subscription(a.connection.id))
+              .pipe(Effect.provideService(DotInvocation, invoke(a.connection.id)));
+          if (n === 2) yield* connections.revoke(a.connection.id);
+        }
+        yield* TestClock.adjust(REPLY_CHECK_DELAY_MS * 4);
+        for (let n = 0; n < messages.length; n++) {
+          const m = messages[n]!;
+          const snap = yield* chat.snapshot({ connectionId: m.connectionId });
+          expect(snap.messages.find((x) => x.id === m.id)?.status).toBe(
+            n === 0 ? "answered" : "failed",
+          );
+        }
+        const sql = yield* SqlClient.SqlClient;
+        expect(
+          (yield* sql<{
+            reminder_count: number;
+          }>`SELECT reminder_count FROM dot_chat_outbox`).every((r) => r.reminder_count === 0),
+        ).toBe(true);
+      }),
+    ),
+  );
   it.effect("needs separate chat permission and a verified subscription", () =>
     test(
       Effect.gen(function* () {
@@ -157,8 +421,8 @@ describe("durable native Dot chat", () => {
           expect(
             yield* chat
               .reply({ ...reply, text: "different reply" })
-              .pipe(Effect.provideService(DotInvocation, invoke(a.connection.id)), Effect.flip),
-          ).toMatchObject({ _tag: "DotIntegrationError" });
+              .pipe(Effect.provideService(DotInvocation, invoke(a.connection.id))),
+          ).toEqual({ saved: true, messageId: sent.id });
           const snap = yield* chat.snapshot({ connectionId: a.connection.id });
           expect(snap.messages.map((m) => [m.role, m.text, m.status])).toEqual([
             ["user", "hello actual Dot", "answered"],
@@ -243,6 +507,64 @@ describe("durable native Dot chat", () => {
         });
         expect(next.snapshot?.messages[0]?.status).toBe("answered");
         expect(next.snapshot?.messages).toHaveLength(2);
+      }).pipe(
+        Effect.provide(
+          chatLayer.pipe(
+            Layer.provide(
+              Layer.succeed(DotChatWebhook, {
+                post: (input) => {
+                  const body = JSON.parse(input.body);
+                  return body.type === "verification"
+                    ? Effect.succeed({ status: 200, challenge: String(body.challenge) })
+                    : Queue.offer(requests, String(body.eventId)).pipe(
+                        Effect.andThen(Deferred.await(ack)),
+                      );
+                },
+              }),
+            ),
+          ),
+        ),
+      );
+    }).pipe(Effect.provide(base)),
+  );
+
+  it.effect("does not undo a disconnect when an in-flight callback accepts the message", () =>
+    Effect.gen(function* () {
+      const requests = yield* Queue.unbounded<string>();
+      const ack = yield* Deferred.make<{ status: number; challenge: string | null }>();
+      yield* Effect.gen(function* () {
+        const connection = yield* create();
+        const chat = yield* DotChat;
+        const sub = subscription(connection.connection.id);
+        yield* chat
+          .subscribe(sub)
+          .pipe(Effect.provideService(DotInvocation, invoke(connection.connection.id)));
+        const sent = yield* chat.send({
+          connectionId: connection.connection.id,
+          requestId: "disconnect-in-flight",
+          text: "hello",
+        });
+        expect(yield* Queue.take(requests)).toBe(sent.id);
+        yield* chat
+          .unsubscribe(sub)
+          .pipe(Effect.provideService(DotInvocation, invoke(connection.connection.id)));
+        const nextConnection = yield* create();
+        yield* chat
+          .subscribe(subscription(nextConnection.connection.id))
+          .pipe(Effect.provideService(DotInvocation, invoke(nextConnection.connection.id)));
+        const nextMessage = yield* chat.send({
+          connectionId: nextConnection.connection.id,
+          requestId: "queue-drain",
+          text: "next message",
+        });
+        yield* Deferred.succeed(ack, { status: 200, challenge: null });
+        // The next transport receipt proves the preceding callback finished processing.
+        expect(yield* Queue.take(requests)).toBe(nextMessage.id);
+        const snapshot = yield* chat.snapshot({ connectionId: connection.connection.id });
+        expect(snapshot.messages[0]).toMatchObject({ status: "failed" });
+        expect(snapshot.connections.find((c) => c.id === connection.connection.id)?.connected).toBe(
+          false,
+        );
       }).pipe(
         Effect.provide(
           chatLayer.pipe(

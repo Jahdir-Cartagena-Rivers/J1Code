@@ -79,12 +79,12 @@ export const make = Effect.gen(function* () {
                     {
                       name: DOT_CHAT_EVENT,
                       description:
-                        "A user message in this connection's native J1 Dot chat. Subscribe when the user connects this Dot to J1, and reply using post_dot_reply with the event messageId. Ordinary conversation does not require workers.",
+                        "A user message awaiting a reply in this connection's native J1 Dot chat, including bounded reminders for unanswered messages. For every event, read_dot_chat with pendingOnly=true, answer each pending message using post_dot_reply, and verify no pending messages remain. Ordinary conversation does not require workers.",
                       delivery: ["webhook"],
                       inputSchema: {
                         type: "object",
                         properties: {
-                          connectionId: { type: "string", enum: [invocation.connectionId] },
+                          connectionId: { type: "string" },
                         },
                         required: ["connectionId"],
                         additionalProperties: false,
