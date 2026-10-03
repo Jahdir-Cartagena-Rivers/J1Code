@@ -25,6 +25,21 @@ import { DotInvocation } from "./DotService.ts";
 import { DotChatWebhook, callbackUrl, signingKey } from "./DotChatWebhook.ts";
 
 export const DOT_CHAT_EVENT = "j1.dot.message";
+export const REPLY_CHECK_DELAY_MS = 90_000;
+export const MAX_REPLY_REMINDERS = 2;
+export const DotChatReadInput = Schema.Struct({
+  messageId: Schema.optionalKey(
+    Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(120)),
+  ),
+  before: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(120))),
+  pendingOnly: Schema.optionalKey(Schema.Boolean),
+});
+export const DotChatPage = Schema.Struct({
+  messages: Schema.Array(
+    Schema.Struct({ ...DotChatMessage.fields, textTruncated: Schema.Boolean }),
+  ),
+  beforeCursor: Schema.NullOr(Schema.String),
+});
 export const DotEventSubscribe = Schema.Struct({
   name: Schema.Literal(DOT_CHAT_EVENT),
   arguments: Schema.Struct({ connectionId: Schema.String }),
@@ -62,6 +77,7 @@ const decodeSend = Schema.decodeEffect(DotChatSendInput);
 const decodeSubscription = Schema.decodeEffect(DotEventSubscribe);
 const decodeUnsubscribe = Schema.decodeEffect(DotEventUnsubscribe);
 const decodeReply = Schema.decodeEffect(DotReplyInput);
+const decodeRead = Schema.decodeEffect(DotChatReadInput);
 const isIntegrationError = Schema.is(DotIntegrationError);
 const mapStorageError = (error: unknown) => (isIntegrationError(error) ? error : storageError());
 const iso = (time: number) => DateTime.formatIso(DateTime.makeUnsafe(time));
@@ -80,6 +96,9 @@ export class DotChat extends Context.Service<
       input: typeof DotChatWaitInput.Type,
     ) => Effect.Effect<{ snapshot: DotChatSnapshot | null }, DotIntegrationError>;
     readonly notify: Effect.Effect<void, DotIntegrationError>;
+    readonly read: (
+      input: typeof DotChatReadInput.Type,
+    ) => Effect.Effect<typeof DotChatPage.Type, DotIntegrationError, DotInvocation>;
     readonly subscribe: (
       input: typeof DotEventSubscribe.Type,
     ) => Effect.Effect<
@@ -138,6 +157,44 @@ export const layer = Layer.effect(
         return yield* invalid("This Dot connection does not have native chat permission.");
       return connection;
     });
+    const read = Effect.fn("DotChat.read")(function* (input: typeof DotChatReadInput.Type) {
+      const connection = yield* authorize;
+      const valid = yield* decodeRead(input);
+      if (valid.messageId) {
+        const found = yield* readMessage(valid.messageId);
+        if (Option.isNone(found) || found.value.connectionId !== connection.id)
+          return yield* invalid("Dot message was not found in this connection.");
+        return { messages: [{ ...found.value, textTruncated: false }], beforeCursor: null };
+      }
+      let before = Number.MAX_SAFE_INTEGER;
+      if (valid.before) {
+        const cursor = yield* sql<{
+          seq: number;
+        }>`SELECT seq FROM dot_chat_messages WHERE id = ${valid.before} AND connection_id = ${connection.id}`;
+        if (!cursor[0]) return yield* invalid("Dot history cursor was not found.");
+        before = cursor[0].seq;
+      }
+      const rows = valid.pendingOnly
+        ? yield* sql<{
+            id: string;
+            message_json: string;
+          }>`SELECT id, message_json FROM dot_chat_messages AS m WHERE connection_id = ${connection.id} AND seq < ${before} AND json_extract(message_json, '$.role') = 'user' AND NOT EXISTS (SELECT 1 FROM dot_chat_messages AS r WHERE r.connection_id = m.connection_id AND r.reply_to = m.id) ORDER BY seq DESC LIMIT 21`
+        : yield* sql<{
+            id: string;
+            message_json: string;
+          }>`SELECT id, message_json FROM dot_chat_messages WHERE connection_id = ${connection.id} AND seq < ${before} ORDER BY seq DESC LIMIT 21`;
+      const page = rows.slice(0, 20).toReversed();
+      const decoded = yield* Effect.forEach(page, (row) => decodeMessage(row.message_json));
+      let budget = 16000;
+      return {
+        messages: decoded.map((message) => {
+          const text = message.text.slice(0, Math.min(4000, budget));
+          budget -= text.length;
+          return { ...message, text, textTruncated: text.length < message.text.length };
+        }),
+        beforeCursor: rows.length > 20 ? (page[0]?.id ?? null) : null,
+      };
+    }, Effect.mapError(mapStorageError));
     const readSecret = Effect.fn("DotChat.readSecret")(function* (id: string) {
       const bytes = yield* secrets.get(keyName(id)).pipe(Effect.mapError(storageError));
       if (Option.isNone(bytes))
@@ -158,7 +215,7 @@ export const layer = Layer.effect(
             for (const sub of expired) {
               const rows = yield* sql<{
                 message_json: string;
-              }>`SELECT message_json FROM dot_chat_messages WHERE id IN (SELECT message_id FROM dot_chat_outbox WHERE subscription_id = ${sub.id} AND state = 'pending')`;
+              }>`SELECT message_json FROM dot_chat_messages WHERE id IN (SELECT message_id FROM dot_chat_outbox WHERE subscription_id = ${sub.id} AND state IN ('pending', 'delivered'))`;
               for (const row of rows) {
                 const message = yield* decodeMessage(row.message_json);
                 if (message.status !== "answered")
@@ -224,7 +281,86 @@ export const layer = Layer.effect(
       };
     }, Effect.mapError(mapStorageError));
 
-    // Durable outbox: a restart re-enqueues pending deliveries; retries keep the same event id.
+    const scheduledChecks = new Set<string>();
+    const checkReply = Effect.fn("DotChat.checkReply")(function* (
+      job: { messageId: string; subscriptionId: string },
+      expectedCount: number,
+    ) {
+      const requeue = yield* lock.withPermit(
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const rows = yield* sql<{
+              state: string;
+              reminder_count: number;
+            }>`SELECT state, reminder_count FROM dot_chat_outbox WHERE message_id = ${job.messageId} AND subscription_id = ${job.subscriptionId}`;
+            const row = rows[0];
+            if (!row || row.state !== "delivered" || row.reminder_count !== expectedCount)
+              return null;
+            const found = yield* readMessage(job.messageId);
+            if (Option.isNone(found) || found.value.status === "answered") return null;
+            const time = yield* now;
+            const subs =
+              yield* sql<Subscription>`SELECT * FROM dot_chat_subscriptions WHERE id = ${job.subscriptionId}`;
+            const sub = subs[0];
+            const active =
+              sub && sub.expires_at > time
+                ? yield* connections.getActive(sub.connection_id).pipe(Effect.option)
+                : Option.none();
+            const permitted = Option.isSome(active) && active.value.chat === true;
+            if (!permitted || row.reminder_count >= MAX_REPLY_REMINDERS) {
+              yield* putMessage({
+                ...found.value,
+                status: "failed",
+                error: permitted
+                  ? "Dot has not replied after automatic recovery. Your message is saved."
+                  : "The Dot connection ended before a reply arrived. Your message is saved.",
+              });
+              yield* sql`UPDATE dot_chat_outbox SET state = 'failed', reply_due_at = NULL WHERE message_id = ${job.messageId} AND subscription_id = ${job.subscriptionId}`;
+              yield* bump;
+              return false;
+            }
+            // A reply reminder is a NEW event occurrence. Its id/time are durable;
+            // HTTP retries of that reminder still use that same id and exact body.
+            yield* sql`UPDATE dot_chat_outbox SET state = 'pending', attempts = 0, reminder_count = reminder_count + 1, event_created_at = ${time}, reply_due_at = NULL WHERE message_id = ${job.messageId} AND subscription_id = ${job.subscriptionId}`;
+            yield* putMessage({
+              ...found.value,
+              error: "Waiting for Dot's reply; recovery is running automatically.",
+            });
+            yield* bump;
+            return true;
+          }),
+        ),
+      );
+      if (requeue === null) return;
+      yield* publish;
+      if (requeue) yield* Queue.offer(queue, job);
+    });
+    const scheduleReplyCheck = Effect.fn("DotChat.scheduleReplyCheck")(function* (job: {
+      messageId: string;
+      subscriptionId: string;
+    }) {
+      const rows = yield* sql<{
+        state: string;
+        reminder_count: number;
+        reply_due_at: number | null;
+      }>`SELECT state, reminder_count, reply_due_at FROM dot_chat_outbox WHERE message_id = ${job.messageId} AND subscription_id = ${job.subscriptionId}`;
+      const row = rows[0];
+      if (!row || row.state !== "delivered") return;
+      const message = yield* readMessage(job.messageId);
+      if (Option.isNone(message) || message.value.status === "answered") return;
+      const due = row.reply_due_at ?? Date.parse(message.value.createdAt) + REPLY_CHECK_DELAY_MS;
+      const key = `${job.subscriptionId}:${job.messageId}:${row.reminder_count}`;
+      if (scheduledChecks.has(key)) return;
+      scheduledChecks.add(key);
+      yield* Effect.sleep(Math.max(0, due - (yield* now))).pipe(
+        Effect.andThen(checkReply(job, row.reminder_count)),
+        Effect.catch(() => notify),
+        Effect.ensuring(Effect.sync(() => scheduledChecks.delete(key))),
+        Effect.forkScoped,
+      );
+    });
+
+    // Durable outbox: a restart resumes delivery AND unanswered-reply deadlines.
     const deliver = Effect.fn("DotChat.deliver")(function* (job: {
       messageId: string;
       subscriptionId: string;
@@ -234,13 +370,12 @@ export const layer = Layer.effect(
         const deliveryRows = yield* sql<{
           attempts: number;
           state: string;
-        }>`SELECT attempts, state FROM dot_chat_outbox WHERE message_id = ${job.messageId} AND subscription_id = ${job.subscriptionId}`;
-        if (
-          !deliveryRows[0] ||
-          deliveryRows[0].state !== "pending" ||
-          deliveryRows[0].attempts >= 4
-        )
-          return { accepted: false, permanent: true };
+          reminder_count: number;
+          event_created_at: number | null;
+        }>`SELECT attempts, state, reminder_count, event_created_at FROM dot_chat_outbox WHERE message_id = ${job.messageId} AND subscription_id = ${job.subscriptionId}`;
+        if (!deliveryRows[0] || deliveryRows[0].state !== "pending")
+          return { accepted: false, permanent: false, skip: true };
+        if (deliveryRows[0].attempts >= 4) return { accepted: false, permanent: true };
         const rows =
           yield* sql<Subscription>`SELECT * FROM dot_chat_subscriptions WHERE id = ${job.subscriptionId}`;
         const sub = rows[0];
@@ -251,6 +386,13 @@ export const layer = Layer.effect(
         const found = yield* readMessage(job.messageId);
         if (Option.isNone(found) || found.value.connectionId !== sub.connection_id)
           return yield* invalid("Dot message was not found.");
+        if (found.value.status === "answered")
+          return { accepted: false, permanent: false, skip: true };
+        const row = deliveryRows[0];
+        const eventId =
+          row.reminder_count === 0
+            ? found.value.id
+            : `${found.value.id}:reply-reminder:${row.reminder_count}`;
         const secret = yield* readSecret(sub.id);
         yield* sql`UPDATE dot_chat_outbox SET attempts = attempts + 1 WHERE message_id = ${job.messageId} AND subscription_id = ${job.subscriptionId}`;
         const result = yield* webhook.post({
@@ -260,11 +402,12 @@ export const layer = Layer.effect(
             ? { previousSecret: secret.previous }
             : {}),
           subscriptionId: sub.id,
-          eventId: found.value.id,
+          eventId,
           body: yield* encodeJson({
-            eventId: found.value.id,
+            eventId,
             name: DOT_CHAT_EVENT,
-            timestamp: found.value.createdAt,
+            timestamp:
+              row.event_created_at === null ? found.value.createdAt : iso(row.event_created_at),
             data: {
               connectionId: sub.connection_id,
               messageId: found.value.id,
@@ -283,10 +426,16 @@ export const layer = Layer.effect(
         Effect.retry(Schedule.max([Schedule.exponential("1 second"), Schedule.recurs(3)])),
         Effect.catch(() => Effect.succeed({ accepted: false, permanent: false })),
       );
+      if ("skip" in result && result.skip) return;
       yield* lock
         .withPermit(
           sql.withTransaction(
             Effect.gen(function* () {
+              const outstanding = yield* sql<{
+                state: string;
+              }>`SELECT state FROM dot_chat_outbox WHERE message_id = ${job.messageId} AND subscription_id = ${job.subscriptionId}`;
+              // Unsubscribe/expiry can remove the job while the callback is in flight.
+              if (outstanding[0]?.state !== "pending") return;
               const found = yield* readMessage(job.messageId);
               if (Option.isNone(found)) return;
               // A fast Dot reply can land before the HTTP acknowledgement. Never undo answered.
@@ -295,18 +444,20 @@ export const layer = Layer.effect(
                   ...found.value,
                   status: result.accepted ? "delivered" : "failed",
                   error: result.accepted
-                    ? null
+                    ? found.value.error
                     : result.permanent
                       ? "ChatGPT rejected this message. Reconnect your Dot."
                       : "Delivery failed. Check the Dot connection before sending another message.",
                 });
-              yield* sql`UPDATE dot_chat_outbox SET state = ${result.accepted ? "delivered" : "failed"} WHERE message_id = ${job.messageId} AND subscription_id = ${job.subscriptionId}`;
+              const time = yield* now;
+              yield* sql`UPDATE dot_chat_outbox SET state = ${result.accepted ? "delivered" : "failed"}, reply_due_at = ${result.accepted ? time + REPLY_CHECK_DELAY_MS : null} WHERE message_id = ${job.messageId} AND subscription_id = ${job.subscriptionId}`;
               yield* bump;
             }),
           ),
         )
         .pipe(Effect.mapError(storageError));
       yield* publish;
+      if (result.accepted) yield* scheduleReplyCheck(job);
     });
     yield* Effect.forever(
       Queue.take(queue).pipe(
@@ -321,10 +472,18 @@ export const layer = Layer.effect(
     yield* Effect.forEach(pending, (row) =>
       Queue.offer(queue, { messageId: row.message_id, subscriptionId: row.subscription_id }),
     );
+    const awaiting = yield* sql<{
+      message_id: string;
+      subscription_id: string;
+    }>`SELECT message_id, subscription_id FROM dot_chat_outbox WHERE state = 'delivered'`;
+    yield* Effect.forEach(awaiting, (row) =>
+      scheduleReplyCheck({ messageId: row.message_id, subscriptionId: row.subscription_id }),
+    );
 
     return DotChat.of({
       snapshot,
       notify,
+      read,
       wait: (input) =>
         Effect.scoped(
           Effect.gen(function* () {
@@ -492,7 +651,7 @@ export const layer = Layer.effect(
                 Effect.gen(function* () {
                   const pending = yield* sql<{
                     message_json: string;
-                  }>`SELECT message_json FROM dot_chat_messages WHERE id IN (SELECT message_id FROM dot_chat_outbox WHERE subscription_id = ${id} AND state = 'pending')`;
+                  }>`SELECT message_json FROM dot_chat_messages WHERE id IN (SELECT message_id FROM dot_chat_outbox WHERE subscription_id = ${id} AND state IN ('pending', 'delivered'))`;
                   for (const row of pending) {
                     const message = yield* decodeMessage(row.message_json);
                     if (message.status !== "answered")
@@ -533,9 +692,8 @@ export const layer = Layer.effect(
                 message_json: string;
               }>`SELECT message_json FROM dot_chat_messages WHERE connection_id = ${connection.id} AND reply_to = ${valid.messageId}`;
               if (existing[0]) {
-                const message = yield* decodeMessage(existing[0].message_json);
-                if (message.text !== valid.text)
-                  return yield* invalid("This message already has a different Dot reply.");
+                // Concurrent event runs may phrase their answers differently.
+                // The first reply wins; later runs acknowledge it without duplicates.
                 return { saved: true as const, messageId: found.value.id };
               }
               const message: DotChatMessage = {

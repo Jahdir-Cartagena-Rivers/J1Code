@@ -16,7 +16,7 @@ import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/unstable/ai";
 import { DotInvocation, DotService } from "./DotService.ts";
 import { DotHiveMind } from "./DotHiveMind.ts";
-import { DotChat, DotReplyInput } from "./DotChat.ts";
+import { DotChat, DotReplyInput, DotChatReadInput, DotChatPage } from "./DotChat.ts";
 import { HiveMindMemory } from "../mcp/toolkits/hiveMind/tools.ts";
 
 const dependencies = [DotService, DotInvocation];
@@ -31,6 +31,16 @@ const readTool = <Name extends string, S extends Schema.Top>(
   );
 
 export const DotToolkit = Toolkit.make(
+  Tool.make("read_dot_chat", {
+    description:
+      "Read this connection's native Dot conversation. Use pendingOnly=true at the start and end of each native-message event run to find every unanswered message, including missed events. Answer each pending user message with post_dot_reply using its exact id. Read normal history for context. Pages contain at most 20 messages and 16,000 text characters; follow beforeCursor to older pages. If textTruncated=true, pass that messageId to read its full text before answering. Repeating a read is safe. No workers or project access required.",
+    parameters: DotChatReadInput,
+    success: DotChatPage,
+    failure: DotIntegrationError,
+    dependencies: [DotChat, DotInvocation],
+  })
+    .annotate(Tool.Readonly, true)
+    .annotate(Tool.Meta, { securitySchemes: [{ type: "oauth2", scopes: ["dot:chat"] }] }),
   Tool.make("post_dot_reply", {
     description:
       "Save your reply to a user message received through the j1.dot.message event in J1's native Dot chat. Use the event's exact messageId. Ordinary replies need no workers. Requires separate native chat permission; cannot reply to other connections. Repeating the same reply is safe.",
@@ -183,6 +193,7 @@ export const handlers = DotToolkit.toLayer(
     const hiveMind = yield* DotHiveMind;
     const chat = yield* DotChat;
     return DotToolkit.of({
+      read_dot_chat: (input) => chat.read(input),
       post_dot_reply: (input) => chat.reply(input),
       list_projects: () => dot.projects,
       list_models: () => dot.models,
