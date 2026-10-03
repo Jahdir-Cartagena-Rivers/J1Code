@@ -70,7 +70,7 @@ viewer stops streaming and leaves the device available to the agent. Device
 activity also appears in the thread timeline.
 
 Agents drive the device through the `agent-device` command line. J1 Code
-Code installs and starts it only after **Agent device access** is enabled. iOS
+installs and starts it only after **Agent device access** is enabled. iOS
 taps build a small test runner on first use, which takes a couple of minutes
 once per server. Restart an existing agent session after granting access so it
 receives the device CLI environment.
