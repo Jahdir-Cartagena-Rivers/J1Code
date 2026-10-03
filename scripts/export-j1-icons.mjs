@@ -72,15 +72,19 @@ console.log("J1 vector, PNG, ICO and Icon Composer assets generated.");
 
 // Marketing icons use the same J1 vector as the installed clients.
 const marketingAssets = new URL("apps/marketing/src/assets/", root);
-const marketingPublic = new URL("apps/marketing/public/", root);
+const publicDirectories = ["apps/marketing/public/", "apps/web/public/"].map(
+  (directory) => new URL(directory, root),
+);
 const marketingIcon = await sharp(svg).resize(1024, 1024).webp({ quality: 95 }).toBuffer();
 for (const filename of ["icon.webp", "icon-nightly.webp"])
   await NodeFSP.writeFile(new URL(filename, marketingAssets), marketingIcon);
-for (const [filename, size] of [
-  ["favicon-16x16.png", 16],
-  ["favicon-32x32.png", 32],
-  ["apple-touch-icon.png", 180],
-])
-  await NodeFSP.writeFile(new URL(filename, marketingPublic), pngs[sizes.indexOf(size)]);
-await NodeFSP.copyFile(new URL("icon.ico", destination), new URL("favicon.ico", marketingPublic));
-console.log("J1 marketing icons and favicons generated.");
+for (const publicDirectory of publicDirectories) {
+  for (const [filename, size] of [
+    ["favicon-16x16.png", 16],
+    ["favicon-32x32.png", 32],
+    ["apple-touch-icon.png", 180],
+  ])
+    await NodeFSP.writeFile(new URL(filename, publicDirectory), pngs[sizes.indexOf(size)]);
+  await NodeFSP.copyFile(new URL("icon.ico", destination), new URL("favicon.ico", publicDirectory));
+}
+console.log("J1 web and marketing icons and favicons generated.");

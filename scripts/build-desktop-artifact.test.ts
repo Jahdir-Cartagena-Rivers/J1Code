@@ -2101,6 +2101,59 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
   );
 
+  it.effect("requires signing and a complete Azure profile for signed Windows builds", () =>
+    Effect.gen(function* () {
+      const config = yield* createBuildConfig(
+        "win",
+        "nsis",
+        "1.2.3",
+        true,
+        false,
+        undefined,
+        undefined,
+      );
+      const win = config.win as Record<string, unknown>;
+      assert.equal(win.forceCodeSigning, true);
+      assert.deepStrictEqual(win.azureSignOptions, {
+        publisherName: "Example Publisher",
+        endpoint: "https://example.codesigning.azure.net/",
+        certificateProfileName: "example-profile",
+        codeSigningAccountName: "example-account",
+        fileDigest: "SHA256",
+        timestampDigest: "SHA256",
+        timestampRfc3161: "http://timestamp.acs.microsoft.com",
+      });
+    }).pipe(
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromEnv({
+            env: {
+              AZURE_TRUSTED_SIGNING_PUBLISHER_NAME: "Example Publisher",
+              AZURE_TRUSTED_SIGNING_ENDPOINT: "https://example.codesigning.azure.net/",
+              AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME: "example-profile",
+              AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: "example-account",
+            },
+          }),
+        ),
+      ),
+    ),
+  );
+
+  it.effect("rejects signed Windows builds without a signing profile", () =>
+    Effect.gen(function* () {
+      const result = yield* createBuildConfig(
+        "win",
+        "nsis",
+        "1.2.3",
+        true,
+        false,
+        undefined,
+        undefined,
+      ).pipe(Effect.exit);
+      assert.equal(result._tag, "Failure");
+    }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
+  );
+
   it("stages the resource monitor as an external executable resource", () => {
     assert.deepStrictEqual(DESKTOP_EXTRA_RESOURCES, [
       {
