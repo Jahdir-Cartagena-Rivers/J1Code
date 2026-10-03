@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./j1Brand": {
+      "types": "./src/j1Brand.ts",
+      "import": "./src/j1Brand.ts"
+    },
     "./legacyCliLauncher": {
       "types": "./src/legacyCliLauncher.ts",
       "import": "./src/legacyCliLauncher.ts"

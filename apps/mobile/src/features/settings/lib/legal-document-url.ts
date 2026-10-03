@@ -1,10 +1,11 @@
-const DEFAULT_MARKETING_SITE_URL = "https://t3.codes";
+import { J1_SOURCE_URL } from "@t3tools/shared/j1Brand";
 
-function resolveMarketingSiteUrl(override: string | undefined): URL {
+function resolveMarketingSiteUrl(override: string | undefined): URL | null {
+  if (!override?.trim()) return null;
   try {
-    const url = new URL(override?.trim() || DEFAULT_MARKETING_SITE_URL);
+    const url = new URL(override.trim());
     if (url.protocol !== "https:" && url.protocol !== "http:") {
-      return new URL(DEFAULT_MARKETING_SITE_URL);
+      return null;
     }
 
     url.search = "";
@@ -12,20 +13,28 @@ function resolveMarketingSiteUrl(override: string | undefined): URL {
     url.pathname = `${url.pathname.replace(/\/+$/, "")}/`;
     return url;
   } catch {
-    return new URL(DEFAULT_MARKETING_SITE_URL);
+    return null;
   }
 }
 
 const MARKETING_SITE_URL = resolveMarketingSiteUrl(process.env.EXPO_PUBLIC_MARKETING_SITE_URL);
 
-function marketingSiteDocumentUrl(path: string): string {
-  return new URL(path, MARKETING_SITE_URL).toString();
+function marketingSiteDocumentUrl(path: string, sourcePath: string): string {
+  return MARKETING_SITE_URL
+    ? new URL(path, MARKETING_SITE_URL).toString()
+    : `${J1_SOURCE_URL}/${sourcePath}`;
 }
 
-export const PRIVACY_POLICY_URL = marketingSiteDocumentUrl("privacy-policy");
-export const SECURITY_POLICY_URL = marketingSiteDocumentUrl("security-policy");
-export const TERMS_OF_SERVICE_URL = marketingSiteDocumentUrl("terms-of-service");
-export const LEGAL_URL = marketingSiteDocumentUrl("legal");
+export const PRIVACY_POLICY_URL = marketingSiteDocumentUrl(
+  "privacy-policy",
+  "docs/user/privacy.md",
+);
+export const SECURITY_POLICY_URL = marketingSiteDocumentUrl(
+  "security-policy",
+  ".github/SECURITY.md",
+);
+export const TERMS_OF_SERVICE_URL = marketingSiteDocumentUrl("terms-of-service", "LICENSE");
+export const LEGAL_URL = marketingSiteDocumentUrl("legal", "docs/user/open-source-licenses.md");
 
 export const ALLOWED_LEGAL_DOCUMENT_URLS = [
   LEGAL_URL,

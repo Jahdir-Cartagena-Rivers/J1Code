@@ -4,7 +4,11 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
-import { loadRepoEnv, resolvePublicConfig } from "./public-config.ts";
+import {
+  loadRepoEnv,
+  resolvePublicConfig,
+  resolveMobileAssociatedDomains,
+} from "./public-config.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -166,3 +170,36 @@ function makeTemporaryDirectory() {
   temporaryDirectories.push(directory);
   return directory;
 }
+
+describe("resolveMobileAssociatedDomains", () => {
+  it("claims no upstream domains for an unconfigured build", () => {
+    expect(resolveMobileAssociatedDomains({})).toEqual([]);
+    expect(resolveMobileAssociatedDomains({ T3CODE_CLERK_PASSKEY_RP_DOMAINS: " , " })).toEqual([]);
+  });
+
+  it("uses the build owner's domains and removes duplicates", () => {
+    expect(
+      resolveMobileAssociatedDomains({
+        T3CODE_CLERK_PASSKEY_RP_DOMAINS: " Example.COM, example.com, auth.example.com ",
+      }),
+    ).toEqual([
+      "applinks:example.com",
+      "webcredentials:example.com",
+      "applinks:auth.example.com",
+      "webcredentials:auth.example.com",
+    ]);
+  });
+
+  it.each([
+    "https://example.com",
+    "example.com/path",
+    "example.com:8443",
+    "user@example.com",
+    "example.com?x=1",
+    "-invalid.example",
+  ])("rejects invalid host %s", (value) => {
+    expect(() =>
+      resolveMobileAssociatedDomains({ T3CODE_CLERK_PASSKEY_RP_DOMAINS: value }),
+    ).toThrow("hostnames");
+  });
+});

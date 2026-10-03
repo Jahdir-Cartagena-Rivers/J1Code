@@ -38,6 +38,8 @@ jobs:
           apps/desktop/src/updates/DesktopUpdates.test.ts
           apps/server/src/hiveMind/store.test.ts
           apps/server/src/hiveMind/importNative.test.ts
+          apps/web/src/components/desktopUpdate.logic.test.ts
+          apps/mobile/src/features/settings/lib/legal-document-url.test.ts
           packages/client-runtime/src/workerChats.test.ts
           packages/contracts/src/settings.test.ts
           apps/mobile/src/features/threads/threadListV2.test.ts
@@ -63,3 +65,6 @@ jobs:
           apps/desktop/src/updates/DesktopUpdates.test.ts
           apps/server/src/hiveMind/store.ts apps/server/src/hiveMind/store.test.ts
           apps/server/src/hiveMind/importNative.test.ts
+          packages/shared/src/j1Brand.ts
+          apps/web/src/components/desktopUpdate.logic.ts apps/web/src/components/desktopUpdate.logic.test.ts
+          apps/mobile/src/features/settings/lib/legal-document-url.ts apps/mobile/src/features/settings/lib/legal-document-url.test.ts

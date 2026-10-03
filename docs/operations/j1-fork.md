@@ -6,7 +6,7 @@ J1 Code starts from T3 Code 0.0.44, upstream commit `c18e5ea6ed741443a8ec4a5d22d
 
 Commit local work, fetch `upstream`, inspect its changes, then merge the selected upstream commit on a maintenance branch. Resolve conflicts in history import, delegation, Hive Mind, branding, and packaging. Keep fork versions suffixed `-j1.N`. Push accepted changes to `j1-code` to start the automatic release pipeline.
 
-The wire protocol, provider names, `T3CODE_*` environment variables, `t3.json` project files, and existing URL schemes are retained for compatibility. Product names, marks, desktop identity, and default data directories use J1. Upstream legal attribution is retained.
+The wire protocol, provider names, `T3CODE_*` environment variables, `t3.json` project files, and existing URL schemes are retained for compatibility. Product names, marks, desktop identity, and default data directories use J1. Upstream legal attribution is retained. Product links are configured in `packages/shared/src/j1Brand.ts`; change them for your own distribution.
 
 ## Build
 
@@ -26,7 +26,7 @@ Desktop files include the version, platform, and architecture. Windows installer
 
 The [J1 Windows release workflow](../../.github/workflows/j1-release.yml) runs on every push to `j1-code`, or by manual dispatch on that branch. It runs focused J1 regressions, builds and smoke-tests the matching Linux runtime, then builds and validates the Windows x64 NSIS installer. Versions use the checked-in J1 revision plus the workflow run number; package versions change only in the build checkout, so version bumps do not create recursive pushes. Keep the workflow file and its run counter when maintaining this pipeline.
 
-Publication verifies installer/version/checksums and uses a draft until all assets are present. A superseded commit cannot publish. Failed builds preserve the prior published release, and a retry cannot replace an already published release. The pipeline preserves the private repository and embeds its authenticated update feed. It uses the repository's short-lived Actions token only for publication; no runtime token is embedded. Installers remain unsigned until signing is configured.
+Publication verifies installer/version/checksums and uses a draft until all assets are present. A superseded commit cannot publish. Failed builds preserve the prior published release, and a retry cannot replace an already published release. The update feed follows the repository's visibility at build time: private builds require runtime GitHub authentication, and public builds do not. It uses the repository's short-lived Actions token only for publication; no runtime token is embedded. Installers remain unsigned until signing is configured.
 
 Older builds configured with a public feed cannot read a private repository. Install one new private-feed installer to transition those builds; subsequent releases appear through the app's update control after GitHub CLI sign-in.
 

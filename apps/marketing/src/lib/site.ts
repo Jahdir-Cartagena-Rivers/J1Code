@@ -1,12 +1,6 @@
-export const GITHUB_REPOSITORY_URL = "https://github.com/pingdotgg/t3code";
+import { J1_RELEASES_URL, J1_REPOSITORY_URL, J1_SOURCE_URL } from "@t3tools/shared/j1Brand";
 
-export const IOS_APP_STORE_URL =
-  "https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824";
-
-export const ANDROID_PLAY_STORE_URL =
-  "https://play.google.com/store/apps/details?id=com.t3tools.t3code";
-
-export const MARKETING_STATS = {
-  githubStars: "22k+",
-  users: "300,000",
-} as const;
+export const GITHUB_REPOSITORY_URL = J1_REPOSITORY_URL;
+export const RELEASES_URL = J1_RELEASES_URL;
+export const BUILD_GUIDE_URL = `${J1_SOURCE_URL}/docs/user/install.md`;
+export const MOBILE_BUILD_GUIDE_URL = `${BUILD_GUIDE_URL}#mobile-builds`;
