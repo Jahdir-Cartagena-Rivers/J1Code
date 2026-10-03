@@ -4,6 +4,7 @@ on:
   push:
     branches: [j1-code]
   workflow_dispatch:
+  public:
 
 permissions:
   contents: read
@@ -50,6 +51,7 @@ jobs:
       J1_RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
       T3CODE_DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
       T3CODE_DESKTOP_UPDATE_PRIVATE: ${{ github.event.repository.private }}
+      T3CODE_DESKTOP_SIGNED: ${{ vars.J1CODE_WINDOWS_SIGNING_ENABLED == 'true' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -58,6 +60,8 @@ jobs:
             /*
             !/.repos/
           sparse-checkout-cone-mode: false
+      - name: Test Windows signing rejection paths
+        run: ./.github/scripts/j1-windows-signing.test.ps1
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -87,7 +91,26 @@ jobs:
         with:
           name: j1-linux-runtime
           path: wsl-runtime
+      - name: Prepare verified Windows signing
+        if: vars.J1CODE_WINDOWS_SIGNING_ENABLED == 'true'
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
+          AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME }}
+          AZURE_TRUSTED_SIGNING_PUBLISHER_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_PUBLISHER_NAME }}
+        run: ./.github/scripts/j1-windows-signing.ps1 -Action Prepare
       - name: Build and validate Windows installer
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
+          AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME }}
+          AZURE_TRUSTED_SIGNING_PUBLISHER_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_PUBLISHER_NAME }}
         run: node scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64 --build-version "$env:J1_RELEASE_VERSION" --wsl-runtime "wsl-runtime/t3-${env:J1_RELEASE_VERSION}-linux-x64.tar.gz" --output-dir release --verbose
       - uses: actions/upload-artifact@v4
         with:

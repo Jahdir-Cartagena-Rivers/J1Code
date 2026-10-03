@@ -1,5 +1,7 @@
 {
   "id": "/",
+  "name": "J1 Code",
+  "short_name": "J1 Code",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

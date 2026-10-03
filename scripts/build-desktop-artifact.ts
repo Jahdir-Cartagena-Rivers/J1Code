@@ -2808,6 +2808,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       signAndEditExecutable: true,
     };
     if (signed) {
+      winConfig.forceCodeSigning = true;
       winConfig.azureSignOptions = yield* AzureTrustedSigningOptionsConfig;
     }
     buildConfig.win = winConfig;
@@ -3876,6 +3877,23 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       }),
       verbose: options.verbose,
     });
+    if (options.signed) {
+      yield* runCommand(
+        ChildProcess.make("powershell.exe", [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          path.join(repoRoot, ".github/scripts/j1-windows-signing.ps1"),
+          "-Action",
+          "Verify",
+          "-ReleaseDirectory",
+          stageDistDir,
+        ]),
+        { label: "Verify timestamped Windows signatures", verbose: options.verbose },
+      );
+    }
   }
 
   const stageEntries = yield* fs.readDirectory(stageDistDir);
