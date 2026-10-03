@@ -1,6 +1,8 @@
-const REPO = "pingdotgg/t3code";
+import { J1_RELEASES_URL, J1_REPOSITORY_URL } from "@t3tools/shared/j1Brand";
 
-export const RELEASES_URL = `https://github.com/${REPO}/releases`;
+const REPO = new URL(J1_REPOSITORY_URL).pathname.slice(1);
+
+export const RELEASES_URL = J1_RELEASES_URL;
 export const NIGHTLY_RELEASES_URL = `${RELEASES_URL}?q=nightly&expanded=true`;
 
 const LATEST_API_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
@@ -24,11 +26,13 @@ export interface Release {
 }
 
 function cacheKey(channel: ReleaseChannel) {
-  return `t3code-${channel}-release`;
+  return `j1code-${channel}-release`;
 }
 
 async function fetchStable(): Promise<Release> {
-  return fetch(LATEST_API_URL).then((r) => r.json());
+  const response = await fetch(LATEST_API_URL);
+  if (!response.ok) throw new Error(`Could not load J1 Code releases (${response.status})`);
+  return response.json();
 }
 
 async function fetchNightly(): Promise<Release> {

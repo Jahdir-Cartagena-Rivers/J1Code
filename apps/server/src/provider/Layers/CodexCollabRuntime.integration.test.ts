@@ -870,7 +870,7 @@ describe("CodexSessionRuntime collab integration", () => {
 });
 
 describe("CodexSessionRuntime compaction", () => {
-  it.effect("restores T3 context after the root thread compacts", () =>
+  it.effect("restores J1 Code context after the root thread compacts", () =>
     Effect.gen(function* () {
       const compacted = (threadId: string) => ({
         method: "item/completed",

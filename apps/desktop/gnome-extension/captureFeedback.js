@@ -56,7 +56,7 @@ export class CaptureFeedback {
     } catch (error) {
       // Optional decoration must not prevent attaching a successfully captured image.
       this._clearActors();
-      console.warn(`T3 capture effects unavailable: ${error.message}`);
+      console.warn(`J1 Code capture effects unavailable: ${error.message}`);
     }
     return Boolean(this._actor);
   }
@@ -85,7 +85,7 @@ export class CaptureFeedback {
         session.pid,
         title,
       );
-    // A command-palette capture temporarily unmaps T3. Wait for its new surface, not a sleep.
+    // A command-palette capture temporarily unmaps J1 Code. Wait for its new surface, not a sleep.
     const target =
       find() ??
       (await new Promise((resolve) => {

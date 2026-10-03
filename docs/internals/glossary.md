@@ -15,7 +15,7 @@ Terms whose meaning matters across J1 Code. Architecture and lifecycle constrain
 | Thread         | The durable conversation and work history for a project. It survives provider process exits.      |
 | Turn           | One user-to-agent work cycle. Provider work can finish before checkpoint and diff work settles.   |
 | Activity       | A non-message timeline item, such as a tool action, approval, or failure.                         |
-| T3 home        | The base data directory. Runtime state normally lives under its `userdata` directory.             |
+| J1 Code home   | The base data directory. Runtime state normally lives under its `userdata` directory.             |
 
 ## Orchestration
 

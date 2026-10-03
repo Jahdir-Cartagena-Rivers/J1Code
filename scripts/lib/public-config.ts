@@ -171,3 +171,20 @@ function firstNonEmpty(sources: readonly Environment[], ...names: readonly strin
 function readEnvFile(path: string): Record<string, string | undefined> {
   return NodeFS.existsSync(path) ? NodeUtil.parseEnv(NodeFS.readFileSync(path, "utf8")) : {};
 }
+
+/** Native links and passkeys must use the build owner's domains. Unconfigured builds claim none. */
+export function resolveMobileAssociatedDomains(env: Environment): string[] {
+  const domains = env.T3CODE_CLERK_PASSKEY_RP_DOMAINS?.split(",") ?? [];
+  const normalized = domains.map((value) => value.trim().toLowerCase()).filter(Boolean);
+  for (const domain of normalized) {
+    if (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(domain)) {
+      throw new Error(
+        "T3CODE_CLERK_PASSKEY_RP_DOMAINS must contain hostnames without URLs, paths, or ports.",
+      );
+    }
+  }
+  return [...new Set(normalized)].flatMap((domain) => [
+    `applinks:${domain}`,
+    `webcredentials:${domain}`,
+  ]);
+}
