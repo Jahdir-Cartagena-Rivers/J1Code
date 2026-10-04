@@ -565,6 +565,8 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
     const existingBackground = background
       ? yield* Effect.promise(() => BackgroundBackend.readBackgroundRecord(environment.baseDir))
       : undefined;
+    const matchingBackground =
+      existingBackground?.version === environment.appVersion ? existingBackground : undefined;
 
     const bootstrap = {
       mode: "desktop" as const,
@@ -585,7 +587,7 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
     };
 
     return {
-      executablePath: existingBackground?.executablePath ?? process.execPath,
+      executablePath: matchingBackground?.executablePath ?? process.execPath,
       // Packaged builds only, so a dev instance never shares the cache with the
       // prod app it is often run from. `--require` rather than NODE_COMPILE_CACHE,
       // so the setting does not leak into the provider and terminal processes
@@ -596,7 +598,7 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
         "--bootstrap-fd",
         "3",
       ],
-      entryPath: existingBackground?.entryPath ?? environment.backendEntryPath,
+      entryPath: matchingBackground?.entryPath ?? environment.backendEntryPath,
       cwd: environment.backendCwd,
       env: {
         ...backendChildEnvPatch(),
@@ -604,7 +606,7 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
       },
       // Primary wants process.env (PATH, dev-runner's T3CODE_HOME, etc.).
       extendEnv: true,
-      bootstrap: existingBackground?.bootstrap ?? bootstrap,
+      bootstrap: matchingBackground?.bootstrap ?? bootstrap,
       ...(background ? { background } : {}),
       bootstrapDelivery: "fd3",
       httpBaseUrl: backendExposure.httpBaseUrl,

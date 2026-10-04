@@ -634,8 +634,7 @@ export const make = Effect.gen(function* () {
         yield* Ref.set(desktopState.quitting, true);
 
         return yield* Effect.gen(function* () {
-          // A detached server retains its tunnel and running turns through a UI update.
-          if (!BackgroundBackend.backgroundEnabled(environment)) yield* writeUpdateRestartMarker;
+          yield* writeUpdateRestartMarker;
           // Stop every backend in the pool, not just the primary. With
           // parallel WSL + Windows backends, leaving the WSL instance up
           // means quitAndInstall's app.quit() exits before the pool's
@@ -649,6 +648,13 @@ export const make = Effect.gen(function* () {
             (instance) => instance.stop({ timeout: Duration.seconds(5) }),
             { concurrency: "unbounded" },
           );
+          // Pool stops detach background observers. The accepted restart also
+          // stops their host so the relaunched app starts its bundled server.
+          if (BackgroundBackend.backgroundEnabled(environment)) {
+            yield* Effect.promise(() =>
+              BackgroundBackend.stopBackgroundServer(environment.baseDir),
+            );
+          }
           yield* electronUpdater.quitAndInstall({
             isSilent: true,
             isForceRunAfter: true,

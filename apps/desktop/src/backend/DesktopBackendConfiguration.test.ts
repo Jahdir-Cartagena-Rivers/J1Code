@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
+import { vi } from "vite-plus/test";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -13,6 +14,7 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopBackendConfiguration from "./DesktopBackendConfiguration.ts";
+import * as BackgroundBackend from "./DesktopBackgroundBackend.ts";
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopServerExposure from "./DesktopServerExposure.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
@@ -225,6 +227,82 @@ const withPackagedWslHarness = <A, E, R>(
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer));
 
 describe("DesktopBackendConfiguration", () => {
+  it.effect.each(["1.2.3", "1.2.2"])(
+    "resolves the installed runtime against a background server at %s",
+    (version) =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "j1-background-config-",
+        });
+        const existing: BackgroundBackend.BackgroundRecord = {
+          protocol: 1,
+          hostPid: 123,
+          serverPid: 456,
+          version,
+          executablePath: path.join(baseDir, "old", "J1.exe"),
+          entryPath: path.join(baseDir, "old", "server.cjs"),
+          bootstrap: {
+            mode: "desktop",
+            noBrowser: true,
+            port: 4888,
+            t3Home: baseDir,
+            host: "127.0.0.1",
+            desktopBootstrapToken: "retained-token",
+            tailscaleServeEnabled: false,
+            tailscaleServePort: 443,
+            resourceMonitorPath: path.join(baseDir, "old", "monitor.exe"),
+          },
+          secret: "a".repeat(64),
+        };
+        const read = vi
+          .spyOn(BackgroundBackend, "readBackgroundRecord")
+          .mockResolvedValue(existing);
+        yield* Effect.gen(function* () {
+          const environment = yield* DesktopEnvironment.DesktopEnvironment;
+          const configuration = yield* DesktopBackendConfiguration.DesktopBackendConfiguration;
+          const config = yield* configuration.resolvePrimary;
+          assert.equal(
+            config.bootstrap.desktopBootstrapToken,
+            existing.bootstrap.desktopBootstrapToken,
+          );
+          assert.equal(config.bootstrap.port, 4888);
+          if (version === "1.2.3") {
+            assert.equal(config.executablePath, existing.executablePath);
+            assert.equal(config.entryPath, existing.entryPath);
+            assert.deepEqual(config.bootstrap, existing.bootstrap);
+          } else {
+            assert.equal(config.executablePath, process.execPath);
+            assert.equal(config.entryPath, environment.backendEntryPath);
+            assert.notEqual(
+              config.bootstrap.resourceMonitorPath,
+              existing.bootstrap.resourceMonitorPath,
+            );
+            assert.equal(config.bootstrap.host, "0.0.0.0");
+            assert.isTrue(config.bootstrap.tailscaleServeEnabled);
+          }
+        }).pipe(
+          Effect.provide(
+            DesktopBackendConfiguration.layer.pipe(
+              Layer.provideMerge(serverExposureLayer),
+              Layer.provideMerge(DesktopAppSettings.layerTest()),
+              Layer.provideMerge(DesktopWslEnvironment.layerTest()),
+              Layer.provideMerge(DesktopWslServerTree.layerTest()),
+              Layer.provideMerge(
+                makeEnvironmentLayer(baseDir, {
+                  appVersion: "1.2.3",
+                  platform: "win32",
+                  resourcesPath: path.join(baseDir, "resources"),
+                }),
+              ),
+            ),
+          ),
+          Effect.ensuring(Effect.sync(() => read.mockRestore())),
+        );
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("resolvePrimary produces a stable scoped bootstrap token", () =>
     withHarness(
       Effect.gen(function* () {
