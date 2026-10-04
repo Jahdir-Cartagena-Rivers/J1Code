@@ -52,8 +52,40 @@ const provider: ServerProvider = {
 };
 
 describe("provider compatibility", () => {
+  it("selects upstream compatibility policies independently of the J1 app version", () => {
+    const current = { ...policy, t3CodeRange: ">=0.0.44 <0.0.45" };
+    const future = {
+      ...policy,
+      t3CodeRange: ">=0.0.45",
+      ranges: [{ range: ">=0.0.0", status: "broken" as const }],
+    };
+    assert.strictEqual(
+      resolveProviderCompatibility([future, current], driver, "2.0.0")?.status,
+      "supported",
+    );
+    assert.strictEqual(
+      resolveProviderCompatibility([future, current], driver, "2.0.0", "0.0.45")?.status,
+      "broken",
+    );
+  });
+
   it("bundles a compatibility policy for every built-in harness", () => {
     for (const builtIn of BUILT_IN_DRIVERS) {
+      for (const version of [null, "0.149.0", "0.156.1", "0.159.0", "2.1.280"]) {
+        assert.deepStrictEqual(
+          resolveProviderCompatibility(
+            ModelManifest.BUNDLED_MODEL_MANIFEST.compatibility,
+            builtIn.driverKind,
+            version,
+          ),
+          resolveProviderCompatibility(
+            ModelManifest.BUNDLED_MODEL_MANIFEST.compatibility,
+            builtIn.driverKind,
+            version,
+            "0.0.44-j1.22",
+          ),
+        );
+      }
       assert.isDefined(
         resolveProviderCompatibility(
           ModelManifest.BUNDLED_MODEL_MANIFEST.compatibility,

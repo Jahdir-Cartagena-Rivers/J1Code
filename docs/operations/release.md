@@ -4,7 +4,7 @@
 
 This document covers the unified release workflow for stable and nightly desktop releases.
 
-The J1 branch uses `.github/workflows/j1-release.yml` to publish checked Windows installers and matching WSL runtimes after pushes to `j1-code`. J1 versions are independent of the upstream version: the base `1.10.0` plus workflow run 13 produces `1.23.0`, tagged `v1.23.0` and titled **J1 Code v1.23**. Release notes list commits since the previous published J1 release, including historical `j1-code-0.0.44-j1.*` tags. Keep those older tags and assets intact so installed versions and existing download links remain compatible. The runtime archive retains the `t3` executable name; its version matches the J1 installer.
+The J1 branch uses `.github/workflows/j1-release.yml` to publish checked Windows installers and matching WSL runtimes after pushes to `j1-code`. J1 versions are independent of the upstream version: the base `1.10.0` plus workflow run 13 produces `1.23.0`, tagged `v1.23.0` and titled **J1 Code v1.23**. Release notes list commits since the previous published J1 release, including historical `j1-code-0.0.44-j1.*` tags. Keep those older tags and assets intact so installed versions and existing download links remain compatible. The runtime archive retains the `t3` executable name; its version matches the J1 installer. Provider compatibility policies still target the upstream protocol baseline recorded in the server manifest's `t3CodeCompatibilityVersion`; update that baseline when integrating the corresponding upstream protocol changes, independently of J1 release numbering.
 
 ## What the workflow does
 
