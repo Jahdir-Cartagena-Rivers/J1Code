@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
+import { vi } from "vite-plus/test";
 import { DESKTOP_UPDATE_RESTART_MARKER_FILE } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
@@ -18,9 +19,117 @@ import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopState from "../app/DesktopState.ts";
 import * as DesktopUpdates from "./DesktopUpdates.ts";
+import * as BackgroundBackend from "../backend/DesktopBackgroundBackend.ts";
 import { flushCallbacks, makeHarness } from "./updatesTestHarness.ts";
 
 describe("DesktopUpdates", () => {
+  it.effect("restarts the Windows backend when the installer fails after stopping its host", () => {
+    const harness = makeHarness({
+      platform: "win32",
+      stopBackend: Effect.sync(() => {
+        harness.installSteps.push("detachBackend");
+      }),
+      quitAndInstall: Effect.fail(
+        new ElectronUpdater.ElectronUpdaterQuitAndInstallError({
+          channel: "stable",
+          isSilent: true,
+          isForceRunAfter: true,
+          cause: new Error("installer refused"),
+        }),
+      ),
+    });
+    const stop = vi
+      .spyOn(BackgroundBackend, "stopBackgroundServer")
+      .mockImplementation(async () => {
+        harness.installSteps.push("stopBackground");
+      });
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const updates = yield* DesktopUpdates.DesktopUpdates;
+        const desktopState = yield* DesktopState.DesktopState;
+        yield* updates.configure;
+        harness.emit("update-downloaded", { version: "1.2.4" });
+        yield* flushCallbacks;
+        const result = yield* updates.install;
+        assert.isTrue(result.accepted);
+        assert.isFalse(result.completed);
+        assert.deepEqual(harness.installSteps, [
+          "detachBackend",
+          "stopBackground",
+          "quitAndInstall",
+          "startBackend",
+        ]);
+        assert.isFalse(yield* Ref.get(desktopState.quitting));
+        assert.equal(harness.updateRestartMarkers.size, 0);
+      }),
+    ).pipe(
+      Effect.provide(Layer.merge(TestClock.layer(), harness.layer)),
+      Effect.ensuring(Effect.sync(() => stop.mockRestore())),
+    );
+  });
+
+  it.effect("stops Windows background work after detaching observers and before installing", () => {
+    const harness = makeHarness({
+      platform: "win32",
+      stopBackend: Effect.sync(() => {
+        harness.installSteps.push("detachBackend");
+      }),
+    });
+    const stop = vi
+      .spyOn(BackgroundBackend, "stopBackgroundServer")
+      .mockImplementation(async () => {
+        harness.installSteps.push("stopBackground");
+      });
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const updates = yield* DesktopUpdates.DesktopUpdates;
+        const environment = yield* DesktopEnvironment.DesktopEnvironment;
+        yield* updates.configure;
+        harness.emit("update-downloaded", { version: "1.2.4" });
+        yield* flushCallbacks;
+        assert.isTrue((yield* updates.install).accepted);
+        assert.deepEqual(harness.installSteps, [
+          "detachBackend",
+          "stopBackground",
+          "quitAndInstall",
+        ]);
+        assert.equal(stop.mock.calls[0]?.[0], environment.baseDir);
+        assert.equal(harness.updateRestartMarkers.size, 1);
+      }),
+    ).pipe(
+      Effect.provide(Layer.merge(TestClock.layer(), harness.layer)),
+      Effect.ensuring(Effect.sync(() => stop.mockRestore())),
+    );
+  });
+
+  it.effect("refuses the installer and recovers when the background server cannot stop", () => {
+    const harness = makeHarness({ platform: "win32" });
+    const stop = vi
+      .spyOn(BackgroundBackend, "stopBackgroundServer")
+      .mockRejectedValue(new Error("background shutdown failed"));
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const updates = yield* DesktopUpdates.DesktopUpdates;
+        const desktopState = yield* DesktopState.DesktopState;
+        yield* updates.configure;
+        harness.emit("update-downloaded", { version: "1.2.4" });
+        yield* flushCallbacks;
+        const result = yield* updates.install;
+        assert.isTrue(result.accepted);
+        assert.isFalse(result.completed);
+        assert.equal(result.state.status, "downloaded");
+        assert.equal(result.state.errorContext, "install");
+        assert.equal(harness.quitAndInstalls(), 0);
+        assert.deepEqual(harness.installSteps, ["startBackend"]);
+        assert.isFalse(yield* Ref.get(desktopState.quitting));
+        assert.equal(harness.updateRestartMarkers.size, 0);
+      }),
+    ).pipe(
+      Effect.provide(Layer.merge(TestClock.layer(), harness.layer)),
+      Effect.ensuring(Effect.sync(() => stop.mockRestore())),
+    );
+  });
+
   it.effect("uses authenticated private J1 releases and disables checks without credentials", () =>
     Effect.gen(function* () {
       const appUpdateYml = "provider: github\nowner: example\nrepo: private-app\nprivate: true\n";

@@ -123,7 +123,15 @@ export function backgroundRequest(baseDir: string, secret: string, method: "stat
 
 export async function stopBackgroundServer(baseDir: string) {
   const record = await readBackgroundRecord(baseDir);
-  if (record) await backgroundRequest(baseDir, record.secret, "stop");
+  if (!record) return;
+  await backgroundRequest(baseDir, record.secret, "stop");
+  // Older hosts acknowledge before their process and database writer have exited.
+  // Do not let an update race that shutdown with a second writer.
+  for (let attempt = 0; attempt < 150; attempt++) {
+    if (!isProcessAlive(record.serverPid) && !isProcessAlive(record.hostPid)) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("J1 background server did not stop. Refusing a second server.");
 }
 
 // Copy the physical Electron distribution, including server.asar.unpacked/native modules.
@@ -157,7 +165,8 @@ export async function ensureBackgroundServer(
   options: BackgroundOptions,
 ): Promise<BackgroundRecord> {
   const existing = await readBackgroundRecord(options.baseDir);
-  if (existing) return existing;
+  if (existing?.version === options.version) return existing;
+  // Stage and validate the replacement before interrupting the old server.
   const runtimeDir = await stageBackgroundRuntime(options);
   const relocate = (file: string) => {
     const relative = NodePath.relative(options.sourceRuntimeDir, file);
@@ -181,6 +190,7 @@ export async function ensureBackgroundServer(
     bootstrap,
     secret: NodeCrypto.randomBytes(32).toString("hex"),
   };
+  if (existing) await stopBackgroundServer(options.baseDir);
   const logPath = NodePath.join(options.baseDir, "background", "server.log");
   const log = NodeFS.openSync(logPath, "a", 0o600);
   try {
