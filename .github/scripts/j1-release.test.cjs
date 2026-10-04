@@ -6,13 +6,17 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const {
   releaseIdentity,
+  releaseTag,
+  releaseTitle,
+  previousReleaseTag,
+  releaseNotes,
   artifactNames,
   validateArtifacts,
   assertPublishable,
   publishRelease,
 } = require("./j1-release.cjs");
 
-const version = "0.0.44-j1.11";
+const version = "1.11.0";
 const sha = "a".repeat(40);
 const repository = "example/J1Code";
 
@@ -53,13 +57,73 @@ function fixture(t) {
 
 test("automatic versions increase beyond the base and are stable on retry", () => {
   assert.equal(releaseIdentity("0.0.44-j1.10", "1").version, version);
-  assert.equal(releaseIdentity("0.0.44-j1.10", "2").version, "0.0.44-j1.12");
-  assert.deepEqual(releaseIdentity("0.0.44-j1.10", "1"), releaseIdentity("0.0.44-j1.10", "1"));
+  assert.deepEqual(releaseIdentity("1.10.0", "1"), { version, tag: "v1.11.0" });
+  assert.equal(releaseIdentity("1.10.0", "13").version, "1.23.0");
+  assert.deepEqual(releaseIdentity("0.0.44-j1.10", "1"), releaseIdentity("1.10.0", "1"));
   for (const run of ["", "0", "-1", "1.5", "x", "9007199254740993"]) {
     assert.throws(() => releaseIdentity("0.0.44-j1.10", run));
   }
-  assert.throws(() => releaseIdentity("0.0.44", "1"));
+  assert.throws(() => releaseIdentity("1.10.1", "1"));
+  assert.throws(() => releaseIdentity("01.10.0", "1"));
   assert.throws(() => releaseIdentity("0.0.44-j1.65535", "1"));
+});
+
+test("titles use only J1 versions while historical tags and filenames remain compatible", () => {
+  assert.equal(releaseTitle("0.0.44-j1.22"), "J1 Code v1.22");
+  assert.equal(releaseTitle("1.23.0"), "J1 Code v1.23");
+  assert.equal(releaseTitle("1.23.1"), "J1 Code v1.23.1");
+  assert.equal(releaseTag("0.0.44-j1.22"), "j1-code-0.0.44-j1.22");
+  assert.equal(artifactNames("0.0.44-j1.22")[0], "J1-Code-0.0.44-j1.22-windows-x64-setup.exe");
+  assert.equal(artifactNames("1.23.0")[0], "J1-Code-1.23.0-windows-x64-setup.exe");
+  assert.throws(() => artifactNames("../1.23.0"));
+});
+
+test("changelogs compare with the previous published J1 version across the migration", () => {
+  const releases = [
+    { tag_name: "v1.24.0", draft: true },
+    { tag_name: "v1.23.0" },
+    { tag_name: "j1-code-0.0.44-j1.22" },
+    { tag_name: "v1.99.0", prerelease: true },
+    { tag_name: "unrelated" },
+    { tag_name: "j1-code-0.0.44-j1.9" },
+  ];
+  assert.equal(previousReleaseTag(releases, "1.23.0"), "j1-code-0.0.44-j1.22");
+  assert.equal(previousReleaseTag(releases, "1.24.0"), "v1.23.0");
+  assert.equal(previousReleaseTag(releases, "0.0.44-j1.22"), "j1-code-0.0.44-j1.9");
+  const calls = [];
+  const fakeGh = (args) => {
+    calls.push(args);
+    if (args[1].includes("/releases?")) return JSON.stringify([releases]);
+    return JSON.stringify([
+      {
+        status: "ahead",
+        commits: [
+          {
+            sha,
+            commit: { message: "fix: preserve updates\n\nDetails" },
+            author: { login: "maintainer" },
+          },
+        ],
+      },
+    ]);
+  };
+  const notes = releaseNotes(repository, "1.23.0", sha, fakeGh);
+  assert.match(
+    notes,
+    /## What's Changed\n\n\* fix: preserve updates by @maintainer in \[aaaaaaa\]/,
+  );
+  assert.ok(notes.includes("compare/j1-code-0.0.44-j1.22...v1.23.0"));
+  assert.ok(calls[1][1].includes(`j1-code-0.0.44-j1.22...${sha}`));
+  assert.ok(!notes.includes("Details"));
+  assert.throws(
+    () =>
+      releaseNotes(repository, "1.23.0", sha, (args) =>
+        args[1].includes("/releases?")
+          ? JSON.stringify([releases])
+          : JSON.stringify([{ status: "diverged", commits: [] }]),
+      ),
+    /ancestor/,
+  );
 });
 
 test("validates the complete Windows and matching Linux update set", (t) => {
@@ -137,6 +201,9 @@ test("publishes a complete pending-tag draft and leaves published retries unchan
   const fakeGh = (args) => {
     calls.push(args);
     if (args[0] === "api") {
+      if (args[1].includes("/releases?")) return "[[]]";
+      if (args[1].includes("/commits/"))
+        return JSON.stringify({ sha, commit: { message: "feat: initial release" } });
       if (args[1].endsWith("git/ref/heads/j1-code")) return JSON.stringify({ object: { sha } });
       if (release && !release.draft) return JSON.stringify({ object: { sha } });
       const error = new Error("pending tag");
@@ -167,6 +234,8 @@ test("publishes a complete pending-tag draft and leaves published retries unchan
     .map((args) => args[1]);
   assert.deepEqual(mutations, ["create", "upload", "edit"]);
   assert.ok(calls.at(-1).includes("--draft=false"));
+  assert.ok(calls.at(-1).includes("J1 Code v1.11"));
+  assert.match(fs.readFileSync(path.join(directory, "release-notes.md"), "utf8"), /What's Changed/);
   calls.length = 0;
   assert.equal(
     publishRelease(directory, version, { GITHUB_REPOSITORY: repository, GITHUB_SHA: sha }, fakeGh),
@@ -188,6 +257,9 @@ test("partial upload stays a draft and API failures are not treated as missing r
       return "";
     }
     if (args[1].endsWith("git/ref/heads/j1-code")) return JSON.stringify({ object: { sha } });
+    if (args[1].includes("/releases?")) return "[[]]";
+    if (args[1].includes("/commits/"))
+      return JSON.stringify({ sha, commit: { message: "feat: initial release" } });
     const error = new Error("not found");
     error.stderr = "HTTP 404";
     throw error;

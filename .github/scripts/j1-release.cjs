@@ -5,23 +5,90 @@ const { createRequire } = require("node:module");
 const { execFileSync } = require("node:child_process");
 
 function releaseIdentity(baseVersion, runNumber) {
-  const match = /^(\d+\.\d+\.\d+)-j1\.(0|[1-9]\d*)$/.exec(baseVersion);
+  const base = releaseVersion(baseVersion);
   const run = Number(runNumber);
-  if (!match || !/^[1-9]\d*$/.test(String(runNumber)) || !Number.isSafeInteger(run)) {
+  if (
+    !base ||
+    base[2] !== 0 ||
+    !/^[1-9]\d*$/.test(String(runNumber)) ||
+    !Number.isSafeInteger(run)
+  ) {
     throw new Error("Expected a J1 base version and a positive GitHub run number.");
   }
-  const revision = Number(match[2]) + run;
-  if (!Number.isSafeInteger(revision) || revision > 65535) {
+  const revision = base[1] + run;
+  if (!Number.isSafeInteger(revision) || revision > 65535 || base[0] > 65535) {
     throw new Error("J1 release revision exceeds the Windows version range.");
   }
-  const version = `${match[1]}-j1.${revision}`;
-  return { version, tag: `j1-code-${version}` };
+  const version = `${base[0]}.${revision}.0`;
+  return { version, tag: releaseTag(version) };
+}
+
+// Map the historical upstream-based version into J1's independent sequence.
+function releaseVersion(version) {
+  const legacy = /^\d+\.\d+\.\d+-j1\.(0|[1-9]\d*)$/.exec(version);
+  const stable = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(version);
+  const parts = legacy ? [1, Number(legacy[1]), 0] : stable?.slice(1).map(Number);
+  return parts?.every(Number.isSafeInteger) ? parts : undefined;
+}
+
+function releaseTag(version) {
+  if (!releaseVersion(version)) throw new Error("Invalid J1 release version.");
+  return version.includes("-j1.") ? `j1-code-${version}` : `v${version}`;
+}
+
+function releaseTitle(version) {
+  const parts = releaseVersion(version);
+  if (!parts) throw new Error("Invalid J1 release version.");
+  return `J1 Code v${parts[0]}.${parts[1]}${parts[2] ? `.${parts[2]}` : ""}`;
+}
+
+function previousReleaseTag(releases, version) {
+  const current = releaseVersion(version);
+  if (!current) throw new Error("Invalid J1 release version.");
+  const compare = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+  return releases
+    .filter((release) => !release.draft && !release.prerelease)
+    .map((release) => ({
+      tag: release.tag_name,
+      version: releaseVersion(release.tag_name.replace(/^(?:j1-code-|v)/, "")),
+    }))
+    .filter((release) => release.version && compare(release.version, current) < 0)
+    .sort((a, b) => compare(b.version, a.version))[0]?.tag;
+}
+
+function releaseNotes(repository, version, sha, runGh = gh) {
+  const pages = JSON.parse(
+    runGh(["api", `repos/${repository}/releases?per_page=100`, "--paginate", "--slurp"]),
+  );
+  const previousTag = previousReleaseTag(pages.flat(), version);
+  const commits = previousTag
+    ? JSON.parse(
+        runGh([
+          "api",
+          `repos/${repository}/compare/${previousTag}...${sha}?per_page=100`,
+          "--paginate",
+          "--slurp",
+        ]),
+      )
+    : [{ commits: [JSON.parse(runGh(["api", `repos/${repository}/commits/${sha}`]))] }];
+  if (previousTag && commits.some((page) => !["ahead", "identical"].includes(page.status))) {
+    throw new Error("The previous release is not an ancestor of this build.");
+  }
+  const changes = commits
+    .flatMap((page) => page.commits)
+    .map((entry) => {
+      const subject = entry.commit.message.split(/\r?\n/, 1)[0];
+      const author = entry.author?.login ? ` by @${entry.author.login}` : "";
+      return `* ${subject}${author} in [${entry.sha.slice(0, 7)}](https://github.com/${repository}/commit/${entry.sha})`;
+    });
+  const changelog = previousTag
+    ? `https://github.com/${repository}/compare/${previousTag}...${releaseTag(version)}`
+    : `https://github.com/${repository}/commits/${releaseTag(version)}`;
+  return `## What's Changed\n\n${changes.length ? changes.join("\n") : "* Rebuild of the previous release; no source changes."}\n\n**Full Changelog**: ${changelog}\n`;
 }
 
 function artifactNames(version) {
-  if (!/^\d+\.\d+\.\d+-j1\.(0|[1-9]\d*)$/.test(version)) {
-    throw new Error("Invalid J1 release version.");
-  }
+  releaseTag(version);
   const installer = `J1-Code-${version}-windows-x64-setup.exe`;
   return [installer, `${installer}.blockmap`, "latest.yml", `t3-${version}-linux-x64.tar.gz`];
 }
@@ -81,7 +148,7 @@ function publishRelease(directory, version, env = process.env, runGh = gh) {
   const repository = env.GITHUB_REPOSITORY;
   const sha = env.GITHUB_SHA;
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository ?? "")) throw new Error("Invalid GitHub repository.");
-  const tag = `j1-code-${version}`;
+  const tag = releaseTag(version);
   const names = validateArtifacts(directory, version);
   const checksumName = `SHA256SUMS-${version}.txt`;
   const provenanceName = "j1-build.json";
@@ -139,10 +206,7 @@ function publishRelease(directory, version, env = process.env, runGh = gh) {
   const state = assertPublishable({ headSha, sha, release, tagSha, requiredNames: names });
   if (state === "already-published") return release.html_url;
   const notesPath = path.join(directory, "release-notes.md");
-  fs.writeFileSync(
-    notesPath,
-    `J1 Code ${version} — Windows x64 installer\n\nBuilt automatically from ${sha}. Includes the matching Linux runtime for WSL.\n\nThis unsigned NSIS installer uses the private ${repository} update feed. Sign in with GitHub CLI for private updates. Your profiles and provider authentication remain local.\n\nVerify downloads using ${checksumName}. Publishing updates does not automatically restart or install the app.\n`,
-  );
+  fs.writeFileSync(notesPath, releaseNotes(repository, version, sha, runGh));
   if (!release)
     runGh([
       "release",
@@ -154,7 +218,7 @@ function publishRelease(directory, version, env = process.env, runGh = gh) {
       sha,
       "--draft",
       "--title",
-      `J1 Code ${version}`,
+      releaseTitle(version),
       "--notes-file",
       notesPath,
     ]);
@@ -197,6 +261,10 @@ function publishRelease(directory, version, env = process.env, runGh = gh) {
     "--draft=false",
     "--prerelease=false",
     "--latest",
+    "--title",
+    releaseTitle(version),
+    "--notes-file",
+    notesPath,
   ]);
   return uploaded.html_url;
 }
@@ -223,6 +291,11 @@ if (require.main === module) {
 
 module.exports = {
   releaseIdentity,
+  releaseVersion,
+  releaseTag,
+  releaseTitle,
+  previousReleaseTag,
+  releaseNotes,
   artifactNames,
   validateArtifacts,
   assertPublishable,
