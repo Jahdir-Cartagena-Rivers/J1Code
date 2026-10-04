@@ -55,5 +55,6 @@
   },
   "engines": {
     "node": "^22.16 || ^23.11 || >=24.10"
-  }
+  },
+  "t3CodeCompatibilityVersion": "0.0.44"
 }
