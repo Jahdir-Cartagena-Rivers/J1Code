@@ -1134,7 +1134,7 @@ describe("resolveComposerProviderSelection", () => {
     });
 
     expect(thread.session).toBeNull();
-    expect(lockedProvider).toBe(driver);
+    expect(lockedProvider).toBeNull();
     expect(
       resolveComposerProviderSelection({
         entries,
@@ -1145,7 +1145,7 @@ describe("resolveComposerProviderSelection", () => {
     ).toBe(importedEntry.instanceId);
   });
 
-  it("keeps the session driver authoritative over instance and draft selections", () => {
+  it("keeps the running session driver authoritative over draft selections", () => {
     const selected = entry("claudeAgent", "claude_work");
     const sessionEntry = entry("ollama", "local_models");
     const thread = importedThread(selected.instanceId);
@@ -1156,6 +1156,7 @@ describe("resolveComposerProviderSelection", () => {
           ...thread,
           session: {
             ...readySession,
+            status: "running",
             providerName: sessionEntry.driverKind,
             providerInstanceId: sessionEntry.instanceId,
           },
@@ -1168,7 +1169,7 @@ describe("resolveComposerProviderSelection", () => {
   });
 
   it.each(["missing", "disabled"] as const)(
-    "does not move imported history to another driver when its instance is %s",
+    "allows explicitly switching imported history when its instance is %s",
     (state) => {
       const imported = entry("claudeAgent", "claude_work", { enabled: false });
       const other = entry("codex");
@@ -1181,7 +1182,7 @@ describe("resolveComposerProviderSelection", () => {
         providers: entries.map((entry) => entry.snapshot),
       });
 
-      expect(lockedProvider).not.toBeNull();
+      expect(lockedProvider).toBeNull();
       expect(
         resolveComposerProviderSelection({
           entries,
@@ -1189,7 +1190,7 @@ describe("resolveComposerProviderSelection", () => {
           lockedProvider,
           lockedInstanceId: imported.instanceId,
         }).selectedProviderEntry,
-      ).toBeUndefined();
+      ).toBe(other);
     },
   );
 
@@ -1601,7 +1602,7 @@ describe("getStartedThreadModelChangeBlockReason", () => {
     ).toBeNull();
   });
 
-  it("blocks started-session model changes when either provider requires a new thread", () => {
+  it("allows switching to a provider that restricts native model changes", () => {
     expect(
       getStartedThreadModelChangeBlockReason({
         providers,
@@ -1615,11 +1616,7 @@ describe("getStartedThreadModelChangeBlockReason", () => {
           model: "grok-build",
         },
       }),
-    ).toEqual({
-      title: "Start a new chat to change models",
-      description:
-        "This provider does not allow switching models after a conversation has started.",
-    });
+    ).toBeNull();
   });
 });
 

@@ -1009,15 +1009,14 @@ export function threadShellHasStarted(
   );
 }
 
-// Imported history has no session until its first prompt. Resolve its instance
-// through the environment's provider catalog before locking to a driver.
+// Keep the active turn on its provider; idle threads can hand off to another one.
 export function deriveLockedProvider(input: {
   thread: Thread | null | undefined;
   selectedProvider: string | null;
   threadProvider: string | null;
   providers: ReadonlyArray<Pick<ServerProvider, "instanceId" | "driver">>;
 }): ProviderDriverKind | null {
-  if (!threadHasStarted(input.thread)) {
+  if (input.thread?.session?.status !== "running" && input.thread?.session?.status !== "starting") {
     return null;
   }
   const sessionProvider = input.thread?.session?.providerName ?? null;
@@ -1054,8 +1053,9 @@ export function getStartedThreadModelChangeBlockReason(input: {
     instanceId: input.currentProviderInstanceId ?? input.currentModelSelection.instanceId,
   };
   if (
-    currentModelSelection.instanceId === input.nextModelSelection.instanceId &&
-    currentModelSelection.model === input.nextModelSelection.model
+    currentModelSelection.instanceId !== input.nextModelSelection.instanceId ||
+    (currentModelSelection.instanceId === input.nextModelSelection.instanceId &&
+      currentModelSelection.model === input.nextModelSelection.model)
   ) {
     return null;
   }

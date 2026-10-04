@@ -56,6 +56,15 @@ messages while disconnected. Uploads resume when you reconnect. Drafts and queue
 messages survive app restarts. Signing out of J1 Connect keeps that work on your
 device until you sign back into the same account.
 
+## Switch providers
+
+To switch providers in an existing thread, wait for the current turn to finish,
+then choose another provider and model in the composer. On mobile, use the
+thread's model settings. Your next message uses that provider in the same
+thread, and you can switch back later. A fresh provider session receives the
+original request and recent conversation; long history may be truncated.
+Reattach any earlier files whose contents the new provider needs.
+
 ## Custom models
 
 On web and desktop, use Settings → Providers → **Models** to add an unlisted model with a custom
