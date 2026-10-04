@@ -1316,6 +1316,43 @@ const antigravityInstanceRouting = makeProviderServiceLayer({
   },
 });
 antigravityInstanceRouting.layer("ProviderServiceLive instance-owned conversations", (it) => {
+  it.effect("explicit handoffs discard incompatible and same-instance persisted resume state", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+      originalAntigravityInstanceAvailable = true;
+      for (const instanceId of [originalAntigravityInstanceId, replacementAntigravityInstanceId]) {
+        const threadId = asThreadId(`fresh-handoff-${instanceId}`);
+        const resumeCursor = { sessionId: "old-native-session" };
+        yield* directory.upsert({
+          threadId,
+          provider: antigravityDriver,
+          providerInstanceId: instanceId,
+          status: "stopped",
+          runtimeMode: "approval-required",
+          resumeCursor,
+        });
+        replacementAntigravity.startSession.mockClear();
+        yield* provider.startSession(threadId, {
+          threadId,
+          providerInstanceId: replacementAntigravityInstanceId,
+          runtimeMode: "approval-required",
+          freshSession: true,
+          resumeCursor,
+        });
+        assert.equal(replacementAntigravity.startSession.mock.calls.length, 1);
+        assert.equal(
+          replacementAntigravity.startSession.mock.calls[0]?.[0].resumeCursor,
+          undefined,
+        );
+        const binding = Option.getOrThrow(yield* directory.getBinding(threadId));
+        assert.equal(binding.providerInstanceId, replacementAntigravityInstanceId);
+        assert.notDeepEqual(binding.resumeCursor, resumeCursor);
+        yield* provider.stopSession({ threadId });
+      }
+    }),
+  );
+
   it.effect(
     "does not replace a native conversation with another instance or a removed-instance fallback",
     () =>
