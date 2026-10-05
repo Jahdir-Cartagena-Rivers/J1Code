@@ -2,6 +2,7 @@
   "name": "@t3tools/desktop",
   "version": "1.10.0",
   "private": true,
+  "license": "SEE LICENSE IN ../../LICENSE",
   "type": "module",
   "main": "dist-electron/boot.cjs",
   "scripts": {

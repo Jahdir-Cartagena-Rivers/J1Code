@@ -10,7 +10,7 @@
   <a href="https://github.com/Jahdir-Rivers/J1Code/releases">Downloads</a> ?
   <a href="docs/README.md">Documentation</a> ?
   <a href="CONTRIBUTING.md">Contributing</a> ?
-  <a href="LICENSE">MIT license</a>
+  <a href="LICENSE">License and permissions</a>
 </p>
 
 J1 Code brings your coding providers into one desktop, web, and mobile workspace. Use your own provider accounts, keep your projects and conversations on your machine, and coordinate work across configured agents.
@@ -39,6 +39,8 @@ Provider adapters include Codex, Claude Code, Cursor, Grok, OpenCode, and Antigr
 Windows is the currently published desktop target. The source includes macOS, Linux, web, and mobile clients; those targets need their own builds and validation. Mobile distribution requires your own signing and Expo configuration. See [installation](docs/user/install.md) and [fork maintenance](docs/operations/j1-fork.md).
 
 ## Build from source
+
+These commands are for maintainers, separately authorized development, or MIT material. Building or modifying new protected J1 source requires permission under [the current terms](LICENSE); the earlier MIT versions retain their original permissions.
 
 Use Node.js **24** within the version range in [package.json](package.json), and the repository's pinned pnpm/Vite+ tooling.
 
@@ -82,4 +84,4 @@ J1 stores desktop preferences under `%APPDATA%/j1code` on Windows and server sta
 
 ## Attribution
 
-J1 Code retains the [MIT license](LICENSE) and upstream attribution to T3 Tools. Third-party notices ship with the application. The `T3CODE_*` configuration names, `t3` CLI, and shared wire protocol remain for compatibility.
+J1 Code is source-available. [Current terms](LICENSE) reserve rights in new protected J1 material while allowing use of official builds. T3 Code, dependencies, and previously released J1 material retain their original licenses, including MIT. See [the licensing boundaries](LICENSING.md). Full upstream copyright and third-party notices ship with the application. The `T3CODE_*` configuration names, `t3` CLI, and shared wire protocol remain for compatibility.

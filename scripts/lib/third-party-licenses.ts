@@ -698,7 +698,11 @@ async function readPackageNoticeText(packageRoot: string): Promise<string | null
   for (const fileName of noticeFiles) {
     const contents = (await NodeFSP.readFile(NodePath.join(packageRoot, fileName), "utf8")).trim();
     if (contents.length === 0) continue;
-    sections.push(noticeFiles.length === 1 ? contents : `${fileName}\n\n${contents}`);
+    sections.push(
+      noticeFiles.length === 1
+        ? contents
+        : `${fileName.replaceAll(NodePath.sep, "/")}\n\n${contents}`,
+    );
   }
   return sections.length > 0 ? sections.join("\n\n---\n\n") : null;
 }

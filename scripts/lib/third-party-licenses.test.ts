@@ -77,6 +77,35 @@ afterEach(async () => {
 });
 
 describe("third-party license generation", () => {
+  it("keeps current J1 terms and unchanged upstream MIT notices in every client bundle", async () => {
+    const fixture = await createFixture();
+    const upstream = await NodeFSP.readFile(
+      NodePath.join(REPOSITORY_ROOT, "licenses/T3-MIT.txt"),
+      "utf8",
+    );
+    const current = await NodeFSP.readFile(NodePath.join(REPOSITORY_ROOT, "LICENSE"), "utf8");
+    for (const bundle of ["web", "desktop", "mobile"]) {
+      const manifest = await generateThirdPartyLicenseManifest({
+        configFile: NodePath.join(REPOSITORY_ROOT, "third-party-licenses.config.json"),
+        packageManifests: [{ bundle, path: fixture.appManifest }],
+        allowMissingGeneratedNotices: true,
+      });
+      expect(
+        manifest.entries.find((entry) => entry.name === "J1 Code software terms"),
+      ).toMatchObject({
+        license: "LicenseRef-J1-Code-Reserved-Rights",
+        noticeText: current.trim(),
+      });
+      expect(
+        manifest.entries.find((entry) => entry.name === "T3 Code and prior MIT J1 material"),
+      ).toMatchObject({ license: "MIT", noticeText: upstream.trim() });
+      expect(manifest.entries.find((entry) => entry.name === "demo-dependency")).toMatchObject({
+        license: "MIT",
+        noticeText: "Demo MIT license text",
+      });
+    }
+  });
+
   it("keeps the GhosttyKit notice pinned to the vendored framework revision", async () => {
     const [config, revision] = await Promise.all([
       NodeFSP.readFile(NodePath.join(REPOSITORY_ROOT, "third-party-licenses.config.json"), "utf8"),

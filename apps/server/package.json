@@ -1,10 +1,10 @@
 {
   "name": "t3",
   "version": "1.10.0",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "type": "git",
-    "url": "https://github.com/pingdotgg/t3code",
+    "url": "https://github.com/Jahdir-Cartagena-Rivers/J1Code",
     "directory": "apps/server"
   },
   "bin": {

@@ -2,15 +2,15 @@
 
 J1 Code is an independently maintained derivative of [T3 Code](https://github.com/pingdotgg/t3code). Keep the upstream MIT copyright and attribution. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity) and serves web, desktop, and mobile clients.
 
-You can think of J1 Code as an open source "bring-your-own-subscription" alternative to apps like Claude Desktop, Codex App, Cursor Glass and Conductor.
+J1 Code is a source-available "bring-your-own-subscription" alternative to apps like Claude Desktop, Codex App, Cursor Glass and Conductor. New protected J1 material follows LICENSE and LICENSING.md; inherited T3 Code and earlier MIT-distributed J1 material retain their permissions.
 
 ## What makes J1 Code special?
 
 Preserve the architectural strengths inherited from upstream while developing J1 Code. The following priorities apply to every client.
 
-### 1. Open at the core
+### 1. Inspectable source and explicit permissions
 
-J1 Code is truly open. We share our roadmap, we share how we think about things, and of course we share all our code. Users can build and adapt the source. We work in the open, and should strive to stay that way.
+J1 Code's source remains publicly inspectable. Preserve its mixed licensing: new protected J1 material is rights-reserved, while upstream, dependencies, and prior MIT versions keep their original terms. Do not label the entire project MIT or remove upstream notices. Authorized maintainers can build and adapt the source; other reuse requires the permissions stated in LICENSE.
 
 ### 2. Performance without compromise
 

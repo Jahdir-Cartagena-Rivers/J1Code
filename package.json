@@ -1,6 +1,7 @@
 {
   "name": "@t3tools/monorepo",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "scripts": {
     "prepare": "effect-tsgo patch && vp config --no-agent",
