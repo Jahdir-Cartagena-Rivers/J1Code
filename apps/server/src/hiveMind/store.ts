@@ -13,11 +13,14 @@ export interface HiveMemory {
   readonly sourceThreadId: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly kind?: "memory" | "skill";
+  readonly sourcePath?: string;
+  readonly originSourceThreadId?: string;
 }
 
 export type HiveImportFact = Pick<
   HiveMemory,
-  "scope" | "project" | "subject" | "fact" | "sourceThreadId"
+  "scope" | "project" | "subject" | "fact" | "sourceThreadId" | "kind" | "sourcePath"
 >;
 
 export interface HiveImportResult {
@@ -31,6 +34,7 @@ export interface HiveImportResult {
 interface HiveFile {
   readonly version: 1;
   readonly memories: ReadonlyArray<HiveMemory>;
+  readonly forgotten?: ReadonlyArray<string>;
 }
 
 const empty: HiveFile = { version: 1, memories: [] };
@@ -38,6 +42,8 @@ const writes = new Map<string, Promise<unknown>>();
 const readCache = new Map<string, { mtimeMs: number; size: number; data: HiveFile }>();
 const MAX_MEMORIES = 2_000;
 const key = (value: string) => value.trim().toLocaleLowerCase();
+const identity = (memory: HiveImportFact) =>
+  JSON.stringify([memory.scope, key(memory.project ?? ""), key(memory.subject)]);
 const stopWords = new Set([
   "about",
   "and",
@@ -162,7 +168,10 @@ function validMemory(value: unknown): value is HiveMemory {
     typeof memory.fact === "string" &&
     typeof memory.sourceThreadId === "string" &&
     typeof memory.createdAt === "string" &&
-    typeof memory.updatedAt === "string"
+    typeof memory.updatedAt === "string" &&
+    (memory.kind === undefined || memory.kind === "memory" || memory.kind === "skill") &&
+    (memory.sourcePath === undefined || typeof memory.sourcePath === "string") &&
+    (memory.originSourceThreadId === undefined || typeof memory.originSourceThreadId === "string")
   );
 }
 
@@ -173,7 +182,10 @@ function parseHiveMind(contents: string): HiveFile {
     parsed === null ||
     (parsed as Record<string, unknown>).version !== 1 ||
     !Array.isArray((parsed as Record<string, unknown>).memories) ||
-    !(parsed as { memories: unknown[] }).memories.every(validMemory)
+    !(parsed as { memories: unknown[] }).memories.every(validMemory) ||
+    ((parsed as HiveFile).forgotten !== undefined &&
+      (!Array.isArray((parsed as HiveFile).forgotten) ||
+        !(parsed as HiveFile).forgotten?.every((value) => typeof value === "string")))
   ) {
     throw new Error("Unsupported or malformed Hive Mind data; existing memories were not changed.");
   }
@@ -240,10 +252,7 @@ function mutate<T>(
   return operation;
 }
 
-export function rememberHiveFact(
-  filePath: string,
-  input: Pick<HiveMemory, "scope" | "project" | "subject" | "fact" | "sourceThreadId">,
-): Promise<HiveMemory> {
+export function rememberHiveFact(filePath: string, input: HiveImportFact): Promise<HiveMemory> {
   const subject = input.subject.trim();
   const fact = input.fact.trim();
   const project = input.scope === "project" ? input.project?.trim() || null : null;
@@ -268,7 +277,14 @@ export function rememberHiveFact(
       throw new Error("Hive Mind has reached its entry limit; remove an outdated fact first.");
     }
     const memory: HiveMemory = existing
-      ? { ...existing, fact, sourceThreadId: input.sourceThreadId, updatedAt: now }
+      ? {
+          ...existing,
+          fact,
+          sourceThreadId: input.sourceThreadId,
+          updatedAt: now,
+          ...(input.kind ? { kind: input.kind } : {}),
+          ...(input.sourcePath ? { sourcePath: input.sourcePath } : {}),
+        }
       : {
           id: NodeCrypto.randomUUID(),
           scope: input.scope,
@@ -278,19 +294,71 @@ export function rememberHiveFact(
           sourceThreadId: input.sourceThreadId,
           createdAt: now,
           updatedAt: now,
+          ...(input.kind ? { kind: input.kind } : {}),
+          ...(input.sourcePath ? { sourcePath: input.sourcePath } : {}),
         };
     return [
-      { version: 1, memories: [...data.memories.filter((item) => item.id !== memory.id), memory] },
+      {
+        ...data,
+        memories: [...data.memories.filter((item) => item.id !== memory.id), memory],
+        ...(data.forgotten
+          ? { forgotten: data.forgotten.filter((entry) => entry !== identity(memory)) }
+          : {}),
+      },
       memory,
     ];
   });
 }
 
+/** Projection edits use a content fingerprint, so a stale vault cannot overwrite a correction. */
+export const hiveMemoryDigest = (memory: HiveMemory) =>
+  NodeCrypto.createHash("sha256").update(JSON.stringify(memory)).digest("hex");
+
+export function editHiveFact(
+  filePath: string,
+  id: string,
+  expectedDigest: string,
+  fact: string,
+  sourceThreadId?: string,
+) {
+  return mutate(filePath, (data) => {
+    const memory = data.memories.find((entry) => entry.id === id);
+    if (!memory || hiveMemoryDigest(memory) !== expectedDigest)
+      throw new Error(
+        "Hive Mind vault conflict: the authoritative entry changed or was forgotten.",
+      );
+    if (!fact.trim() || fact.length > 2_000)
+      throw new Error("Hive Mind vault facts must contain 1 to 2,000 characters.");
+    if (memory.kind === "skill") throw new Error("Edit skills in their original SKILL.md file.");
+    // @effect-diagnostics-next-line globalDate:off - this Promise store runs outside an Effect clock.
+    const now = new Date().toISOString();
+    const edited = {
+      ...memory,
+      fact: fact.trim(),
+      updatedAt: now,
+      originSourceThreadId: memory.originSourceThreadId ?? memory.sourceThreadId,
+      sourceThreadId: sourceThreadId ?? `vault:${memory.id}`,
+    };
+    return [
+      { ...data, memories: data.memories.map((entry) => (entry.id === id ? edited : entry)) },
+      edited,
+    ];
+  });
+}
+
 export function forgetHiveFact(filePath: string, id: string): Promise<boolean> {
-  return mutate(filePath, (data) => [
-    { version: 1, memories: data.memories.filter((memory) => memory.id !== id) },
-    data.memories.some((memory) => memory.id === id),
-  ]);
+  return mutate(filePath, (data) => {
+    const memory = data.memories.find((entry) => entry.id === id);
+    if (!memory) return [data, false];
+    return [
+      {
+        ...data,
+        memories: data.memories.filter((entry) => entry.id !== id),
+        forgotten: [...new Set([...(data.forgotten ?? []), identity(memory)])],
+      },
+      true,
+    ];
+  });
 }
 
 /** Native imports only update their own entries. A user correction owns its subject thereafter. */
@@ -301,8 +369,6 @@ export function importHiveFacts(
 ): Promise<HiveImportResult> {
   return mutate(filePath, (data) => {
     const memories = [...data.memories];
-    const identity = (memory: HiveImportFact) =>
-      JSON.stringify([memory.scope, key(memory.project ?? ""), key(memory.subject)]);
     const indexes = new Map<string, number>();
     memories.forEach((memory, index) => {
       const id = identity(memory);
@@ -312,18 +378,32 @@ export function importHiveFacts(
     // @effect-diagnostics-next-line globalDate:off - this Promise store runs outside an Effect clock.
     const now = new Date().toISOString();
     for (const input of facts) {
+      if (data.forgotten?.includes(identity(input))) {
+        counts.protected++;
+        continue;
+      }
       const index = indexes.get(identity(input)) ?? -1;
       const existing = memories[index];
       if (existing && existing.sourceThreadId !== input.sourceThreadId) {
         counts.protected++;
         continue;
       }
-      if (existing?.fact === input.fact) {
+      if (
+        existing?.fact === input.fact &&
+        existing.kind === input.kind &&
+        existing.sourcePath === input.sourcePath
+      ) {
         counts.unchanged++;
         continue;
       }
       if (existing) {
-        memories[index] = { ...existing, fact: input.fact, updatedAt: now };
+        memories[index] = {
+          ...existing,
+          fact: input.fact,
+          updatedAt: now,
+          ...(input.kind ? { kind: input.kind } : {}),
+          ...(input.sourcePath ? { sourcePath: input.sourcePath } : {}),
+        };
         counts.updated++;
       } else {
         indexes.set(identity(input), memories.length);
@@ -336,7 +416,7 @@ export function importHiveFacts(
         "Native memories exceed the Hive Mind entry limit; no entries were imported.",
       );
     }
-    return [counts.created || counts.updated ? { version: 1, memories } : data, counts];
+    return [counts.created || counts.updated ? { ...data, memories } : data, counts];
   });
 }
 
@@ -378,11 +458,14 @@ export function hiveContext(
   const currentProjects = new Set(projects.map(projectKey).filter(Boolean));
   const memories = readHiveMindSync(filePath).memories.filter(
     (memory) =>
+      memory.kind !== "skill" &&
+      !(memory.originSourceThreadId ?? memory.sourceThreadId).startsWith("import:hindsight:") &&
       // Codex imports label every project preference as general, including
       // application-specific approvals. Their ambiguous scope requires explicit
       // recall; don't turn these into ambient permissions in another project.
-      (memory.scope === "general" && !memory.sourceThreadId.startsWith("import:codex:MEMORY.md")) ||
-      (memory.project !== null && currentProjects.has(projectKey(memory.project))),
+      ((memory.scope === "general" &&
+        !memory.sourceThreadId.startsWith("import:codex:MEMORY.md")) ||
+        (memory.project !== null && currentProjects.has(projectKey(memory.project)))),
   );
   const relevant = memories
     .map((memory) => ({ memory, score: automaticRelevance(memory, terms) }))

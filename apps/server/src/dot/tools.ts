@@ -17,7 +17,7 @@ import { Tool, Toolkit } from "effect/unstable/ai";
 import { DotInvocation, DotService } from "./DotService.ts";
 import { DotHiveMind } from "./DotHiveMind.ts";
 import { DotChat, DotReplyInput, DotChatReadInput, DotChatPage } from "./DotChat.ts";
-import { HiveMindMemory } from "../mcp/toolkits/hiveMind/tools.ts";
+import { HiveMindMemory, HiveMindRetrieval } from "../mcp/toolkits/hiveMind/tools.ts";
 
 const dependencies = [DotService, DotInvocation];
 const readTool = <Name extends string, S extends Schema.Top>(
@@ -150,7 +150,10 @@ export const DotToolkit = Toolkit.make(
       query: TrimmedNonEmptyString.check(Schema.isMaxLength(1000)),
       project: Schema.optionalKey(TrimmedNonEmptyString.check(Schema.isMaxLength(160))),
     }),
-    success: Schema.Struct({ memories: Schema.Array(HiveMindMemory) }),
+    success: Schema.Struct({
+      memories: Schema.Array(HiveMindMemory),
+      retrieval: Schema.optionalKey(HiveMindRetrieval),
+    }),
     failure: DotIntegrationError,
     dependencies: [DotHiveMind, DotInvocation],
   })

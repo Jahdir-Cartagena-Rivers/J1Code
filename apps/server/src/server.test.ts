@@ -6443,6 +6443,107 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect(
+    "Hive Mind manages durable memory over the environment RPC and rejects read-only writes",
+    () =>
+      Effect.gen(function* () {
+        yield* buildAppUnderTest();
+        const wsUrl = yield* getWsServerUrl("/ws");
+        yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            Effect.gen(function* () {
+              const snapshot = yield* client[WS_METHODS.hiveMindSnapshot]({});
+              assert.equal(snapshot.records, 0);
+              const configured = yield* client[WS_METHODS.hiveMindConfigure]({
+                version: 1,
+                automatic: false,
+              });
+              assert.equal(
+                configured.config.automatic,
+                false,
+                "configuration survives wire decoding",
+              );
+              yield* client[WS_METHODS.hiveMindMutate]({
+                action: "remember",
+                scope: "project",
+                project: "J1Code",
+                subject: "Engine",
+                fact: "Copper cools the engine.",
+              });
+              const found = yield* client[WS_METHODS.hiveMindSearch]({ query: "copper" });
+              assert.equal(found.memories.length, 1);
+              const memory = found.memories[0]!;
+              assert.isString(memory.revision);
+              yield* client[WS_METHODS.hiveMindMutate]({
+                action: "edit",
+                id: memory.id,
+                revision: memory.revision!,
+                fact: "Aluminum cools the engine.",
+              });
+              assert.equal(
+                (yield* client[WS_METHODS.hiveMindSearch]({ query: "aluminum" })).memories[0]?.fact,
+                "Aluminum cools the engine.",
+                "edit survives wire decoding",
+              );
+              const conflict = yield* client[WS_METHODS.hiveMindMutate]({
+                action: "edit",
+                id: memory.id,
+                revision: memory.revision!,
+                fact: "An outdated correction.",
+              }).pipe(Effect.flip);
+              assert.equal(conflict._tag, "HiveMindError");
+              const invalid = yield* client[WS_METHODS.hiveMindConfigure]({
+                version: 1,
+                vault: "relative",
+              }).pipe(Effect.flip);
+              assert.equal(invalid._tag, "HiveMindError");
+              assert.equal(
+                (yield* client[WS_METHODS.hiveMindSnapshot]({})).config.automatic,
+                false,
+              );
+            }),
+          ),
+        );
+        const token = yield* exchangeAccessToken(defaultDesktopBootstrapToken, {
+          scope: "orchestration:read",
+        });
+        const ticketResponse = yield* HttpClient.post("/api/auth/websocket-ticket", {
+          headers: { authorization: `Bearer ${token.body.access_token ?? ""}` },
+        });
+        const { ticket } = yield* responseJsonEffect<{ readonly ticket: string }>(ticketResponse);
+        const readUrl = `${yield* getWsServerUrl("/ws", { authenticated: false })}?wsTicket=${encodeURIComponent(ticket)}`;
+        yield* Effect.scoped(
+          withWsRpcClient(readUrl, (client) =>
+            Effect.gen(function* () {
+              assert.equal(
+                (yield* client[WS_METHODS.hiveMindSearch]({ query: "aluminum" })).memories[0]?.fact,
+                "Aluminum cools the engine.",
+              );
+              const configError = yield* client[WS_METHODS.hiveMindConfigure]({ version: 1 }).pipe(
+                Effect.flip,
+              );
+              const writeError = yield* client[WS_METHODS.hiveMindMutate]({
+                action: "remember",
+                scope: "general",
+                subject: "Rejected",
+                fact: "Do not write this.",
+              }).pipe(Effect.flip);
+              assert.equal(configError._tag, "EnvironmentAuthorizationError");
+              const importError = yield* client[WS_METHODS.hiveMindImport]({
+                url: "http://127.0.0.1:8888",
+                bank: "legacy",
+              }).pipe(Effect.flip);
+              assert.equal(importError._tag, "EnvironmentAuthorizationError");
+              assert.equal(writeError._tag, "EnvironmentAuthorizationError");
+              assert.equal((yield* client[WS_METHODS.hiveMindSnapshot]({})).records, 1);
+              const existing = yield* client[WS_METHODS.serverGetSettings]({});
+              assert.isDefined(existing);
+            }),
+          ),
+        );
+      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("provider setup lets read-only clients observe installation but not change setup", () =>
     Effect.gen(function* () {
       let installStarts = 0;

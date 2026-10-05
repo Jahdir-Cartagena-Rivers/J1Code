@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import type { StaticScreenProps } from "@react-navigation/native";
+import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import type { EnvironmentId, ServerProvider } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { AsyncResult } from "effect/unstable/reactivity";
@@ -40,6 +40,7 @@ export function SettingsEnvironmentDetailRouteScreen({
 }
 
 function EnvironmentDetail({ environmentId }: { readonly environmentId: EnvironmentId }) {
+  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const connections = useRemoteConnections();
   const environment = connections.connectedEnvironments.find(
@@ -157,6 +158,17 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
         ) : (
           <>
             <SettingsSection title="Connection">
+              <SettingsActionRow
+                icon="brain"
+                label="Hive Mind"
+                disabled={!connected}
+                onPress={() =>
+                  navigation.navigate("SettingsSheet", {
+                    screen: "SettingsContent",
+                    params: { screen: "SettingsHiveMind", params: { environmentId } },
+                  })
+                }
+              />
               <ConnectionEnvironmentRow
                 environment={environment}
                 expanded={connectionExpanded}

@@ -5,12 +5,8 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { ServerConfig } from "../config.ts";
-import {
-  forgetHiveFact,
-  recallHiveFacts,
-  rememberHiveFact,
-  type HiveMemory,
-} from "../hiveMind/store.ts";
+import { forgetHiveMind, recallHiveMind, rememberHiveMind } from "../hiveMind/engine.ts";
+import type { HiveMemory } from "../hiveMind/store.ts";
 import { DotInvocation } from "./DotService.ts";
 import { connectionAllowsDotScope, DotConnections } from "./DotConnections.ts";
 
@@ -57,9 +53,7 @@ export const make = Effect.gen(function* () {
       project?: string | undefined;
     }) {
       yield* authorize("read");
-      return {
-        memories: [...(yield* store(() => recallHiveFacts(filePath, input.query, input.project)))],
-      };
+      return yield* store(() => recallHiveMind(filePath, input.query, input.project));
     }),
     remember: Effect.fn("DotHiveMind.remember")(function* (
       input: Pick<HiveMemory, "scope" | "subject" | "fact"> & { project?: string | undefined },
@@ -67,7 +61,7 @@ export const make = Effect.gen(function* () {
       const connection = yield* authorize("write");
       return {
         memory: yield* store(() =>
-          rememberHiveFact(filePath, {
+          rememberHiveMind(filePath, {
             ...input,
             project: input.project ?? null,
             sourceThreadId: `j1-dot:${connection.id}`,
@@ -77,7 +71,7 @@ export const make = Effect.gen(function* () {
     }),
     forget: Effect.fn("DotHiveMind.forget")(function* ({ id }: { id: string }) {
       yield* authorize("write");
-      return { removed: yield* store(() => forgetHiveFact(filePath, id)) };
+      return { removed: yield* store(() => forgetHiveMind(filePath, id)) };
     }),
   };
 });

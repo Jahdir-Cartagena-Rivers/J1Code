@@ -8,6 +8,16 @@ import {
 import * as Schema from "effect/Schema";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
+import {
+  HiveMindConfig,
+  HiveMindImportInput,
+  HiveMindImportResult,
+  HiveMindError,
+  HiveMindMutation,
+  HiveMindSearchInput,
+  HiveMindSearchResult,
+  HiveMindSnapshot,
+} from "./hiveMind.ts";
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
   CodexAuthCallbackInput,
@@ -284,6 +294,12 @@ import {
 import { VcsError } from "./vcs.ts";
 
 export const WS_METHODS = {
+  hiveMindSnapshot: "hiveMind.snapshot",
+  hiveMindConfigure: "hiveMind.configure",
+  hiveMindSearch: "hiveMind.search",
+  hiveMindMutate: "hiveMind.mutate",
+  hiveMindSync: "hiveMind.sync",
+  hiveMindImport: "hiveMind.import",
   // Project registry methods
   projectsList: "projects.list",
   projectsAdd: "projects.add",
@@ -1427,7 +1443,44 @@ const WsSubscribeResourceTelemetryRpc = Rpc.make(WS_METHODS.subscribeResourceTel
   stream: true,
 });
 
+const hiveMindRpcErrors = Schema.Union([HiveMindError, EnvironmentAuthorizationError]);
+const WsHiveMindSnapshotRpc = Rpc.make(WS_METHODS.hiveMindSnapshot, {
+  payload: Schema.Struct({}),
+  success: HiveMindSnapshot,
+  error: hiveMindRpcErrors,
+});
+const WsHiveMindConfigureRpc = Rpc.make(WS_METHODS.hiveMindConfigure, {
+  payload: HiveMindConfig,
+  success: HiveMindSnapshot,
+  error: hiveMindRpcErrors,
+});
+const WsHiveMindSearchRpc = Rpc.make(WS_METHODS.hiveMindSearch, {
+  payload: HiveMindSearchInput,
+  success: HiveMindSearchResult,
+  error: hiveMindRpcErrors,
+});
+const WsHiveMindMutateRpc = Rpc.make(WS_METHODS.hiveMindMutate, {
+  payload: HiveMindMutation,
+  success: HiveMindSnapshot,
+  error: hiveMindRpcErrors,
+});
+const WsHiveMindSyncRpc = Rpc.make(WS_METHODS.hiveMindSync, {
+  payload: Schema.Struct({}),
+  success: HiveMindSnapshot,
+  error: hiveMindRpcErrors,
+});
+const WsHiveMindImportRpc = Rpc.make(WS_METHODS.hiveMindImport, {
+  payload: HiveMindImportInput,
+  success: HiveMindImportResult,
+  error: hiveMindRpcErrors,
+});
 export const WsRpcGroup = RpcGroup.make(
+  WsHiveMindSnapshotRpc,
+  WsHiveMindConfigureRpc,
+  WsHiveMindSearchRpc,
+  WsHiveMindMutateRpc,
+  WsHiveMindSyncRpc,
+  WsHiveMindImportRpc,
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,

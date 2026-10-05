@@ -12,6 +12,7 @@ import {
 } from "./settingsScope";
 
 export type SettingsPath =
+  | "/settings/hive-mind"
   | "/settings/projects"
   | "/settings/general"
   | "/settings/appearance"
@@ -90,6 +91,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/snap-shot": "SnapShots",
   "/settings/providers": "Providers",
   "/settings/integrations": "Integrations",
+  "/settings/hive-mind": "Hive Mind",
   "/settings/source-control": "Source Control",
   "/settings/storage": "Storage",
   "/settings/connections": "Connections",
@@ -129,6 +131,14 @@ const KEYBINDING_SEARCH_ITEMS = STATIC_KEYBINDING_COMMANDS.toSorted((left, right
  * that may not be mounted point at their nearest stable section instead.
  */
 export const SETTINGS_SEARCH_ITEMS = [
+  {
+    id: "hive-mind",
+    title: "Hive Mind",
+    to: "/settings/hive-mind",
+    targetId: "hive-mind-status",
+    scope: "environment",
+    searchTerms: ["memory knowledge Obsidian vault Hindsight skills synchronization"],
+  },
   {
     id: "storage-worktrees",
     title: "Worktree cleanup",
@@ -876,6 +886,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   // environment at any selection. Neither needs a particular scope to render.
   "/settings/keybindings": null,
   "/settings/providers": null,
+  "/settings/hive-mind": null,
   "/settings/integrations": null,
   "/settings/source-control": "environment-defaults",
   "/settings/storage": "project-defaults",
