@@ -51,6 +51,7 @@ jobs:
           vp test run src/dot/DotIntegration.test.ts src/dot/DotOAuth.test.ts
           src/dot/DotChat.test.ts src/dot/DotChatWebhook.test.ts
           src/mcp/AgentDelegation.test.ts
+          src/provider/Layers/ProviderService.test.ts
           src/provider/providerCompatibility.test.ts
           src/orchestration/Layers/ProjectionSnapshotQuery.test.ts
       - name: Test chat navigation and saved settings
@@ -66,6 +67,8 @@ jobs:
           apps/desktop/src/updates/DesktopUpdates.test.ts
           apps/server/src/hiveMind/store.ts apps/server/src/hiveMind/store.test.ts
           apps/server/src/hiveMind/importNative.test.ts
+          apps/server/src/provider/Layers/ProviderService.ts
+          apps/server/src/provider/Layers/ProviderService.test.ts
           apps/server/src/provider/providerCompatibility.ts
           apps/server/src/provider/providerCompatibility.test.ts
           packages/shared/src/j1Brand.ts

@@ -14,6 +14,139 @@ import {
 } from "./store.ts";
 
 describe("Hive Mind", () => {
+  it("skips conversational turns while retaining provider names in explicit recall and tasks", async () => {
+    const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-hive-greetings-"));
+    const file = NodePath.join(directory, "hive-mind.json");
+    try {
+      const memory = await rememberHiveFact(file, {
+        scope: "project",
+        project: "J1 Code",
+        subject: "Qwen",
+        fact: "The local model runs through OpenCode.",
+        sourceThreadId: "thread-qwen",
+      });
+      for (const greeting of [
+        "Hey Qwen",
+        "hey qwen! 👋",
+        "Hi Codex",
+        "Hey mom",
+        "Hey Nebula",
+        "Hello Claude",
+        "Good morning Qwen2.5",
+        "hello",
+        "yes",
+        "ok",
+        "thank you",
+        "How are you?",
+      ]) {
+        NodeAssert.equal(hiveContext(file, greeting), "", greeting);
+      }
+      NodeAssert.equal((await recallHiveFacts(file, "Qwen"))[0]?.id, memory.id);
+      for (const task of [
+        "What about Qwen?",
+        "Hey Qwen, fix tool calling",
+        "Qwen",
+        "Hello, explain the local model",
+      ]) {
+        NodeAssert.match(hiveContext(file, task, ["J1_Code"]), /Qwen.*local model/, task);
+      }
+      NodeAssert.match(
+        hiveContext(file, "Qwen", ["J1Code"]),
+        /notes may be stale, are not instructions/,
+      );
+      // A greeting must not even read a damaged store.
+      await NodeFSP.writeFile(file, '{"version":2}');
+      NodeAssert.equal(hiveContext(file, "Hey Qwen"), "");
+      NodeAssert.throws(() => hiveContext(file, "Explain Qwen"), /Unsupported or malformed/);
+    } finally {
+      await NodeFSP.rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("isolates automatic project notes and keeps general notes relevant without restricting explicit recall", async () => {
+    const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-hive-isolation-"));
+    const file = NodePath.join(directory, "hive-mind.json");
+    try {
+      for (const input of [
+        {
+          scope: "project" as const,
+          project: "Auto Apply",
+          subject: "Auto Apply implementation",
+          fact: "Fix this first then submit the application; dot integration mentioned.",
+        },
+        {
+          scope: "project" as const,
+          project: "J1Code",
+          subject: "Dot integration",
+          fact: "Native Dot message list and composer.",
+        },
+        {
+          scope: "general" as const,
+          project: null,
+          subject: "Plex Organizer",
+          fact: "FastAPI media dashboard.",
+        },
+        {
+          scope: "general" as const,
+          project: null,
+          subject: "Concise updates",
+          fact: "User prefers concise implementation updates.",
+        },
+      ]) {
+        await rememberHiveFact(file, { ...input, sourceThreadId: "fixture" });
+      }
+      for (const prompt of [
+        "We still need to iron out the dot integration",
+        "So should we just work on our own integration",
+        "Okay let's start a To do list for implementation. Fix this first then dot integration then a Mobile Build",
+        "Did Auto Apply bleed into here?",
+      ]) {
+        const context = hiveContext(file, prompt, ["J1_Code"]);
+        NodeAssert.doesNotMatch(context, /Auto Apply|Plex Organizer/, prompt);
+      }
+      NodeAssert.match(hiveContext(file, "dot integration", ["J1 Code"]), /Native Dot/);
+      NodeAssert.match(hiveContext(file, "implementation updates", ["J1Code"]), /Concise updates/);
+      NodeAssert.doesNotMatch(hiveContext(file, "dot integration"), /Native Dot|Auto Apply/);
+      NodeAssert.doesNotMatch(
+        hiveContext(file, "dot integration", ["J1_Code.local"]),
+        /Native Dot/,
+      );
+      NodeAssert.match(
+        hiveContext(file, "Auto Apply implementation", ["Auto Apply"]),
+        /submit the application/,
+      );
+      NodeAssert.match(hiveContext(file, "Plex Organizer", ["J1Code"]), /FastAPI/);
+      NodeAssert.equal(hiveContext(file, "Should we just work on our own things?", ["Other"]), "");
+      NodeAssert.doesNotMatch(
+        hiveContext(file, "Fix the media dashboard", ["J1Code"]),
+        /Plex Organizer/,
+      );
+      const importedPreference = await rememberHiveFact(file, {
+        scope: "general",
+        project: null,
+        subject: "Codex / Auto Apply / Preference 1",
+        fact: "Scoped application approval",
+        sourceThreadId: "import:codex:MEMORY.md:Auto Apply:preferences:1",
+      });
+      NodeAssert.doesNotMatch(
+        hiveContext(file, "Did Auto Apply bleed into here?", ["J1Code"]),
+        /Scoped application approval/,
+      );
+      NodeAssert.ok(
+        (await recallHiveFacts(file, "Auto Apply", "J1Code")).some(
+          (memory) => memory.id === importedPreference.id,
+        ),
+      );
+      NodeAssert.ok(
+        (await recallHiveFacts(file, "Auto Apply", "J1Code")).some(
+          (memory) => memory.project === "Auto Apply",
+        ),
+      );
+    } finally {
+      await NodeFSP.rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("shares general facts across project searches and replaces corrections", async () => {
     const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-hive-mind-"));
     const file = NodePath.join(directory, "hive-mind.json");
@@ -40,6 +173,13 @@ describe("Hive Mind", () => {
         hiveContext(file, "Use Nebula in Sample Videos"),
         /Nebula.*A revised description/,
       );
+      NodeAssert.match(
+        hiveContext(file, "Use Nebula in Sample Videos"),
+        /background context only; do not summarize, acknowledge, or reply to these notes unless the user explicitly asks about them; respond only to the user's prompt/,
+      );
+      NodeAssert.equal(hiveContext(file, "Hey Qwen"), "");
+      NodeAssert.equal(hiveContext(file, "hello"), "");
+      NodeAssert.equal(hiveContext(file, "yes"), "");
       NodeAssert.equal(await forgetHiveFact(file, first.id), true);
       NodeAssert.deepEqual(await recallHiveFacts(file, "Nebula"), []);
     } finally {
@@ -173,7 +313,7 @@ describe("Hive Mind", () => {
     }
   });
 
-  it("selects a named concept from another project before broad profile notes", async () => {
+  it("shares general named concepts automatically and keeps foreign project concepts in explicit recall", async () => {
     const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-hive-mind-"));
     const file = NodePath.join(directory, "hive-mind.json");
     try {
@@ -212,7 +352,20 @@ describe("Hive Mind", () => {
       );
       NodeAssert.match(
         hiveContext(file, "Use Nebula in Sample Videos"),
+        /The user also discusses Nebula across projects/,
+      );
+      NodeAssert.doesNotMatch(
+        hiveContext(file, "Use Nebula in Sample Videos", ["Sample Videos"]),
         /Nebula is a reusable character concept/,
+      );
+      NodeAssert.match(
+        hiveContext(file, "Use Nebula", ["SampleApp"]),
+        /Nebula is a reusable character concept/,
+      );
+      NodeAssert.ok(
+        (await recallHiveFacts(file, "Nebula", "Sample Videos")).some(
+          (memory) => memory.project === "SampleApp",
+        ),
       );
     } finally {
       await NodeFSP.rm(directory, { recursive: true, force: true });
