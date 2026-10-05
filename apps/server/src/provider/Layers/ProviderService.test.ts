@@ -22,6 +22,7 @@ import {
   EventId,
   MessageId,
   OrchestrationThreadShell,
+  OrchestrationProjectShell,
   ProjectId,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   ProviderDriverKind,
@@ -80,6 +81,7 @@ import * as ServerSettings from "../../serverSettings.ts";
 import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
 import { makeAdapterRegistryMock } from "../testUtils/providerAdapterRegistryMock.ts";
 import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { rememberHiveFact } from "../../hiveMind/store.ts";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const defaultServerSettingsLayer = ServerSettings.ServerSettingsService.layerTest();
@@ -423,6 +425,7 @@ function makeProviderServiceLayer(
     readonly settingsLayer?: typeof defaultServerSettingsLayer;
     readonly registry?: ProviderAdapterRegistry.ProviderAdapterRegistry["Service"];
     readonly projectionLayer?: Layer.Layer<ProjectionSnapshotQuery.ProjectionSnapshotQuery>;
+    readonly configLayer?: typeof serverConfigTestLayer;
   } = {},
 ) {
   const codex = makeFakeCodexAdapter(CODEX_DRIVER, input.supportsConversationRollback);
@@ -456,7 +459,7 @@ function makeProviderServiceLayer(
         Layer.provide(directoryLayer),
         Layer.provide(input.settingsLayer ?? defaultServerSettingsLayer),
         Layer.provide(input.projectionLayer ?? Layer.empty),
-        Layer.provide(serverConfigTestLayer),
+        Layer.provideMerge(input.configLayer ?? serverConfigTestLayer),
         Layer.provideMerge(input.analyticsLayer ?? AnalyticsService.layerTest),
         Layer.provide(
           Layer.succeed(
@@ -1169,6 +1172,107 @@ it.effect("ProviderServiceLive rejects new sessions for disabled custom instance
 );
 
 const routing = makeProviderServiceLayer();
+
+const decodeMemoryThreadShell = Schema.decodeUnknownEffect(OrchestrationThreadShell);
+const decodeMemoryProjectShell = Schema.decodeUnknownEffect(OrchestrationProjectShell);
+const memoryRouting = makeProviderServiceLayer({
+  configLayer: ServerConfig.layerTest(process.cwd(), { prefix: "j1-memory-routing-" }).pipe(
+    Layer.provide(NodeServices.layer),
+  ),
+  projectionLayer: Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
+    getThreadShellById: (threadId) =>
+      decodeMemoryThreadShell({
+        id: threadId,
+        projectId: "memory-project",
+        title: "Memory test",
+        modelSelection: createModelSelection(codexInstanceId, "gpt-5.4"),
+        runtimeMode: "full-access",
+        branch: null,
+        worktreePath: null,
+        latestTurn: null,
+        createdAt: "2026-10-05T00:00:00.000Z",
+        updatedAt: "2026-10-05T00:00:00.000Z",
+        session: null,
+        latestUserMessageAt: null,
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+        hasActionableProposedPlan: false,
+      }).pipe(Effect.map(Option.some), Effect.orDie),
+    getProjectShellById: (projectId) =>
+      decodeMemoryProjectShell({
+        id: projectId,
+        title: "J1Code",
+        workspaceRoot: fixtureCwd("J1_Code"),
+        defaultModelSelection: null,
+        scripts: [],
+        createdAt: "2026-10-05T00:00:00.000Z",
+        updatedAt: "2026-10-05T00:00:00.000Z",
+      }).pipe(Effect.map(Option.some), Effect.orDie),
+  }),
+});
+memoryRouting.layer("automatic memory uses the user request", (it) => {
+  it.effect("ignores attachment metadata for greetings and attachment-only turns", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const config = yield* ServerConfig.ServerConfig;
+      yield* Effect.promise(() =>
+        rememberHiveFact(`${config.stateDir}/hive-mind.json`, {
+          scope: "project",
+          project: "J1 Code",
+          subject: "Qwen",
+          fact: "Synthetic local model context",
+          sourceThreadId: "fixture",
+        }),
+      );
+      yield* Effect.promise(() =>
+        rememberHiveFact(`${config.stateDir}/hive-mind.json`, {
+          scope: "project",
+          project: "Auto Apply",
+          subject: "Qwen integration",
+          fact: "Foreign application submission instructions",
+          sourceThreadId: "foreign-fixture",
+        }),
+      );
+      const threadId = asThreadId("thread-memory-request");
+      yield* provider.startSession(threadId, {
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        threadId,
+        cwd: fixtureCwd("memory-request"),
+        runtimeMode: "full-access",
+      });
+      const attachment = {
+        type: "file" as const,
+        id: "memory-qwen-file",
+        name: "Qwen.txt",
+        mimeType: "text/plain",
+        sizeBytes: 12,
+      };
+      for (const input of ["Hey Qwen", undefined]) {
+        memoryRouting.codex.sendTurn.mockClear();
+        yield* provider.sendTurn({
+          threadId,
+          ...(input ? { input } : {}),
+          attachments: [attachment],
+        });
+        const sent = memoryRouting.codex.sendTurn.mock.calls[0]?.[0];
+        assert.include(sent?.input ?? "", "Qwen.txt");
+        assert.notInclude(sent?.input ?? "", "Hive Mind reference notes");
+      }
+      memoryRouting.codex.sendTurn.mockClear();
+      yield* provider.sendTurn({ threadId, input: "Explain Qwen", attachments: [attachment] });
+      assert.include(
+        memoryRouting.codex.sendTurn.mock.calls[0]?.[0].input ?? "",
+        "Synthetic local model context",
+      );
+      assert.notInclude(
+        memoryRouting.codex.sendTurn.mock.calls[0]?.[0].input ?? "",
+        "Foreign application",
+      );
+      yield* provider.stopSession({ threadId });
+    }),
+  );
+});
 
 const customCompactionDriver = ProviderDriverKind.make("custom-compaction-provider");
 const nativeCompactionInstanceId = ProviderInstanceId.make("native-compaction");

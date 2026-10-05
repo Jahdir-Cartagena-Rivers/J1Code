@@ -1777,9 +1777,21 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     }
 
     if (inputTextWithAttachmentContext) {
+      const memoryProjects = yield* Effect.gen(function* () {
+        if (Option.isNone(projectionQuery)) return [];
+        const thread = yield* projectionQuery.value.getThreadShellById(parsed.threadId);
+        if (Option.isNone(thread)) return [];
+        const project = yield* projectionQuery.value.getProjectShellById(thread.value.projectId);
+        if (Option.isNone(project)) return [];
+        return [project.value.title, pathService.basename(project.value.workspaceRoot)];
+      }).pipe(Effect.orElseSucceed(() => []));
       const context = yield* Effect.try({
         try: () =>
-          hiveContext(`${serverConfig.stateDir}/hive-mind.json`, inputTextWithAttachmentContext!),
+          hiveContext(
+            `${serverConfig.stateDir}/hive-mind.json`,
+            parsed.input ?? "",
+            memoryProjects,
+          ),
         catch: (error) => String(error),
       }).pipe(
         Effect.catch((error) =>
