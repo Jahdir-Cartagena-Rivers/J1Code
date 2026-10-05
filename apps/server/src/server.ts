@@ -26,6 +26,7 @@ import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as HostPowerMonitor from "./background/HostPowerMonitor.ts";
 import * as ServerConfig from "./config.ts";
+import { HiveMindService } from "./hiveMind/HiveMindService.ts";
 import {
   otlpTracesProxyRouteLayer,
   assetRouteLayer,
@@ -630,6 +631,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   // Last, so no route layer can replace the server's one TracerDisabledWhen.
   untracedRequestsLayer,
 ).pipe(
+  Layer.provide(HiveMindService.layer),
   // Both transports consume the same service instance, so caches single-flight across clients
   // and mutations observed on WebSocket invalidate patches subsequently read over HTTP.
   Layer.provide(PullRequestServiceLive),

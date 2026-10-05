@@ -1,6 +1,7 @@
 import {
   type DeviceListInput,
   AuthAccessReadScope,
+  AuthAccessWriteScope,
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   AuthRelayReadScope,
@@ -22,6 +23,12 @@ type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
  * runtime failure.
  */
 export const RPC_REQUIRED_SCOPES = {
+  [WS_METHODS.hiveMindSnapshot]: AuthOrchestrationReadScope,
+  [WS_METHODS.hiveMindSearch]: AuthOrchestrationReadScope,
+  [WS_METHODS.hiveMindConfigure]: AuthAccessWriteScope,
+  [WS_METHODS.hiveMindImport]: AuthAccessWriteScope,
+  [WS_METHODS.hiveMindMutate]: AuthOrchestrationOperateScope,
+  [WS_METHODS.hiveMindSync]: AuthOrchestrationOperateScope,
   [ORCHESTRATION_WS_METHODS.dispatchCommand]: AuthOrchestrationOperateScope,
   [ORCHESTRATION_WS_METHODS.getWorkflowScript]: AuthOrchestrationReadScope,
   [ORCHESTRATION_WS_METHODS.getTurnDiff]: AuthOrchestrationReadScope,

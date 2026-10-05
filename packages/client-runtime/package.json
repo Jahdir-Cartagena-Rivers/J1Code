@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./state/hive-mind": {
+      "types": "./src/state/hiveMind.ts",
+      "default": "./src/state/hiveMind.ts"
+    },
     "./worker-chats": {
       "types": "./src/workerChats.ts",
       "default": "./src/workerChats.ts"

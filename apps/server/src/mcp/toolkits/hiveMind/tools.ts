@@ -14,6 +14,24 @@ export const HiveMindMemory = Schema.Struct({
   sourceThreadId: Schema.String,
   createdAt: Schema.String,
   updatedAt: Schema.String,
+  kind: Schema.optionalKey(Schema.Literals(["memory", "skill"])),
+  sourcePath: Schema.optionalKey(Schema.String),
+  originSourceThreadId: Schema.optionalKey(Schema.String),
+});
+
+export const HiveMindRetrieval = Schema.Struct({
+  status: Schema.Literals(["local", "ready", "degraded"]),
+  message: Schema.optionalKey(Schema.String),
+});
+
+const HiveMindStatus = Schema.Struct({
+  name: Schema.String,
+  records: Schema.Number,
+  skills: Schema.Number,
+  vault: Schema.NullOr(Schema.String),
+  retrievalConfigured: Schema.Boolean,
+  pendingIndex: Schema.Number,
+  skillRoots: Schema.Number,
 });
 
 export class HiveMindError extends Schema.TaggedError<HiveMindError>()("HiveMindError", {
@@ -27,7 +45,10 @@ const Recall = Tool.make("hive_mind_recall", {
     query: Schema.String,
     project: Schema.optional(Schema.String),
   }),
-  success: Schema.Struct({ memories: Schema.Array(HiveMindMemory) }),
+  success: Schema.Struct({
+    memories: Schema.Array(HiveMindMemory),
+    retrieval: Schema.optionalKey(HiveMindRetrieval),
+  }),
   failure: HiveMindError,
   dependencies,
 }).annotate(Tool.Readonly, true);
@@ -59,4 +80,36 @@ const Forget = Tool.make("hive_mind_forget", {
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, true);
 
-export const HiveMindToolkit = Toolkit.make(Recall, Remember, Forget);
+const Status = Tool.make("hive_mind_status", {
+  description:
+    "Inspect Hive Mind's unified memory, vault, retrieval and skills catalog. Configuration paths belong to the server environment.",
+  parameters: Schema.Record(Schema.String, Schema.Never),
+  success: HiveMindStatus,
+  failure: HiveMindError,
+  dependencies,
+}).annotate(Tool.Readonly, true);
+
+const Sync = Tool.make("hive_mind_sync", {
+  description:
+    "Synchronize the configured Hive Mind vault edits, skills catalog and retrieval index. Reports conflicts and pending work; never runs skill instructions. Configuration is owned by the server.",
+  parameters: Schema.Record(Schema.String, Schema.Never),
+  success: Schema.Struct({
+    importedSkills: Schema.Number,
+    indexed: Schema.Number,
+    vault: Schema.NullOr(
+      Schema.Struct({
+        imported: Schema.Number,
+        exported: Schema.Number,
+        issues: Schema.Array(Schema.String),
+      }),
+    ),
+    issues: Schema.Array(Schema.String),
+    status: HiveMindStatus,
+  }),
+  failure: HiveMindError,
+  dependencies,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false);
+
+export const HiveMindToolkit = Toolkit.make(Recall, Remember, Forget, Status, Sync);

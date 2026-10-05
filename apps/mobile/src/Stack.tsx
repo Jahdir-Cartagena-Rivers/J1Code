@@ -72,6 +72,7 @@ import { SettingsClientStorageRouteScreen } from "./features/settings/SettingsCl
 import { SettingsDiagnosticsRouteScreen } from "./features/diagnostics/SettingsDiagnosticsRouteScreen";
 import { SettingsAuthRouteScreen } from "./features/settings/SettingsAuthRouteScreen";
 import { SettingsEnvironmentDetailRouteScreen } from "./features/settings/SettingsEnvironmentDetailRouteScreen";
+import { SettingsHiveMindRouteScreen } from "./features/settings/SettingsHiveMindRouteScreen";
 import { SettingsEnvironmentsRouteScreen } from "./features/settings/SettingsEnvironmentsRouteScreen";
 import {
   SettingsEnvironmentAgentBehaviorRouteScreen,
@@ -198,6 +199,11 @@ const SettingsContentStack = createNativeStackNavigator({
       screen: SettingsEnvironmentDetailRouteScreen,
       linking: "environments/:environmentId",
       options: { title: "Environment" },
+    }),
+    SettingsHiveMind: createNativeStackScreen({
+      screen: SettingsHiveMindRouteScreen,
+      linking: "environments/:environmentId/hive-mind",
+      options: { title: "Hive Mind" },
     }),
     SettingsEnvironmentNewThreads: createNativeStackScreen({
       screen: SettingsEnvironmentNewThreadsRouteScreen,
