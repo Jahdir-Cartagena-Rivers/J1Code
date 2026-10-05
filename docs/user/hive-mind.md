@@ -1,5 +1,11 @@
 # Hive Mind
 
+This is the J1 edition, managed by the selected J1 server. The separate
+[standalone Hive Mind service](https://github.com/Jahdir-Cartagena-Rivers/Hive-Mind)
+uses its own state directory and is not started or connected automatically. See
+[the licensing boundary](../../HIVE-MIND-LICENSING.md) before reusing code from
+the standalone repository.
+
 Hive Mind keeps facts that Claude and Codex can use across J1 Code chats and projects on the same server. When you explain a lasting preference, project decision, or named concept, the agent can save it. You can also say “remember this in Hive Mind” and describe the fact directly.
 
 Ask “what does Hive Mind know about Nebula?” to inspect matching facts. To correct a fact, give the new version and ask the agent to remember it under the same subject. To remove one, ask the agent to forget it. Each entry records the chat that supplied it.
