@@ -2,6 +2,7 @@
   "name": "@t3tools/contracts",
   "version": "1.10.0",
   "private": true,
+  "license": "SEE LICENSE IN ../../LICENSE",
   "files": [
     "dist"
   ],

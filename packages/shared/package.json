@@ -1,6 +1,7 @@
 {
   "name": "@t3tools/shared",
   "private": true,
+  "license": "SEE LICENSE IN ../../LICENSE",
   "type": "module",
   "exports": {
     "./j1Brand": {

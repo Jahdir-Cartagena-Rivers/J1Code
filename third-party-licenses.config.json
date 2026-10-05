@@ -1,6 +1,20 @@
 {
   "customNotices": [
     {
+      "bundles": ["assets", "desktop", "web", "mobile", "android"],
+      "license": "LicenseRef-J1-Code-Reserved-Rights",
+      "name": "J1 Code software terms",
+      "sourceUrl": "https://github.com/Jahdir-Cartagena-Rivers/J1Code/blob/j1-code/LICENSE",
+      "noticeFile": "LICENSE"
+    },
+    {
+      "bundles": ["assets", "desktop", "web", "mobile", "android"],
+      "license": "MIT",
+      "name": "T3 Code and prior MIT J1 material",
+      "sourceUrl": "https://github.com/pingdotgg/t3code",
+      "noticeFile": "licenses/T3-MIT.txt"
+    },
+    {
       "bundles": ["assets", "desktop", "web"],
       "license": "CC0-1.0",
       "name": "Notification Sound 1 by deadrobotmusic",

@@ -1,5 +1,12 @@
 # Open source licenses
 
+J1's [current software terms](../../LICENSE) reserve rights in new protected J1
+material and permit use of official builds. T3 Code, dependencies, and earlier
+MIT-distributed J1 versions retain their original permissions. See
+[the licensing boundaries](../../LICENSING.md). The notice list includes J1's
+terms as well as the component licenses; it is not a general open-source license
+for all current J1 source.
+
 J1 Code includes third-party software and adapted assets. To read their license and attribution
 notices:
 

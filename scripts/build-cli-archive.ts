@@ -504,6 +504,13 @@ const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
   const stageRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-archive-" });
   const contentDir = path.join(stageRoot, stem);
   yield* fs.makeDirectory(contentDir, { recursive: true });
+  yield* fs.makeDirectory(path.join(contentDir, "licenses"), { recursive: true });
+  yield* fs.copyFile(path.join(repoRoot, "LICENSE"), path.join(contentDir, "LICENSE"));
+  yield* fs.copyFile(path.join(repoRoot, "LICENSING.md"), path.join(contentDir, "LICENSING.md"));
+  yield* fs.copyFile(
+    path.join(repoRoot, "licenses/T3-MIT.txt"),
+    path.join(contentDir, "licenses/T3-MIT.txt"),
+  );
 
   yield* Effect.log(`[cli-archive] Staging ${stem}...`);
   yield* fs.copyFile(builtExecutable, path.join(contentDir, executableName));

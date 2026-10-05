@@ -930,6 +930,7 @@ interface StagePackageJson {
   readonly private: true;
   readonly packageManager: string;
   readonly description: string;
+  readonly license: string;
   readonly homepage: string;
   readonly author: string;
   readonly main: string;
@@ -3558,6 +3559,13 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* validateBundledClientAssets(path.dirname(bundledClientEntry));
 
   yield* fs.makeDirectory(path.join(stageAppDir, "apps/desktop"), { recursive: true });
+  yield* fs.makeDirectory(path.join(stageAppDir, "licenses"), { recursive: true });
+  yield* fs.copyFile(path.join(repoRoot, "LICENSE"), path.join(stageAppDir, "LICENSE"));
+  yield* fs.copyFile(path.join(repoRoot, "LICENSING.md"), path.join(stageAppDir, "LICENSING.md"));
+  yield* fs.copyFile(
+    path.join(repoRoot, "licenses/T3-MIT.txt"),
+    path.join(stageAppDir, "licenses/T3-MIT.txt"),
+  );
   if (options.platform !== "win") {
     yield* fs.makeDirectory(path.join(stageAppDir, "apps/server"), { recursive: true });
   }
@@ -3685,6 +3693,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     private: true,
     packageManager: rootPackageJson.packageManager,
     description: "J1 Code desktop build",
+    license: "SEE LICENSE IN LICENSE",
     // Required by the .deb control file.
     homepage: "https://github.com/Jahdir-Rivers/J1Code",
     author: "J1 Code contributors; based on T3 Code by T3 Tools",
