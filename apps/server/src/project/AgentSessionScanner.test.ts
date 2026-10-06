@@ -3167,6 +3167,27 @@ describe("parseAgentSessionTranscript", () => {
     expect(thread).toBeNull();
   });
 
+  it("does not import workers spawned by J1 delegation", () => {
+    const thread = AgentSessionScanner.parseAgentSessionTranscript({
+      contents: [
+        encodeTranscriptRecord({ type: "session_meta", payload: { id: "worker" } }),
+        encodeTranscriptRecord({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "You are a delegated worker for lead chat abc. Your task is below.\n\nFix it",
+          },
+        }),
+      ].join("\n"),
+      source: "codex",
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      fallbackSessionId: "fallback",
+      lastActiveAtMs: Date.parse("2026-08-25T08:00:00.000Z"),
+    });
+
+    expect(thread).toBeNull();
+  });
+
   it("never titles a response-only Codex thread with injected AGENTS.md text", () => {
     const user = (text: string) =>
       encodeTranscriptRecord({

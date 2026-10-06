@@ -508,6 +508,9 @@ function parseAgentSessionRecords(
     ({ codexResponseUser: _codexResponseUser, ...message }) => message,
   );
   if (providerSessionId.trim().length === 0 || firstUserMessage === undefined) return null;
+  // Workers spawned by J1's own delegation tool are already saved under their lead chat
+  // (see mcp/AgentDelegation.ts); their provider sessions must not come back as top-level chats.
+  if (firstUserMessage.text.startsWith("You are a delegated worker for lead chat ")) return null;
   const firstUserMessageRetained = messages.includes(firstUserMessage);
   const { codexResponseUser: _codexResponseUser, ...visibleFirstUserMessage } = firstUserMessage;
   const retainedMessages = firstUserMessageRetained
