@@ -3146,6 +3146,49 @@ describe("parseAgentSessionTranscript", () => {
     ]);
   });
 
+  it("does not import Codex subagent sessions", () => {
+    const thread = AgentSessionScanner.parseAgentSessionTranscript({
+      contents: [
+        encodeTranscriptRecord({
+          type: "session_meta",
+          payload: { id: "worker", thread_source: "subagent", parent_thread_id: "parent" },
+        }),
+        encodeTranscriptRecord({
+          type: "event_msg",
+          payload: { type: "user_message", message: "Do a subtask" },
+        }),
+      ].join("\n"),
+      source: "codex",
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      fallbackSessionId: "fallback",
+      lastActiveAtMs: Date.parse("2026-08-25T08:00:00.000Z"),
+    });
+
+    expect(thread).toBeNull();
+  });
+
+  it("never titles a response-only Codex thread with injected AGENTS.md text", () => {
+    const user = (text: string) =>
+      encodeTranscriptRecord({
+        type: "response_item",
+        payload: { type: "message", role: "user", content: [{ type: "input_text", text }] },
+      });
+    const thread = AgentSessionScanner.parseAgentSessionTranscript({
+      contents: [
+        encodeTranscriptRecord({ type: "session_meta", payload: { id: "codex-session" } }),
+        user("# AGENTS.md instructions for /tmp/project\n\n<INSTRUCTIONS>\nrules\n</INSTRUCTIONS>"),
+        user("Fix the build."),
+      ].join("\n"),
+      source: "codex",
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      fallbackSessionId: "fallback",
+      lastActiveAtMs: Date.parse("2026-08-25T08:00:00.000Z"),
+    });
+
+    expect(thread?.title).toBe("Fix the build.");
+    expect(thread?.messages.map((message) => message.text)).toEqual(["Fix the build."]);
+  });
+
   it("preserves context markup in response-only Codex messages", () => {
     const context = "<environment_context>\n<cwd>/tmp/project</cwd>\n</environment_context>";
     const thread = AgentSessionScanner.parseAgentSessionTranscript({

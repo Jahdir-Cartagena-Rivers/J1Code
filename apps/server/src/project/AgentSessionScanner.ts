@@ -128,6 +128,8 @@ const TranscriptRecord = Schema.Struct({
     Schema.Struct({
       id: Schema.optional(Schema.String),
       session_id: Schema.optional(Schema.String),
+      thread_source: Schema.optional(Schema.String),
+      parent_thread_id: Schema.optional(Schema.String),
       type: Schema.optional(Schema.String),
       role: Schema.optional(Schema.String),
       message: Schema.optional(Schema.String),
@@ -433,6 +435,10 @@ function parseAgentSessionRecords(
     }
 
     if (record.type === "session_meta") {
+      // Spawned workers and guardian reviewers are children of a real chat, not chats.
+      if (record.payload?.thread_source === "subagent" || record.payload?.parent_thread_id) {
+        return null;
+      }
       const sessionId = record.payload?.id?.trim() || record.payload?.session_id?.trim();
       if (!hasCodexSessionId && sessionId) {
         providerSessionId = sessionId;
@@ -477,6 +483,13 @@ function parseAgentSessionRecords(
 
     const extractedText = extractText(record.payload.content);
     if (extractedText.length === 0) continue;
+    // Codex injects project instructions as a user message; it is not something the user typed.
+    if (
+      record.payload.role === "user" &&
+      extractedText.startsWith("# AGENTS.md instructions for ")
+    ) {
+      continue;
+    }
     if (record.payload.role === "user" && canonicalCodexResponseUserIndices.has(recordIndex)) {
       continue;
     }
