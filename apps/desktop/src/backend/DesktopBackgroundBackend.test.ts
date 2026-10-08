@@ -23,7 +23,17 @@ vi.mock("node:child_process", async (importOriginal) => ({
 }));
 
 describe("desktop background backend", () => {
-  it.each(["same-version", "upgrade", "stage-failure", "stop-failure"] as const)(
+  it.each([
+    "same-version",
+    "enable-network",
+    "disable-network",
+    "change-port",
+    "enable-tailscale",
+    "change-tailscale-port",
+    "upgrade",
+    "stage-failure",
+    "stop-failure",
+  ] as const)(
     "%s launch preserves or replaces the owned runtime without a second writer",
     async (scenario) => {
       // oxlint-disable-next-line t3code/no-global-process-runtime -- This fixture exercises Windows named pipes.
@@ -40,7 +50,9 @@ describe("desktop background backend", () => {
         protocol: 1,
         hostPid: 11111,
         serverPid: 22222,
-        version: scenario === "same-version" ? options.version : "j1.17",
+        version: ["upgrade", "stage-failure", "stop-failure"].includes(scenario)
+          ? "j1.17"
+          : options.version,
         executablePath: NodePath.join(root, "old", "J1.exe"),
         entryPath: NodePath.join(root, "old", "server.cjs"),
         bootstrap: {
@@ -48,7 +60,7 @@ describe("desktop background backend", () => {
           noBrowser: true,
           port: 4888,
           t3Home: baseDir,
-          host: "127.0.0.1",
+          host: scenario === "disable-network" ? "0.0.0.0" : "127.0.0.1",
           desktopBootstrapToken: "retained-token",
           tailscaleServeEnabled: false,
           tailscaleServePort: 443,
@@ -56,6 +68,13 @@ describe("desktop background backend", () => {
         secret: "a".repeat(64),
       };
       const old = record;
+      const requestedBootstrap = {
+        ...old.bootstrap,
+        host: scenario === "enable-network" ? "0.0.0.0" : "127.0.0.1",
+        port: scenario === "change-port" ? 4889 : old.bootstrap.port,
+        tailscaleServeEnabled: scenario === "enable-tailscale",
+        tailscaleServePort: scenario === "change-tailscale-port" ? 8443 : 443,
+      };
       const livePids = new Set([record.hostPid, record.serverPid]);
       const steps: string[] = [];
       const processAlive = vi.spyOn(process, "kill").mockImplementation((pid) => {
@@ -104,7 +123,7 @@ describe("desktop background backend", () => {
           record = { ...input, hostPid: 33333, serverPid: 44444 };
           expect(record.version).toBe(options.version);
           expect(record.bootstrap.desktopBootstrapToken).toBe("retained-token");
-          expect(record.bootstrap.port).toBe(4888);
+          expect(record.bootstrap).toMatchObject(requestedBootstrap);
           expect(args?.[0]).toBe(
             NodePath.join(NodePath.dirname(record.executablePath), "worker.cjs"),
           );
@@ -133,7 +152,7 @@ describe("desktop background backend", () => {
             cwd: root,
             env: {},
             extendEnv: false,
-            bootstrap: old.bootstrap,
+            bootstrap: requestedBootstrap,
             httpBaseUrl: new URL("http://127.0.0.1:4888"),
             captureOutput: false,
             bootstrapDelivery: "fd3",

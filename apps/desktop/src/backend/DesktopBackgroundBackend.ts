@@ -165,7 +165,17 @@ export async function ensureBackgroundServer(
   options: BackgroundOptions,
 ): Promise<BackgroundRecord> {
   const existing = await readBackgroundRecord(options.baseDir);
-  if (existing?.version === options.version) return existing;
+  // Desktop restarts also apply network settings; a matching version alone
+  // would retain the old listener and silently ignore those changes.
+  if (
+    existing?.version === options.version &&
+    existing.bootstrap.host === config.bootstrap.host &&
+    existing.bootstrap.port === config.bootstrap.port &&
+    existing.bootstrap.t3Home === config.bootstrap.t3Home &&
+    existing.bootstrap.tailscaleServeEnabled === config.bootstrap.tailscaleServeEnabled &&
+    existing.bootstrap.tailscaleServePort === config.bootstrap.tailscaleServePort
+  )
+    return existing;
   // Stage and validate the replacement before interrupting the old server.
   const runtimeDir = await stageBackgroundRuntime(options);
   const relocate = (file: string) => {
