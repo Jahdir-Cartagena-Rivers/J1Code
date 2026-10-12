@@ -21,7 +21,7 @@ Built on [T3 Code](https://github.com/pingdotgg/t3code), with its architecture a
 
 | Feature                 | What it does                                                                                                 |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Shared Hive Mind        | Remember, recall, correct, and forget facts across provider chats and projects.                              |
+| Shared Hive Mind        | Optional plugin: connect the separate Hive Mind app to remember, recall, and correct facts across chats.     |
 | Agent delegation        | Give bounded tasks to workers on configured providers and models; inspect their saved chats and results.     |
 | Saved history import    | Refresh Claude Code and Codex conversations from local transcripts, including supported compacted histories. |
 | Live external history   | Follow new saved messages while an external session continues.                                               |
@@ -72,7 +72,7 @@ For optional cloud sign-in, a self-hosted relay, or desktop updates, copy [.env.
 
 Desktop update feeds are opt-in when building. Set `T3CODE_DESKTOP_UPDATE_REPOSITORY=your-owner/your-repository`; set `T3CODE_DESKTOP_UPDATE_PRIVATE=true` only for a private feed. Provider tokens, GitHub credentials, pairing tokens, and user memories are runtime data, not release configuration to commit.
 
-J1 stores desktop preferences under `%APPDATA%/j1code` on Windows and server state under `~/.j1`. Keep these profiles, transcripts, memory exports, and `.env` files private. [Hive Mind](docs/user/hive-mind.md) starts with your own facts; imported personal memories are not part of the repository.
+J1 stores desktop preferences under `%APPDATA%/j1code` on Windows and server state under `~/.j1`. Keep these profiles, transcripts, memory exports, and `.env` files private. [Hive Mind](docs/user/hive-mind.md) is a separate app; its memories are not part of this repository.
 
 ## Learn more
 

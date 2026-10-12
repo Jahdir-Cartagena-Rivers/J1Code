@@ -4,7 +4,7 @@ J1 Code is an independently maintained, local-first coding workspace. It does no
 
 ## Local information
 
-Projects, conversations, Hive Mind memories, imported history, and connection settings are stored in the environment that hosts your server. Provider authentication stays in the configured provider or runtime credential store. Back up your profiles before removing them, and keep databases, credentials, and pairing links out of public repositories.
+Projects, conversations, imported history, and connection settings are stored in the environment that hosts your server. Provider authentication stays in the configured provider or runtime credential store. Back up your profiles before removing them, and keep databases, credentials, and pairing links out of public repositories.
 
 ## Information sent to services
 

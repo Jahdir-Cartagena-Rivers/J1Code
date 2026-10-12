@@ -89,8 +89,6 @@ import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
-import { HiveMindService, hiveOperation } from "./hiveMind/HiveMindService.ts";
-import { importHiveHindsight } from "./hiveMind/importHindsight.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
@@ -577,7 +575,6 @@ const makeWsRpcLayer = (
       const providerInstallation = yield* makeProviderInstallation();
       const serverUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
       const config = yield* ServerConfig.ServerConfig;
-      const hiveMind = yield* HiveMindService;
       const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
       const serverSettings = yield* ServerSettings.ServerSettingsService;
       const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
@@ -2670,43 +2667,6 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.serverGetHostResources, hostResources.read, {
             "rpc.aggregate": "server",
           }),
-        [WS_METHODS.hiveMindSnapshot]: () =>
-          observeRpcEffect(
-            WS_METHODS.hiveMindSnapshot,
-            hiveOperation(() => hiveMind.runtime.snapshot()),
-            { "rpc.aggregate": "hiveMind" },
-          ),
-        [WS_METHODS.hiveMindImport]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.hiveMindImport,
-            hiveOperation(() => importHiveHindsight(hiveMind.runtime.file, input.url, input.bank)),
-            { "rpc.aggregate": "hiveMind" },
-          ),
-        [WS_METHODS.hiveMindConfigure]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.hiveMindConfigure,
-            hiveOperation(() => hiveMind.runtime.configure(input)),
-            { "rpc.aggregate": "hiveMind" },
-          ),
-        [WS_METHODS.hiveMindSearch]: (input) =>
-          observeRpcEffect(WS_METHODS.hiveMindSearch, hiveMind.search(input.query, input.project), {
-            "rpc.aggregate": "hiveMind",
-          }),
-        [WS_METHODS.hiveMindMutate]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.hiveMindMutate,
-            hiveOperation(() => hiveMind.runtime.mutate(input)),
-            { "rpc.aggregate": "hiveMind" },
-          ),
-        [WS_METHODS.hiveMindSync]: () =>
-          observeRpcEffect(
-            WS_METHODS.hiveMindSync,
-            hiveOperation(async () => {
-              hiveMind.runtime.requestSync();
-              return hiveMind.runtime.snapshot();
-            }),
-            { "rpc.aggregate": "hiveMind" },
-          ),
         [WS_METHODS.serverGetProcessResourceHistory]: (input) =>
           observeRpcEffect(
             WS_METHODS.serverGetProcessResourceHistory,
@@ -3844,7 +3804,6 @@ export const websocketRpcRouteLayer = Layer.unwrap(
   Effect.gen(function* () {
     const previewAutomationBroker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
     const baseServerSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
-    const hiveMindService = yield* HiveMindService;
     const config = yield* ServerConfig.ServerConfig;
     const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
     const serverSelfUpdate = yield* ServerSelfUpdate.withRunningThreadContinuation({
@@ -3912,7 +3871,6 @@ export const websocketRpcRouteLayer = Layer.unwrap(
               previewAutomationBroker,
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
-              Layer.provide(Layer.succeed(HiveMindService, hiveMindService)),
               Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),
               Layer.provide(AgentSessionScanner.layer),
               Layer.provide(ProviderMaintenanceRunner.layer),

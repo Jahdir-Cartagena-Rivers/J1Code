@@ -81,7 +81,7 @@ import * as ServerSettings from "../../serverSettings.ts";
 import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
 import { makeAdapterRegistryMock } from "../testUtils/providerAdapterRegistryMock.ts";
 import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { rememberHiveFact } from "../../hiveMind/store.ts";
+import { startFakeHiveMind } from "../../hiveMind/fakeService.ts";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const defaultServerSettingsLayer = ServerSettings.ServerSettingsService.layerTest();
@@ -1211,66 +1211,70 @@ const memoryRouting = makeProviderServiceLayer({
   }),
 });
 memoryRouting.layer("automatic memory uses the user request", (it) => {
-  it.effect("ignores attachment metadata for greetings and attachment-only turns", () =>
-    Effect.gen(function* () {
-      const provider = yield* ProviderService.ProviderService;
-      const config = yield* ServerConfig.ServerConfig;
-      yield* Effect.promise(() =>
-        rememberHiveFact(`${config.stateDir}/hive-mind.json`, {
+  it.effect("sends the user's request, not attachment metadata, to Hive Mind for context", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const provider = yield* ProviderService.ProviderService;
+        const hive = yield* Effect.acquireRelease(Effect.promise(startFakeHiveMind), (fake) =>
+          Effect.promise(() => fake.close()),
+        );
+        hive.seed({
           scope: "project",
-          project: "J1 Code",
+          project: "J1Code",
           subject: "Qwen",
           fact: "Synthetic local model context",
-          sourceThreadId: "fixture",
-        }),
-      );
-      yield* Effect.promise(() =>
-        rememberHiveFact(`${config.stateDir}/hive-mind.json`, {
+        });
+        hive.seed({
           scope: "project",
           project: "Auto Apply",
           subject: "Qwen integration",
           fact: "Foreign application submission instructions",
-          sourceThreadId: "foreign-fixture",
-        }),
-      );
-      const threadId = asThreadId("thread-memory-request");
-      yield* provider.startSession(threadId, {
-        provider: CODEX_DRIVER,
-        providerInstanceId: codexInstanceId,
-        threadId,
-        cwd: fixtureCwd("memory-request"),
-        runtimeMode: "full-access",
-      });
-      const attachment = {
-        type: "file" as const,
-        id: "memory-qwen-file",
-        name: "Qwen.txt",
-        mimeType: "text/plain",
-        sizeBytes: 12,
-      };
-      for (const input of ["Hey Qwen", undefined]) {
-        memoryRouting.codex.sendTurn.mockClear();
-        yield* provider.sendTurn({
-          threadId,
-          ...(input ? { input } : {}),
-          attachments: [attachment],
         });
-        const sent = memoryRouting.codex.sendTurn.mock.calls[0]?.[0];
-        assert.include(sent?.input ?? "", "Qwen.txt");
-        assert.notInclude(sent?.input ?? "", "Hive Mind reference notes");
-      }
-      memoryRouting.codex.sendTurn.mockClear();
-      yield* provider.sendTurn({ threadId, input: "Explain Qwen", attachments: [attachment] });
-      assert.include(
-        memoryRouting.codex.sendTurn.mock.calls[0]?.[0].input ?? "",
-        "Synthetic local model context",
-      );
-      assert.notInclude(
-        memoryRouting.codex.sendTurn.mock.calls[0]?.[0].input ?? "",
-        "Foreign application",
-      );
-      yield* provider.stopSession({ threadId });
-    }),
+        const threadId = asThreadId("thread-memory-request");
+        yield* provider.startSession(threadId, {
+          provider: CODEX_DRIVER,
+          providerInstanceId: codexInstanceId,
+          threadId,
+          cwd: fixtureCwd("memory-request"),
+          runtimeMode: "full-access",
+        });
+        const attachment = {
+          type: "file" as const,
+          id: "memory-qwen-file",
+          name: "Qwen.txt",
+          mimeType: "text/plain",
+          sizeBytes: 12,
+        };
+        for (const input of ["Hey Qwen", undefined]) {
+          memoryRouting.codex.sendTurn.mockClear();
+          hive.contextRequests.length = 0;
+          yield* provider.sendTurn({
+            threadId,
+            ...(input ? { input } : {}),
+            attachments: [attachment],
+          });
+          const sent = memoryRouting.codex.sendTurn.mock.calls[0]?.[0];
+          assert.include(sent?.input ?? "", "Qwen.txt");
+          // The query is the person's words only; attachment names never reach memory.
+          assert.deepEqual(
+            hive.contextRequests.map((request) => request.query),
+            [input ?? ""],
+          );
+          assert.isTrue(hive.contextRequests[0]?.projects.includes("J1Code"));
+        }
+        memoryRouting.codex.sendTurn.mockClear();
+        yield* provider.sendTurn({ threadId, input: "Explain Qwen", attachments: [attachment] });
+        assert.include(
+          memoryRouting.codex.sendTurn.mock.calls[0]?.[0].input ?? "",
+          "Synthetic local model context",
+        );
+        assert.notInclude(
+          memoryRouting.codex.sendTurn.mock.calls[0]?.[0].input ?? "",
+          "Foreign application",
+        );
+        yield* provider.stopSession({ threadId });
+      }),
+    ),
   );
 });
 

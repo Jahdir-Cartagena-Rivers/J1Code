@@ -1,25 +1,34 @@
 # Hive Mind
 
-This is the J1 edition, managed by the selected J1 server. The separate
-[standalone Hive Mind service](https://github.com/Jahdir-Cartagena-Rivers/Hive-Mind)
-uses its own state directory and is not started or connected automatically. See
-[the licensing boundary](../../HIVE-MIND-LICENSING.md) before reusing code from
-the standalone repository.
+Hive Mind is a separate application that keeps durable memory for your AI agents: a
+searchable store, a built-in semantic index, a Markdown vault, a skills catalog, and a
+graph you explore in its own window. J1 Code connects to it as a plugin and does not
+contain it. Get it from the [Hive Mind repository](https://github.com/Jahdir-Cartagena-Rivers/Hive-Mind),
+which is separately licensed (see [the licensing boundary](../../HIVE-MIND-LICENSING.md)).
 
-Hive Mind keeps facts that Claude and Codex can use across J1 Code chats and projects on the same server. When you explain a lasting preference, project decision, or named concept, the agent can save it. You can also say “remember this in Hive Mind” and describe the fact directly.
+## Connect J1 Code
 
-Ask “what does Hive Mind know about Nebula?” to inspect matching facts. To correct a fact, give the new version and ask the agent to remember it under the same subject. To remove one, ask the agent to forget it. Each entry records the chat that supplied it.
+Install and start the Hive Mind app on the same machine as your J1 Code server. It
+writes `~/.hive-mind/connection.json`, which J1 Code reads automatically. There is
+nothing to configure in J1 Code. If Hive Mind is not running, J1 Code works normally
+and the memory tools report that Hive Mind is not available.
 
-J1 Code adds a small selection of matching general facts and current-project facts to each turn. Facts from another project and imported Codex preferences with ambiguous project scope are available through an explicit Hive Mind search rather than being added automatically. Treat remembered facts as context: the agent should check current files and runtime state before making claims about either.
+Once connected, agents can use `hive_mind_recall`, `hive_mind_remember`,
+`hive_mind_forget`, `hive_mind_status` and `hive_mind_sync`, and J1 Code adds a small
+selection of relevant general and current-project facts to each turn. Facts from
+other projects and imported preferences with ambiguous scope remain available to
+explicit searches.
 
-Hive Mind is stored with the server's local data. You can import Codex's local summaries, detailed memory records, rollout summaries, and memory skills, along with Claude Code's local project memory notes. Claude.ai account memory can be added from an explicit memory export. The import leaves the originals in place and labels every note with its source. Repeating it updates source-owned notes while preserving corrections you made in J1 Code. Imported notes may be old, so ask the agent to verify them against current project files before acting.
+Ask “what does Hive Mind know about Nebula?” to inspect facts. To correct one, give the
+new version and ask the agent to remember it under the same subject. To remove one,
+ask the agent to forget it.
 
-Open **Settings → Hive Mind** for the selected environment to set up the vault, semantic retrieval, and skills folders. Search, add, edit, and forget memories there, or use the same operations through your agent. On mobile, open an environment in Settings and select Hive Mind. Remote clients manage the selected server's memory and folders.
+Use the Hive Mind app for the graph, editing, vault, skills folders and importing
+existing knowledge. If your J1 Code server runs on another machine, run Hive Mind on
+that machine; remote clients use the same connection.
 
-Automatic synchronization exports saved memories, checks vault and skill edits every 30 seconds, and refreshes semantic retrieval in the background. The page shows pending work, conflicts, and failures. You can pause automatic synchronization or request a synchronization yourself. Your existing facts remain usable if semantic retrieval is offline; search reports that degraded state.
+## Moving existing memories
 
-Open the configured vault in Obsidian or another Markdown editor. Edit the body of a note in its `Hive Mind` folder and keep its frontmatter unchanged. If another chat corrected that fact while you were editing, synchronization preserves both versions and reports a conflict. Forgotten notes move to the vault's `Forgotten` folder and cannot recreate a memory through synchronization. Add new memories through Hive Mind; unrelated vault notes are left alone. Each memory supports up to 2,000 characters.
-
-Ask Hive Mind to find a skill for a task. Catalog results describe the skill and point to its original `SKILL.md`; finding a skill does not run it. Skills are included in explicit searches, rather than automatically added to every conversation.
-
-To bring existing Hindsight knowledge into Hive Mind, use **Existing knowledge** on the same settings page and enter its source bank. Import reads the original documents without changing the source bank. Long documents become separately searchable excerpts. These imports stay in their own source scope and appear in explicit searches; they are not automatically added to unrelated project conversations. Repeating an import preserves your corrections and forgotten entries.
+Earlier J1 Code versions stored memories in `~/.j1/userdata/hive-mind.json`. Copy that
+file into the Hive Mind app's data folder while neither app is running; see the Hive
+Mind documentation. J1 Code no longer reads or writes it.

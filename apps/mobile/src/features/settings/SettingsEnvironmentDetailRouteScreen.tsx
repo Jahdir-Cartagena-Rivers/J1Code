@@ -158,17 +158,6 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
         ) : (
           <>
             <SettingsSection title="Connection">
-              <SettingsActionRow
-                icon="brain"
-                label="Hive Mind"
-                disabled={!connected}
-                onPress={() =>
-                  navigation.navigate("SettingsSheet", {
-                    screen: "SettingsContent",
-                    params: { screen: "SettingsHiveMind", params: { environmentId } },
-                  })
-                }
-              />
               <ConnectionEnvironmentRow
                 environment={environment}
                 expanded={connectionExpanded}

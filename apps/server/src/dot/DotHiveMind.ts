@@ -1,12 +1,8 @@
-// @effect-diagnostics nodeBuiltinImport:off - resolves the existing environment-owned Hive Mind store.
-import * as NodePath from "node:path";
 import { DotIntegrationError } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import { ServerConfig } from "../config.ts";
-import { forgetHiveMind, recallHiveMind, rememberHiveMind } from "../hiveMind/engine.ts";
-import type { HiveMemory } from "../hiveMind/store.ts";
+import { forgetHiveMind, recallHiveMind, rememberHiveMind } from "../hiveMind/connector.ts";
 import { DotInvocation } from "./DotService.ts";
 import { connectionAllowsDotScope, DotConnections } from "./DotConnections.ts";
 
@@ -23,9 +19,7 @@ export function memoryScopeForTool(name: string) {
 }
 
 export const make = Effect.gen(function* () {
-  const config = yield* ServerConfig;
   const connections = yield* DotConnections;
-  const filePath = NodePath.join(config.stateDir, "hive-mind.json");
   const authorize = Effect.fn("DotHiveMind.authorize")(function* (operation: "read" | "write") {
     const invocation = yield* DotInvocation;
     const connection = yield* connections.getActive(invocation.connectionId);
@@ -39,13 +33,9 @@ export const make = Effect.gen(function* () {
       });
     return connection;
   });
-  const store = <T>(run: () => Promise<T>) =>
-    Effect.tryPromise({
-      try: run,
-      catch: () =>
-        new DotIntegrationError({
-          message: "Could not complete the Hive Mind operation. Existing memories are preserved.",
-        }),
+  const failed = () =>
+    new DotIntegrationError({
+      message: "Could not complete the Hive Mind operation. Existing memories are preserved.",
     });
   return {
     recall: Effect.fn("DotHiveMind.recall")(function* (input: {
@@ -53,25 +43,23 @@ export const make = Effect.gen(function* () {
       project?: string | undefined;
     }) {
       yield* authorize("read");
-      return yield* store(() => recallHiveMind(filePath, input.query, input.project));
+      return yield* recallHiveMind(input.query, input.project).pipe(Effect.mapError(failed));
     }),
-    remember: Effect.fn("DotHiveMind.remember")(function* (
-      input: Pick<HiveMemory, "scope" | "subject" | "fact"> & { project?: string | undefined },
-    ) {
+    remember: Effect.fn("DotHiveMind.remember")(function* (input: {
+      scope: "general" | "project";
+      subject: string;
+      fact: string;
+      project?: string | undefined;
+    }) {
       const connection = yield* authorize("write");
-      return {
-        memory: yield* store(() =>
-          rememberHiveMind(filePath, {
-            ...input,
-            project: input.project ?? null,
-            sourceThreadId: `j1-dot:${connection.id}`,
-          }),
-        ),
-      };
+      return yield* rememberHiveMind({
+        ...input,
+        sourceThreadId: `j1-dot:${connection.id}`,
+      }).pipe(Effect.mapError(failed));
     }),
     forget: Effect.fn("DotHiveMind.forget")(function* ({ id }: { id: string }) {
       yield* authorize("write");
-      return { removed: yield* store(() => forgetHiveMind(filePath, id)) };
+      return yield* forgetHiveMind(id).pipe(Effect.mapError(failed));
     }),
   };
 });

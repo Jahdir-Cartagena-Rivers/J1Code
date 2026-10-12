@@ -22,7 +22,8 @@ import { TestClock } from "effect/testing";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { HttpBody, HttpClient, HttpRouter } from "effect/unstable/http";
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
-import { describe, expect } from "vite-plus/test";
+import { afterAll, beforeAll, describe, expect } from "vite-plus/test";
+import { startFakeHiveMind } from "../hiveMind/fakeService.ts";
 import { ServerConfig } from "../config.ts";
 import { OrchestrationLayerLive } from "../orchestration/runtimeLayer.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
@@ -194,6 +195,14 @@ const asDot = <A, E>(connectionId: string, effect: Effect.Effect<A, E, DotInvoca
   effect.pipe(Effect.provideService(DotInvocation, { connectionId }));
 
 describe("durable Dot connections and independent tasks", () => {
+  // Dot reaches memory through the separate Hive Mind app; a fake service stands in for it.
+  let fakeHiveMind: Awaited<ReturnType<typeof startFakeHiveMind>>;
+  beforeAll(async () => {
+    fakeHiveMind = await startFakeHiveMind();
+  });
+  afterAll(async () => {
+    await fakeHiveMind.close();
+  });
   it.effect(
     "persists only hashed credentials, resolves after rebuilding, and rejects revocation, expiry, and malformed storage",
     () =>

@@ -58,7 +58,7 @@ import * as Stream from "effect/Stream";
 import { appendUserInputAttachmentPaths } from "../userInputAttachments.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import * as ServerConfig from "../../config.ts";
-import { hiveContext } from "../../hiveMind/store.ts";
+import { hiveMindContext } from "../../hiveMind/connector.ts";
 import * as DeviceService from "../../device/DeviceService.ts";
 import { ensureAgentDeviceShim } from "../../device/AgentDeviceShim.ts";
 import type * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
@@ -1785,21 +1785,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         if (Option.isNone(project)) return [];
         return [project.value.title, pathService.basename(project.value.workspaceRoot)];
       }).pipe(Effect.orElseSucceed(() => []));
-      const context = yield* Effect.try({
-        try: () =>
-          hiveContext(
-            `${serverConfig.stateDir}/hive-mind.json`,
-            parsed.input ?? "",
-            memoryProjects,
-          ),
-        catch: (error) => String(error),
-      }).pipe(
-        Effect.catch((error) =>
-          Effect.logWarning("Hive Mind memory could not be read; continuing without it", {
-            error,
-          }).pipe(Effect.as("")),
-        ),
-      );
+      const context = yield* hiveMindContext(parsed.input ?? "", memoryProjects);
       if (
         context &&
         inputTextWithAttachmentContext.length + context.length + 2 <=
