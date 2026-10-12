@@ -126,6 +126,27 @@ test("changelogs compare with the previous published J1 version across the migra
   );
 });
 
+test("describes a build alone when a rewritten history shares no ancestor with the last release", () => {
+  const releases = [{ tag_name: "v1.22.0", draft: false, prerelease: false }];
+  const notes = releaseNotes(repository, "1.23.0", sha, (args) => {
+    if (args[1].includes("/releases?")) return JSON.stringify([releases]);
+    if (args[1].includes("/compare/")) {
+      const error = new Error("compare failed");
+      error.stderr = "gh: No common ancestor between v1.22.0 and the build. (HTTP 404)";
+      throw error;
+    }
+    return JSON.stringify({ sha, commit: { message: "feat: after rewrite" }, author: null });
+  });
+  assert.match(notes, /\* feat: after rewrite in \[aaaaaaa\]/);
+  assert.ok(notes.includes(`commits/v1.23.0`));
+  assert.throws(() =>
+    releaseNotes(repository, "1.23.0", sha, (args) => {
+      if (args[1].includes("/releases?")) return JSON.stringify([releases]);
+      throw new Error("network down");
+    }),
+  );
+});
+
 test("validates the complete Windows and matching Linux update set", (t) => {
   const { directory, names } = fixture(t);
   assert.deepEqual(validateArtifacts(directory, version), names);
