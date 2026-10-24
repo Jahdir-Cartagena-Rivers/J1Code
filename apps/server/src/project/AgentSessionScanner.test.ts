@@ -1375,6 +1375,54 @@ it.layer(NodeServices.layer)("AgentSessionScanner", (it) => {
   });
 
   describe("recentThreads", () => {
+    it.effect("refresh excludes J1-owned Codex logs while retaining external conversations", () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const nowMs = Date.parse("2026-08-24T12:00:00.000Z");
+        yield* TestClock.setTime(nowMs);
+        const claudeHomePath = yield* makeTempDir("j1-refresh-owned-claude-");
+        const codexHomePath = yield* makeTempDir("j1-refresh-owned-codex-");
+        const workspace = yield* makeTempDir("j1-refresh-owned-project-");
+        for (const [id, originator] of [
+          ["native-chat", "J1 Code"],
+          ["external-chat", "codex_cli_rs"],
+        ]) {
+          yield* writeTranscript({
+            filePath: path.join(
+              codexHomePath,
+              "sessions",
+              "2026",
+              "08",
+              "24",
+              `rollout-${id}.jsonl`,
+            ),
+            contents: [
+              encodeTranscriptRecord({
+                type: "session_meta",
+                payload: { id, cwd: workspace, originator },
+              }),
+              encodeTranscriptRecord({
+                type: "event_msg",
+                payload: { type: "user_message", message: "Continue modeling" },
+              }),
+            ].join("\n"),
+            mtimeMs: nowMs,
+          });
+        }
+        const scan = () =>
+          runRecentThreadOutcomes({ claudeHomePath, codexHomePath, workspaceRoot: workspace });
+        for (let refresh = 0; refresh < 2; refresh++) {
+          const outcomes = yield* scan();
+          expect(
+            outcomes.flatMap((outcome) =>
+              outcome._tag === "Importable" ? [outcome.thread.providerSessionId] : [],
+            ),
+          ).toEqual(["external-chat"]);
+          expect(outcomes.filter((outcome) => outcome._tag === "Skipped")).toHaveLength(1);
+        }
+      }),
+    );
+
     it.effect.each([false, true])(
       "counts terminal newlines correctly with record overflow=%s",
       (overflow) =>

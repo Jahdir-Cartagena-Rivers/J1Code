@@ -128,6 +128,7 @@ const TranscriptRecord = Schema.Struct({
     Schema.Struct({
       id: Schema.optional(Schema.String),
       session_id: Schema.optional(Schema.String),
+      originator: Schema.optional(Schema.String),
       thread_source: Schema.optional(Schema.String),
       parent_thread_id: Schema.optional(Schema.String),
       type: Schema.optional(Schema.String),
@@ -435,6 +436,9 @@ function parseAgentSessionRecords(
     }
 
     if (record.type === "session_meta") {
+      // J1 already owns these chats. Refresh must not import its provider logs
+      // as new top-level conversations, including normal non-worker sessions.
+      if (record.payload?.originator === "J1 Code") return null;
       // Spawned workers and guardian reviewers are children of a real chat, not chats.
       if (record.payload?.thread_source === "subagent" || record.payload?.parent_thread_id) {
         return null;
