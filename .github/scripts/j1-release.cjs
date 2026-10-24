@@ -60,17 +60,29 @@ function releaseNotes(repository, version, sha, runGh = gh) {
   const pages = JSON.parse(
     runGh(["api", `repos/${repository}/releases?per_page=100`, "--paginate", "--slurp"]),
   );
-  const previousTag = previousReleaseTag(pages.flat(), version);
-  const commits = previousTag
-    ? JSON.parse(
+  let previousTag = previousReleaseTag(pages.flat(), version);
+  const single = () => [
+    { commits: [JSON.parse(runGh(["api", `repos/${repository}/commits/${sha}`]))] },
+  ];
+  let commits;
+  if (previousTag) {
+    try {
+      commits = JSON.parse(
         runGh([
           "api",
           `repos/${repository}/compare/${previousTag}...${sha}?per_page=100`,
           "--paginate",
           "--slurp",
         ]),
-      )
-    : [{ commits: [JSON.parse(runGh(["api", `repos/${repository}/commits/${sha}`]))] }];
+      );
+    } catch (error) {
+      // A rewritten history leaves older tags with no shared ancestor; describe this build alone.
+      if (!/No common ancestor/u.test(`${error.stderr ?? ""}${error.stdout ?? ""}${error.message}`))
+        throw error;
+      previousTag = undefined;
+    }
+  }
+  commits ??= single();
   if (previousTag && commits.some((page) => !["ahead", "identical"].includes(page.status))) {
     throw new Error("The previous release is not an ancestor of this build.");
   }
