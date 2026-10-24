@@ -3,12 +3,19 @@ import * as NodePath from "node:path";
 import * as Effect from "effect/Effect";
 import * as ServerConfig from "../../../config.ts";
 import {
-  forgetHiveMind,
-  hiveMindStatus,
-  recallHiveMind,
-  rememberHiveMind,
-  syncHiveMind,
-} from "../../../hiveMind/engine.ts";
+  forgetSelectedHive as forgetHiveMind,
+  selectedHiveStatus as hiveMindStatus,
+  recallSelectedHive as recallHiveMind,
+  rememberSelectedHive as rememberHiveMind,
+  syncSelectedHive as syncHiveMind,
+} from "../../../hiveMind/backend.ts";
+import {
+  operateHiveContinuity,
+  bindHiveTask,
+  retainHiveAttachment,
+  selectedHiveConnection,
+  materializeHiveImage,
+} from "../../../hiveMind/backend.ts";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";
 import { HiveMindError, HiveMindToolkit } from "./tools.ts";
 
@@ -23,6 +30,50 @@ export const HiveMindToolkitHandlersLive = HiveMindToolkit.toLayer(
     const config = yield* ServerConfig.ServerConfig;
     const filePath = NodePath.join(config.stateDir, "hive-mind.json");
     return HiveMindToolkit.of({
+      hive_mind_continuity: ({ operation, input }) =>
+        McpInvocationContext.pipe(
+          Effect.flatMap((invocation) =>
+            fromPromise(() =>
+              operateHiveContinuity(filePath, operation, input, String(invocation.threadId)),
+            ),
+          ),
+        ),
+      hive_mind_continue_task: ({ taskId }) =>
+        McpInvocationContext.pipe(
+          Effect.flatMap((invocation) =>
+            fromPromise(() => bindHiveTask(filePath, String(invocation.threadId), taskId)),
+          ),
+        ),
+      hive_mind_retain_reference: (input) =>
+        McpInvocationContext.pipe(
+          Effect.flatMap((invocation) =>
+            fromPromise(async () => ({
+              ...(await retainHiveAttachment(
+                filePath,
+                input,
+                config.attachmentsDir,
+                String(invocation.threadId),
+              )),
+            })),
+          ),
+        ),
+      hive_mind_read_reference: ({ id }) =>
+        McpInvocationContext.pipe(
+          Effect.flatMap((invocation) =>
+            fromPromise(async () => {
+              const connection = await selectedHiveConnection(filePath);
+              if (!connection)
+                throw new Error("Select external Hive Mind to retrieve retained images.");
+              const result = await materializeHiveImage(
+                connection,
+                id,
+                config.attachmentsDir,
+                String(invocation.threadId),
+              );
+              return { path: result.path, mimeType: result.attachment.mimeType };
+            }),
+          ),
+        ),
       hive_mind_status: () => fromPromise(() => hiveMindStatus(filePath)),
       hive_mind_sync: () => fromPromise(() => syncHiveMind(filePath)),
       hive_mind_recall: ({ query, project }) =>

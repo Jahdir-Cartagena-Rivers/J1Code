@@ -90,7 +90,7 @@ import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
 import { HiveMindService, hiveOperation } from "./hiveMind/HiveMindService.ts";
-import { importHiveHindsight } from "./hiveMind/importHindsight.ts";
+import { importSelectedHive as importHiveHindsight } from "./hiveMind/backend.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
@@ -2703,6 +2703,7 @@ const makeWsRpcLayer = (
             WS_METHODS.hiveMindSync,
             hiveOperation(async () => {
               hiveMind.runtime.requestSync();
+              await hiveMind.runtime.waitIdle();
               return hiveMind.runtime.snapshot();
             }),
             { "rpc.aggregate": "hiveMind" },

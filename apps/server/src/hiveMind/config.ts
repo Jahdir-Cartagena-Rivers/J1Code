@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - environment-owned local configuration boundary.
 import * as NodePath from "node:path";
+import * as NodeFS from "node:fs";
 import * as Schema from "effect/Schema";
 import { HiveMindConfig } from "@t3tools/contracts";
 import { readOptional } from "./files.ts";
@@ -17,6 +18,7 @@ export function validateHiveConfig(value: unknown): HiveMindConfig {
     config.vault,
     config.localEngine?.directory,
     config.localEngine?.ollama,
+    config.backend?.mode === "external" ? config.backend.connectionFile : undefined,
     ...(config.skills ?? []).map((root) => root.path),
   ]) {
     if (path !== undefined && !NodePath.isAbsolute(path))
@@ -53,4 +55,13 @@ export function validateHiveConfig(value: unknown): HiveMindConfig {
 export async function readHiveConfig(file: string): Promise<HiveMindConfig> {
   const text = await readOptional(hivePaths(file).config);
   return text === null ? { version: 1 } : validateHiveConfig(JSON.parse(text));
+}
+/** Pre-turn built-in memory stays synchronous; it must not delay provider control-flow receipts. */
+export function readHiveConfigSync(file: string): HiveMindConfig {
+  try {
+    return validateHiveConfig(JSON.parse(NodeFS.readFileSync(hivePaths(file).config, "utf8")));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { version: 1 };
+    throw error;
+  }
 }

@@ -128,99 +128,143 @@ function HiveMindEnvironment({ environmentId }: { environmentId: EnvironmentId }
             />
           </SettingsSection>
           <SettingsSection title="Setup">
+            <SettingsSwitchRow
+              icon="brain"
+              label="Use standalone Hive Mind"
+              subtitle="Off uses J1's built-in memory. Switching preserves both stores without copying or merging data."
+              value={setup.backend?.mode === "external"}
+              onValueChange={(external) =>
+                setSetup({
+                  ...setup,
+                  backend: external
+                    ? { ...setup.backend, mode: "external" }
+                    : { ...setup.backend, mode: "builtin" },
+                })
+              }
+            />
             <View className="gap-2 p-4">
-              <Text>
-                Paths belong to this environment. Use its Hive Mind vault, or enter an existing
-                vault and skills folders in the setup below.
-              </Text>
-              <Text>Obsidian-compatible vault</Text>
-              <TextInput
-                accessibilityLabel="Vault folder"
-                placeholder={state?.defaultVault}
-                value={setup.vault ?? ""}
-                onChangeText={(vault) =>
-                  setSetup(updateHiveMindConfig(setup, "vault", vault || undefined))
-                }
-                className="rounded-lg border border-border p-3 text-foreground"
-              />
-              <Text>Semantic retrieval URL</Text>
-              <TextInput
-                accessibilityLabel="Retrieval URL"
-                placeholder="http://127.0.0.1:8888"
-                autoCapitalize="none"
-                value={setup.hindsight?.url ?? ""}
-                onChangeText={(url) =>
-                  setSetup(
-                    updateHiveMindConfig(
-                      setup,
-                      "hindsight",
-                      url
-                        ? {
-                            url,
-                            bank: setup.hindsight?.bank ?? state?.defaultBank ?? "j1-hive",
-                            timeoutMs: 60_000,
-                          }
-                        : undefined,
-                    ),
-                  )
-                }
-                className="rounded-lg border border-border p-3 text-foreground"
-              />
-              {setup.hindsight && (
+              {setup.backend?.mode === "external" && (
                 <>
-                  <Text>Retrieval bank</Text>
+                  <Text>Connection file on the server (optional)</Text>
                   <TextInput
-                    accessibilityLabel="Retrieval bank"
-                    autoCapitalize="none"
-                    value={setup.hindsight.bank}
-                    onChangeText={(bank) =>
-                      setSetup({ ...setup, hindsight: { ...setup.hindsight!, bank } })
+                    accessibilityLabel="Hive Mind connection file"
+                    placeholder="Default: ~/.hive-mind/connection.json"
+                    value={setup.backend.connectionFile ?? ""}
+                    onChangeText={(connectionFile) =>
+                      setSetup({
+                        ...setup,
+                        backend: {
+                          mode: "external",
+                          ...(connectionFile ? { connectionFile } : {}),
+                        },
+                      })
                     }
                     className="rounded-lg border border-border p-3 text-foreground"
                   />
+                  <Text>
+                    Manage external vault, skills and indexing in Hive Mind. J1 records brief
+                    request excerpts and turn outcomes for continuity.
+                  </Text>
                 </>
               )}
-              <Text>
-                Skills folders, one absolute path per line; append | project to restrict a folder
-              </Text>
-              <TextInput
-                accessibilityLabel="Skills folders"
-                multiline
-                value={skillFolders}
-                onChangeText={setSkillFolders}
-                className="min-h-24 rounded-lg border border-border p-3 text-foreground"
-              />
-              <Text>Installed local engine folder, optional</Text>
-              <TextInput
-                accessibilityLabel="Local engine folder"
-                placeholder="Existing Hindsight installation"
-                value={setup.localEngine?.directory ?? ""}
-                onChangeText={(directory) =>
-                  setSetup(
-                    updateHiveMindConfig(
-                      setup,
-                      "localEngine",
-                      directory ? { ...setup.localEngine, directory } : undefined,
-                    ),
-                  )
-                }
-                className="rounded-lg border border-border p-3 text-foreground"
-              />
-              <Text>
-                Hive Mind can restore the installed local engine and Ollama when they are offline,
-                preserving their configuration.
-              </Text>
+              {setup.backend?.mode !== "external" && (
+                <>
+                  <Text>
+                    Paths belong to this environment. Use its Hive Mind vault, or enter an existing
+                    vault and skills folders in the setup below.
+                  </Text>
+                  <Text>Obsidian-compatible vault</Text>
+                  <TextInput
+                    accessibilityLabel="Vault folder"
+                    placeholder={state?.defaultVault}
+                    value={setup.vault ?? ""}
+                    onChangeText={(vault) =>
+                      setSetup(updateHiveMindConfig(setup, "vault", vault || undefined))
+                    }
+                    className="rounded-lg border border-border p-3 text-foreground"
+                  />
+                  <Text>Semantic retrieval URL</Text>
+                  <TextInput
+                    accessibilityLabel="Retrieval URL"
+                    placeholder="http://127.0.0.1:8888"
+                    autoCapitalize="none"
+                    value={setup.hindsight?.url ?? ""}
+                    onChangeText={(url) =>
+                      setSetup(
+                        updateHiveMindConfig(
+                          setup,
+                          "hindsight",
+                          url
+                            ? {
+                                url,
+                                bank: setup.hindsight?.bank ?? state?.defaultBank ?? "j1-hive",
+                                timeoutMs: 60_000,
+                              }
+                            : undefined,
+                        ),
+                      )
+                    }
+                    className="rounded-lg border border-border p-3 text-foreground"
+                  />
+                  {setup.hindsight && (
+                    <>
+                      <Text>Retrieval bank</Text>
+                      <TextInput
+                        accessibilityLabel="Retrieval bank"
+                        autoCapitalize="none"
+                        value={setup.hindsight.bank}
+                        onChangeText={(bank) =>
+                          setSetup({ ...setup, hindsight: { ...setup.hindsight!, bank } })
+                        }
+                        className="rounded-lg border border-border p-3 text-foreground"
+                      />
+                    </>
+                  )}
+                  <Text>
+                    Skills folders, one absolute path per line; append | project to restrict a
+                    folder
+                  </Text>
+                  <TextInput
+                    accessibilityLabel="Skills folders"
+                    multiline
+                    value={skillFolders}
+                    onChangeText={setSkillFolders}
+                    className="min-h-24 rounded-lg border border-border p-3 text-foreground"
+                  />
+                  <Text>Installed local engine folder, optional</Text>
+                  <TextInput
+                    accessibilityLabel="Local engine folder"
+                    placeholder="Existing Hindsight installation"
+                    value={setup.localEngine?.directory ?? ""}
+                    onChangeText={(directory) =>
+                      setSetup(
+                        updateHiveMindConfig(
+                          setup,
+                          "localEngine",
+                          directory ? { ...setup.localEngine, directory } : undefined,
+                        ),
+                      )
+                    }
+                    className="rounded-lg border border-border p-3 text-foreground"
+                  />
+                  <Text>
+                    Hive Mind can restore the installed local engine and Ollama when they are
+                    offline, preserving their configuration.
+                  </Text>
+                </>
+              )}
             </View>
             <SettingsSwitchRow
               icon="arrow.clockwise"
               label="Automatic synchronization"
+              disabled={setup.backend?.mode === "external"}
               value={setup.automatic !== false}
               onValueChange={(automatic) => setSetup({ ...setup, automatic })}
             />
             <SettingsActionRow
               icon="folder"
               label="Use Hive Mind vault"
-              disabled={busy || !state}
+              disabled={busy || !state || setup.backend?.mode === "external"}
               onPress={() => {
                 if (state) setSetup({ ...setup, vault: state.defaultVault });
               }}

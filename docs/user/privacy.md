@@ -8,6 +8,14 @@ Projects, conversations, Hive Mind memories, imported history, and connection se
 
 ## Information sent to services
 
+When you select standalone Hive Mind as J1's primary brain, memory operations
+and relevant context requests go to that service. J1 also retains brief request
+excerpts, turn outcomes and delivery receipts there for continuity. Recognizable
+credential patterns are filtered from automatic excerpts. Images and files are
+retained through explicit reference operations, and retrieved references may be
+sent to your chosen coding provider. Full source conversations remain in J1.
+Switching back to built-in memory leaves the standalone data in its own service.
+
 Your chosen coding providers receive the prompts, files, and tool results you send them. Connected clients can access the environments you authorize. Optional J1 Connect, notification, relay, and diagnostic features communicate with the services configured for that build. Each service's own terms and privacy policy apply.
 
 Cloud and telemetry fields in `.env.example` are blank. Review your build configuration before enabling a service. Public configuration is included in client bundles; it must never contain a server secret.

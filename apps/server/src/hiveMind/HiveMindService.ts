@@ -7,9 +7,8 @@ import * as Layer from "effect/Layer";
 import * as Schedule from "effect/Schedule";
 import { ServerConfig } from "../config.ts";
 import { forkParked } from "../serverActivation.ts";
-import { recallHiveMind } from "./engine.ts";
+import { recallSelectedHive } from "./backend.ts";
 import { HiveMindRuntime } from "./runtime.ts";
-import { hiveMemoryDigest } from "./store.ts";
 import { HiveLocalEngine } from "./localEngine.ts";
 import { readHiveConfig } from "./config.ts";
 import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
@@ -51,14 +50,7 @@ export class HiveMindService extends Context.Service<
         runtime,
         search: (query, project) =>
           hiveOperation(async () => {
-            const result = await recallHiveMind(runtime.file, query, project);
-            return {
-              ...result,
-              memories: result.memories.map((memory) => ({
-                ...memory,
-                revision: hiveMemoryDigest(memory),
-              })),
-            };
+            return recallSelectedHive(runtime.file, query, project);
           }),
       });
     }),

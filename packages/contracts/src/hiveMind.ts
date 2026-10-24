@@ -2,6 +2,18 @@ import * as Schema from "effect/Schema";
 
 export const HiveMindConfig = Schema.Struct({
   version: Schema.Literal(1),
+  backend: Schema.optionalKey(
+    Schema.Union([
+      Schema.Struct({
+        mode: Schema.Literal("builtin"),
+        connectionFile: Schema.optionalKey(Schema.String),
+      }),
+      Schema.Struct({
+        mode: Schema.Literal("external"),
+        connectionFile: Schema.optionalKey(Schema.String),
+      }),
+    ]),
+  ),
   vault: Schema.optionalKey(Schema.String),
   hindsight: Schema.optionalKey(
     Schema.Struct({
@@ -25,7 +37,7 @@ export const HiveMindConfig = Schema.Struct({
 });
 export type HiveMindConfig = typeof HiveMindConfig.Type;
 export function updateHiveMindConfig<
-  K extends "vault" | "hindsight" | "skills" | "automatic" | "localEngine",
+  K extends "vault" | "hindsight" | "skills" | "automatic" | "localEngine" | "backend",
 >(config: HiveMindConfig, key: K, value: HiveMindConfig[K] | undefined): HiveMindConfig {
   const next = { ...config };
   if (value === undefined) delete next[key];

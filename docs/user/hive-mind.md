@@ -1,10 +1,41 @@
 # Hive Mind
 
-This is the J1 edition, managed by the selected J1 server. The separate
+J1 uses its own built-in memory by default, managed by the selected J1 server.
+You can optionally use the separate
 [standalone Hive Mind service](https://github.com/Jahdir-Cartagena-Rivers/Hive-Mind)
-uses its own state directory and is not started or connected automatically. See
+as its primary brain. It is not started or connected automatically. See
 [the licensing boundary](../../HIVE-MIND-LICENSING.md) before reusing code from
 the standalone repository.
+
+## Choose the primary brain
+
+Open **Settings → Hive Mind** for the environment and select built-in memory or
+standalone Hive Mind, then save setup. On mobile, use **Use standalone Hive Mind**.
+Built-in mode works without the standalone app. Switching preserves both stores
+and the connection settings; it does not copy, merge or delete their contents.
+
+External mode reads the connection file on the J1 server, normally
+`~/.hive-mind/connection.json`. For remote clients, this is a file on the server
+host, not on your phone or browser device. A custom connection file can point to
+an authenticated HTTPS service. Credentials stay on the server. If the external
+service is unavailable, J1 reports the problem and does not write into another
+store as a fallback. Switch back to built-in to use the existing local memories.
+
+In standalone mode, memory tools and automatic turn context use the selected
+service. Ask your agent to create or update a task, retain a reference image or
+file, or continue an existing task in another chat. Explicit task binding carries
+that task's context across project surfaces; unrelated project instructions stay
+scoped. The source chat remains in J1. Compact request excerpts, turn outcomes
+and context delivery receipts are retained for continuity. They are evidence,
+not automatically confirmed preferences or proof that a task is complete.
+
+Use the standalone app for visual reference collections, annotations, preferences,
+artifact history and backups. Relevant retained images and files are retrieved
+into J1's attachment storage for provider adapters; actual image understanding
+depends on the chosen provider's capabilities. Manage the standalone vault,
+skills and indexing in Hive Mind; J1's built-in setup remains separate.
+
+## Built-in memory
 
 Hive Mind keeps facts that Claude and Codex can use across J1 Code chats and projects on the same server. When you explain a lasting preference, project decision, or named concept, the agent can save it. You can also say “remember this in Hive Mind” and describe the fact directly.
 

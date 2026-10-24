@@ -58,7 +58,16 @@ import * as Stream from "effect/Stream";
 import { appendUserInputAttachmentPaths } from "../userInputAttachments.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import * as ServerConfig from "../../config.ts";
-import { hiveContext } from "../../hiveMind/store.ts";
+import {
+  selectedHiveContext,
+  materializeHiveImage,
+  acknowledgeHiveContext,
+  captureHiveEvent,
+  hiveEventId,
+  type HiveConnection,
+  type HivePacket,
+} from "../../hiveMind/backend.ts";
+import { TurnContinuity } from "../../hiveMind/turnContinuity.ts";
 import * as DeviceService from "../../device/DeviceService.ts";
 import { ensureAgentDeviceShim } from "../../device/AgentDeviceShim.ts";
 import type * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
@@ -482,6 +491,46 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 ) {
   const analytics = yield* Effect.service(AnalyticsService.AnalyticsService);
   const serverConfig = yield* ServerConfig.ServerConfig;
+  const hiveFile = `${serverConfig.stateDir}/hive-mind.json`;
+  type TurnMemory = { connection: HiveConnection; project: string; packet: HivePacket };
+  type MemoryOutcome = {
+    eventId: string;
+    provider: string;
+    instanceId: string;
+    turnId: string;
+    type: string;
+  };
+  const hiveTurns = new TurnContinuity<TurnMemory, MemoryOutcome>();
+  const persistHiveOutcome = (
+    threadId: string,
+    entry: { memory: TurnMemory; outcome: MemoryOutcome },
+  ) =>
+    Effect.tryPromise({
+      try: () =>
+        captureHiveEvent(entry.memory.connection, {
+          eventId: hiveEventId(
+            hiveFile,
+            threadId,
+            entry.outcome.instanceId,
+            entry.outcome.turnId,
+            entry.outcome.eventId,
+          ),
+          threadId,
+          provider: entry.outcome.provider,
+          project: entry.memory.project,
+          summary: `Provider reported ${entry.outcome.type}. Source turn: ${entry.outcome.turnId}. Detailed output remains in the source chat.`,
+          contextSequence: entry.memory.packet.sequence,
+          ...(entry.memory.packet.streamId
+            ? { contextStreamId: entry.memory.packet.streamId }
+            : {}),
+          deliveredIds: entry.memory.packet.usedIds,
+          ...(entry.memory.packet.taskId ? { taskId: entry.memory.packet.taskId } : {}),
+        }),
+      catch: () => "Hive Mind could not retain the turn outcome.",
+    }).pipe(
+      Effect.catch((message) => Effect.logWarning(message)),
+      Effect.asVoid,
+    );
   const eventLoggers = yield* ProviderEventLoggers.ProviderEventLoggers;
   // Options-provided logger wins (test overrides); otherwise we take whatever
   // the `ProviderEventLoggers` tag exposes — `undefined` means "no canonical
@@ -1165,6 +1214,28 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       const canonicalEvent = yield* Effect.sync(() =>
         correlateRuntimeEventWithInstance(source, event),
       );
+      if (
+        ["turn.completed", "turn.aborted", "runtime.error"].includes(canonicalEvent.type) &&
+        canonicalEvent.turnId !== undefined
+      ) {
+        const outcomes = hiveTurns.receive(
+          canonicalEvent.threadId,
+          source.instanceId,
+          canonicalEvent.turnId,
+          {
+            eventId: canonicalEvent.eventId,
+            provider: source.provider,
+            instanceId: source.instanceId,
+            turnId: canonicalEvent.turnId,
+            type: canonicalEvent.type,
+          },
+        );
+        yield* Effect.forEach(
+          outcomes,
+          (entry) => persistHiveOutcome(canonicalEvent.threadId, entry),
+          { discard: true },
+        );
+      }
       yield* increment(providerRuntimeEventsTotal, {
         provider: canonicalEvent.provider,
         eventType: canonicalEvent.type,
@@ -1208,6 +1279,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           );
         }
       } else if (canonicalEvent.type === "session.exited") {
+        hiveTurns.forget(canonicalEvent.threadId, source.instanceId);
         yield* clearTurnAnalyticsSession(source.instanceId, canonicalEvent.threadId);
       }
       if (
@@ -1678,7 +1750,8 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     });
     yield* assertDelegatedWorkerActive(parsed.threadId, "ProviderService.sendTurn");
 
-    const attachments = parsed.attachments ?? [];
+    const attachments = [...(parsed.attachments ?? [])];
+    let memoryForTurn: TurnMemory | undefined;
     if (!parsed.input && attachments.length === 0 && parsed.continuation !== true) {
       return yield* toValidationError(
         "ProviderService.sendTurn",
@@ -1785,22 +1858,73 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         if (Option.isNone(project)) return [];
         return [project.value.title, pathService.basename(project.value.workspaceRoot)];
       }).pipe(Effect.orElseSucceed(() => []));
-      const context = yield* Effect.try({
+      const memory = yield* Effect.tryPromise({
         try: () =>
-          hiveContext(
-            `${serverConfig.stateDir}/hive-mind.json`,
-            parsed.input ?? "",
-            memoryProjects,
-          ),
+          selectedHiveContext(hiveFile, parsed.input ?? "", memoryProjects, parsed.threadId),
         catch: (error) => String(error),
       }).pipe(
         Effect.catch((error) =>
-          Effect.logWarning("Hive Mind memory could not be read; continuing without it", {
-            error,
-          }).pipe(Effect.as("")),
+          Effect.logWarning(
+            "Selected Hive Mind memory could not be read; no fallback store was used",
+            {
+              error,
+            },
+          ).pipe(
+            Effect.as({
+              context:
+                "Hive Mind is currently unavailable. Its memories have not been loaded; do not claim otherwise.",
+              packet: null,
+              connection: null,
+            }),
+          ),
         ),
       );
+      const context = memory.context;
+      if (memory.connection && memory.packet) {
+        if (!appendAttachmentContext(context))
+          return yield* toValidationError(
+            "ProviderService.sendTurn",
+            "Input plus selected Hive Mind context exceeds the provider character limit. Shorten the input or refer to saved files.",
+          );
+        memoryForTurn = {
+          connection: memory.connection,
+          project: memory.packet.project ?? memoryProjects[0] ?? "J1Code",
+          packet: memory.packet,
+        };
+        let totalBytes = attachments
+          .filter((a) => a.type === "image")
+          .reduce((n, a) => n + a.sizeBytes, 0);
+        for (const asset of memory.packet.assets) {
+          if (attachments.length >= 100 || totalBytes + 10 * 1024 * 1024 > 80 * 1024 * 1024) {
+            appendAttachmentContext(
+              "Some retained Hive Mind references were not attached because this turn reached its attachment budget. Retrieve individual references with hive_mind_read_reference.",
+            );
+            break;
+          }
+          const retained = yield* Effect.tryPromise({
+            try: () =>
+              materializeHiveImage(
+                memory.connection!,
+                asset.id,
+                serverConfig.attachmentsDir,
+                parsed.threadId,
+              ),
+            catch: () => `Hive Mind reference ${asset.id} could not be loaded.`,
+          }).pipe(Effect.catch((message) => Effect.logWarning(message).pipe(Effect.as(null))));
+          if (retained) {
+            if (
+              !appendAttachmentContext(
+                `Retained Hive Mind reference ${asset.id}: ${retained.path}. Inspect the actual reference when relevant.`,
+              )
+            )
+              break;
+            attachments.push(retained.attachment);
+            if (retained.attachment.type === "image") totalBytes += retained.attachment.sizeBytes;
+          }
+        }
+      }
       if (
+        !memory.connection &&
         context &&
         inputTextWithAttachmentContext.length + context.length + 2 <=
           PROVIDER_SEND_TURN_MAX_INPUT_CHARS
@@ -1811,6 +1935,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
     const input = {
       ...parsed,
+      ...(parsed.attachments !== undefined || attachments.length ? { attachments } : {}),
       ...(inputTextWithAttachmentContext !== undefined
         ? { input: inputTextWithAttachmentContext }
         : {}),
@@ -1881,7 +2006,25 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
               runtimeMode: routed.runtimeMode,
             });
             yield* assertDelegatedWorkerActive(input.threadId, "ProviderService.sendTurn");
+            const finishMemoryAdmission = memoryForTurn
+              ? hiveTurns.begin(input.threadId, routed.instanceId)
+              : () => {};
             const turn = yield* routed.adapter.sendTurn(input).pipe(
+              Effect.tap((accepted) =>
+                memoryForTurn
+                  ? Effect.forEach(
+                      hiveTurns.accept(
+                        input.threadId,
+                        routed.instanceId,
+                        String(accepted.turnId),
+                        memoryForTurn,
+                      ),
+                      (entry) => persistHiveOutcome(input.threadId, entry),
+                      { discard: true },
+                    )
+                  : Effect.void,
+              ),
+              Effect.ensuring(Effect.sync(finishMemoryAdmission)),
               Effect.tapError((error) =>
                 analytics.record("provider.turn.rejected", {
                   provider: routed.adapter.provider,
@@ -1890,6 +2033,38 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
                 }),
               ),
             );
+            const memory = memoryForTurn;
+            if (memory) {
+              yield* Effect.tryPromise({
+                try: async () => {
+                  await acknowledgeHiveContext(
+                    hiveFile,
+                    memory.connection,
+                    input.threadId,
+                    memory.packet,
+                  );
+                  await captureHiveEvent(memory.connection, {
+                    eventId: hiveEventId(
+                      hiveFile,
+                      input.threadId,
+                      routed.instanceId,
+                      String(turn.turnId),
+                      "input",
+                    ),
+                    threadId: input.threadId,
+                    provider: routed.adapter.provider,
+                    project: memory.project,
+                    summary: `User request excerpt (source message remains authoritative): ${parsed.input ?? "Attachment-only turn"}`,
+                    contextSequence: memory.packet.sequence,
+                    ...(memory.packet.streamId ? { contextStreamId: memory.packet.streamId } : {}),
+                    deliveredIds: memory.packet.usedIds,
+                    ...(memory.packet.taskId ? { taskId: memory.packet.taskId } : {}),
+                  });
+                },
+                catch: () =>
+                  "Hive Mind could not record this turn's context receipt or request excerpt.",
+              }).pipe(Effect.catch((message) => Effect.logWarning(message)));
+            }
             yield* associateTurnAnalytics({
               providerInstanceId: routed.instanceId,
               threadId: input.threadId,

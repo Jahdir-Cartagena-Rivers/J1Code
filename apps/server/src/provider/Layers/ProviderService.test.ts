@@ -1274,6 +1274,106 @@ memoryRouting.layer("automatic memory uses the user request", (it) => {
   );
 });
 
+const externalMemoryRouting = makeProviderServiceLayer({
+  configLayer: ServerConfig.layerTest(process.cwd(), { prefix: "j1-external-memory-" }).pipe(
+    Layer.provide(NodeServices.layer),
+  ),
+});
+externalMemoryRouting.layer("external memory provider boundary", (it) => {
+  it.effect(
+    "delivers selected context and actual image attachments to the adapter and records consumption",
+    () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService.ProviderService;
+        const config = yield* ServerConfig.ServerConfig;
+        const configPath = NodePath.join(config.stateDir, "hive-mind.config.json");
+        const connectionFile = NodePath.join(config.stateDir, "test-connection.json");
+        const originalFetch = globalThis.fetch;
+        const received: Array<{ path: string; body: Readonly<Record<string, unknown>> }> = [];
+        const pixel = Buffer.from(
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a0XcAAAAASUVORK5CYII=",
+          "base64",
+        );
+        const fakeFetch: typeof globalThis.fetch = async (resource, options) => {
+          const request = new Request(resource, options);
+          const url = new URL(request.url);
+          const body =
+            request.method === "POST"
+              ? Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown))(
+                  await request.json(),
+                )
+              : {};
+          received.push({ path: url.pathname, body });
+          if (url.pathname === "/v1/assets/reference")
+            return new Response(pixel, {
+              headers: { "content-type": "image/png", "content-length": String(pixel.length) },
+            });
+          if (url.pathname === "/v1/working-context")
+            return Response.json({
+              context: "External correction: use the wide base",
+              sequence: 7,
+              taskId: null,
+              usedIds: ["preference"],
+              assets: [{ id: "reference", mime: "image/png", caption: "Lamp reference" }],
+            });
+          if (url.pathname === "/v1/brain") return Response.json({ records: [] });
+          return Response.json({ id: "recorded" });
+        };
+        yield* Effect.sync(() => {
+          NodeFS.writeFileSync(
+            connectionFile,
+            encodeJson({ origin: "http://127.0.0.1:8788", token: "x".repeat(32) }),
+          );
+          NodeFS.writeFileSync(
+            configPath,
+            encodeJson({ version: 1, backend: { mode: "external", connectionFile } }),
+          );
+          globalThis.fetch = fakeFetch;
+        });
+        yield* Effect.gen(function* () {
+          const threadId = asThreadId("external-reference-chat");
+          yield* provider.startSession(threadId, {
+            provider: CODEX_DRIVER,
+            providerInstanceId: codexInstanceId,
+            threadId,
+            cwd: fixtureCwd("external-reference"),
+            runtimeMode: "full-access",
+          });
+          yield* provider.sendTurn({ threadId, input: "Continue modeling the lamp" });
+          const sent = externalMemoryRouting.codex.sendTurn.mock.calls[0]?.[0];
+          assert.include(sent?.input ?? "", "External correction: use the wide base");
+          assert.equal(sent?.attachments?.[0]?.type, "image");
+          const names = NodeFS.readdirSync(config.attachmentsDir);
+          assert.equal(names.length, 1);
+          assert.deepEqual(
+            NodeFS.readFileSync(NodePath.join(config.attachmentsDir, names[0]!)),
+            pixel,
+          );
+          assert.isTrue(
+            received.some(
+              (r) =>
+                r.path === "/v1/brain/save" &&
+                typeof r.body.data === "object" &&
+                r.body.data !== null &&
+                "consumedSequence" in r.body.data &&
+                r.body.data.consumedSequence === 7,
+            ),
+          );
+          assert.isFalse(NodeFS.existsSync(NodePath.join(config.stateDir, "hive-mind.json")));
+          yield* provider.stopSession({ threadId });
+        }).pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              globalThis.fetch = originalFetch;
+              NodeFS.rmSync(configPath, { force: true });
+              NodeFS.rmSync(connectionFile, { force: true });
+            }),
+          ),
+        );
+      }),
+  );
+});
+
 const customCompactionDriver = ProviderDriverKind.make("custom-compaction-provider");
 const nativeCompactionInstanceId = ProviderInstanceId.make("native-compaction");
 const slashCompactionInstanceId = ProviderInstanceId.make("slash-compaction");

@@ -112,4 +112,55 @@ const Sync = Tool.make("hive_mind_sync", {
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false);
 
-export const HiveMindToolkit = Toolkit.make(Recall, Remember, Forget, Status, Sync);
+const Continuity = Tool.make("hive_mind_continuity", {
+  description:
+    "Use the selected external Hive Mind's task, preference, collection, artifact, episode, entity and relation records. list accepts kind/query/id/includeHistory. save requires kind/scope/project/title/data and current revision when editing. Task data: objective,status,decisions,failures,questions,nextSteps. Preferences: statement,polarity,context,exceptions,assetIds. Collections: assetIds,annotations. Artifacts: description,assetIds,taskId,preferredRevision. claim uses id,revision,owner,release. eventId makes save retries idempotent. Agent-written records remain evidence; never invent user preferences.",
+  parameters: Schema.Struct({
+    operation: Schema.Literals(["list", "save", "forget", "claim"]),
+    input: Schema.Record(Schema.String, Schema.Unknown),
+  }),
+  success: Schema.Record(Schema.String, Schema.Unknown),
+  failure: HiveMindError,
+  dependencies,
+}).annotate(Tool.Readonly, false);
+const ContinueTask = Tool.make("hive_mind_continue_task", {
+  description:
+    "Bind this chat to an existing external Hive Mind task so subsequent turns automatically receive its latest state and images, including across project surfaces. Omit taskId to stop continuing the task. This does not claim ownership or authorize actions.",
+  parameters: Schema.Struct({ taskId: Schema.optionalKey(Schema.String) }),
+  success: Schema.Struct({ taskId: Schema.NullOr(Schema.String), sequence: Schema.Number }),
+  failure: HiveMindError,
+  dependencies,
+}).annotate(Tool.Readonly, false);
+const RetainImage = Tool.make("hive_mind_retain_reference", {
+  description:
+    "Explicitly preserve an image or artifact attachment from this chat in external Hive Mind. Use attachment ID, title, scope and project; pass media:file for a model, document or source file. Returns a durable asset ID for collections/preferences/artifacts. Retain user-intended references; do not infer likes from an upload.",
+  parameters: Schema.Struct({
+    attachmentId: Schema.String,
+    title: Schema.String,
+    scope: Schema.Literals(["general", "project"]),
+    project: Schema.optionalKey(Schema.String),
+    media: Schema.optionalKey(Schema.Literals(["image", "file"])),
+  }),
+  success: Schema.Record(Schema.String, Schema.Unknown),
+  failure: HiveMindError,
+  dependencies,
+}).annotate(Tool.Readonly, false);
+const ReadImage = Tool.make("hive_mind_read_reference", {
+  description:
+    "Retrieve actual retained image or artifact file bytes from external Hive Mind into this chat's attachment storage. Returns a local path to inspect with the provider's image or file tool. A description or missing file is not recall.",
+  parameters: Schema.Struct({ id: Schema.String }),
+  success: Schema.Struct({ path: Schema.String, mimeType: Schema.String }),
+  failure: HiveMindError,
+  dependencies,
+}).annotate(Tool.Readonly, true);
+export const HiveMindToolkit = Toolkit.make(
+  Recall,
+  Remember,
+  Forget,
+  Status,
+  Sync,
+  Continuity,
+  ContinueTask,
+  RetainImage,
+  ReadImage,
+);

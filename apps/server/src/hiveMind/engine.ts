@@ -17,6 +17,8 @@ import {
   type HiveMemory,
 } from "./store.ts";
 import { syncHiveVault } from "./vault.ts";
+import { selectedHiveConnection, requestHive } from "./connection.ts";
+import { HiveMindSearchResult, HiveMindMemory, HiveMindSnapshot } from "@t3tools/contracts";
 
 const Index = Schema.Struct({
   target: Schema.String,
@@ -55,6 +57,13 @@ export async function recallHiveMind(file: string, query: string, project?: stri
       retrieval: { status: "degraded" as const, message: `Configuration: ${configuration.error}` },
     };
   const config = configuration.config;
+  if (config.backend?.mode === "external") {
+    const connection = await selectedHiveConnection(file);
+    if (!connection) throw new Error("Selected memory authority changed; retry the operation.");
+    return Schema.decodeUnknownSync(HiveMindSearchResult)(
+      await requestHive(connection, "/v1/search", { query, project }),
+    );
+  }
   const available = await availableSkills((await readHiveMind(file)).memories, config.skills ?? []);
   const active = (memory: HiveMemory) => memory.kind !== "skill" || available.has(memory.id);
   const lexical = (await recallHiveFacts(file, query, project, 30)).filter(active).slice(0, 12);
@@ -122,11 +131,21 @@ async function availableSkills(
 }
 
 export async function rememberHiveMind(file: string, input: HiveImportFact) {
+  const connection = await selectedHiveConnection(file);
+  if (connection)
+    return Schema.decodeUnknownSync(Schema.Struct({ memory: HiveMindMemory }))(
+      await requestHive(connection, "/v1/remember", input),
+    ).memory;
   const result = await rememberHiveFact(file, input);
   notifyHiveMindChange(file);
   return result;
 }
 export async function forgetHiveMind(file: string, id: string) {
+  const connection = await selectedHiveConnection(file);
+  if (connection)
+    return Schema.decodeUnknownSync(Schema.Struct({ removed: Schema.Boolean }))(
+      await requestHive(connection, "/v1/forget", { id }),
+    ).removed;
   const result = await forgetHiveFact(file, id);
   notifyHiveMindChange(file);
   return result;
@@ -134,6 +153,22 @@ export async function forgetHiveMind(file: string, id: string) {
 
 export async function hiveMindStatus(file: string) {
   const config = await readHiveConfig(file);
+  if (config.backend?.mode === "external") {
+    const connection = await selectedHiveConnection(file);
+    if (!connection) throw new Error("Selected memory authority changed; retry the operation.");
+    const status = Schema.decodeUnknownSync(HiveMindSnapshot)(
+      await requestHive(connection, "/v1/status"),
+    );
+    return {
+      name: "Hive Mind (external)",
+      records: status.records,
+      skills: status.skills,
+      vault: status.config.vault ?? null,
+      retrievalConfigured: true,
+      pendingIndex: status.pendingIndex,
+      skillRoots: status.config.skills?.length ?? 0,
+    };
+  }
   const { memories } = await readHiveMind(file);
   const index = config.hindsight
     ? await readIndex(file, indexTarget(config.hindsight.url, config.hindsight.bank))
@@ -154,7 +189,20 @@ export async function hiveMindStatus(file: string) {
 }
 
 /** Explicit synchronization drains projections and reports failures without undoing durable memory. */
-export function syncHiveMind(file: string, maxIndexed = Number.POSITIVE_INFINITY) {
+export async function syncHiveMind(file: string, maxIndexed = Number.POSITIVE_INFINITY) {
+  const connection = await selectedHiveConnection(file);
+  if (connection) {
+    const snapshot = Schema.decodeUnknownSync(HiveMindSnapshot)(
+      await requestHive(connection, "/v1/sync", {}),
+    );
+    return {
+      importedSkills: 0,
+      indexed: 0,
+      vault: null,
+      issues: snapshot.issues,
+      status: await hiveMindStatus(file),
+    };
+  }
   const canonicalFile = NodePath.resolve(file);
   const previous = pendingSyncs.get(canonicalFile) ?? Promise.resolve();
   const operation = previous

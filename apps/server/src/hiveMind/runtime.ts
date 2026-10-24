@@ -9,15 +9,14 @@ import {
 } from "@t3tools/contracts";
 import { hivePaths, readHiveConfig, validateHiveConfig } from "./config.ts";
 import { writeAtomic } from "./files.ts";
+import { hiveMindStatus, notifyHiveMindChange, onHiveMindChange, syncHiveMind } from "./engine.ts";
+import { editHiveFact, rememberHiveFact, forgetHiveFact } from "./store.ts";
 import {
-  forgetHiveMind,
-  hiveMindStatus,
-  notifyHiveMindChange,
-  onHiveMindChange,
-  rememberHiveMind,
-  syncHiveMind,
-} from "./engine.ts";
-import { editHiveFact } from "./store.ts";
+  externalHiveSnapshot,
+  mutateExternalHive,
+  selectedHiveConnection,
+  requestHive,
+} from "./backend.ts";
 
 /** The environment owns one worker. Saves stay local; projection receipts survive restarts. */
 export class HiveMindRuntime {
@@ -38,6 +37,8 @@ export class HiveMindRuntime {
     });
   }
   async snapshot(): Promise<HiveMindSnapshot> {
+    const external = await externalHiveSnapshot(this.file);
+    if (external) return external;
     const config = await readHiveConfig(this.file);
     const status = await hiveMindStatus(this.file);
     return {
@@ -54,21 +55,25 @@ export class HiveMindRuntime {
   }
   async configure(value: HiveMindConfig) {
     const config = validateHiveConfig(value);
+    await this.running;
     await writeAtomic(hivePaths(this.file).config, JSON.stringify(config, null, 2));
     await this.automatic();
     return this.snapshot();
   }
   async mutate(input: HiveMindMutation) {
+    if (await mutateExternalHive(this.file, input)) return this.snapshot();
     switch (input.action) {
       case "remember":
-        await rememberHiveMind(this.file, {
+        await rememberHiveFact(this.file, {
           ...input,
           project: input.project ?? null,
           sourceThreadId: "hive-mind-ui",
         });
+        notifyHiveMindChange(this.file);
         break;
       case "forget":
-        await forgetHiveMind(this.file, input.id);
+        await forgetHiveFact(this.file, input.id);
+        notifyHiveMindChange(this.file);
         break;
       case "edit":
         await editHiveFact(
@@ -88,6 +93,7 @@ export class HiveMindRuntime {
       const config = await readHiveConfig(this.file);
       if (
         !this.closed &&
+        config.backend?.mode !== "external" &&
         config.automatic !== false &&
         (config.vault || config.hindsight || config.skills?.length)
       )
@@ -104,12 +110,20 @@ export class HiveMindRuntime {
     this.phase = "syncing";
     this.running = this.drain().finally(() => {
       this.running = undefined;
+      if (this.requested && !this.closed) this.requestSync();
     });
   }
   private async drain() {
     try {
       while (this.requested && !this.closed) {
         this.requested = false;
+        const connection = await selectedHiveConnection(this.file);
+        if (connection) {
+          await requestHive(connection, "/v1/sync", {});
+          this.lastSync = new Date().toISOString();
+          this.phase = "idle";
+          continue;
+        }
         const recoveryIssues: string[] = [];
         try {
           await this.beforeSync?.();
@@ -132,7 +146,7 @@ export class HiveMindRuntime {
   }
   async waitIdle() {
     await this.automatic();
-    await this.running;
+    while (this.running) await this.running;
   }
   async close() {
     this.closed = true;

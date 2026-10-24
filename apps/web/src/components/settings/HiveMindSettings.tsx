@@ -116,11 +116,18 @@ function HiveMindEnvironment({ environmentId }: { environmentId: EnvironmentId }
         <div className="space-y-3 p-4">
           <p className="text-sm text-muted-foreground">
             One memory system for your agents, editable knowledge vault, and reusable skills. Paths
-            belong to this server environment.
+            belong to this server for built-in memory, or the connected Hive Mind host in standalone
+            mode.
           </p>
           <p role="status">
-            {snapshot.records} records · {snapshot.skills} skills · {snapshot.pendingIndex} awaiting
-            retrieval · {snapshot.phase}
+            {snapshot.config.backend?.mode === "external" && snapshot.phase === "degraded" ? (
+              "Standalone Hive Mind is unavailable; counts are not current."
+            ) : (
+              <>
+                {snapshot.records} records · {snapshot.skills} skills · {snapshot.pendingIndex}{" "}
+                awaiting retrieval · {snapshot.phase}
+              </>
+            )}
           </p>
           {snapshot.lastSync && (
             <p className="text-xs text-muted-foreground">
@@ -170,103 +177,159 @@ function HiveMindEnvironment({ environmentId }: { environmentId: EnvironmentId }
             });
           }}
         >
-          <label className="block space-y-1 text-sm">
-            Obsidian-compatible vault
-            <Input
-              placeholder={snapshot.defaultVault}
-              aria-label="Vault folder"
-              value={config.vault ?? ""}
-              onChange={(event) =>
-                setConfig(updateHiveMindConfig(config, "vault", event.target.value || undefined))
+          <p className="text-sm">Primary memory</p>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant={config.backend?.mode !== "external" ? "default" : "outline"}
+              onClick={() =>
+                setConfig({ ...config, backend: { ...config.backend, mode: "builtin" } })
               }
-            />
-          </label>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setConfig({ ...config, vault: snapshot.defaultVault })}
-          >
-            Use Hive Mind vault
-          </Button>
-          <label className="block space-y-1 text-sm">
-            Semantic retrieval URL
-            <Input
-              placeholder="http://127.0.0.1:8888"
-              aria-label="Retrieval URL"
-              value={config.hindsight?.url ?? ""}
-              onChange={(event) =>
-                setConfig(
-                  updateHiveMindConfig(
-                    config,
-                    "hindsight",
-                    event.target.value
-                      ? {
-                          url: event.target.value,
-                          bank: config.hindsight?.bank ?? snapshot.defaultBank,
-                          timeoutMs: 60_000,
-                        }
-                      : undefined,
-                  ),
-                )
+            >
+              Built-in (default)
+            </Button>
+            <Button
+              type="button"
+              variant={config.backend?.mode === "external" ? "default" : "outline"}
+              onClick={() =>
+                setConfig({ ...config, backend: { ...config.backend, mode: "external" } })
               }
-            />
-          </label>
-          {config.hindsight && (
+            >
+              Standalone Hive Mind
+            </Button>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Built-in uses J1's own store. Standalone uses the connected Hive Mind service. Switching
+            preserves both stores and does not copy or merge their contents.
+          </p>
+          {config.backend?.mode === "external" && (
             <label className="block space-y-1 text-sm">
-              Retrieval bank
+              Connection file on this server (optional)
               <Input
-                value={config.hindsight.bank}
-                aria-label="Retrieval bank"
+                value={config.backend.connectionFile ?? ""}
+                placeholder="Default: ~/.hive-mind/connection.json"
                 onChange={(event) =>
                   setConfig({
                     ...config,
-                    hindsight: { ...config.hindsight!, bank: event.target.value },
+                    backend: {
+                      mode: "external",
+                      ...(event.target.value ? { connectionFile: event.target.value } : {}),
+                    },
                   })
                 }
               />
             </label>
           )}
-          <label className="block space-y-1 text-sm">
-            Skills folders, one absolute path per line; append | project to restrict a folder
-            <Textarea
-              rows={3}
-              aria-label="Skills folders"
-              value={skillFolders}
-              onChange={(event) => setSkillFolders(event.target.value)}
-            />
-          </label>
-          <label className="block space-y-1 text-sm">
-            Installed local engine folder, optional
-            <Input
-              aria-label="Installed local engine folder"
-              value={config.localEngine?.directory ?? ""}
-              placeholder="Folder containing the existing Hindsight installation"
-              onChange={(event) =>
-                setConfig(
-                  updateHiveMindConfig(
-                    config,
-                    "localEngine",
-                    event.target.value
-                      ? { ...config.localEngine, directory: event.target.value }
-                      : undefined,
-                  ),
-                )
-              }
-            />
-          </label>
-          <p className="text-xs text-muted-foreground">
-            Hive Mind can restore this local engine and its installed Ollama service when they are
-            offline. Existing configuration and shared services are preserved.
-          </p>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={config.automatic !== false}
-              onChange={(event) => setConfig({ ...config, automatic: event.target.checked })}
-            />
-            Automatic synchronization
-          </label>
+          {config.backend?.mode === "external" && (
+            <p className="text-sm text-muted-foreground">
+              Manage the external vault, skills, and indexing in Hive Mind. J1 records brief request
+              excerpts and turn outcomes for continuity; retained references remain available across
+              connected chats.
+            </p>
+          )}
+          {config.backend?.mode !== "external" && (
+            <fieldset className="space-y-3">
+              <label className="block space-y-1 text-sm">
+                Obsidian-compatible vault
+                <Input
+                  placeholder={snapshot.defaultVault}
+                  aria-label="Vault folder"
+                  value={config.vault ?? ""}
+                  onChange={(event) =>
+                    setConfig(
+                      updateHiveMindConfig(config, "vault", event.target.value || undefined),
+                    )
+                  }
+                />
+              </label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setConfig({ ...config, vault: snapshot.defaultVault })}
+              >
+                Use Hive Mind vault
+              </Button>
+              <label className="block space-y-1 text-sm">
+                Semantic retrieval URL
+                <Input
+                  placeholder="http://127.0.0.1:8888"
+                  aria-label="Retrieval URL"
+                  value={config.hindsight?.url ?? ""}
+                  onChange={(event) =>
+                    setConfig(
+                      updateHiveMindConfig(
+                        config,
+                        "hindsight",
+                        event.target.value
+                          ? {
+                              url: event.target.value,
+                              bank: config.hindsight?.bank ?? snapshot.defaultBank,
+                              timeoutMs: 60_000,
+                            }
+                          : undefined,
+                      ),
+                    )
+                  }
+                />
+              </label>
+              {config.hindsight && (
+                <label className="block space-y-1 text-sm">
+                  Retrieval bank
+                  <Input
+                    value={config.hindsight.bank}
+                    aria-label="Retrieval bank"
+                    onChange={(event) =>
+                      setConfig({
+                        ...config,
+                        hindsight: { ...config.hindsight!, bank: event.target.value },
+                      })
+                    }
+                  />
+                </label>
+              )}
+              <label className="block space-y-1 text-sm">
+                Skills folders, one absolute path per line; append | project to restrict a folder
+                <Textarea
+                  rows={3}
+                  aria-label="Skills folders"
+                  value={skillFolders}
+                  onChange={(event) => setSkillFolders(event.target.value)}
+                />
+              </label>
+              <label className="block space-y-1 text-sm">
+                Installed local engine folder, optional
+                <Input
+                  aria-label="Installed local engine folder"
+                  value={config.localEngine?.directory ?? ""}
+                  placeholder="Folder containing the existing Hindsight installation"
+                  onChange={(event) =>
+                    setConfig(
+                      updateHiveMindConfig(
+                        config,
+                        "localEngine",
+                        event.target.value
+                          ? { ...config.localEngine, directory: event.target.value }
+                          : undefined,
+                      ),
+                    )
+                  }
+                />
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Hive Mind can restore this local engine and its installed Ollama service when they
+                are offline. Existing configuration and shared services are preserved.
+              </p>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={config.automatic !== false}
+                  onChange={(event) => setConfig({ ...config, automatic: event.target.checked })}
+                />
+                Automatic synchronization
+              </label>
+            </fieldset>
+          )}
           <Button type="submit" disabled={busy}>
             Save setup
           </Button>
