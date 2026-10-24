@@ -541,13 +541,27 @@ it.layer(NodeServices.layer)("AgentSessionScanner", (it) => {
         const simulatedFileSystem = FileSystem.FileSystem.of({
           ...fileSystem,
           stat: (filePath) =>
-            fileSystem.stat(
-              filePath === upperWorkspace
-                ? backingUpper
-                : filePath === lowerWorkspace
-                  ? backingLower
-                  : filePath,
-            ),
+            fileSystem
+              .stat(
+                filePath === upperWorkspace
+                  ? backingUpper
+                  : filePath === lowerWorkspace
+                    ? backingLower
+                    : filePath,
+              )
+              .pipe(
+                Effect.map((stats) => ({
+                  ...stats,
+                  // Simulated distinct identities must not depend on the host's
+                  // NTFS file IDs fitting in JavaScript's safe integer range.
+                  ino:
+                    filePath === upperWorkspace
+                      ? Option.some(101)
+                      : filePath === lowerWorkspace
+                        ? Option.some(102)
+                        : stats.ino,
+                })),
+              ),
         });
         const result = yield* runScan({ claudeHomePath, codexHomePath }).pipe(
           Effect.provideService(FileSystem.FileSystem, simulatedFileSystem),
