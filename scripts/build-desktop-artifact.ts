@@ -1531,6 +1531,25 @@ function getPatchedDependencyPackageName(patchKey: string): string {
   return versionSeparator > 0 ? patchKey.slice(0, versionSeparator) : patchKey;
 }
 
+/** A staging install has no workspace lockfile. Keep reviewed patches bound to
+ * their exact package version instead of resolving a newer caret prerelease. */
+export function pinPatchedStageDependencies(
+  dependencies: Record<string, string>,
+  patches: Record<string, string>,
+): Record<string, string> {
+  const pinned = { ...dependencies };
+  for (const key of Object.keys(createStagePatchedDependencies(patches, dependencies))) {
+    const name = getPatchedDependencyPackageName(key);
+    const version = key.slice(name.length + 1);
+    if (!/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/u.test(version)) continue;
+    const current = pinned[name]!;
+    if (/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/u.test(current) && current !== version)
+      throw new Error(`Staged patch version differs from the declared dependency: ${name}`);
+    pinned[name] = version;
+  }
+  return pinned;
+}
+
 const AzureTrustedSigningOptionsConfig = Config.all({
   publisherName: Config.String("AZURE_TRUSTED_SIGNING_PUBLISHER_NAME"),
   endpoint: Config.String("AZURE_TRUSTED_SIGNING_ENDPOINT"),
@@ -2936,10 +2955,13 @@ export const stageWindowsServerSidecar = Effect.fn("stageWindowsServerSidecar")(
   yield* fs.makeDirectory(path.join(serverStageDir, "apps/server"), { recursive: true });
   yield* fs.copy(input.serverDistDir, path.join(serverStageDir, "apps/server/dist"));
 
-  const sidecarDependencies = {
-    ...input.runtimeExternalDependencies,
-    ...resolveFffNativeDependencies("win", input.arch, input.fffNodeVersion),
-  };
+  const sidecarDependencies = pinPatchedStageDependencies(
+    {
+      ...input.runtimeExternalDependencies,
+      ...resolveFffNativeDependencies("win", input.arch, input.fffNodeVersion),
+    },
+    input.patchedDependencies,
+  );
   const sidecarPatchedDependencies = createStagePatchedDependencies(
     input.patchedDependencies,
     sidecarDependencies,
@@ -3667,7 +3689,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   // desktop main-process externals, while the server bundle's externals live
   // in the server.asar sidecar (see stageWindowsServerSidecar). macOS and
   // Linux merge both sets into one app.asar.
-  const stageDependencies =
+  const stageDependencies = pinPatchedStageDependencies(
     options.platform === "win"
       ? { ...resolvedDesktopRuntimeDependencies }
       : resolveMergedStageDependencies({
@@ -3676,7 +3698,9 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
           desktopDependencies: resolvedDesktopRuntimeDependencies,
           arch: options.arch,
           fffNodeVersion: serverPackageJson.dependencies["@ff-labs/fff-node"],
-        });
+        }),
+    workspacePatchedDependencies,
+  );
   const stagePatchedDependencies = createStagePatchedDependencies(
     workspacePatchedDependencies,
     stageDependencies,
