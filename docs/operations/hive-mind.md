@@ -34,7 +34,7 @@ node apps/server/src/hiveMind/manage.cli.ts sync --target C:\path\to\userdata\hi
 node apps/server/src/hiveMind/manage.cli.ts status --target C:\path\to\userdata\hive-mind.json
 ```
 
-Provider agents expose `hive_mind_status` and `hive_mind_sync` for the same operations. Dot's existing Hive Mind searches use the unified retrieval path and retain their separate OAuth read/write grants. Dot does not receive management tools in this initial implementation.
+Provider agents expose `hive_mind_status` and `hive_mind_sync` for the same operations.
 
 Remembering a fact persists it immediately and wakes the environment's background worker. Automatic scans check vault and skill edits every 30 seconds. Retrieval batches contain at most ten changed records; completed index receipts survive restarts, and failed work remains pending. Set `automatic` to false to pause the worker's automatic scans and wakeups. Manual synchronization remains available. The source CLI exits unsuccessfully when synchronization reports issues; inspect those issues before retrying. Search falls back to local facts if retrieval fails.
 

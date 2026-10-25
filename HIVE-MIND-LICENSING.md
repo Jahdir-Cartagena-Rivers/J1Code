@@ -10,8 +10,7 @@ has separate terms for new protected service material. Its inherited engine and
 standalone adaptations remain MIT, with source provenance recorded there.
 Neither repository's new terms apply retroactively to the earlier MIT material.
 
-J1 continues to use its own environment, memory storage, settings, provider tools,
-and Dot permissions. It does not silently start the standalone service, move
+J1 continues to use its own environment, memory storage, settings, and provider tools. It does not silently start the standalone service, move
 existing memory, or change installed profiles. Public J1 downloads and update
 URLs remain unchanged. Do not copy new rights-reserved standalone material into
 this repository without separately clearing the rights and license scope.

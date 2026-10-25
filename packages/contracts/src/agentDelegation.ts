@@ -50,7 +50,6 @@ export const AgentDelegationRecord = Schema.Struct({
   deadlineAt: IsoDateTime,
   updatedAt: IsoDateTime,
   error: Schema.NullOr(Schema.String),
-  ownerConnectionId: Schema.optionalKey(Schema.String),
 });
 export type AgentDelegationRecord = typeof AgentDelegationRecord.Type;
 
