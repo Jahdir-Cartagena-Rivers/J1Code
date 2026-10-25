@@ -253,6 +253,16 @@ function mutate<T>(
 }
 
 export function rememberHiveFact(filePath: string, input: HiveImportFact): Promise<HiveMemory> {
+  return rememberHiveFactResult(filePath, input).then((result) => result.memory);
+}
+
+export type HiveRememberResult = { readonly memory: HiveMemory; readonly changed: boolean };
+
+/** Report whether the serialized mutation actually committed a new revision. */
+export function rememberHiveFactResult(
+  filePath: string,
+  input: HiveImportFact,
+): Promise<HiveRememberResult> {
   const subject = input.subject.trim();
   const fact = input.fact.trim();
   const project = input.scope === "project" ? input.project?.trim() || null : null;
@@ -264,7 +274,7 @@ export function rememberHiveFact(filePath: string, input: HiveImportFact): Promi
   if (subject.length > 160 || fact.length > 2_000 || (project?.length ?? 0) > 160) {
     return Promise.reject(new Error("Hive Mind entry is too long."));
   }
-  return mutate(filePath, (data) => {
+  return mutate<HiveRememberResult>(filePath, (data) => {
     // @effect-diagnostics-next-line globalDate:off - this Promise store runs outside an Effect clock.
     const now = new Date().toISOString();
     const existing = data.memories.find(
@@ -273,6 +283,15 @@ export function rememberHiveFact(filePath: string, input: HiveImportFact): Promi
         key(memory.project ?? "") === key(project ?? "") &&
         key(memory.subject) === key(subject),
     );
+    if (
+      existing &&
+      existing.fact === fact &&
+      existing.sourceThreadId === input.sourceThreadId &&
+      (!input.kind || input.kind === existing.kind) &&
+      (!input.sourcePath || input.sourcePath === existing.sourcePath)
+    ) {
+      return [data, { memory: existing, changed: false }];
+    }
     if (!existing && data.memories.length >= MAX_MEMORIES) {
       throw new Error("Hive Mind has reached its entry limit; remove an outdated fact first.");
     }
@@ -305,7 +324,7 @@ export function rememberHiveFact(filePath: string, input: HiveImportFact): Promi
           ? { forgotten: data.forgotten.filter((entry) => entry !== identity(memory)) }
           : {}),
       },
-      memory,
+      { memory, changed: true },
     ];
   });
 }
@@ -477,9 +496,10 @@ export function hiveContext(
   let length = 0;
   for (const memory of relevant) {
     const line = `- ${memory.subject} [${memory.scope}${memory.project ? `: ${memory.project}` : ""}; source ${memory.sourceThreadId}]: ${memory.fact}`;
-    if (length + line.length > 3_500) break;
+    const separator = lines.length > 0 ? 1 : 0;
+    if (length + separator + line.length > 3_500) continue;
     lines.push(line);
-    length += line.length;
+    length += separator + line.length;
   }
   return lines.length === 0
     ? ""
