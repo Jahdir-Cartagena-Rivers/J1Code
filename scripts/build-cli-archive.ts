@@ -37,6 +37,7 @@ import serverPackageJson from "../apps/server/package.json" with { type: "json" 
 import {
   createStagePatchedDependencies,
   createStageWorkspaceConfig,
+  pinPatchedStageDependencies,
   resolveFffNativeDependencies,
   STAGE_INSTALL_ARGS,
 } from "./build-desktop-artifact.ts";
@@ -172,10 +173,13 @@ const stageRuntimeExternals = Effect.fn("stageRuntimeExternals")(function* (inpu
       hint: "The archive stages fff's platform binary from this version.",
     });
   }
-  const dependencies = {
-    ...selectCliRuntimeExternalDependencies(serverDependencies),
-    ...resolveFffNativeDependencies(input.platform, input.arch, fffNodeVersion),
-  };
+  const dependencies = pinPatchedStageDependencies(
+    {
+      ...selectCliRuntimeExternalDependencies(serverDependencies),
+      ...resolveFffNativeDependencies(input.platform, input.arch, fffNodeVersion),
+    },
+    workspace.patchedDependencies ?? {},
+  );
   const patchedDependencies = createStagePatchedDependencies(
     workspace.patchedDependencies ?? {},
     dependencies,
