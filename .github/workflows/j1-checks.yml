@@ -45,12 +45,10 @@ jobs:
           apps/mobile/src/features/threads/threadListV2.test.ts
       - name: Test release versioning and publication failures
         run: node --test .github/scripts/j1-release.test.cjs
-      - name: Test Dot and worker projection regressions
+      - name: Test worker projection regressions
         working-directory: apps/server
         run: >-
-          vp test run src/dot/DotIntegration.test.ts src/dot/DotOAuth.test.ts
-          src/dot/DotChat.test.ts src/dot/DotChatWebhook.test.ts
-          src/mcp/AgentDelegation.test.ts
+          vp test run src/mcp/AgentDelegation.test.ts
           src/provider/Layers/ProviderService.test.ts
           src/provider/providerCompatibility.test.ts
           src/orchestration/Layers/ProjectionSnapshotQuery.test.ts
@@ -58,7 +56,7 @@ jobs:
         working-directory: apps/web
         run: >-
           vp test run --project unit src/components/WorkerChats.test.tsx
-          src/workerChatStore.test.ts src/components/dot/dotChat.logic.test.ts
+          src/workerChatStore.test.ts
           src/components/settings/settingsSearch.test.ts src/components/Sidebar.logic.test.ts
       - name: Lint the covered code
         run: >-

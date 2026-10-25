@@ -2158,7 +2158,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       assert.equal(response.status, 302);
       assert.equal(response.headers.location, "http://127.0.0.1:5173/foo/bar?token=test-token");
-      for (const pathname of ["/dot/not-found", "/oauth/not-found"]) {
+      for (const pathname of ["/oauth/not-found"]) {
         const backendUrl = yield* getHttpServerUrl(pathname);
         const backendResponse = yield* fetchEffect(backendUrl, { redirect: "manual" });
         assert.equal(backendResponse.status, 404);
@@ -2413,31 +2413,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         "relay:write",
       ]);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
-  );
-
-  it.effect(
-    "serves Dot connection administration through the composed routes with separate MCP credentials",
-    () =>
-      Effect.gen(function* () {
-        yield* buildAppUnderTest();
-        const url = yield* getHttpServerUrl("/api/dot/connections");
-        assert.equal((yield* fetchEffect(url)).status, 401);
-        const { body } = yield* exchangeAccessToken();
-        const response = yield* fetchEffect(url, {
-          headers: { authorization: `Bearer ${body.access_token ?? ""}` },
-        });
-        assert.equal(response.status, 200);
-        assert.equal(response.headers["cache-control"], "no-store");
-        assert.deepEqual(yield* responseJsonEffect(response), []);
-        const mcpUrl = yield* getHttpServerUrl("/dot/mcp");
-        assert.equal(
-          (yield* fetchEffect(mcpUrl, {
-            method: "POST",
-            headers: { authorization: `Bearer ${body.access_token ?? ""}` },
-          })).status,
-          401,
-        );
-      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
   it.effect("replaces the local desktop credential on repeated bootstrap exchanges", () =>

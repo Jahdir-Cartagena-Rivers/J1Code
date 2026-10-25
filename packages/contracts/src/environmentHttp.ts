@@ -8,20 +8,6 @@ import * as HttpApiMiddleware from "effect/unstable/httpapi/HttpApiMiddleware";
 import * as HttpServerRespondable from "effect/unstable/http/HttpServerRespondable";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import {
-  CreateDotConnectionInput,
-  DotConnection,
-  DotIntegrationError,
-  IssuedDotConnection,
-  DotOAuthSetup,
-  DotChatQuery,
-  DotChatSnapshot,
-  DotChatMessage,
-  DotChatSendInput,
-  DotChatWaitInput,
-  DotChatUpdate,
-} from "./dot.ts";
-
-import {
   AuthAccessTokenResult,
   AuthBrowserSessionRequest,
   AuthBrowserSessionResult,
@@ -629,81 +615,9 @@ class EnvironmentConnectHttpApi extends HttpApiGroup.make("connect")
     }),
   ) {}
 
-class EnvironmentDotHttpApi extends HttpApiGroup.make("dot")
-  .add(
-    HttpApiEndpoint.get("chat", "/api/dot/chat", {
-      headers: OptionalBearerHeaders,
-      query: DotChatQuery,
-      success: DotChatSnapshot,
-      error: [...EnvironmentScopedOperationErrors, DotIntegrationError],
-    }).middleware(EnvironmentAuthenticatedAuth),
-  )
-  .add(
-    HttpApiEndpoint.post("sendChat", "/api/dot/chat/send", {
-      headers: OptionalBearerHeaders,
-      payload: DotChatSendInput,
-      success: DotChatMessage,
-      error: [...EnvironmentScopedOperationErrors, DotIntegrationError],
-    }).middleware(EnvironmentAuthenticatedAuth),
-  )
-  .add(
-    HttpApiEndpoint.post("waitChat", "/api/dot/chat/wait", {
-      headers: OptionalBearerHeaders,
-      payload: DotChatWaitInput,
-      success: DotChatUpdate,
-      error: [...EnvironmentScopedOperationErrors, DotIntegrationError],
-    }).middleware(EnvironmentAuthenticatedAuth),
-  )
-  .add(
-    HttpApiEndpoint.get("oauthSetup", "/api/dot/oauth-setup", {
-      headers: OptionalBearerHeaders,
-      success: Schema.NullOr(DotOAuthSetup),
-      error: [...EnvironmentScopedOperationErrors, DotIntegrationError],
-    }).middleware(EnvironmentAuthenticatedAuth),
-  )
-  .add(
-    HttpApiEndpoint.post("configureOAuth", "/api/dot/oauth-setup", {
-      headers: OptionalBearerHeaders,
-      payload: DotOAuthSetup,
-      success: DotOAuthSetup,
-      error: [...EnvironmentScopedOperationErrors, DotIntegrationError],
-    }).middleware(EnvironmentAuthenticatedAuth),
-  )
-  .add(
-    HttpApiEndpoint.get("connections", "/api/dot/connections", {
-      headers: OptionalBearerHeaders,
-      success: Schema.Array(DotConnection),
-      error: [...EnvironmentScopedOperationErrors, DotIntegrationError],
-    }).middleware(EnvironmentAuthenticatedAuth),
-  )
-  .add(
-    HttpApiEndpoint.get("projects", "/api/dot/projects", {
-      headers: OptionalBearerHeaders,
-      success: Schema.Array(Schema.Struct({ id: ProjectId, title: Schema.String })),
-      error: [...EnvironmentScopedOperationErrors, DotIntegrationError],
-    }).middleware(EnvironmentAuthenticatedAuth),
-  )
-  .add(
-    HttpApiEndpoint.post("createConnection", "/api/dot/connections", {
-      headers: OptionalBearerHeaders,
-      payload: CreateDotConnectionInput,
-      success: IssuedDotConnection,
-      error: [...EnvironmentScopedOperationErrors, DotIntegrationError],
-    }).middleware(EnvironmentAuthenticatedAuth),
-  )
-  .add(
-    HttpApiEndpoint.post("revokeConnection", "/api/dot/connections/revoke", {
-      headers: OptionalBearerHeaders,
-      payload: Schema.Struct({ id: TrimmedNonEmptyString }),
-      success: Schema.Struct({ revoked: Schema.Boolean }),
-      error: [...EnvironmentScopedOperationErrors, DotIntegrationError],
-    }).middleware(EnvironmentAuthenticatedAuth),
-  ) {}
-
 export class EnvironmentHttpApi extends HttpApi.make("environment")
   .add(EnvironmentMetadataHttpApi)
   .add(EnvironmentAuthHttpApi)
   .add(EnvironmentOrchestrationHttpApi)
   .add(EnvironmentPullRequestsHttpApi)
-  .add(EnvironmentConnectHttpApi)
-  .add(EnvironmentDotHttpApi) {}
+  .add(EnvironmentConnectHttpApi) {}

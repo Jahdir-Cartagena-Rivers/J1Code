@@ -55,7 +55,6 @@ import {
   MoonIcon,
   PaletteIcon,
   SettingsIcon,
-  CircleDotIcon,
   SquarePenIcon,
   SunIcon,
   TextSearchIcon,
@@ -2043,17 +2042,6 @@ function OpenCommandPaletteDialog(props: {
     shortcutCommand: "usage.open",
     run: async () => {
       await navigate({ to: "/usage" });
-    },
-  });
-
-  actionItems.push({
-    kind: "action",
-    value: "action:dot",
-    searchTerms: ["dot", "chatgpt", "chat"],
-    title: "Open Dot chat",
-    icon: <CircleDotIcon className={ITEM_ICON_CLASS} />,
-    run: async () => {
-      await navigate({ to: "/dot" });
     },
   });
 
