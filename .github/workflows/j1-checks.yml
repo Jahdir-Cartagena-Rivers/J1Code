@@ -38,6 +38,8 @@ jobs:
           apps/desktop/src/updates/DesktopUpdates.test.ts
           apps/server/src/hiveMind/store.test.ts
           apps/server/src/hiveMind/importNative.test.ts
+          apps/server/src/hiveMind/livePresence.test.ts
+          apps/server/src/mcp/toolkits/hiveMind/tools.test.ts
           apps/web/src/components/desktopUpdate.logic.test.ts
           apps/mobile/src/features/settings/lib/legal-document-url.test.ts
           packages/client-runtime/src/workerChats.test.ts
@@ -66,6 +68,7 @@ jobs:
           apps/desktop/src/updates/DesktopUpdates.test.ts
           apps/server/src/hiveMind/store.ts apps/server/src/hiveMind/store.test.ts
           apps/server/src/hiveMind/importNative.test.ts
+          apps/server/src/hiveMind/livePresence.ts apps/server/src/hiveMind/livePresence.test.ts
           apps/server/src/provider/Layers/ProviderService.ts
           apps/server/src/provider/Layers/ProviderService.test.ts
           apps/server/src/provider/providerCompatibility.ts

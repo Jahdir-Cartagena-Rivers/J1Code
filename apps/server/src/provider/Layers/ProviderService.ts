@@ -64,10 +64,12 @@ import {
   acknowledgeHiveContext,
   captureHiveEvent,
   hiveEventId,
+  requestHive,
   type HiveConnection,
   type HivePacket,
 } from "../../hiveMind/backend.ts";
 import { TurnContinuity } from "../../hiveMind/turnContinuity.ts";
+import { LivePresence } from "../../hiveMind/livePresence.ts";
 import * as DeviceService from "../../device/DeviceService.ts";
 import { ensureAgentDeviceShim } from "../../device/AgentDeviceShim.ts";
 import type * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
@@ -501,6 +503,30 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     type: string;
   };
   const hiveTurns = new TurnContinuity<TurnMemory, MemoryOutcome>();
+  // Best-effort live status for other chats; a failure never affects the turn.
+  let presenceFailing = false;
+  const runLogged = Effect.runForkWith(yield* Effect.context<never>());
+  const livePresence = new LivePresence<HiveConnection>(async (connection, body) => {
+    try {
+      await requestHive(connection, "/v1/presence", body);
+      presenceFailing = false;
+    } catch (error) {
+      if (!presenceFailing) {
+        presenceFailing = true;
+        runLogged(
+          Effect.logWarning("Hive Mind live status could not be reported", {
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      }
+      throw error;
+    }
+  });
+  yield* Effect.sync(() => livePresence.heartbeat()).pipe(
+    Effect.delay("30 seconds"),
+    Effect.forever,
+    Effect.forkScoped,
+  );
   const persistHiveOutcome = (
     threadId: string,
     entry: { memory: TurnMemory; outcome: MemoryOutcome },
@@ -1214,6 +1240,9 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       const canonicalEvent = yield* Effect.sync(() =>
         correlateRuntimeEventWithInstance(source, event),
       );
+      livePresence.observe(canonicalEvent.threadId, canonicalEvent);
+      if (canonicalEvent.type === "turn.completed" || canonicalEvent.type === "turn.aborted")
+        livePresence.finish(canonicalEvent.threadId);
       if (
         ["turn.completed", "turn.aborted", "runtime.error"].includes(canonicalEvent.type) &&
         canonicalEvent.turnId !== undefined
@@ -1279,6 +1308,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           );
         }
       } else if (canonicalEvent.type === "session.exited") {
+        livePresence.end(canonicalEvent.threadId);
         hiveTurns.forget(canonicalEvent.threadId, source.instanceId);
         yield* clearTurnAnalyticsSession(source.instanceId, canonicalEvent.threadId);
       }
@@ -1849,11 +1879,13 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       );
     }
 
+    let threadTitle: string | undefined;
     if (inputTextWithAttachmentContext) {
       const memoryProjects = yield* Effect.gen(function* () {
         if (Option.isNone(projectionQuery)) return [];
         const thread = yield* projectionQuery.value.getThreadShellById(parsed.threadId);
         if (Option.isNone(thread)) return [];
+        threadTitle = thread.value.title;
         const project = yield* projectionQuery.value.getProjectShellById(thread.value.projectId);
         if (Option.isNone(project)) return [];
         return [project.value.title, pathService.basename(project.value.workspaceRoot)];
@@ -2009,6 +2041,15 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
             const finishMemoryAdmission = memoryForTurn
               ? hiveTurns.begin(input.threadId, routed.instanceId)
               : () => {};
+            // Announce before admission: terminal events can arrive before sendTurn returns.
+            if (memoryForTurn)
+              livePresence.begin(input.threadId, {
+                connection: memoryForTurn.connection,
+                provider: routed.adapter.provider,
+                project: memoryForTurn.project,
+                ...(threadTitle ? { title: threadTitle } : {}),
+                ...(memoryForTurn.packet.taskId ? { taskId: memoryForTurn.packet.taskId } : {}),
+              });
             const turn = yield* routed.adapter.sendTurn(input).pipe(
               Effect.tap((accepted) =>
                 memoryForTurn
@@ -2025,6 +2066,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
                   : Effect.void,
               ),
               Effect.ensuring(Effect.sync(finishMemoryAdmission)),
+              Effect.tapError(() => Effect.sync(() => livePresence.end(input.threadId))),
               Effect.tapError((error) =>
                 analytics.record("provider.turn.rejected", {
                   provider: routed.adapter.provider,

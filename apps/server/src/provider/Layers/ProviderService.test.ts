@@ -1360,6 +1360,31 @@ externalMemoryRouting.layer("external memory provider boundary", (it) => {
             ),
           );
           assert.isFalse(NodeFS.existsSync(NodePath.join(config.stateDir, "hive-mind.json")));
+          const presence = () =>
+            received.filter((r) => r.path === "/v1/presence").map((r) => r.body);
+          assert.deepInclude(presence()[0], {
+            chatId: "external-reference-chat",
+            provider: CODEX_DRIVER,
+            status: "working",
+          });
+          // The provider ending the turn is what flips the chat to idle for everyone else.
+          const turnId = externalMemoryRouting.codex.sendTurn.mock.results[0]?.value?.turnId;
+          yield* Effect.sync(() =>
+            externalMemoryRouting.codex.emit({
+              type: "turn.completed",
+              eventId: asEventId("evt-external-presence-complete"),
+              provider: CODEX_DRIVER,
+              createdAt: "2026-01-01T00:00:00.000Z",
+              threadId,
+              turnId,
+              payload: { state: "completed" },
+            }),
+          );
+          for (let attempt = 0; attempt < 40 && presence().at(-1)?.status !== "idle"; attempt++)
+            // Presence is sent by real fetch promises, which the test clock cannot advance.
+            // @effect-diagnostics-next-line globalTimers:off
+            yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
+          assert.equal(presence().at(-1)?.status, "idle");
           yield* provider.stopSession({ threadId });
         }).pipe(
           Effect.ensuring(
