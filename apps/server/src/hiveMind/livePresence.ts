@@ -66,6 +66,7 @@ export function stepLabel(event: {
 
 export class LivePresence<Connection> {
   private readonly live = new Map<string, Live<Connection>>();
+  private readonly pending = new Map<string, Promise<unknown>>();
   private readonly send: (
     connection: Connection,
     body: Record<string, unknown>,
@@ -81,12 +82,23 @@ export class LivePresence<Connection> {
     this.now = now;
     this.onError = onError;
   }
+  private report(chatId: string, connection: Connection, body: Record<string, unknown>) {
+    // Preserve lifecycle order even when a heartbeat is still in flight at completion.
+    // Each chat has its own queue so a slow connection cannot hold up other chats.
+    const send = () => this.send(connection, body).catch(this.onError);
+    const previous = this.pending.get(chatId);
+    const next = previous ? previous.then(send) : send();
+    this.pending.set(chatId, next);
+    void next.then(() => {
+      if (this.pending.get(chatId) === next) this.pending.delete(chatId);
+    });
+  }
   private push(chatId: string, entry: Live<Connection>) {
     entry.sentAt = this.now();
     entry.sentStep = entry.step;
     entry.sentStatus = entry.status;
     const { target } = entry;
-    this.send(target.connection, {
+    this.report(chatId, target.connection, {
       chatId,
       provider: target.provider,
       status: entry.status,
@@ -94,7 +106,7 @@ export class LivePresence<Connection> {
       ...(target.title ? { title: target.title } : {}),
       ...(target.project ? { project: target.project } : {}),
       ...(target.taskId ? { taskId: target.taskId } : {}),
-    }).catch(this.onError);
+    });
   }
   /** A turn was accepted for this chat. */
   begin(chatId: string, target: PresenceTarget<Connection>) {
@@ -137,7 +149,7 @@ export class LivePresence<Connection> {
     const entry = this.live.get(chatId);
     if (!entry) return;
     this.live.delete(chatId);
-    this.send(entry.target.connection, { action: "end", chatId }).catch(this.onError);
+    this.report(chatId, entry.target.connection, { action: "end", chatId });
   }
   /** Keeps long silent steps from expiring; call about every 30 seconds. */
   heartbeat() {
@@ -145,5 +157,9 @@ export class LivePresence<Connection> {
       if (this.now() - entry.touchedAt >= STALE_MS) this.end(chatId);
       else if (this.now() - entry.sentAt >= HEARTBEAT_MS) this.push(chatId, entry);
     }
+  }
+  /** Wait for reports already accepted by this reporter, without delaying provider turns. */
+  async flush() {
+    while (this.pending.size > 0) await Promise.all(this.pending.values());
   }
 }
