@@ -130,6 +130,112 @@ const hasMetricSnapshot = (
   );
 
 describe("OrchestrationEngine", () => {
+  it("archives and restores saved worker descendants atomically after a restart", async () => {
+    const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-worker-archive-"));
+    const databasePath = NodePath.join(directory, "state.sqlite");
+    const projectId = ProjectId.make("worker-archive-project");
+    let system = await createOrchestrationSystem(databasePath);
+    const archive = (
+      id: string,
+      commandId: string,
+      type: "thread.archive" | "thread.unarchive" = "thread.archive",
+    ) =>
+      system.run(
+        system.engine.dispatch({
+          type,
+          threadId: ThreadId.make(id),
+          commandId: CommandId.make(commandId),
+        }),
+      );
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.make("worker-project"),
+          projectId,
+          title: "Workers",
+          workspaceRoot: directory,
+          defaultModelSelection: null,
+          createdAt: now(),
+        }),
+      );
+      for (const id of ["parent", "child", "grandchild", "earlier", "unrelated"]) {
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.make(`create-${id}`),
+            threadId: ThreadId.make(id),
+            projectId,
+            title: id,
+            modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: now(),
+          }),
+        );
+      }
+      for (const [id, parentThreadId] of [
+        ["child", "parent"],
+        ["grandchild", "child"],
+        ["earlier", "parent"],
+      ]) {
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.activity.append",
+            commandId: CommandId.make(`link-${id}`),
+            threadId: ThreadId.make(id!),
+            createdAt: now(),
+            activity: {
+              id: EventId.make(`link-${id}`),
+              kind: "agent.delegation",
+              summary: "Worker",
+              tone: "info",
+              turnId: null,
+              createdAt: now(),
+              payload: { version: 1, threadId: id, parentThreadId },
+            },
+          }),
+        );
+      }
+      await archive("earlier", "archive-earlier");
+      const earlierTimestamp = (await system.readModel()).threads.find(
+        (t) => t.id === "earlier",
+      )!.archivedAt;
+      await system.dispose();
+      system = await createOrchestrationSystem(databasePath);
+      const receipt = await archive("parent", "archive-parent");
+      let threads = (await system.readModel()).threads;
+      const parentTimestamp = threads.find((t) => t.id === "parent")!.archivedAt;
+      expect(parentTimestamp).not.toBeNull();
+      for (const id of ["parent", "child", "grandchild"]) {
+        expect(threads.find((t) => t.id === id)!.archivedAt).toBe(parentTimestamp);
+      }
+      expect(threads.find((t) => t.id === "unrelated")!.archivedAt).toBeNull();
+      expect(await archive("parent", "archive-parent")).toEqual(receipt);
+      await expect(archive("parent", "archive-parent-again")).rejects.toBeDefined();
+      await expect(archive("missing", "archive-missing")).rejects.toBeDefined();
+      await system.dispose();
+      system = await createOrchestrationSystem(databasePath);
+      await archive("parent", "restore-parent", "thread.unarchive");
+      threads = (await system.readModel()).threads;
+      for (const id of ["parent", "child", "grandchild", "unrelated"]) {
+        expect(threads.find((t) => t.id === id)!.archivedAt).toBeNull();
+      }
+      expect(threads.find((t) => t.id === "earlier")!.archivedAt).toBe(earlierTimestamp);
+      // An individual worker can still be archived without hiding its parent or siblings.
+      await archive("grandchild", "archive-grandchild");
+      threads = (await system.readModel()).threads;
+      expect(threads.find((t) => t.id === "grandchild")!.archivedAt).not.toBeNull();
+      expect(threads.find((t) => t.id === "child")!.archivedAt).toBeNull();
+      expect(threads.find((t) => t.id === "parent")!.archivedAt).toBeNull();
+    } finally {
+      await system.dispose();
+      await NodeFSP.rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("refreshes imported history after restarting without re-emitting old messages", async () => {
     const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-history-restart-"));
     const databasePath = NodePath.join(directory, "state.sqlite");
@@ -509,6 +615,7 @@ describe("OrchestrationEngine", () => {
     const layer = OrchestrationEngineLive.pipe(
       Layer.provide(
         Layer.succeed(ProjectionSnapshotQuery, {
+          getWorkerDescendantIds: () => Effect.succeed([]),
           getUserInputActivity: () => Effect.die("unused"),
           listActivitiesByKind: () => Effect.die("unused"),
           getCommandReadModel: () => Effect.succeed(commandReadModel),

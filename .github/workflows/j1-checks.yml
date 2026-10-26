@@ -52,6 +52,7 @@ jobs:
           src/provider/Layers/ProviderService.test.ts
           src/provider/providerCompatibility.test.ts
           src/orchestration/Layers/ProjectionSnapshotQuery.test.ts
+          src/orchestration/Layers/OrchestrationEngine.test.ts
       - name: Test chat navigation and saved settings
         working-directory: apps/web
         run: >-

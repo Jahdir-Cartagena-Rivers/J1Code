@@ -264,6 +264,14 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         const eventBase = yield* decideOrchestrationCommand({
           command: envelope.command,
           readModel: decisionReadModel,
+          ...(envelope.command.type === "thread.archive" ||
+          envelope.command.type === "thread.unarchive"
+            ? {
+                workerDescendantIds: yield* projectionSnapshotQuery.getWorkerDescendantIds(
+                  envelope.command.threadId,
+                ),
+              }
+            : {}),
           ...(Option.isSome(userInputActivity)
             ? { userInputActivity: userInputActivity.value }
             : {}),
@@ -332,8 +340,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 
               yield* commandReceiptRepository.upsert({
                 commandId: envelope.command.commandId,
-                aggregateKind: lastSavedEvent.aggregateKind,
-                aggregateId: lastSavedEvent.aggregateId,
+                ...aggregateRef,
                 acceptedAt: lastSavedEvent.occurredAt,
                 resultSequence: lastSavedEvent.sequence,
                 status: "accepted",

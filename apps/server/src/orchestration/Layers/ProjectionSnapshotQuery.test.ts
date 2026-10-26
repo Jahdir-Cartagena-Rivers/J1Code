@@ -219,6 +219,25 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         WHERE thread_id = 'worker-navigation-child' AND kind = 'agent.delegation'
         ORDER BY created_at, activity_id LIMIT 1`;
         assert.ok(plan.some((row) => row.detail.includes("idx_projection_worker_chat_lookup")));
+        assert.deepStrictEqual(
+          yield* query.getWorkerDescendantIds(ThreadId.make("worker-navigation-parent")),
+          [ThreadId.make("worker-navigation-child"), ThreadId.make("worker-navigation-grandchild")],
+        );
+        // A corrupted cycle must terminate and never return the requested root.
+        yield* sql`INSERT INTO projection_thread_activities
+          (activity_id, thread_id, tone, kind, summary, payload_json, created_at)
+          VALUES ('worker-navigation-cycle', 'worker-navigation-parent', 'info', 'agent.delegation', 'Cycle',
+            ${encodeWorkerNavigationPayload({ version: 1, threadId: "worker-navigation-parent", parentThreadId: "worker-navigation-grandchild" })},
+            '2026-10-02T00:00:02Z')`;
+        assert.deepStrictEqual(
+          yield* query.getWorkerDescendantIds(ThreadId.make("worker-navigation-parent")),
+          [ThreadId.make("worker-navigation-child"), ThreadId.make("worker-navigation-grandchild")],
+        );
+        yield* sql`UPDATE projection_threads SET deleted_at = '2026-10-03T00:00:00Z' WHERE thread_id = 'worker-navigation-grandchild'`;
+        assert.deepStrictEqual(
+          yield* query.getWorkerDescendantIds(ThreadId.make("worker-navigation-parent")),
+          [ThreadId.make("worker-navigation-child")],
+        );
       } finally {
         yield* sql`DELETE FROM projection_thread_activities WHERE thread_id LIKE 'worker-navigation-%'`;
         yield* sql`DELETE FROM projection_threads WHERE project_id = 'worker-navigation-project'`;

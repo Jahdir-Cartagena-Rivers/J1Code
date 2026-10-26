@@ -83,6 +83,10 @@ export interface ProjectionThreadDetailQuery {
  * ProjectionSnapshotQueryShape - Service API for read-model snapshots.
  */
 export interface ProjectionSnapshotQueryShape {
+  /** Durable worker descendants, including archived workers, without loading chat bodies. */
+  readonly getWorkerDescendantIds: (
+    threadId: ThreadId,
+  ) => Effect.Effect<ReadonlyArray<ThreadId>, ProjectionRepositoryError>;
   /** Read the latest request or resolution without loading the thread history. */
   readonly getUserInputActivity: (input: {
     readonly threadId: ThreadId;

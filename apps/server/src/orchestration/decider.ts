@@ -13,6 +13,7 @@ import {
   type ThreadPullRequestKey,
   type ThreadPullRequestLink,
   type OrchestrationThreadActivity,
+  type ThreadId,
 } from "@t3tools/contracts";
 import {
   legacyLinkedPullRequestOf,
@@ -212,10 +213,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   command,
   readModel,
   userInputActivity,
+  workerDescendantIds = [],
 }: {
   readonly command: OrchestrationCommand;
   readonly readModel: OrchestrationReadModel;
   readonly userInputActivity?: OrchestrationThreadActivity;
+  readonly workerDescendantIds?: ReadonlyArray<ThreadId>;
 }): Effect.fn.Return<
   DecideOrchestrationCommandResult,
   OrchestrationCommandRejection | PlatformError.PlatformError,
@@ -433,48 +436,72 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.archive": {
-      yield* requireThreadNotArchived({
+      const parent = yield* requireThreadNotArchived({
         readModel,
         command,
         threadId: command.threadId,
       });
       const occurredAt = yield* nowIso;
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        })),
-        type: "thread.archived",
-        payload: {
-          threadId: command.threadId,
-          archivedAt: occurredAt,
-          updatedAt: occurredAt,
-        },
-      };
+      const descendants = new Set(workerDescendantIds);
+      const threads = [
+        parent,
+        ...readModel.threads.filter(
+          (thread) =>
+            thread.id !== parent.id &&
+            descendants.has(thread.id) &&
+            thread.deletedAt === null &&
+            thread.archivedAt === null,
+        ),
+      ];
+      return yield* Effect.forEach(threads, (thread) =>
+        Effect.gen(function* () {
+          return {
+            ...(yield* withEventBase({
+              aggregateKind: "thread",
+              aggregateId: thread.id,
+              occurredAt,
+              commandId: command.commandId,
+            })),
+            type: "thread.archived" as const,
+            payload: { threadId: thread.id, archivedAt: occurredAt, updatedAt: occurredAt },
+          };
+        }),
+      );
     }
 
     case "thread.unarchive": {
-      yield* requireThreadArchived({
+      const parent = yield* requireThreadArchived({
         readModel,
         command,
         threadId: command.threadId,
       });
       const occurredAt = yield* nowIso;
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        })),
-        type: "thread.unarchived",
-        payload: {
-          threadId: command.threadId,
-          updatedAt: occurredAt,
-        },
-      };
+      const descendants = new Set(workerDescendantIds);
+      // Restore the workers archived with this parent, leaving earlier archives alone.
+      const threads = [
+        parent,
+        ...readModel.threads.filter(
+          (thread) =>
+            thread.id !== parent.id &&
+            descendants.has(thread.id) &&
+            thread.deletedAt === null &&
+            thread.archivedAt === parent.archivedAt,
+        ),
+      ];
+      return yield* Effect.forEach(threads, (thread) =>
+        Effect.gen(function* () {
+          return {
+            ...(yield* withEventBase({
+              aggregateKind: "thread",
+              aggregateId: thread.id,
+              occurredAt,
+              commandId: command.commandId,
+            })),
+            type: "thread.unarchived" as const,
+            payload: { threadId: thread.id, updatedAt: occurredAt },
+          };
+        }),
+      );
     }
 
     case "thread.settle":

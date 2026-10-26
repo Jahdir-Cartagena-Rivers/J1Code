@@ -1608,6 +1608,54 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     `,
   });
 
+  const findWorkerDescendants = SqlSchema.findAll({
+    Request: ThreadIdLookupInput,
+    Result: Schema.Struct({ threadId: ThreadId }),
+    execute: ({ threadId }) => sql`
+      WITH RECURSIVE worker_links AS (
+        SELECT threads.thread_id,
+          (
+            SELECT json_extract(worker.payload_json, '$.parentThreadId')
+            FROM projection_thread_activities worker
+            WHERE worker.thread_id = threads.thread_id
+              AND worker.kind = 'agent.delegation'
+              AND CASE WHEN json_valid(worker.payload_json) THEN
+                json_extract(worker.payload_json, '$.version') = 1
+                AND json_extract(worker.payload_json, '$.threadId') = worker.thread_id
+                AND json_type(worker.payload_json, '$.parentThreadId') = 'text'
+                AND length(json_extract(worker.payload_json, '$.parentThreadId')) > 0
+                AND json_extract(worker.payload_json, '$.parentThreadId') <> worker.thread_id
+              ELSE 0 END
+            ORDER BY worker.created_at ASC, worker.activity_id ASC
+            LIMIT 1
+          ) AS parent_thread_id
+        FROM projection_threads threads
+        WHERE threads.deleted_at IS NULL
+      ), descendants(thread_id) AS (
+        SELECT thread_id FROM worker_links WHERE parent_thread_id = ${threadId}
+        UNION
+        SELECT worker.thread_id FROM worker_links worker
+        JOIN descendants parent ON worker.parent_thread_id = parent.thread_id
+      )
+      SELECT thread_id AS "threadId" FROM descendants
+      WHERE thread_id <> ${threadId}
+      ORDER BY thread_id
+    `,
+  });
+
+  const getWorkerDescendantIds: ProjectionSnapshotQueryShape["getWorkerDescendantIds"] = (
+    threadId,
+  ) =>
+    findWorkerDescendants({ threadId }).pipe(
+      Effect.map((rows) => rows.map((row) => row.threadId)),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.getWorkerDescendantIds:query",
+          "ProjectionSnapshotQuery.getWorkerDescendantIds:decodeRow",
+        ),
+      ),
+    );
+
   const listActivitiesByKind: ProjectionSnapshotQueryShape["listActivitiesByKind"] = (kind) =>
     listActivityRowsByKind({ kind }).pipe(
       Effect.map((rows) => rows.map(mapThreadActivityRow)),
@@ -3888,6 +3936,7 @@ pending_approval_requests AS (
       );
 
   return {
+    getWorkerDescendantIds,
     getCommandReadModel,
     getUserInputActivity,
     listActivitiesByKind,
