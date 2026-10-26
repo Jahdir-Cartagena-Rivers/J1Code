@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - joins the server-owned state directory for the Node-backed store.
 import * as NodePath from "node:path";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import * as ServerConfig from "../../../config.ts";
 import {
   forgetSelectedHive as forgetHiveMind,
@@ -15,6 +16,7 @@ import {
   retainHiveAttachment,
   selectedHiveConnection,
   materializeHiveImage,
+  requestHive,
 } from "../../../hiveMind/backend.ts";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";
 import { HiveMindError, HiveMindToolkit } from "./tools.ts";
@@ -71,6 +73,21 @@ export const HiveMindToolkitHandlersLive = HiveMindToolkit.toLayer(
                 String(invocation.threadId),
               );
               return { path: result.path, mimeType: result.attachment.mimeType };
+            }),
+          ),
+        ),
+      hive_mind_active_chats: () =>
+        McpInvocationContext.pipe(
+          Effect.flatMap((invocation) =>
+            fromPromise(async () => {
+              const connection = await selectedHiveConnection(filePath);
+              if (!connection)
+                throw new Error("Live chat status requires the external Hive Mind backend.");
+              return Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown))(
+                await requestHive(connection, "/v1/presence/list", {
+                  excludeChatId: String(invocation.threadId),
+                }),
+              );
             }),
           ),
         ),
