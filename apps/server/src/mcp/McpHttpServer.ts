@@ -34,6 +34,8 @@ import { PullRequestsToolkitHandlersLive } from "./toolkits/pullRequests/handler
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
 import { AgentsToolkitHandlersLive } from "./toolkits/agents/handlers.ts";
 import { AgentsToolkit } from "./toolkits/agents/tools.ts";
+import { HomeToolkit } from "./toolkits/home/tools.ts";
+import { HomeToolkitHandlersLive } from "./toolkits/home/handlers.ts";
 import { HiveMindToolkitHandlersLive } from "./toolkits/hiveMind/handlers.ts";
 import { HiveMindToolkit } from "./toolkits/hiveMind/tools.ts";
 import {
@@ -680,6 +682,7 @@ export const McpTransportLive = McpServer.layerHttp({
 }).pipe(Layer.provide(McpAuthMiddlewareLive));
 
 export const layer = Layer.mergeAll(
+  McpServer.toolkit(HomeToolkit).pipe(Layer.provide(HomeToolkitHandlersLive)),
   PreviewToolkitRegistrationLive,
   PullRequestsToolkitRegistrationLive,
   AgentsToolkitRegistrationLive,

@@ -31,6 +31,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { cn } from "../../lib/cn";
 import { EmptyState } from "../../components/EmptyState";
+import { AppText } from "../../components/AppText";
+import { RowPressable } from "../../components/RowPressable";
 import { MaterialFloatingActionButton } from "../../components/MaterialFloatingActionButton";
 import type { WorkspaceEnvironment, WorkspaceState } from "../../state/workspaceModel";
 import type { SavedRemoteConnection } from "../../lib/connection";
@@ -995,6 +997,18 @@ export function HomeScreen(props: HomeScreenProps) {
 
   return (
     <View className="flex-1 bg-screen android:bg-header">
+      {props.threads.find((thread) => thread.projectId === "j1-home" && !thread.archivedAt) ? (
+        <RowPressable
+          onPress={() => {
+            const home = props.threads.find(
+              (thread) => thread.projectId === "j1-home" && !thread.archivedAt,
+            );
+            if (home) props.onSelectThread(home);
+          }}
+        >
+          <AppText>Home chat</AppText>
+        </RowPressable>
+      ) : null}
       <View
         className={
           Platform.OS === "android"

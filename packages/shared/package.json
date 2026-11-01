@@ -363,6 +363,10 @@
     "./codexAuthHandoff": {
       "types": "./src/codexAuthHandoff.ts",
       "import": "./src/codexAuthHandoff.ts"
+    },
+    "./projectChatLinks": {
+      "types": "./src/projectChatLinks.ts",
+      "import": "./src/projectChatLinks.ts"
     }
   },
   "scripts": {

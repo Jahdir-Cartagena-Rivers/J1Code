@@ -1,4 +1,6 @@
 import { usePullRequestLinking } from "~/hooks/usePullRequestLinking";
+import { parseProjectChatLink } from "@t3tools/shared/projectChatLinks";
+import { Link } from "@tanstack/react-router";
 import { useAtomValue } from "@effect/atom-react";
 import {
   COMPOSER_CONTEXT_CLIPBOARD_MIME,
@@ -2903,6 +2905,14 @@ const CHAT_MARKDOWN_COMPONENTS = {
       );
     }
     const normalizedHref = href ? normalizeMarkdownLinkHrefKey(href) : "";
+    const projectChat = href ? parseProjectChatLink(href) : null;
+    if (projectChat) {
+      return (
+        <Link to="/$environmentId/$threadId" params={projectChat}>
+          {children}
+        </Link>
+      );
+    }
     const fileLinkMeta = normalizedHref
       ? (markdownFileLinkMetaByHref.get(normalizedHref) ??
         resolveMarkdownFileLinkMeta(normalizedHref, cwd, imageBaseDir ?? cwd))

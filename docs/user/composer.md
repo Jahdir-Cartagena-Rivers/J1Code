@@ -16,7 +16,7 @@ to keep a large paste editable in the composer instead.
 
 Attach up to 100 files per message. Each image can be up to 10 MiB, with at most
 80 MiB of images in one message. Other files, including videos, can be up to
-50 MiB each, subject to the environment's upload support and limit. The agent
+512 MiB each, subject to the environment's upload support and limit. The agent
 receives them on the environment's machine. Provider and model limits still
 apply, including images already in the conversation. A video attachment gives
 the agent a file path; it does not enable native video input.
@@ -137,7 +137,19 @@ Stashes containing uploaded files must be restored in their original environment
 Those files are retained for 24 hours. After an upload expires, restore the prompt
 and use **Attach again** or remove the missing file before sending.
 
-## Voice input on iPhone
+## Home chat
+
+Open **Home chat** in the sidebar for an ongoing general conversation. Project requests can be handed to a saved chat in the matching project; Home keeps the original conversation and gives you a link to continue there. If the destination is unclear, specify the project. Each environment has its own Home workspace. Once started, Home is also available in the mobile thread list.
+
+## Voice input
+
+On Windows desktop, use the composer's microphone to dictate a phrase into your draft. Recognition uses your default microphone and an installed Windows speech language. It finishes after a pause; click again to cancel. Review the text before sending.
+
+On Android, the microphone opens the device's speech input dialog. It prefers offline recognition, but support and network use depend on your installed speech service. Canceling leaves your draft intact. A native app rebuild is required for this control.
+
+Supported web browsers use their built-in speech recognition, which may use the browser vendor's online service. No provider API key is required.
+
+### iPhone
 
 On supported iPhones with iOS 26 or later, use the composer's microphone to record,
 then confirm to transcribe. Text is inserted where your selection was when

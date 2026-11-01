@@ -1,6 +1,6 @@
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { LinkIcon, PlusIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -8,6 +8,9 @@ import { isLocalEnvironmentDisabled } from "../localEnvironment";
 import { isElectron } from "../env";
 import { NoProjectsHero } from "../components/NoProjectsHero";
 import { sortScopedProjectsForSidebar } from "../components/Sidebar.logic";
+import { ProjectId } from "@t3tools/contracts";
+import { projectEnvironment } from "../state/projects";
+import { useAtomCommand } from "../state/use-atom-command";
 import { Button } from "../components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../components/ui/empty";
 import { SidebarInset } from "../components/ui/sidebar";
@@ -17,7 +20,9 @@ import {
   useAllEnvironmentShellsBootstrapped,
   useProjects,
   useThreadShells,
+  waitForProject,
 } from "../state/entities";
+import { usePrimaryEnvironment } from "../state/environments";
 import { useEnvironments } from "../state/environments";
 import { APP_DISPLAY_NAME } from "~/branding";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
@@ -34,58 +39,97 @@ function ChatIndexRouteView() {
   return <IndexDraftLanding />;
 }
 
-/**
- * Landing on the index route drops straight into a draft thread for the most
- * recently active project, so the first screen is a prompt instead of a dead
- * end. Falls back to an add-project hero when no project exists yet.
- */
+/** Home is a persistent conversation in an isolated environment-local workspace. */
 function IndexDraftLanding() {
   const projects = useProjects();
   const threads = useThreadShells();
   const bootstrapped = useAllEnvironmentShellsBootstrapped();
+  const environment = usePrimaryEnvironment();
   const handleNewThread = useNewThreadHandler();
+  const createProject = useAtomCommand(projectEnvironment.create);
+  const navigate = useNavigate();
   const startingRef = useRef(false);
   const [startState, setStartState] = useState({ failed: false, retryRequest: 0 });
-
-  const mostRecentProject = useMemo(
+  const root = environment?.serverConfig?.homeWorkspaceRoot;
+  const environmentId = environment?.environmentId;
+  const projectId = ProjectId.make("j1-home");
+  const legacyProject = useMemo(
     () =>
-      bootstrapped
-        ? (sortScopedProjectsForSidebar(projects, threads, "updated_at")[0] ?? null)
-        : null,
-    [bootstrapped, projects, threads],
+      root ? null : (sortScopedProjectsForSidebar(projects, threads, "updated_at")[0] ?? null),
+    [root, projects, threads],
   );
 
   useEffect(() => {
-    if (mostRecentProject === null || startingRef.current) {
-      return;
-    }
+    if (!bootstrapped || (!root && !legacyProject) || !environmentId || startingRef.current) return;
     startingRef.current = true;
-    void handleNewThread(scopeProjectRef(mostRecentProject.environmentId, mostRecentProject.id), {
-      replace: true,
-    }).catch(() => {
+    void (async () => {
+      if (!root) {
+        if (legacyProject)
+          await handleNewThread(scopeProjectRef(legacyProject.environmentId, legacyProject.id), {
+            replace: true,
+          });
+        return;
+      }
+      const project = projects.find(
+        (item) => item.id === projectId && item.environmentId === environmentId,
+      );
+      if (project && project.workspaceRoot !== root)
+        throw new Error("Home workspace does not match this environment.");
+      if (!project) {
+        const result = await createProject({
+          environmentId,
+          input: {
+            projectId,
+            title: "Home",
+            workspaceRoot: root,
+            createWorkspaceRootIfMissing: true,
+            defaultModelSelection: null,
+          },
+        });
+        if (result._tag === "Failure") throw new Error("Could not create Home.");
+        await waitForProject(scopeProjectRef(environmentId, projectId));
+      }
+      const existing = threads.find(
+        (item) =>
+          item.environmentId === environmentId && item.projectId === projectId && !item.archivedAt,
+      );
+      if (existing) {
+        await navigate({
+          to: "/$environmentId/$threadId",
+          params: { environmentId, threadId: existing.id },
+          replace: true,
+        });
+      } else {
+        await handleNewThread(scopeProjectRef(environmentId, projectId), { replace: true });
+      }
+    })().catch(() => {
       startingRef.current = false;
       setStartState((state) => ({ ...state, failed: true }));
     });
-  }, [handleNewThread, mostRecentProject, startState.retryRequest]);
+  }, [
+    bootstrapped,
+    root,
+    legacyProject,
+    environmentId,
+    projectId,
+    projects,
+    threads,
+    createProject,
+    handleNewThread,
+    navigate,
+    startState.retryRequest,
+  ]);
 
-  if (!bootstrapped) {
-    return null;
-  }
-  if (mostRecentProject !== null) {
-    return startState.failed ? (
+  if (startState.failed)
+    return (
       <DraftStartError
-        onRetry={() => {
-          setStartState((state) => ({
-            failed: false,
-            retryRequest: state.retryRequest + 1,
-          }));
-        }}
+        onRetry={() =>
+          setStartState((state) => ({ failed: false, retryRequest: state.retryRequest + 1 }))
+        }
       />
-    ) : null;
-  }
-  // First-run routing to the welcome wizard happens in FirstRunGate at the
-  // root, before this route ever renders.
-  return <NoProjectsHero />;
+    );
+  if (!root && !legacyProject && bootstrapped) return <NoProjectsHero />;
+  return null;
 }
 
 function DraftStartError({ onRetry }: { readonly onRetry: () => void }) {

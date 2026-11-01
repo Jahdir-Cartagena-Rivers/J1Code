@@ -235,18 +235,23 @@ export function DraftHeroHeadline({
   // a complete sentence too. The project picker is a control rendered inline
   // in the h1; without an explicit label its widget state bleeds into the
   // announced phrase.
-  const headingLabel = hasResolvedProject
-    ? `What should we build in ${activeProjectDisplayName}?`
-    : canChooseProject
-      ? `${activeProjectDisplayName ?? "Choose a project"} to start`
-      : "Add a project to start";
+  const isHome = activeProjectRef?.projectId === "j1-home";
+  const headingLabel = isHome
+    ? "What would you like to talk about?"
+    : hasResolvedProject
+      ? `What should we build in ${activeProjectDisplayName}?`
+      : canChooseProject
+        ? `${activeProjectDisplayName ?? "Choose a project"} to start`
+        : "Add a project to start";
 
   return (
     <h1
       aria-label={headingLabel}
       className="mx-auto w-full max-w-5xl text-center font-normal text-2xl text-foreground tracking-tight sm:text-3xl"
     >
-      {hasResolvedProject ? (
+      {isHome ? (
+        <>What would you like to talk about?</>
+      ) : hasResolvedProject ? (
         <>What should we build in {projectSelector}?</>
       ) : canChooseProject ? (
         <>{projectSelector} to start</>
