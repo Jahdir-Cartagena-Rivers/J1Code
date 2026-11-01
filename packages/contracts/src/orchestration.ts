@@ -1319,6 +1319,22 @@ const ThreadTurnStartBootstrap = Schema.Struct({
 
 export type ThreadTurnStartBootstrap = typeof ThreadTurnStartBootstrap.Type;
 
+/** Explicit J1 routing intent; a provider's model slug `auto` remains a manual selection.
+ * The task identity is reused on retries. This request grants no model capabilities.
+ */
+export const AutoRoutingRequest = Schema.Struct({
+  taskId: Schema.String.check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(100),
+    Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
+  ),
+  requestEscalation: Schema.Boolean,
+  complexity: Schema.optional(Schema.Literals(["simple", "complex", "unknown"])),
+  highRisk: Schema.optional(Schema.Boolean),
+  crossComponent: Schema.optional(Schema.Boolean),
+});
+export type AutoRoutingRequest = typeof AutoRoutingRequest.Type;
+
 export const ThreadTurnStartCommand = Schema.Struct({
   type: Schema.Literal("thread.turn.start"),
   commandId: CommandId,
@@ -1331,6 +1347,7 @@ export const ThreadTurnStartCommand = Schema.Struct({
     context: Schema.optional(OrchestrationMessageContext),
   }),
   modelSelection: Schema.optional(ModelSelection),
+  autoRouting: Schema.optional(AutoRoutingRequest),
   titleSeed: Schema.optional(TrimmedNonEmptyString),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
   interactionMode: ProviderInteractionMode.pipe(
@@ -1353,6 +1370,7 @@ const ClientThreadTurnStartCommand = Schema.Struct({
     context: Schema.optional(OrchestrationMessageContext),
   }),
   modelSelection: Schema.optional(ModelSelection),
+  autoRouting: Schema.optional(AutoRoutingRequest),
   titleSeed: Schema.optional(TrimmedNonEmptyString),
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
@@ -1661,7 +1679,26 @@ const ThreadPullRequestLinkSyncCommand = Schema.Struct({
   stack: Schema.NullOr(ThreadPullRequestStack),
 });
 
+/** Trusted server dispatch only: never add this command to the client union. */
+export const ThreadRouteDeliverCommand = Schema.Struct({
+  type: Schema.Literal("thread.route.deliver"),
+  commandId: CommandId,
+  routeId: TrimmedNonEmptyString,
+  sourceThreadId: ThreadId,
+  threadId: ThreadId,
+  messageId: MessageId,
+  originalRuntimeMode: RuntimeMode,
+  originalProviderInstanceId: ProviderInstanceId,
+  text: TrimmedNonEmptyString,
+  provenance: TrimmedNonEmptyString,
+  // Previously visited chats, captured by the trusted dispatcher.
+  visitedThreadIds: Schema.Array(ThreadId),
+  createdAt: IsoDateTime,
+});
+export type ThreadRouteDeliverCommand = typeof ThreadRouteDeliverCommand.Type;
+
 const InternalOrchestrationCommand = Schema.Union([
+  ThreadRouteDeliverCommand,
   ThreadAutoSettleCommand,
   ThreadPullRequestSyncCommand,
   ThreadPullRequestLinkSyncCommand,
@@ -1930,6 +1967,10 @@ export const ThreadTurnStartRequestedPayload = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
   modelSelection: Schema.optional(ModelSelection),
+  autoRouting: Schema.optional(AutoRoutingRequest),
+  autoSelection: Schema.optional(
+    Schema.Struct({ reason: Schema.String, resolverDurationMs: Schema.NullOr(Schema.Number) }),
+  ),
   titleSeed: Schema.optional(TrimmedNonEmptyString),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
   interactionMode: ProviderInteractionMode.pipe(
@@ -2016,6 +2057,10 @@ export const OrchestrationClientOrigin = Schema.Struct({
 export type OrchestrationClientOrigin = typeof OrchestrationClientOrigin.Type;
 
 export const OrchestrationEventMetadata = Schema.Struct({
+  routeId: Schema.optional(TrimmedNonEmptyString),
+  sourceThreadId: Schema.optional(ThreadId),
+  provenance: Schema.optional(TrimmedNonEmptyString),
+  visitedThreadIds: Schema.optional(Schema.Array(ThreadId)),
   providerTurnId: Schema.optional(TrimmedNonEmptyString),
   providerItemId: Schema.optional(ProviderItemId),
   adapterKey: Schema.optional(TrimmedNonEmptyString),

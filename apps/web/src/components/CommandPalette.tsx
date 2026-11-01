@@ -729,7 +729,11 @@ function OpenCommandPaletteDialog(props: {
   const availableSettingsSearchItems = useAvailableSettingsSearchItems();
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
-  const projects = useProjects();
+  const allProjects = useProjects();
+  const projects = useMemo(
+    () => allProjects.filter((project) => project.id !== "j1-home"),
+    [allProjects],
+  );
   const referenceThreadRef =
     pathname === "/pull-requests"
       ? environments.some(

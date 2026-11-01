@@ -167,7 +167,7 @@ export interface ThreadDetailScreenProps {
   readonly onStopThread: () => void;
   readonly onSendMessage: () => Promise<MessageId | null>;
   readonly onReconnectEnvironment: () => void;
-  readonly onUpdateThreadModelSelection: (modelSelection: ModelSelection) => void;
+  readonly onUpdateThreadModelSelection: (modelSelection: ModelSelection | null) => void;
   readonly onUpdateThreadRuntimeMode: (runtimeMode: RuntimeMode) => void;
   readonly onUpdateThreadInteractionMode: (interactionMode: ProviderInteractionMode) => void;
   readonly onRespondToApproval: (

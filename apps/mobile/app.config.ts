@@ -240,6 +240,7 @@ const config: ExpoConfig = {
       "keychain-access-groups": [`$(AppIdentifierPrefix)${variant.iosBundleIdentifier}`],
     },
     infoPlist: {
+      NSSpeechRecognitionUsageDescription: "Allow J1 Code to transcribe your voice on this device.",
       NSAppTransportSecurity: {
         NSAllowsArbitraryLoads: true,
       },

@@ -1,4 +1,13 @@
 import {
+  ManualRoutePrepareInput,
+  ManualRouteListInput,
+  ManualRouteConfirmInput,
+  ManualRouteStatusInput,
+  ManualRoutePrepared,
+  ManualRouteStatus,
+  ManualRouteActionError,
+} from "./manualRouting.ts";
+import {
   ChatGptReconnectProfileInput,
   ChatGptReconnectProfile,
   ChatGptImportProfileInput,
@@ -1475,6 +1484,26 @@ const WsHiveMindImportRpc = Rpc.make(WS_METHODS.hiveMindImport, {
   error: hiveMindRpcErrors,
 });
 export const WsRpcGroup = RpcGroup.make(
+  Rpc.make("routing.list", {
+    payload: ManualRouteListInput,
+    success: Schema.Array(ManualRouteStatus),
+    error: ManualRouteActionError,
+  }),
+  Rpc.make("routing.prepare", {
+    payload: ManualRoutePrepareInput,
+    success: ManualRoutePrepared,
+    error: ManualRouteActionError,
+  }),
+  Rpc.make("routing.confirm", {
+    payload: ManualRouteConfirmInput,
+    success: Schema.Struct({ revision: Schema.Number }),
+    error: ManualRouteActionError,
+  }),
+  Rpc.make("routing.status", {
+    payload: ManualRouteStatusInput,
+    success: ManualRouteStatus,
+    error: ManualRouteActionError,
+  }),
   WsHiveMindSnapshotRpc,
   WsHiveMindConfigureRpc,
   WsHiveMindSearchRpc,

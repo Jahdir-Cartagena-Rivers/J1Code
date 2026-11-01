@@ -6,6 +6,12 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import { OrchestrationCommand } from "@t3tools/contracts";
+import { resolveAutoModelPolicy } from "@t3tools/shared/projectSettings";
+import { classifyAutoModelRequest } from "@t3tools/shared/autoModel";
+import { ServerSettingsService } from "../../serverSettings.ts";
+import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
+import { makeAutoModelAdmission } from "../../provider/AutoModelAdmission.ts";
+import { autoModelCandidates, autoModelSelection } from "../../provider/AutoModelCandidates.ts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
@@ -17,6 +23,7 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Metric from "effect/Metric";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as PubSub from "effect/PubSub";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
@@ -83,6 +90,9 @@ function commandToAggregateRef(command: OrchestrationCommand): {
 
 const makeOrchestrationEngine = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const autoAdmission = yield* makeAutoModelAdmission;
+  const autoSettings = yield* Effect.serviceOption(ServerSettingsService);
+  const autoProviders = yield* Effect.serviceOption(ProviderRegistry);
   const eventStore = yield* OrchestrationEventStore;
   const commandReceiptRepository = yield* OrchestrationCommandReceiptRepository;
   const projectionPipeline = yield* OrchestrationProjectionPipeline;
@@ -261,9 +271,190 @@ const makeOrchestrationEngine = Effect.gen(function* () {
             };
           }
         }
+        let routeAdmissionHydrated = false;
+        if (envelope.command.type === "thread.route.deliver") {
+          // Startup's command model omits message/activity details. Re-read the
+          // destination while this queue owns admission, after prior writes.
+          const targetShell = yield* projectionSnapshotQuery.getThreadShellById(
+            envelope.command.threadId,
+          );
+          const targetDetail = yield* projectionSnapshotQuery.getThreadDetailById(
+            envelope.command.threadId,
+          );
+          if (Option.isNone(targetShell) || Option.isNone(targetDetail)) {
+            return yield* new OrchestrationCommandInvariantError({
+              commandType: envelope.command.type,
+              detail: "Route held: destination details are unavailable.",
+            });
+          }
+          if (targetShell.value.hasPendingApprovals || targetShell.value.hasPendingUserInput) {
+            return yield* new OrchestrationCommandInvariantError({
+              commandType: envelope.command.type,
+              detail: "Route held: destination is awaiting approval or user input.",
+            });
+          }
+          if (
+            targetShell.value.modelSelection.instanceId !==
+            envelope.command.originalProviderInstanceId
+          ) {
+            const instances = Option.isSome(autoProviders)
+              ? yield* autoProviders.value.getProviders
+              : [];
+            const targetProvider = instances.find(
+              (provider) => provider.instanceId === targetShell.value.modelSelection.instanceId,
+            );
+            if (
+              !targetProvider ||
+              !targetProvider.enabled ||
+              !targetProvider.installed ||
+              targetProvider.status !== "ready" ||
+              targetProvider.availability === "unavailable" ||
+              targetProvider.auth.status === "unauthenticated" ||
+              !targetProvider.models.some(
+                (model) => model.slug === targetShell.value.modelSelection.model,
+              )
+            ) {
+              return yield* new OrchestrationCommandInvariantError({
+                commandType: envelope.command.type,
+                detail: "Route held: destination provider or model is unavailable.",
+              });
+            }
+          }
+          decisionReadModel = {
+            ...commandReadModel,
+            threads: commandReadModel.threads.map((thread) =>
+              thread.id === targetDetail.value.id
+                ? {
+                    ...thread,
+                    messages: targetDetail.value.messages,
+                    activities: targetDetail.value.activities,
+                  }
+                : thread,
+            ),
+          };
+          routeAdmissionHydrated = true;
+        }
+        let admittedCommand = envelope.command;
+        let autoSelection: { reason: string; resolverDurationMs: number | null } | undefined;
+        if (admittedCommand.type === "thread.turn.start" && admittedCommand.autoRouting) {
+          const command = admittedCommand;
+          const classifiedTask = classifyAutoModelRequest(command.message.text);
+          const reject = (detail: string) =>
+            new OrchestrationCommandInvariantError({
+              commandType: command.type,
+              detail: `Auto: ${detail}`,
+            });
+          if (Option.isNone(autoSettings) || Option.isNone(autoProviders))
+            return yield* reject("provider configuration unavailable");
+          if (command.modelSelection)
+            return yield* reject("choose explicit Auto intent or a manual model, not both");
+          const detail = yield* projectionSnapshotQuery.getThreadDetailById(command.threadId);
+          if (Option.isNone(detail)) return yield* reject("thread unavailable");
+          const thread = detail.value;
+          const shell = yield* projectionSnapshotQuery.getThreadShellById(command.threadId);
+          if (
+            Option.isNone(shell) ||
+            shell.value.hasPendingApprovals ||
+            shell.value.hasPendingUserInput
+          )
+            return yield* reject("thread is awaiting approval or input");
+          if (thread.session?.activeTurnId) return yield* reject("a turn is still active");
+          const settings = yield* autoSettings.value.getSettings.pipe(
+            Effect.mapError(() => reject("settings unavailable")),
+          );
+          const policy = resolveAutoModelPolicy(settings, thread.projectId);
+          if (policy?.mode !== "auto")
+            return yield* reject("no enabled Auto policy for this project");
+          const providers = yield* autoProviders.value.getProviders;
+          const candidates = autoModelCandidates(policy, providers);
+          // Native sessions carry hidden tool/context state. Never migrate those sessions implicitly.
+          const compatible = candidates.filter(
+            (candidate) =>
+              !thread.session ||
+              candidate.ref.instanceId ===
+                (thread.session.providerInstanceId ?? thread.modelSelection.instanceId),
+          );
+          const textBytes = new TextEncoder().encode(
+            thread.messages.map((message) => message.text).join("\n") + command.message.text,
+          ).length;
+          const hasAttachments =
+            command.message.attachments.length > 0 ||
+            thread.messages.some((message) => (message.attachments?.length ?? 0) > 0);
+          const usage = thread.activities.findLast(
+            (activity) => activity.kind === "context-window.updated",
+          );
+          const usedTokens =
+            usage?.turnId === thread.latestTurn?.turnId &&
+            Predicate.isObject(usage?.payload) &&
+            Predicate.isNumber(usage.payload.usedTokens)
+              ? usage.payload.usedTokens
+              : null;
+          const requiredContextTokens = hasAttachments
+            ? null
+            : thread.session
+              ? usedTokens !== null
+                ? usedTokens + new TextEncoder().encode(command.message.text).length + 32768
+                : null
+              : textBytes + 32768;
+          const receipt = yield* autoAdmission
+            .admit({
+              threadId: command.threadId,
+              requestId: command.commandId,
+              input: {
+                defaults: {
+                  fast: candidates[0]!.ref,
+                  deep: (
+                    candidates.find(
+                      (entry) =>
+                        entry.ref.instanceId === policy.deep.instanceId &&
+                        entry.ref.modelId === policy.deep.model,
+                    ) ?? candidates[0]!
+                  ).ref,
+                },
+                candidates: compatible,
+                task: {
+                  id: command.autoRouting!.taskId,
+                  complexity: command.autoRouting!.complexity ?? classifiedTask.complexity,
+                  highRisk: command.autoRouting!.highRisk ?? classifiedTask.highRisk,
+                  crossComponent:
+                    command.autoRouting!.crossComponent ?? classifiedTask.crossComponent,
+                  requiresTools: true,
+                  requiresImages: hasAttachments,
+                  requiredContextTokens,
+                },
+                safeBoundary: true,
+                requestEscalation:
+                  command.autoRouting!.requestEscalation || classifiedTask.complexity === "complex",
+              },
+            })
+            .pipe(
+              Effect.mapError((error) =>
+                reject(
+                  "reason" in error
+                    ? `${error.reason}${"exclusions" in error && error.exclusions?.length ? ` (${error.exclusions.join("; ")})` : ""}`
+                    : "admission storage unavailable",
+                ),
+              ),
+            );
+          const selection = autoModelSelection(receipt.pin.ref, policy);
+          const snapshot = providers.find((entry) => entry.instanceId === selection.instanceId);
+          if (
+            thread.session &&
+            snapshot?.requiresNewThreadForModelChange &&
+            selection.model !== thread.modelSelection.model
+          )
+            return yield* reject("provider requires a new thread for model changes");
+          admittedCommand = { ...command, modelSelection: selection };
+          autoSelection = {
+            reason: receipt.reason,
+            resolverDurationMs: receipt.resolverDurationMs,
+          };
+        }
         const eventBase = yield* decideOrchestrationCommand({
-          command: envelope.command,
+          command: admittedCommand,
           readModel: decisionReadModel,
+          ...(autoSelection ? { autoSelection } : {}),
+          ...(routeAdmissionHydrated ? { routeAdmissionHydrated: true } : {}),
           ...(Option.isSome(userInputActivity)
             ? { userInputActivity: userInputActivity.value }
             : {}),

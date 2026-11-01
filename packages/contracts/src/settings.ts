@@ -54,7 +54,8 @@ const DEFAULT_DIFF_LAYOUT: DiffLayout = "stacked";
 
 export const SidebarProjectSortOrder = Schema.Literals(["updated_at", "created_at", "manual"]);
 export type SidebarProjectSortOrder = typeof SidebarProjectSortOrder.Type;
-export const DEFAULT_SIDEBAR_PROJECT_SORT_ORDER: SidebarProjectSortOrder = "updated_at";
+// Project position is intentional: new activity must not reshuffle a person's workspace.
+export const DEFAULT_SIDEBAR_PROJECT_SORT_ORDER: SidebarProjectSortOrder = "manual";
 
 export const SidebarThreadSortOrder = Schema.Literals(["updated_at", "created_at"]);
 export type SidebarThreadSortOrder = typeof SidebarThreadSortOrder.Type;
@@ -1020,7 +1021,38 @@ export const WorktreeCleanup = Schema.NullOr(
 );
 export type WorktreeCleanup = typeof WorktreeCleanup.Type;
 
+/** Unknown is explicit: absence must never be interpreted as supported. */
+export const AutoModelCapabilities = Schema.Struct({
+  tools: Schema.optionalKey(Schema.Union([Schema.Boolean, Schema.Literal("unknown")])),
+  images: Schema.optionalKey(Schema.Union([Schema.Boolean, Schema.Literal("unknown")])),
+  contextWindow: Schema.optionalKey(
+    Schema.Union([Schema.Int.check(Schema.isGreaterThan(0)), Schema.Literal("unknown")]),
+  ),
+});
+export type AutoModelCapabilities = typeof AutoModelCapabilities.Type;
+
+/** Opt-in routing policy, independent of any provider's model named `auto`. */
+export const AutoModelPolicy = Schema.Union([
+  Schema.Struct({ mode: Schema.Literals(["manual", "disabled"]) }),
+  Schema.Struct({
+    mode: Schema.Literal("auto"),
+    fast: ModelSelection,
+    deep: ModelSelection,
+    capabilities: Schema.optionalKey(
+      Schema.Struct({
+        fast: Schema.optionalKey(AutoModelCapabilities),
+        deep: Schema.optionalKey(AutoModelCapabilities),
+      }),
+    ),
+  }),
+]);
+export type AutoModelPolicy = typeof AutoModelPolicy.Type;
+
+export const ChatRoutingMode = Schema.Literals(["off", "suggest", "auto"]);
+export type ChatRoutingMode = typeof ChatRoutingMode.Type;
+
 export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
+  "autoModelPolicy",
   "worktreeCleanup",
   "defaultModelSelection",
   "defaultRuntimeMode",
@@ -1048,6 +1080,7 @@ export type ProjectScopedServerSettingKey = (typeof PROJECT_SCOPED_SERVER_SETTIN
  * model, no dedicated writer model, never auto-settle).
  */
 export const ProjectSettingsOverrides = Schema.Struct({
+  autoModelPolicy: Schema.optionalKey(Schema.NullOr(AutoModelPolicy)),
   worktreeCleanup: Schema.optionalKey(WorktreeCleanup),
   defaultModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   defaultRuntimeMode: Schema.optionalKey(RuntimeMode),
@@ -1083,6 +1116,7 @@ const NULLABLE_PROJECT_SETTINGS_OVERRIDES: ReadonlySet<ProjectScopedServerSettin
     [K in ProjectScopedServerSettingKey]: null extends ProjectSettingsOverrides[K] ? K : never;
   }[ProjectScopedServerSettingKey]
 >([
+  "autoModelPolicy",
   "defaultModelSelection",
   "sourceControlWriterModelSelection",
   "pullRequestMergeMethod",
@@ -1102,6 +1136,12 @@ export const StorageCleanupSettings = Schema.Struct({
 export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
 
 export const ServerSettings = Schema.Struct({
+  chatRoutingMode: ChatRoutingMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed("suggest" as const)),
+  ),
+  autoModelPolicy: Schema.NullOr(AutoModelPolicy).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   liveAgentHistory: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   worktreeCleanup: WorktreeCleanup.pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   storageCleanup: StorageCleanupSettings.pipe(
@@ -1464,6 +1504,8 @@ const OpenCodeSettingsPatch = Schema.Struct({
 });
 
 export const ServerSettingsPatch = Schema.Struct({
+  chatRoutingMode: Schema.optionalKey(ChatRoutingMode),
+  autoModelPolicy: Schema.optionalKey(Schema.NullOr(AutoModelPolicy)),
   worktreeCleanup: Schema.optionalKey(
     Schema.NullOr(
       Schema.Union([

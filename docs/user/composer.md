@@ -143,11 +143,11 @@ Open **Home chat** in the sidebar for an ongoing general conversation. Project r
 
 ## Voice input
 
-On Windows desktop, use the composer's microphone to dictate a phrase into your draft. Recognition uses your default microphone and an installed Windows speech language. It finishes after a pause; click again to cancel. Review the text before sending.
+On Windows desktop, use the composer's microphone to dictate with your default microphone and an installed Windows speech language. The text and microphone level appear while you speak. Choose **Finish dictation** to add the recognized text to your draft, or **Cancel dictation** to discard it. Review the text before sending.
 
 On Android, the microphone opens the device's speech input dialog. It prefers offline recognition, but support and network use depend on your installed speech service. Canceling leaves your draft intact. A native app rebuild is required for this control.
 
-Supported web browsers use their built-in speech recognition, which may use the browser vendor's online service. No provider API key is required.
+Supported web browsers use their built-in speech recognition, which may use the browser vendor's online service. Interim words appear while you speak; finish to add the recognized text to your draft. No provider API key is required.
 
 ### iPhone
 
@@ -227,6 +227,33 @@ open in the same file screen as workspace files; its menu holds **Copy contents*
 share** and **Open in file viewer**. Pictures, videos and PDFs keep their native viewers, and
 other document formats such as Word or Pages open in the device's own viewer when it has one.
 If nothing on the device can show a format, save or share it to open it elsewhere.
+
+## Automatic model selection
+
+In **Settings → Providers** on web or desktop, choose a fast model and a deep-work
+model and enable **Auto**. On mobile, use **Settings → Agent behavior**. Project
+preferences override environment defaults. Choose models that support agent tools;
+when context capacity is not reported, enter the model's documented token limit.
+
+Select **Auto** in the composer to use those preferences, or pick a model manually.
+Auto keeps a task's model stable and can escalate substantial work. The chat records
+the selected model and reason. If Auto cannot establish that a request fits—such as
+an attachment or an existing session without current context usage—choose a model
+manually. Switching an existing session to another provider is not supported by Auto.
+
+## Routing requests between conversations
+
+Each environment has one persistent **Home** conversation above the project list.
+Project chats can route requests too. Set routing to **Off**, **Suggest**, or **Auto**
+in Providers settings on web or desktop, or Agent behavior on mobile. Auto sends
+directly only when there is a clear task owner. Otherwise, choose the destination
+and confirm under **Request routing** in the source chat.
+
+The source conversation stays available. Follow the destination link to continue
+the work, and refresh Request routing to check progress. Queued, delivered,
+accepted, and completed are separate states: delivery does not mean the receiving
+agent has incorporated the request. A busy chat receives the request at a safe
+boundary; routing never interrupts its current turn or grants broader permissions.
 
 ## Images and videos in messages
 

@@ -1687,6 +1687,15 @@ export function NewTaskDraftScreen(props: {
                     onPickFiles={handlePickFiles}
                   />
                   <View className="min-w-0 flex-1 flex-row items-center justify-end gap-2">
+                    {flow.autoModelEnabled && (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Use automatic model selection"
+                        onPress={() => flow.setSelectedModelKey(null)}
+                      >
+                        <Text className="text-xs text-foreground">Auto</Text>
+                      </Pressable>
+                    )}
                     <View className="min-w-0 shrink">
                       <ComposerInlineControl
                         accessibilityLabel="Model and reasoning settings"
@@ -1698,7 +1707,11 @@ export function NewTaskDraftScreen(props: {
                             size={size}
                           />
                         )}
-                        label={flow.selectedModelOption?.label ?? "Choose model"}
+                        label={
+                          flow.autoModelSelected
+                            ? "Auto"
+                            : (flow.selectedModelOption?.label ?? "Choose model")
+                        }
                         maxWidth="100%"
                         onPress={settingsSheetPresentation.open}
                       />

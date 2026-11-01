@@ -1127,6 +1127,9 @@ export type DesktopCloseBehavior = typeof DesktopCloseBehaviorSchema.Type;
 export interface DesktopBridge {
   startDictation?: (request: { requestId: string }) => Promise<string>;
   cancelDictation?: (request: { requestId: string }) => Promise<void>;
+  stopDictation?: (request: { requestId: string }) => Promise<void>;
+  getDictationText?: (request: { requestId: string }) => Promise<string>;
+  getDictationLevel?: (request: { requestId: string }) => Promise<number>;
   getAppBranding: () => DesktopAppBranding | null;
   /** Absolute path of a dropped or picked file; absent on desktop builds predating it. */
   getPathForFile?: (file: File) => string;

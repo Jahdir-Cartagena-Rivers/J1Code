@@ -20,6 +20,57 @@ const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
 
+describe("chat routing mode", () => {
+  it("defaults older settings to suggestions and preserves explicit modes", () => {
+    expect(decodeServerSettings({}).chatRoutingMode).toBe("suggest");
+    for (const mode of ["off", "suggest", "auto"]) {
+      expect(decodeServerSettingsPatch({ chatRoutingMode: mode }).chatRoutingMode).toBe(mode);
+    }
+    expect(() => decodeServerSettingsPatch({ chatRoutingMode: "unknown" })).toThrow();
+  });
+});
+
+describe("Auto model policy settings", () => {
+  const policy = {
+    mode: "auto",
+    fast: { instanceId: "codex-work", model: "auto", options: [{ id: "effort", value: "low" }] },
+    deep: {
+      instanceId: "codex-personal",
+      model: "deep",
+      options: [{ id: "effort", value: "high" }],
+    },
+    capabilities: { fast: { tools: true, images: "unknown", contextWindow: "unknown" } },
+  };
+
+  it("decodes old settings without opting into Auto", () => {
+    expect(decodeServerSettings({}).autoModelPolicy).toBeNull();
+    expect(decodeServerSettingsPatch({})).not.toHaveProperty("autoModelPolicy");
+  });
+
+  it("round trips exact instances, provider model slugs, options and unknown facts", () => {
+    const input = {
+      autoModelPolicy: policy,
+      projectSettingsOverrides: { project: { autoModelPolicy: policy } },
+    };
+    expect(encodeServerSettings(decodeServerSettings(input))).toMatchObject(input);
+    expect(decodeServerSettingsPatch(input)).toEqual(input);
+  });
+
+  it("accepts manual, disabled and null and requires a complete Auto pair", () => {
+    for (const autoModelPolicy of [null, { mode: "manual" }, { mode: "disabled" }]) {
+      expect(decodeServerSettingsPatch({ autoModelPolicy })).toEqual({ autoModelPolicy });
+    }
+    expect(() =>
+      decodeServerSettingsPatch({ autoModelPolicy: { mode: "auto", fast: policy.fast } }),
+    ).toThrow();
+    expect(() =>
+      decodeServerSettingsPatch({
+        autoModelPolicy: { ...policy, capabilities: { fast: { contextWindow: 0 } } },
+      }),
+    ).toThrow();
+  });
+});
+
 describe("worker chat presentation settings", () => {
   it("enables folding for existing installations and persists the opt-out", () => {
     expect(decodeClientSettings({}).workerChatsInSidebar).toBe(true);

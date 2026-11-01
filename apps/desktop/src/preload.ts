@@ -65,6 +65,9 @@ function unwrapEnsureSshEnvironmentResult(result: unknown) {
 contextBridge.exposeInMainWorld("desktopBridge", {
   startDictation: (request) => ipcRenderer.invoke("desktop:dictation-start", request),
   cancelDictation: (request) => ipcRenderer.invoke("desktop:dictation-cancel", request),
+  stopDictation: (request) => ipcRenderer.invoke("desktop:dictation-stop", request),
+  getDictationText: (request) => ipcRenderer.invoke("desktop:dictation-text", request),
+  getDictationLevel: (request) => ipcRenderer.invoke("desktop:dictation-level", request),
   getAppBranding: () => {
     const result = ipcRenderer.sendSync(IpcChannels.GET_APP_BRANDING_CHANNEL);
     if (typeof result !== "object" || result === null) {

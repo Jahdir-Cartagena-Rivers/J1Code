@@ -19,7 +19,7 @@ import * as Order from "effect/Order";
 import { scopedProjectKey } from "../../lib/scopedEntities";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 
-export type HomeProjectSortOrder = Exclude<SidebarProjectSortOrder, "manual">;
+export type HomeProjectSortOrder = SidebarProjectSortOrder;
 
 export interface HomeProjectScope {
   readonly key: string;
@@ -29,9 +29,22 @@ export interface HomeProjectScope {
   readonly projectRefs: ReadonlyArray<ScopedProjectRef>;
 }
 
+export function selectHomeThread(
+  threads: ReadonlyArray<EnvironmentThreadShell>,
+  environmentId: EnvironmentId | null,
+) {
+  return threads
+    .filter(
+      (thread) =>
+        thread.projectId === "j1-home" &&
+        (environmentId === null || thread.environmentId === environmentId),
+    )
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0];
+}
+
 function getProjectSortTimestamp(
   project: EnvironmentProject,
-  sortOrder: HomeProjectSortOrder,
+  sortOrder: Exclude<HomeProjectSortOrder, "manual">,
 ): number {
   return sortOrder === "created_at"
     ? (toSortableTimestamp(project.createdAt) ?? Number.NEGATIVE_INFINITY)
@@ -46,7 +59,9 @@ export function buildHomeProjectScopes(input: {
   readonly projectGroupingMode: SidebarProjectGroupingMode;
 }): ReadonlyArray<HomeProjectScope> {
   const projects = input.projects.filter(
-    (project) => input.environmentId === null || project.environmentId === input.environmentId,
+    (project) =>
+      project.id !== "j1-home" &&
+      (input.environmentId === null || project.environmentId === input.environmentId),
   );
   return buildProjectGroups({
     projects,
@@ -71,6 +86,9 @@ export function sortHomeProjectScopes(input: {
   readonly pendingTasks: ReadonlyArray<PendingNewTask>;
   readonly projectSortOrder: HomeProjectSortOrder;
 }): ReadonlyArray<HomeProjectScope> {
+  // The project list has an intentional stable order. Thread activity still
+  // orders threads within each project, but never moves its project heading.
+  if (input.projectSortOrder === "manual") return input.scopes;
   const scopeKeyByProjectRef = new Map(
     input.scopes.flatMap((scope) =>
       scope.projectRefs.map(
@@ -102,6 +120,8 @@ export function sortHomeProjectScopes(input: {
     );
   }
 
+  const sortOrder = input.projectSortOrder;
+
   return Arr.sort(
     input.scopes,
     Order.mapInput(
@@ -113,11 +133,7 @@ export function sortHomeProjectScopes(input: {
       (scope: HomeProjectScope) => ({
         timestamp:
           latestActivityByScope.get(scope.key) ??
-          Math.max(
-            ...scope.projects.map((project) =>
-              getProjectSortTimestamp(project, input.projectSortOrder),
-            ),
-          ),
+          Math.max(...scope.projects.map((project) => getProjectSortTimestamp(project, sortOrder))),
         title: scope.title,
         key: scope.key,
       }),

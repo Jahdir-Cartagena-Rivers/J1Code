@@ -5,7 +5,14 @@ import { receiveProviderAuthCallback, cancelProviderAuthCallback } from "./metho
 import * as DesktopIpc from "./DesktopIpc.ts";
 import { installNotificationBadge } from "./methods/notificationBadge.ts";
 import { getClientSettings, setClientSettings } from "./methods/clientSettings.ts";
-import { startDictation, cancelDictation, installDictationLifecycle } from "./methods/dictation.ts";
+import {
+  startDictation,
+  cancelDictation,
+  stopDictation,
+  dictationText,
+  dictationLevel,
+  installDictationLifecycle,
+} from "./methods/dictation.ts";
 import {
   clearConnectionCatalog,
   getConnectionCatalog,
@@ -79,6 +86,9 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* installDictationLifecycle;
   yield* ipc.handle(startDictation);
   yield* ipc.handle(cancelDictation);
+  yield* ipc.handle(stopDictation);
+  yield* ipc.handle(dictationText);
+  yield* ipc.handle(dictationLevel);
   yield* installNotificationBadge();
   yield* PreviewIpc.installPreviewEventForwarding();
 

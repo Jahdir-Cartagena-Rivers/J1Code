@@ -403,7 +403,9 @@ export async function recoverEditedCreationAfterDelivery(
     // Only settings the queued message actually carries: spreading explicit
     // undefined would clear choices the user already made on the draft.
     updateComposerDraftSettings(draftKey, {
-      ...(kept.modelSelection !== undefined ? { modelSelection: kept.modelSelection } : {}),
+      ...(kept.modelSelection !== undefined && !kept.autoRouting
+        ? { modelSelection: kept.modelSelection }
+        : {}),
       ...(kept.runtimeMode !== undefined ? { runtimeMode: kept.runtimeMode } : {}),
       ...(kept.interactionMode !== undefined ? { interactionMode: kept.interactionMode } : {}),
     });
@@ -495,7 +497,9 @@ export async function restoreRejectedQueuedMessage(
       return "deferred";
     }
     updateComposerDraftSettings(draftKey, {
-      ...(queuedMessage.modelSelection ? { modelSelection: queuedMessage.modelSelection } : {}),
+      ...(queuedMessage.modelSelection && !queuedMessage.autoRouting
+        ? { modelSelection: queuedMessage.modelSelection }
+        : {}),
       ...(queuedMessage.runtimeMode ? { runtimeMode: queuedMessage.runtimeMode } : {}),
       ...(queuedMessage.interactionMode ? { interactionMode: queuedMessage.interactionMode } : {}),
       ...(queuedMessage.creation
@@ -780,7 +784,10 @@ export function useThreadOutboxDrain(): void {
       );
       if (!serverConfig) return false;
       const settings = resolveQueuedThreadSettings(queuedMessage, thread, serverConfig.providers);
-      if (isModelSelectionUnavailable(serverConfig, settings.modelSelection)) {
+      if (
+        !queuedMessage.autoRouting &&
+        isModelSelectionUnavailable(serverConfig, settings.modelSelection)
+      ) {
         return restoreQueuedMessage(
           queuedMessage,
           "Antigravity model unavailable. Set it up on web or desktop, or choose another model.",
@@ -788,7 +795,10 @@ export function useThreadOutboxDrain(): void {
       }
       const { reportFailure } = makeDeliveryHelpers(queuedMessage);
 
-      if (!modelSelectionsEqual(settings.modelSelection, thread.modelSelection)) {
+      if (
+        !queuedMessage.autoRouting &&
+        !modelSelectionsEqual(settings.modelSelection, thread.modelSelection)
+      ) {
         const updateResult = await updateThreadMetadata({
           environmentId: queuedMessage.environmentId,
           input: {
@@ -873,7 +883,10 @@ export function useThreadOutboxDrain(): void {
         serverEnvironment.configValueAtom(queuedMessage.environmentId),
       );
       if (!currentConfig) return false;
-      if (isModelSelectionUnavailable(currentConfig, settings.modelSelection)) {
+      if (
+        !queuedMessage.autoRouting &&
+        isModelSelectionUnavailable(currentConfig, settings.modelSelection)
+      ) {
         return restoreQueuedMessage(
           persistedMessage,
           "Antigravity model unavailable. Set it up on web or desktop, or choose another model.",
@@ -903,7 +916,9 @@ export function useThreadOutboxDrain(): void {
             ),
             attachments: prepared.attachments,
           },
-          modelSelection: sendSettings.modelSelection,
+          ...(queuedMessage.autoRouting
+            ? { autoRouting: { taskId: String(queuedMessage.threadId), requestEscalation: false } }
+            : { modelSelection: sendSettings.modelSelection }),
           runtimeMode: sendSettings.runtimeMode,
           interactionMode: sendSettings.interactionMode,
           createdAt: queuedMessage.createdAt,
@@ -957,7 +972,10 @@ export function useThreadOutboxDrain(): void {
         },
         serverConfig.providers,
       );
-      if (isModelSelectionUnavailable(serverConfig, settings.modelSelection)) {
+      if (
+        !queuedMessage.autoRouting &&
+        isModelSelectionUnavailable(serverConfig, settings.modelSelection)
+      ) {
         return restoreQueuedMessage(
           queuedMessage,
           "Antigravity model unavailable. Set it up on web or desktop, or choose another model.",
@@ -1001,7 +1019,10 @@ export function useThreadOutboxDrain(): void {
         serverEnvironment.configValueAtom(queuedMessage.environmentId),
       );
       if (!currentConfig) return false;
-      if (isModelSelectionUnavailable(currentConfig, settings.modelSelection)) {
+      if (
+        !queuedMessage.autoRouting &&
+        isModelSelectionUnavailable(currentConfig, settings.modelSelection)
+      ) {
         return restoreQueuedMessage(
           persistedMessage,
           "Antigravity model unavailable. Set it up on web or desktop, or choose another model.",
@@ -1031,6 +1052,7 @@ export function useThreadOutboxDrain(): void {
             currentConfig.environment.capabilities.inlineMessageContext === true,
           ),
           uploadedAttachments: prepared.attachments,
+          autoRouting: queuedMessage.autoRouting,
           modelSelection: sendSettings.modelSelection,
           runtimeMode: sendSettings.runtimeMode,
           interactionMode: sendSettings.interactionMode,

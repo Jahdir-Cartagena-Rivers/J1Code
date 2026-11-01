@@ -1,14 +1,21 @@
-import { MicIcon, SquareIcon } from "lucide-react";
+﻿import { MicIcon, SquareIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { newThreadId } from "../../lib/utils";
 import { Button } from "../ui/button";
 
 type Recognition = {
   lang: string;
-  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult:
+    | ((event: {
+        results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }>;
+      }) => void)
+    | null;
   onerror: ((event: { error: string }) => void) | null;
   onend: (() => void) | null;
   start(): void;
+  stop(): void;
   abort(): void;
 };
 
@@ -20,10 +27,16 @@ export function ComposerDictation(props: {
 }) {
   const { onBusyChange } = props;
   const [listening, setListening] = useState(false);
+  const [preview, setPreview] = useState("");
+  const [level, setLevel] = useState(0);
+  const [hasMeter, setHasMeter] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const latest = useRef(props);
-  latest.current = props;
+  useEffect(() => {
+    latest.current = props;
+  }, [props]);
   const cancelRef = useRef<(() => void) | null>(null);
+  const finishRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     onBusyChange(listening);
     return () => onBusyChange(false);
@@ -33,40 +46,74 @@ export function ComposerDictation(props: {
     if (props.disabled) cancelRef.current?.();
   }, [props.disabled]);
   const start = async () => {
-    if (cancelRef.current) {
-      cancelRef.current();
-      return;
-    }
-    const snapshot = props.value;
+    if (cancelRef.current) return;
     let cancelled = false;
+    let active = true;
+    let transcript = "";
+    let releaseMeter: (() => void) | undefined;
+    const update = (text: string) => {
+      transcript = text;
+      if (active && !cancelled) setPreview(text);
+    };
     const insert = (text: string) => {
       if (cancelled || latest.current.disabled) return;
-      if (latest.current.value !== snapshot) {
-        setError("The draft changed during dictation. Try again after editing.");
-        return;
-      }
+      const draft = latest.current.value;
       if (text.trim())
-        latest.current.onChange(
-          snapshot + (snapshot && !/\s$/.test(snapshot) ? " " : "") + text.trim(),
-        );
+        latest.current.onChange(draft + (draft && !/\s$/.test(draft) ? " " : "") + text.trim());
+    };
+    const cleanup = () => {
+      active = false;
+      cancelRef.current = null;
+      finishRef.current = null;
+      setListening(false);
+      setPreview("");
+      setLevel(0);
+      setHasMeter(false);
+      releaseMeter?.();
     };
     setError(null);
+    setPreview("");
     setListening(true);
     const bridge = window.desktopBridge;
-    if (bridge?.getClientPlatform?.() === "win32" && bridge.startDictation) {
+    if (
+      bridge?.getClientPlatform?.() === "win32" &&
+      bridge.startDictation &&
+      bridge.stopDictation &&
+      bridge.getDictationText
+    ) {
       const request = { requestId: newThreadId() };
+      setHasMeter(!!bridge.getDictationLevel);
+      const timer = setInterval(() => {
+        void bridge
+          .getDictationText?.(request)
+          .then(update)
+          .catch(() => {});
+        void bridge
+          .getDictationLevel?.(request)
+          .then((value) => {
+            if (active && !cancelled) setLevel(value);
+          })
+          .catch(() => {});
+      }, 350);
       cancelRef.current = () => {
         cancelled = true;
         void bridge.cancelDictation?.(request).catch(() => {});
-        setListening(false);
+      };
+      finishRef.current = () => {
+        void bridge.stopDictation?.(request).catch(() => {});
       };
       try {
         insert(await bridge.startDictation(request));
       } catch (cause) {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+        if (!cancelled) {
+          insert(transcript);
+          setError(
+            `${cause instanceof Error ? cause.message : String(cause)} Review any text already added.`,
+          );
+        }
       } finally {
-        cancelRef.current = null;
-        setListening(false);
+        clearInterval(timer);
+        cleanup();
       }
       return;
     }
@@ -76,7 +123,7 @@ export function ComposerDictation(props: {
     };
     const Constructor = browser.SpeechRecognition ?? browser.webkitSpeechRecognition;
     if (!Constructor) {
-      setListening(false);
+      cleanup();
       setError(
         "Dictation is unavailable in this browser. Use the Windows desktop app or your keyboard's dictation.",
       );
@@ -84,41 +131,158 @@ export function ComposerDictation(props: {
     }
     const recognition = new Constructor();
     recognition.lang = navigator.language;
-    recognition.onresult = (event) =>
-      insert(Array.from(event.results, (result) => result[0]?.transcript ?? "").join(" "));
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    if (navigator.mediaDevices?.getUserMedia && typeof AudioContext !== "undefined") {
+      void navigator.mediaDevices
+        .getUserMedia({ audio: true })
+        .then((stream) => {
+          if (!active) {
+            stream.getTracks().forEach((track) => track.stop());
+            return;
+          }
+          let context: AudioContext;
+          try {
+            context = new AudioContext();
+          } catch {
+            stream.getTracks().forEach((track) => track.stop());
+            return;
+          }
+          try {
+            const analyser = context.createAnalyser();
+            analyser.fftSize = 256;
+            context.createMediaStreamSource(stream).connect(analyser);
+            const samples = new Uint8Array(analyser.fftSize);
+            setHasMeter(true);
+            const timer = setInterval(() => {
+              analyser.getByteTimeDomainData(samples);
+              const rms = Math.sqrt(
+                samples.reduce((sum, sample) => sum + ((sample - 128) / 128) ** 2, 0) /
+                  samples.length,
+              );
+              setLevel(Math.min(100, rms * 300));
+            }, 250);
+            releaseMeter = () => {
+              clearInterval(timer);
+              stream.getTracks().forEach((track) => track.stop());
+              void context.close();
+            };
+          } catch {
+            stream.getTracks().forEach((track) => track.stop());
+            void context.close();
+          }
+        })
+        .catch(() => {});
+    }
+    let prior = "";
+    let currentFinal = "";
+    let finishing = false;
+    let failed = false;
+    const join = (...parts: string[]) => parts.filter(Boolean).join(" ").trim();
+    recognition.onresult = (event) => {
+      const results = Array.from(event.results);
+      currentFinal = results
+        .filter((result) => result.isFinal)
+        .map((result) => result[0]?.transcript ?? "")
+        .join(" ")
+        .trim();
+      update(
+        join(
+          prior,
+          results
+            .map((result) => result[0]?.transcript ?? "")
+            .join(" ")
+            .trim(),
+        ),
+      );
+    };
     recognition.onerror = (event) => {
-      if (!cancelled) setError(`Dictation: ${event.error}`);
+      if (event.error === "no-speech") return;
+      if (!cancelled) {
+        failed = true;
+        setError(`Dictation: ${event.error}`);
+      }
     };
     recognition.onend = () => {
-      cancelRef.current = null;
-      setListening(false);
+      prior = join(prior, currentFinal);
+      currentFinal = "";
+      if (!cancelled && !finishing && !failed) {
+        try {
+          recognition.start();
+          return;
+        } catch (cause) {
+          setError(String(cause));
+        }
+      }
+      insert(prior);
+      cleanup();
     };
     cancelRef.current = () => {
       cancelled = true;
+      active = false;
+      releaseMeter?.();
+      releaseMeter = undefined;
       recognition.abort();
-      setListening(false);
+    };
+    finishRef.current = () => {
+      finishing = true;
+      recognition.stop();
     };
     try {
       recognition.start();
     } catch (cause) {
-      cancelRef.current = null;
-      setListening(false);
+      cleanup();
       setError(String(cause));
     }
   };
   return (
     <div className="flex items-center gap-2">
+      {listening ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Cancel dictation"
+          onClick={() => cancelRef.current?.()}
+        >
+          <XIcon />
+        </Button>
+      ) : null}
       <Button
         type="button"
         variant="ghost"
         size="icon-sm"
-        disabled={props.disabled}
-        aria-label={listening ? "Cancel dictation" : "Dictate message"}
-        title={listening ? "Listening… click to cancel" : "Dictate message"}
-        onClick={() => void start()}
+        disabled={props.disabled && !listening}
+        aria-label={listening ? "Finish dictation" : "Dictate message"}
+        title={listening ? "Finish dictation" : "Dictate message"}
+        onClick={() => (listening ? finishRef.current?.() : void start())}
       >
         {listening ? <SquareIcon /> : <MicIcon />}
       </Button>
+      {listening ? (
+        <div className="flex items-center gap-2">
+          {hasMeter ? (
+            <span aria-label="Microphone level" className="flex h-4 items-center gap-px">
+              {[
+                ["a", 0.45],
+                ["b", 0.7],
+                ["c", 1],
+                ["d", 0.7],
+                ["e", 0.45],
+              ].map(([key, scale]) => (
+                <span
+                  key={key}
+                  className="w-0.5 rounded-full bg-current"
+                  style={{ height: `${Math.max(2, level * Number(scale) * 0.16)}px` }}
+                />
+              ))}
+            </span>
+          ) : null}
+          <span role="status" className="max-w-64 text-xs text-muted-foreground">
+            {preview || "Listening…"}
+          </span>
+        </div>
+      ) : null}
       {error ? (
         <span role="alert" className="max-w-64 text-xs text-destructive">
           {error}

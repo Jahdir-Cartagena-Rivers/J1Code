@@ -1,12 +1,14 @@
 import { HouseIcon, ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import { memo, useCallback } from "react";
+import { memo, useCallback, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { useEnvironments } from "../../state/environments";
-import { Button } from "../ui/button";
+import { usePrimaryEnvironment } from "../../state/environments";
+import { useThreadShells } from "../../state/entities";
+import { WorkerChatTree } from "../WorkerChats";
 import { J1Wordmark } from "../J1Wordmark";
 import {
   resolveEnvironmentIdentificationPillLabel,
@@ -63,15 +65,6 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
         className="relative top-auto z-10 translate-y-0 md:hidden"
       />
       <SidebarBrand onBackdrop={backdropVariant !== null} />
-      <div className="relative z-10">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          render={<Link to="/" aria-label="Home chat" title="Home chat" />}
-        >
-          <HouseIcon />
-        </Button>
-      </div>
       {pillLabel ? (
         <Badge
           className="relative z-10 ml-1 hidden @[15rem]/sidebar-header:inline-flex"
@@ -82,6 +75,36 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
           {pillLabel}
         </Badge>
       ) : null}
+    </div>
+  );
+});
+
+export const SidebarHomeLink = memo(function SidebarHomeLink() {
+  const environment = usePrimaryEnvironment();
+  const threads = useThreadShells();
+  const home = useMemo(
+    () =>
+      threads
+        .filter(
+          (thread) =>
+            thread.environmentId === environment?.environmentId && thread.projectId === "j1-home",
+        )
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0],
+    [environment?.environmentId, threads],
+  );
+  return (
+    <div className="px-2">
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <SidebarMenuButton render={<Link to="/" aria-label="Home chat" />}>
+            <HouseIcon />
+            <span>Home</span>
+          </SidebarMenuButton>
+          {home ? (
+            <WorkerChatTree parent={{ environmentId: home.environmentId, threadId: home.id }} />
+          ) : null}
+        </SidebarMenuItem>
+      </SidebarMenu>
     </div>
   );
 });

@@ -1,4 +1,7 @@
 import { ChatGptUsageLimitNotice } from "./ChatGptUsageLimitNotice";
+import { MobileRouteRequests } from "./MobileRouteRequests";
+import { resolveAutoModelPolicy } from "@t3tools/shared/projectSettings";
+import { useComposerDraft } from "../../state/use-composer-drafts";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { useAtomValue } from "@effect/atom-react";
@@ -150,7 +153,7 @@ export interface ThreadComposerProps {
   readonly onSendMessage: () => Promise<MessageId | null>;
   /** `/usage-limits` resolves locally; the host decides where the report shows. Null clears it. */
   readonly onShowUsageLimits: (report: UsageLimitsReport | null) => void;
-  readonly onUpdateModelSelection: (modelSelection: ModelSelection) => void;
+  readonly onUpdateModelSelection: (modelSelection: ModelSelection | null) => void;
   readonly onUpdateRuntimeMode: (runtimeMode: RuntimeMode) => void;
   readonly onUpdateInteractionMode: (interactionMode: ProviderInteractionMode) => void;
   readonly onExpandedChange?: (expanded: boolean) => void;
@@ -332,6 +335,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     );
   }, [props.serverConfig, props.selectedThread.modelSelection.instanceId]);
   const composerOwnerKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
+  const modelDraft = useComposerDraft(composerOwnerKey);
+  const autoSelected =
+    props.serverConfig != null &&
+    resolveAutoModelPolicy(props.serverConfig.settings, props.selectedThread.projectId)?.mode ===
+      "auto" &&
+    modelDraft.modelSelection === undefined;
   const openDraftDocument = (attachment: ComposerDocumentAttachment) => {
     Keyboard.dismiss();
     navigation.navigate("ThreadAttachment", {
@@ -680,6 +689,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             {selectedProviderStatus.compatibilityAdvisory.message}
           </Text>
         ) : null}
+        <MobileRouteRequests
+          key={composerOwnerKey}
+          environmentId={props.environmentId}
+          projectId={props.selectedThread.projectId}
+          threadId={props.selectedThread.id}
+        />
         {modelUnavailable ? (
           <Pressable accessibilityRole="button" className="px-3 py-2" onPress={openSettings}>
             <Text className="text-xs text-foreground">Model unavailable. Open model settings.</Text>
@@ -970,13 +985,31 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                       onPickFiles={props.onPickDraftFiles}
                     />
                     <View className="min-w-0 shrink">
+                      {props.serverConfig &&
+                        resolveAutoModelPolicy(
+                          props.serverConfig.settings,
+                          props.selectedThread.projectId,
+                        )?.mode === "auto" && (
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Use automatic model selection"
+                            onPress={() => props.onUpdateModelSelection(null)}
+                            className="px-3 py-1"
+                          >
+                            <Text className="text-xs text-foreground">Auto</Text>
+                          </Pressable>
+                        )}
                       <ComposerInlineControl
                         accessibilityLabel="Model and reasoning settings"
                         emphasized
                         renderIcon={(size) => (
                           <ProviderIcon provider={currentModelOption?.providerDriver} size={size} />
                         )}
-                        label={currentModelOption?.label ?? currentModelSelection.model}
+                        label={
+                          autoSelected
+                            ? "Auto"
+                            : (currentModelOption?.label ?? currentModelSelection.model)
+                        }
                         maxWidth="100%"
                         onPress={openSettings}
                       />

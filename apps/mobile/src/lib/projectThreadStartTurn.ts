@@ -34,6 +34,7 @@ export interface ProjectThreadStartTurnSpec {
   /** Wire attachments from `prepareTurnAttachments`, in composer order. */
   readonly uploadedAttachments: ReadonlyArray<UploadedMobileAttachment>;
   readonly modelSelection: ModelSelection;
+  readonly autoRouting?: boolean;
   readonly runtimeMode: RuntimeMode;
   readonly interactionMode: ProviderInteractionMode;
   readonly workspaceMode: "local" | "worktree";
@@ -62,7 +63,9 @@ export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpe
       ...(spec.context ? { context: spec.context } : {}),
       attachments: spec.uploadedAttachments,
     },
-    modelSelection: spec.modelSelection,
+    ...(spec.autoRouting
+      ? { autoRouting: { taskId: spec.threadId, requestEscalation: false } }
+      : { modelSelection: spec.modelSelection }),
     titleSeed: title,
     runtimeMode: spec.runtimeMode,
     interactionMode: spec.interactionMode,
