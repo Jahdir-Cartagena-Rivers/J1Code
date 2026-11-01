@@ -1,6 +1,8 @@
 package expo.modules.t3nativecontrols
 
 import android.content.Intent
+import android.app.Activity
+import android.speech.RecognizerIntent
 import android.text.format.DateFormat
 import androidx.core.content.FileProvider
 import expo.modules.kotlin.Promise
@@ -11,10 +13,34 @@ import java.net.URI
 
 class T3NativeControlsModule : Module() {
   private var filePreviewPromise: Promise? = null
+  private var dictationPromise: Promise? = null
 
   @Suppress("TooGenericExceptionCaught") // Clear the pending promise before rethrowing.
   override fun definition() = ModuleDefinition {
     Name("T3NativeControls")
+
+    AsyncFunction("dictate") { promise: Promise ->
+      check(dictationPromise == null) { "Dictation is already open." }
+      val activity = appContext.currentActivity ?: error("The app is not active.")
+      val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+        putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+        putExtra(RecognizerIntent.EXTRA_PROMPT, "Dictate your message")
+      }
+      dictationPromise = promise
+      try {
+        activity.startActivityForResult(intent, 7344)
+      } catch (error: Exception) {
+        dictationPromise = null
+        throw error
+      }
+    }
+
+    Function("cancelDictation") {
+      appContext.currentActivity?.finishActivity(7344)
+      dictationPromise?.resolve("")
+      dictationPromise = null
+    }
 
     Function("is24HourFormat") {
       val context = appContext.reactContext ?: error("The app is not active.")
@@ -44,7 +70,14 @@ class T3NativeControlsModule : Module() {
       }
     }
 
-    OnActivityResult { _, (requestCode) ->
+    OnActivityResult { _, (requestCode, resultCode, data) ->
+      if (requestCode == 7344) {
+        val text = if (resultCode == Activity.RESULT_OK)
+          data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull() ?: ""
+        else ""
+        dictationPromise?.resolve(text)
+        dictationPromise = null
+      }
       if (requestCode == 7343) {
         filePreviewPromise?.resolve(null)
         filePreviewPromise = null

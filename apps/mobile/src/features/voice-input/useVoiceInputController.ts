@@ -15,6 +15,8 @@ import { useSharedValue } from "react-native-reanimated";
 
 import type { ComposerEditorSelection } from "../../components/ComposerEditor";
 import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
+import { androidDictation } from "../../native/androidDictation";
+import { replaceTextRange } from "@t3tools/shared/composerTrigger";
 import { getNativeShowcaseScene } from "../showcase/nativeShowcaseScene";
 import {
   VoiceInputController,
@@ -89,6 +91,14 @@ export function useVoiceInputController(input: {
   }
   const latestInputRef = useRef(input);
   latestInputRef.current = input;
+  const androidRequestRef = useRef(0);
+  useEffect(() => {
+    setState(INITIAL_STATE);
+    return () => {
+      androidRequestRef.current += 1;
+      androidDictation?.cancelDictation();
+    };
+  }, [input.ownerKey]);
 
   const handleRecorderStatus = useCallback((status: RecordingStatus) => {
     controllerRef.current?.handleRecorderStatus({
@@ -141,6 +151,8 @@ export function useVoiceInputController(input: {
   useFocusEffect(
     useCallback(
       () => () => {
+        androidRequestRef.current += 1;
+        androidDictation?.cancelDictation();
         controller.dispose();
       },
       [controller],
@@ -213,15 +225,58 @@ export function useVoiceInputController(input: {
   }, [audioLevels, controller, recorder, state.phase]);
 
   const start = useCallback(() => {
-    if (!latestInputRef.current.disabled) void controller.start();
+    if (latestInputRef.current.disabled) return;
+    if (!androidDictation) {
+      void controller.start();
+      return;
+    }
+    const snapshot = latestInputRef.current;
+    const revision = revisionRef.current;
+    const request = ++androidRequestRef.current;
+    setState({ phase: "transcribing", error: null, errorAction: null });
+    void androidDictation
+      .dictate()
+      .then((text) => {
+        if (request !== androidRequestRef.current) return;
+        if (
+          revision !== revisionRef.current ||
+          snapshot.ownerKey !== latestInputRef.current.ownerKey
+        ) {
+          setState(INITIAL_STATE);
+          return;
+        }
+        if (text.trim()) {
+          const result = replaceTextRange(
+            snapshot.draftMessage,
+            snapshot.selection.start,
+            snapshot.selection.end,
+            text.trim(),
+          );
+          latestInputRef.current.onChangeDraftMessage(result.text);
+          latestInputRef.current.onChangeSelection({ start: result.cursor, end: result.cursor });
+        }
+        setState(INITIAL_STATE);
+      })
+      .catch((error: unknown) => {
+        if (request === androidRequestRef.current)
+          setState({ phase: "error", error: String(error), errorAction: "retry" });
+      });
   }, [controller]);
   const stop = useCallback(() => controller.stop(), [controller]);
-  const cancel = useCallback(() => controller.cancel(), [controller]);
+  const cancel = useCallback(() => {
+    androidRequestRef.current += 1;
+    androidDictation?.cancelDictation();
+    controller.cancel();
+    setState(INITIAL_STATE);
+  }, [controller]);
 
   return {
     // Store screenshots show the dictation button even on simulators, whose
     // on-device transcription is unavailable.
-    isAvailable: getLocalVoiceTranscriber() !== null || getNativeShowcaseScene() !== null,
+    isAvailable:
+      androidDictation !== null ||
+      getLocalVoiceTranscriber() !== null ||
+      getNativeShowcaseScene() !== null,
     state,
     audioLevels,
     elapsedSeconds,

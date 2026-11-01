@@ -1,3 +1,4 @@
+import { parseProjectChatLink } from "@t3tools/shared/projectChatLinks";
 import {
   WorktreeWorkingHeader,
   WorktreeSetupCard,
@@ -2076,6 +2077,11 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const userBubbleColor = theme["--color-user-bubble"];
   const onMarkdownLinkPress = useCallback(
     (href: string) => {
+      const projectChat = parseProjectChatLink(href);
+      if (projectChat) {
+        navigation.navigate("Thread", projectChat);
+        return;
+      }
       const presentation = resolveMarkdownLinkPresentation(href);
       if (presentation.kind === "file") {
         const relativePath = resolveWorkspaceRelativeFilePath(

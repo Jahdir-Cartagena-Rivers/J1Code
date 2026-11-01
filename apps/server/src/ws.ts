@@ -1834,6 +1834,7 @@ const makeWsRpcLayer = (
             environment,
             auth,
             cwd: config.cwd,
+            homeWorkspaceRoot: (yield* Path.Path).join(config.baseDir, "home-workspace"),
             keybindingsConfigPath: config.keybindingsConfigPath,
             keybindings: keybindingsConfig.keybindings,
             issues: keybindingsConfig.issues,

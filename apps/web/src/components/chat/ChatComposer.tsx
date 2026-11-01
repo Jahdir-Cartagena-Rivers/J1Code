@@ -1,3 +1,4 @@
+import { ComposerDictation } from "./ComposerDictation";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
 import { usePrimaryEnvironmentId } from "../../state/environments";
@@ -1935,7 +1936,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedProviderEntry?.snapshot,
     selectedModel,
   );
+  const [dictationBusy, setDictationBusy] = useState(false);
   const sendDisabledReason =
+    (dictationBusy ? "Finish or cancel dictation before sending." : null) ??
     externalSendDisabledReason ??
     (multipleModelSelections?.length === 0 ? "Select at least one model." : null) ??
     (activePendingProgress
@@ -7012,6 +7015,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       </Tooltip>
                     </>
                   ) : null}
+                  <ComposerDictation
+                    key={composerDraftTargetKey}
+                    value={prompt}
+                    onChange={setPrompt}
+                    onBusyChange={setDictationBusy}
+                    disabled={isComposerApprovalState || pendingUserInputs.length > 0}
+                  />
                   <ComposerFooterPrimaryActions
                     compact={isComposerResting || isComposerPrimaryActionsCompact}
                     activeContextWindow={

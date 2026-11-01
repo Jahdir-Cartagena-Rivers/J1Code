@@ -1125,6 +1125,8 @@ export const DesktopCloseBehaviorSchema = Schema.Literals(["ask", "tray", "quit"
 export type DesktopCloseBehavior = typeof DesktopCloseBehaviorSchema.Type;
 
 export interface DesktopBridge {
+  startDictation?: (request: { requestId: string }) => Promise<string>;
+  cancelDictation?: (request: { requestId: string }) => Promise<void>;
   getAppBranding: () => DesktopAppBranding | null;
   /** Absolute path of a dropped or picked file; absent on desktop builds predating it. */
   getPathForFile?: (file: File) => string;
