@@ -1,4 +1,5 @@
 import {
+  type AutoModelPolicy,
   type ModelSelection,
   PROJECT_FILE_BACKED_SETTINGS,
   PROJECT_SCOPED_SERVER_SETTING_KEYS,
@@ -37,6 +38,20 @@ export interface ResolvedProjectSettings<Settings extends ServerSettings = Serve
 }
 
 const EMPTY_OVERRIDES: ProjectSettingsOverrides = {};
+
+/** Resolve the whole policy first; never bypass a project's manual/disabled choice. */
+export function resolveAutoModelPolicy(
+  settings: ServerSettings,
+  projectId: ProjectId | null,
+): AutoModelPolicy | null {
+  const policy = resolveProjectSettings(settings, projectId).settings.autoModelPolicy;
+  if (policy?.mode !== "auto") return policy;
+  // Keep stored configuration intact, but fail closed when either exact instance is disabled.
+  return isModelSelectionProviderEnabled(settings, policy.fast) &&
+    isModelSelectionProviderEnabled(settings, policy.deep)
+    ? policy
+    : null;
+}
 
 const ENVIRONMENT_SOURCES: ProjectSettingSources = Object.fromEntries(
   PROJECT_SCOPED_SERVER_SETTING_KEYS.map((key) => [key, "environment"]),

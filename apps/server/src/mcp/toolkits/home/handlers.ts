@@ -45,7 +45,9 @@ export const HomeToolkitHandlersLive = HomeToolkit.toLayer(
           for (const value of [input.projectId, input.title, input.request])
             fingerprintHash.update(String(value.length)).update(":").update(value);
           const fingerprint = fingerprintHash.digest("hex");
-          const text = `Request handed off from [the source conversation](${sourceUrl}). Work in this project's workspace and follow its instructions.\n\n${input.request}`;
+          const legacyText = `Request handed off from [the source conversation](${sourceUrl}). Work in this project's workspace and follow its instructions.\n\n${input.request}`;
+          const homeText = `## ${input.title}\n\n${input.request}\n\n[View the conversation in Home](${sourceUrl})`;
+          const text = `## ${input.title}\n\n${input.request}\n\n[View source conversation](${sourceUrl})`;
           const existing = yield* snapshots.getThreadShellById(threadId);
           const now = DateTime.formatIso(yield* DateTime.now);
           if (Option.isSome(existing)) {
@@ -63,7 +65,11 @@ export const HomeToolkitHandlersLive = HomeToolkit.toLayer(
                 receipt.fingerprint !== fingerprint) ||
               (Option.isSome(detail) &&
                 detail.value.messages.some(
-                  (message) => message.id === `handoff-request:${digest}` && message.text !== text,
+                  (message) =>
+                    message.id === `handoff-request:${digest}` &&
+                    message.text !== text &&
+                    message.text !== homeText &&
+                    message.text !== legacyText,
                 ))
             ) {
               return yield* Effect.fail("That requestId belongs to a different handoff.");

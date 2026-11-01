@@ -1,3 +1,6 @@
+import { RoutingToolkit } from "./toolkits/routing/tools.ts";
+import { RoutingToolkitHandlers } from "./toolkits/routing/handlers.ts";
+import { RoutingRuntimeLive } from "../routing/runtime.ts";
 import * as NodeCrypto from "node:crypto";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -683,6 +686,10 @@ export const McpTransportLive = McpServer.layerHttp({
 
 export const layer = Layer.mergeAll(
   McpServer.toolkit(HomeToolkit).pipe(Layer.provide(HomeToolkitHandlersLive)),
+  McpServer.toolkit(RoutingToolkit).pipe(
+    Layer.provide(RoutingToolkitHandlers),
+    Layer.provide(RoutingRuntimeLive),
+  ),
   PreviewToolkitRegistrationLive,
   PullRequestsToolkitRegistrationLive,
   AgentsToolkitRegistrationLive,

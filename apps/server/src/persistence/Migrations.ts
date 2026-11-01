@@ -71,6 +71,9 @@ import Migration0056 from "./Migrations/056_DotOAuth.ts";
 import Migration0057 from "./Migrations/057_WorkerChatLookupIndex.ts";
 import Migration0058 from "./Migrations/058_DotNativeChat.ts";
 import Migration0059 from "./Migrations/059_DotReplyRecovery.ts";
+import Migration0060 from "./Migrations/060_DurableRoutes.ts";
+import Migration0061 from "./Migrations/061_AutoModelAdmissions.ts";
+import Migration0062 from "./Migrations/062_TaskOwnerBindings.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -142,6 +145,9 @@ const migrationEntries = [
   [57, "WorkerChatLookupIndex", Migration0057],
   [58, "DotNativeChat", Migration0058],
   [59, "DotReplyRecovery", Migration0059],
+  [60, "DurableRoutes", Migration0060],
+  [61, "AutoModelAdmissions", Migration0061],
+  [62, "TaskOwnerBindings", Migration0062],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

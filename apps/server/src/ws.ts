@@ -1,3 +1,10 @@
+import * as Clock from "effect/Clock";
+import { ServerEnvironment as RoutingEnvironment } from "./environment/ServerEnvironment.ts";
+import { makeManualRouteBoundary } from "./routing/manualRouteBoundary.ts";
+import { makeManualRouteRpc } from "./routing/manualRouteRpc.ts";
+import { makeDurableRoutingStore } from "./routing/durableRoutingStore.ts";
+import { makeEngineRouteDrain } from "./routing/engineDrain.ts";
+import { ManualRouteActionError } from "@t3tools/contracts";
 import {
   sameUsageLimitCommandCoverage,
   withUsageLimitsCommands,
@@ -510,6 +517,78 @@ const makeWsRpcLayer = (
       const crypto = yield* Crypto.Crypto;
       const sql = yield* SqlClient.SqlClient;
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+      const routeEnvironmentId = yield* (yield* RoutingEnvironment).getEnvironmentId;
+      const routeStore = yield* makeDurableRoutingStore;
+      const routeDrain = yield* makeEngineRouteDrain;
+      const manualRouting = makeManualRouteRpc(
+        makeManualRouteBoundary({
+          environmentId: routeEnvironmentId,
+          authenticate: async () => {
+            const rows = await Effect.runPromise(
+              sql<{
+                subject: string;
+                expires_at: string;
+                revoked_at: string | null;
+              }>`SELECT subject, expires_at, revoked_at FROM auth_sessions WHERE session_id = ${currentSessionId}`,
+            );
+            const row = rows[0];
+            if (
+              !row ||
+              row.revoked_at ||
+              Date.parse(row.expires_at) <= (await Effect.runPromise(Clock.currentTimeMillis)) ||
+              row.subject !== currentSession.subject
+            )
+              throw new Error("Session unavailable");
+            return currentSession;
+          },
+          get: (id) => Effect.runPromise(routeStore.get(id)),
+          list: async (source) =>
+            (
+              await Effect.runPromise(
+                sql<{
+                  request_id: string;
+                }>`SELECT request_id FROM durable_routes WHERE json_extract(state_json, '$.originalRequest.source.threadId') = ${source.threadId} AND json_extract(state_json, '$.originalRequest.source.environmentId') = ${source.environmentId}`,
+              )
+            ).map((row) => row.request_id),
+          inspect: async (_session, endpoint) => {
+            if (endpoint.environmentId !== routeEnvironmentId) return null;
+            const result = await Effect.runPromise(
+              projectionSnapshotQuery.getThreadShellById(ThreadId.make(endpoint.threadId)),
+            );
+            if (
+              Option.isNone(result) ||
+              result.value.projectId !== endpoint.projectId ||
+              result.value.archivedAt !== null
+            )
+              return null;
+            const shell = result.value;
+            return {
+              endpoint,
+              permissions: [`runtime:${shell.runtimeMode}`],
+            };
+          },
+          commit: async (id, revision, state) => {
+            if (!state.resolution) throw new Error("Resolution missing");
+            const result = await Effect.runPromise(
+              routeStore.commitResolution(id, revision, {
+                ...state.resolution,
+                authenticatedUser: true,
+              }),
+            );
+            await Effect.runPromise(routeDrain.drain());
+            return result;
+          },
+        }),
+      );
+      const routeRpc = <A>(action: () => Promise<A>) =>
+        Effect.tryPromise({
+          try: action,
+          catch: (cause) =>
+            Schema.is(ManualRouteActionError)(cause)
+              ? cause
+              : new ManualRouteActionError({ code: "rejected", message: "Route action rejected." }),
+        });
+
       /** A reference's host-level link key; the project's own host where the ref names none. */
       const resolvePullRequestSyncKey = (reference: PullRequestRef) =>
         reference.host !== undefined && reference.repository.includes("/")
@@ -1879,6 +1958,10 @@ const makeWsRpcLayer = (
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
       return WsRpcGroup.of({
+        "routing.prepare": (input) => routeRpc(() => manualRouting.prepare(input)),
+        "routing.list": (input) => routeRpc(() => manualRouting.list(input)),
+        "routing.confirm": (input) => routeRpc(() => manualRouting.confirm(input)),
+        "routing.status": (input) => routeRpc(() => manualRouting.status(input)),
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.dispatchCommand,

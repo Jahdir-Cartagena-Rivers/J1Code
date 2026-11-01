@@ -33,6 +33,12 @@ import { cn } from "../../lib/cn";
 import { EmptyState } from "../../components/EmptyState";
 import { AppText } from "../../components/AppText";
 import { RowPressable } from "../../components/RowPressable";
+import { WorkerChatTree } from "../threads/WorkerChats";
+import {
+  groupHomeList,
+  groupedHomeItemsAreEqual,
+  type GroupedHomeListItem,
+} from "./groupedHomeList";
 import { MaterialFloatingActionButton } from "../../components/MaterialFloatingActionButton";
 import type { WorkspaceEnvironment, WorkspaceState } from "../../state/workspaceModel";
 import type { SavedRemoteConnection } from "../../lib/connection";
@@ -56,7 +62,6 @@ import {
   buildThreadListV2Items,
   getThreadListV2OrderedSection,
   buildThreadListV2ListItems,
-  threadListV2ListItemsAreEqual,
   THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
   type ThreadListV2ListItem,
@@ -66,6 +71,7 @@ import type { HomeListFilterMenuEnvironment } from "./home-list-filter-menu";
 import {
   buildHomeProjectScopes,
   sortHomeProjectScopes,
+  selectHomeThread,
   type HomeProjectSortOrder,
 } from "./homeThreadList";
 import { createSwipeRowActivation } from "./swipe-row-activation";
@@ -87,6 +93,8 @@ interface HomeScreenProps {
   readonly selectedEnvironmentId: EnvironmentId | null;
   readonly selectedProjectKey: string | null;
   readonly projectSortOrder: HomeProjectSortOrder;
+  readonly projectOrder: ReadonlyArray<string>;
+  readonly onMoveProject: (projectKeys: ReadonlyArray<string>, from: number, to: number) => void;
   readonly projectGroupingMode: SidebarProjectGroupingMode;
   readonly onSearchQueryChange: (query: string) => void;
   readonly onEnvironmentChange: (environmentId: EnvironmentId | null) => void;
@@ -94,6 +102,8 @@ interface HomeScreenProps {
   readonly onAddConnection: () => void;
   readonly onOpenSettings: () => void;
   readonly onStartNewTask: () => void;
+  /** Opens the single general Home conversation, creating its project on first use. */
+  readonly onOpenHome: () => void;
   readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
   readonly onArchiveThread: (thread: EnvironmentThreadShell) => void;
   readonly onDeleteThread: (thread: EnvironmentThreadShell) => void;
@@ -283,7 +293,7 @@ export function HomeScreen(props: HomeScreenProps) {
   const listRef = useRef<LegendListRef>(null);
   const swipeRowActivation = useMemo(() => createSwipeRowActivation(), []);
   const activateVisibleRows = useCallback(
-    (rows: ReadonlyArray<ThreadListV2ListItem>) => {
+    (rows: ReadonlyArray<GroupedHomeListItem>) => {
       const state = listRef.current?.getState();
       if (state === undefined || !(state.end >= 0)) return;
       swipeRowActivation.activate(
@@ -321,41 +331,61 @@ export function HomeScreen(props: HomeScreenProps) {
     onScroll: handleListScroll,
     onScrollBeginDrag: handleScrollBeginDrag,
   });
+  // Home is represented by the persistent top-level row, outside the
+  // ordinary project list and its activity-based thread shelves.
+  const projectThreads = useMemo(
+    () => props.threads.filter((thread) => thread.projectId !== "j1-home"),
+    [props.threads],
+  );
+  const projectListProjects = useMemo(
+    () => props.projects.filter((project) => project.id !== "j1-home"),
+    [props.projects],
+  );
 
   const projectScopes = useMemo(
     () =>
       buildHomeProjectScopes({
-        projects: props.projects,
+        projects: projectListProjects,
         environmentId: props.selectedEnvironmentId,
         projectGroupingMode: props.projectGroupingMode,
       }),
-    [props.projectGroupingMode, props.projects, props.selectedEnvironmentId],
+    [projectListProjects, props.projectGroupingMode, props.selectedEnvironmentId],
   );
   const hasSearchQuery = props.searchQuery.trim().length > 0;
   const projectByKey = useMemo(() => {
     const map = new Map<string, EnvironmentProject>();
-    for (const project of props.projects) {
+    for (const project of projectListProjects) {
       map.set(scopedProjectKey(project.environmentId, project.id), project);
     }
     return map;
-  }, [props.projects]);
+  }, [projectListProjects]);
 
   const v2ProjectScopeKey = props.selectedProjectKey;
+  const orderedProjectScopes = useMemo(() => {
+    if (props.projectSortOrder !== "manual") return projectScopes;
+    const position = new Map(props.projectOrder.map((key, index) => [key, index]));
+    return [...projectScopes].sort(
+      (left, right) =>
+        (position.get(left.key) ?? Number.MAX_SAFE_INTEGER) -
+          (position.get(right.key) ?? Number.MAX_SAFE_INTEGER) ||
+        left.title.localeCompare(right.title),
+    );
+  }, [projectScopes, props.projectOrder, props.projectSortOrder]);
   const v2ScopeProjects = useMemo(
     () =>
       sortHomeProjectScopes({
-        scopes: projectScopes,
-        threads: props.threads,
+        scopes: orderedProjectScopes,
+        threads: projectThreads,
         pendingTasks: props.pendingTasks,
         projectSortOrder: props.projectSortOrder,
       }),
     [
       props.pendingTasks,
-      props.projects,
+      projectListProjects,
       props.projectSortOrder,
       props.selectedEnvironmentId,
-      props.threads,
-      projectScopes,
+      projectThreads,
+      orderedProjectScopes,
     ],
   );
   const v2ScopedProjectGroup = useMemo(
@@ -399,7 +429,7 @@ export function HomeScreen(props: HomeScreenProps) {
           ),
     [v2ScopedProjectGroup],
   );
-  // Thread List v2 (beta): one flat list in creation order, no grouping.
+  // Partition threads before grouping each visible section by project.
   // Settled threads collapse into a recency tail below the card block.
   // Settled threads stay in the live shell stream (settled ≠ archived), so
   // the partition works directly off live shells — no snapshot merging or
@@ -575,7 +605,7 @@ export function HomeScreen(props: HomeScreenProps) {
   const threadMoveAvailability = useMemo(() => {
     const sectionAvailability = (section: "pinned" | "active") =>
       computeThreadMoveAvailability({
-        allThreads: props.threads,
+        allThreads: projectThreads,
         section,
         pendingOrder,
         reorderableEnvironmentIds: new Set(
@@ -588,7 +618,7 @@ export function HomeScreen(props: HomeScreenProps) {
           ),
         ),
         ordered: getThreadListV2OrderedSection({
-          threads: props.threads,
+          threads: projectThreads,
           section,
           pendingOrder,
           now: new Date().toISOString(),
@@ -600,7 +630,7 @@ export function HomeScreen(props: HomeScreenProps) {
     return new Map([...sectionAvailability("pinned"), ...sectionAvailability("active")]);
   }, [
     serverConfigs,
-    props.threads,
+    projectThreads,
     pendingOrder,
     queuedThreadKeys,
     settlementEnvironmentIds,
@@ -613,7 +643,7 @@ export function HomeScreen(props: HomeScreenProps) {
     // "hidden from lists" meaning.
     return buildThreadListV2Items({
       pendingOrder,
-      threads: props.threads.filter((thread) => thread.archivedAt === null),
+      threads: projectThreads.filter((thread) => thread.archivedAt === null),
       environmentId: props.selectedEnvironmentId,
       projectRefs: v2ScopedProjectGroup === null ? null : v2ScopedProjectGroup.projectRefs,
       searchQuery: props.searchQuery,
@@ -639,7 +669,7 @@ export function HomeScreen(props: HomeScreenProps) {
     snoozeEnvironmentIds,
     props.searchQuery,
     props.selectedEnvironmentId,
-    props.threads,
+    projectThreads,
     matchedThreadKeys,
     v2ScopedProjectGroup,
   ]);
@@ -707,13 +737,89 @@ export function HomeScreen(props: HomeScreenProps) {
     ],
   );
 
-  useThreadJumpShortcuts(threadListV2Items, props.onSelectThread);
+  const [collapsedProjectKeys, setCollapsedProjectKeys] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const groupedItems = useMemo(
+    () =>
+      groupHomeList({
+        items: threadListV2Items,
+        scopes: v2ScopeProjects,
+        collapsedKeys: collapsedProjectKeys,
+        searching: hasSearchQuery,
+      }),
+    [threadListV2Items, v2ScopeProjects, collapsedProjectKeys, hasSearchQuery],
+  );
+  const visibleThreadItems = useMemo(
+    () =>
+      groupedItems.filter((item): item is ThreadListV2ListItem => item.type !== "project-heading"),
+    [groupedItems],
+  );
+  const toggleProject = useCallback((key: string) => {
+    openSwipeableRef.current?.close();
+    setCollapsedProjectKeys((previous) => {
+      const next = new Set(previous);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+  useThreadJumpShortcuts(visibleThreadItems, props.onSelectThread);
   useEffect(() => {
-    if (swipeEnabled) activateVisibleRows(threadListV2Items);
-  }, [activateVisibleRows, swipeEnabled, threadListV2Items]);
+    if (swipeEnabled) activateVisibleRows(groupedItems);
+  }, [activateVisibleRows, swipeEnabled, groupedItems]);
 
   const renderV2Item = useCallback(
-    ({ item }: { readonly item: ThreadListV2ListItem }) => {
+    ({ item }: { readonly item: GroupedHomeListItem }) => {
+      if (item.type === "project-heading") {
+        const projectIndex = v2ScopeProjects.findIndex((scope) => scope.key === item.scopeKey);
+        return (
+          <RowPressable
+            accessibilityRole="button"
+            accessibilityLabel={`${item.title}, ${item.count} chats`}
+            accessibilityState={{ expanded: item.expanded }}
+            disabled={hasSearchQuery}
+            onPress={() => toggleProject(item.scopeKey)}
+            className="min-h-14 flex-row items-center gap-3 border-b border-border px-5 py-3"
+          >
+            <AppText className="text-foreground-muted">{item.expanded ? "⌄" : "›"}</AppText>
+            <AppText className="flex-1 text-base font-semibold text-foreground" numberOfLines={1}>
+              {item.title}
+            </AppText>
+            <AppText className="text-sm text-foreground-muted">{item.count}</AppText>
+            {props.projectSortOrder === "manual" ? (
+              <View className="flex-row gap-2">
+                <RowPressable
+                  disabled={projectIndex <= 0}
+                  accessibilityLabel={`Move ${item.title} up`}
+                  onPress={() =>
+                    props.onMoveProject(
+                      v2ScopeProjects.map((scope) => scope.key),
+                      projectIndex,
+                      projectIndex - 1,
+                    )
+                  }
+                >
+                  <AppText className="px-1 text-foreground-muted">â†‘</AppText>
+                </RowPressable>
+                <RowPressable
+                  disabled={projectIndex >= v2ScopeProjects.length - 1}
+                  accessibilityLabel={`Move ${item.title} down`}
+                  onPress={() =>
+                    props.onMoveProject(
+                      v2ScopeProjects.map((scope) => scope.key),
+                      projectIndex,
+                      projectIndex + 1,
+                    )
+                  }
+                >
+                  <AppText className="px-1 text-foreground-muted">â†“</AppText>
+                </RowPressable>
+              </View>
+            ) : null}
+          </RowPressable>
+        );
+      }
       if (item.type === "v2-pending") {
         const pendingScopeKey = scopedProjectKey(
           item.pendingTask.environmentId,
@@ -823,6 +929,9 @@ export function HomeScreen(props: HomeScreenProps) {
       );
     },
     [
+      hasSearchQuery,
+      toggleProject,
+      v2ScopeProjects,
       handleDeleteThread,
       activeReorderEnvironmentIds,
       handleMoveThread,
@@ -857,9 +966,11 @@ export function HomeScreen(props: HomeScreenProps) {
       toggleSnoozedShelf,
       v2ProjectTitleByProjectKey,
       props.searchQuery,
+      props.projectSortOrder,
+      props.onMoveProject,
     ],
   );
-  const v2KeyExtractor = useCallback((item: ThreadListV2ListItem) => item.key, []);
+  const v2KeyExtractor = useCallback((item: GroupedHomeListItem) => item.key, []);
 
   // FlatList/LegendList treat a changed extraData identity as "re-render every
   // visible row", so an inline object literal would invalidate all rows on
@@ -890,7 +1001,7 @@ export function HomeScreen(props: HomeScreenProps) {
   // full-page "No threads yet". Settled threads are unarchived live shells,
   // so the archived-at check already covers the settled shelf.
   const hasAnyThreads =
-    props.threads.some((thread) => thread.archivedAt === null) || props.pendingTasks.length > 0;
+    projectThreads.some((thread) => thread.archivedAt === null) || props.pendingTasks.length > 0;
   const selectedEnvironmentLabel =
     props.selectedEnvironmentId === null
       ? null
@@ -901,7 +1012,7 @@ export function HomeScreen(props: HomeScreenProps) {
   // reconnects never shift the rows.
   const emptyState = deriveEmptyState({
     catalogState: props.catalogState,
-    projectCount: props.projects.length,
+    projectCount: projectListProjects.length,
   });
 
   if (!hasAnyThreads) {
@@ -981,33 +1092,27 @@ export function HomeScreen(props: HomeScreenProps) {
         variant={Platform.OS === "android" ? "plain" : undefined}
       />
     );
-
-  if (Platform.OS === "android" && threadListV2Items.length === 0) {
-    return (
-      <View className="flex-1 bg-header">
-        <View
-          className="flex-1 items-center justify-center overflow-hidden rounded-t-[28px] bg-screen px-4"
-          style={{ paddingBottom: insets.bottom }}
-        >
-          {v2ListEmpty}
-        </View>
-      </View>
-    );
-  }
+  const homeThread = selectHomeThread(props.threads, props.selectedEnvironmentId);
 
   return (
     <View className="flex-1 bg-screen android:bg-header">
-      {props.threads.find((thread) => thread.projectId === "j1-home" && !thread.archivedAt) ? (
-        <RowPressable
-          onPress={() => {
-            const home = props.threads.find(
-              (thread) => thread.projectId === "j1-home" && !thread.archivedAt,
-            );
-            if (home) props.onSelectThread(home);
-          }}
-        >
-          <AppText>Home chat</AppText>
-        </RowPressable>
+      <RowPressable
+        accessibilityLabel="Home"
+        onPress={() => {
+          if (homeThread) {
+            props.onSelectThread(homeThread);
+          } else {
+            props.onOpenHome();
+          }
+        }}
+      >
+        <AppText>Home</AppText>
+      </RowPressable>
+      {homeThread ? (
+        <WorkerChatTree
+          parent={{ environmentId: homeThread.environmentId, threadId: homeThread.id }}
+          onSelectThread={props.onSelectThread}
+        />
       ) : null}
       <View
         className={
@@ -1022,15 +1127,15 @@ export function HomeScreen(props: HomeScreenProps) {
         <SwipeableScrollGateProvider enabled={swipeEnabled} activation={swipeRowActivation}>
           <LegendList
             ref={listRef}
-            onLoad={() => activateVisibleRows(threadListV2Items)}
+            onLoad={() => activateVisibleRows(groupedItems)}
             onTouchStart={(event) => trackListTouches(event, true)}
             onTouchEnd={(event) => trackListTouches(event, false)}
             onTouchCancel={(event) => trackListTouches(event, false)}
-            data={threadListV2Items}
+            data={groupedItems}
             renderItem={renderV2Item}
             keyExtractor={v2KeyExtractor}
             getItemType={(item) => item.type}
-            itemsAreEqual={threadListV2ListItemsAreEqual}
+            itemsAreEqual={groupedHomeItemsAreEqual}
             estimatedItemSize={ESTIMATED_THREAD_LIST_V2_ROW_HEIGHT}
             drawDistance={THREAD_LIST_V2_DRAW_DISTANCE}
             recycleItems

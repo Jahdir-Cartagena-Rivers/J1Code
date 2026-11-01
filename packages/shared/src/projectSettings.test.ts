@@ -3,6 +3,7 @@ import {
   PROJECT_SCOPED_SERVER_SETTING_KEYS,
   ProjectId,
   ProviderInstanceId,
+  ProviderDriverKind,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import { createModelSelection } from "./model.ts";
@@ -11,6 +12,7 @@ import {
   hasProjectSettingsOverrides,
   resolveProjectFileBackedSetting,
   resolveProjectSettings,
+  resolveAutoModelPolicy,
   resolveWorktreeCleanup,
   withProjectSettingsOverrides,
 } from "./projectSettings.ts";
@@ -18,6 +20,92 @@ import { applyServerSettingsPatch } from "./serverSettings.ts";
 
 const projectId = ProjectId.make("project-a");
 const otherProjectId = ProjectId.make("project-b");
+
+describe("project Auto policy", () => {
+  const fast = createModelSelection(ProviderInstanceId.make("codex"), "auto");
+  const deep = createModelSelection(ProviderInstanceId.make("claudeAgent"), "opus");
+  const policy = { mode: "auto" as const, fast, deep };
+
+  it("checks the configured instance rather than another enabled instance of its driver", () => {
+    const configured = createModelSelection(ProviderInstanceId.make("codex-work"), "auto", [
+      { id: "effort", value: "high" },
+    ]);
+    const settings = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      autoModelPolicy: { mode: "auto", fast: configured, deep: configured },
+      providerInstances: {
+        [ProviderInstanceId.make("codex-work")]: {
+          driver: ProviderDriverKind.make("codex"),
+          enabled: false,
+        },
+        [ProviderInstanceId.make("codex-personal")]: {
+          driver: ProviderDriverKind.make("codex"),
+          enabled: true,
+        },
+      },
+    });
+    expect(resolveAutoModelPolicy(settings, null)).toBeNull();
+    const enabled = applyServerSettingsPatch(settings, {
+      providerInstances: {
+        [ProviderInstanceId.make("codex-work")]: {
+          driver: ProviderDriverKind.make("codex"),
+          enabled: true,
+        },
+      },
+    });
+    expect(resolveAutoModelPolicy(enabled, null)).toEqual({
+      mode: "auto",
+      fast: configured,
+      deep: configured,
+    });
+  });
+
+  it("inherits the whole environment pair and replaces it with a project pair", () => {
+    const replacement = { ...policy, fast: deep, deep: fast };
+    const settings = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      autoModelPolicy: policy,
+      providers: { codex: { enabled: true }, claudeAgent: { enabled: true } },
+      projectSettingsOverrides: { [projectId]: { autoModelPolicy: replacement } },
+    });
+    expect(resolveAutoModelPolicy(settings, otherProjectId)).toEqual(policy);
+    expect(resolveAutoModelPolicy(settings, projectId)).toEqual(replacement);
+    expect(resolveProjectSettings(settings, projectId).sources.autoModelPolicy).toBe("project");
+  });
+
+  it("honors manual, disabled and null project choices over environment Auto", () => {
+    for (const autoModelPolicy of [
+      null,
+      { mode: "manual" as const },
+      { mode: "disabled" as const },
+    ]) {
+      const settings = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+        autoModelPolicy: policy,
+        projectSettingsOverrides: { [projectId]: { autoModelPolicy } },
+      });
+      expect(resolveAutoModelPolicy(settings, projectId)).toEqual(autoModelPolicy);
+    }
+  });
+
+  it("fails closed for disabled or missing providers without changing stored configuration", () => {
+    const settings = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      autoModelPolicy: policy,
+      providers: { claudeAgent: { enabled: false } },
+    });
+    expect(resolveAutoModelPolicy(settings, null)).toBeNull();
+    expect(settings.autoModelPolicy).toEqual(policy);
+    expect(
+      resolveAutoModelPolicy(
+        {
+          ...settings,
+          autoModelPolicy: {
+            ...policy,
+            deep: createModelSelection(ProviderInstanceId.make("missing"), "opus"),
+          },
+        },
+        null,
+      ),
+    ).toBeNull();
+  });
+});
 
 describe("resolveProjectSettings", () => {
   it("inherits every scopable key when the project has no overrides", () => {

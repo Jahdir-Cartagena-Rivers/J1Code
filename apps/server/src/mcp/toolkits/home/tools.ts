@@ -18,7 +18,7 @@ const Projects = Tool.make("list_chat_projects", {
 }).annotate(Tool.Readonly, true);
 const Handoff = Tool.make("handoff_to_project", {
   description:
-    "Route a user request into a new saved project chat and start it there. Preserve the source conversation. Supply a self-contained request with relevant context and constraints, never secrets. Reuse requestId only for an identical retry. Return the supplied relative URL as a clickable Markdown link. This is a durable project chat, not a temporary worker. Ask for a destination only when ambiguous; never guess a workspace.",
+    "Route a user request into a new saved project chat and start it there. Preserve the source conversation. Write the request in clear, concise Markdown with short paragraphs or bullets for the goal, relevant context, and constraints. Preserve important details and use descriptive links for attachments instead of exposing long paths when possible. Never include secrets. Reuse requestId only for an identical retry. Return the supplied relative URL as a clickable Markdown link. This is a durable project chat, not a temporary worker. Ask for a destination only when ambiguous; never guess a workspace.",
   parameters: Schema.Struct({
     requestId: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
     projectId: ProjectId,

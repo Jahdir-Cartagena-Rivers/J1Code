@@ -36,6 +36,7 @@ import {
   resolveSelectableModelSelection,
 } from "../../lib/modelOptions";
 import { scopedProjectKey } from "../../lib/scopedEntities";
+import { useHomeListOptions } from "../home/home-list-options";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { projectEnvironment } from "../../state/projects";
 import { useEnvironmentQuery } from "../../state/query";
@@ -172,6 +173,8 @@ type NewTaskFlowContextValue = {
   readonly selectedProject: EnvironmentProject | null;
   readonly modelOptions: ReadonlyArray<ModelOption>;
   readonly selectedModel: ModelSelection | null;
+  readonly autoModelEnabled: boolean;
+  readonly autoModelSelected: boolean;
   readonly selectedModelOption: ModelOption | null;
   readonly selectedProviderStatus: ServerProvider | null;
   readonly providerGroups: ReadonlyArray<ProviderGroup>;
@@ -228,24 +231,43 @@ const NewTaskFlowContext = React.createContext<NewTaskFlowContextValue | null>(n
 export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const projects = useProjects();
   const threads = useThreadShells();
+  const ordinaryProjects = useMemo(
+    () => projects.filter((project) => project.id !== "j1-home"),
+    [projects],
+  );
+  const environmentIds = useMemo(
+    () => new Set(ordinaryProjects.map((project) => project.environmentId)),
+    [ordinaryProjects],
+  );
+  const { options: homeListOptions } = useHomeListOptions(environmentIds);
   const { savedConnectionsById } = useSavedRemoteConnections();
   const groupingSettings = useMobileProjectGroupingSettings();
   const { enabled: legacyPlanModeEnabled, loaded: planModePreferenceLoaded } =
     useLegacyPlanModeState();
-  const projectScopes = useMemo(
-    () =>
-      sortHomeProjectScopes({
-        scopes: buildHomeProjectScopes({
-          projects,
-          environmentId: null,
-          projectGroupingMode: groupingSettings.sidebarProjectGroupingMode,
-        }),
-        threads,
-        pendingTasks: [],
-        projectSortOrder: "updated_at",
+  const projectScopes = useMemo(() => {
+    const scopes = sortHomeProjectScopes({
+      scopes: buildHomeProjectScopes({
+        projects: ordinaryProjects,
+        environmentId: null,
+        projectGroupingMode: groupingSettings.sidebarProjectGroupingMode,
       }),
-    [groupingSettings.sidebarProjectGroupingMode, projects, threads],
-  );
+      threads,
+      pendingTasks: [],
+      projectSortOrder: "manual",
+    });
+    const position = new Map(homeListOptions.projectOrder.map((key, index) => [key, index]));
+    return [...scopes].sort(
+      (left, right) =>
+        (position.get(left.key) ?? Number.MAX_SAFE_INTEGER) -
+          (position.get(right.key) ?? Number.MAX_SAFE_INTEGER) ||
+        left.title.localeCompare(right.title),
+    );
+  }, [
+    groupingSettings.sidebarProjectGroupingMode,
+    homeListOptions.projectOrder,
+    ordinaryProjects,
+    threads,
+  ]);
 
   const [selectedEnvironmentIdOverride, setSelectedEnvironmentId] = useState<EnvironmentId | null>(
     null,
@@ -254,7 +276,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     selectedEnvironmentIdOverride !== null &&
     projects.some((project) => project.environmentId === selectedEnvironmentIdOverride)
       ? selectedEnvironmentIdOverride
-      : (projects[0]?.environmentId ?? null);
+      : (ordinaryProjects[0]?.environmentId ?? null);
   const [selectedProjectKey, setSelectedProjectKey] = useState<string | null>(null);
   // The new-task draft the composer is bound to. Null until a project is
   // chosen; each New Task entry mints its own, so a project can hold several.
@@ -298,6 +320,10 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       ),
     [projects, selectedEnvironmentId],
   );
+  const ordinaryProjectsForEnvironment = useMemo(
+    () => projectsForEnvironment.filter((project) => project.id !== "j1-home"),
+    [projectsForEnvironment],
+  );
 
   // Stand-in for the edited task's project while its shell is not loaded
   // (environment offline / still synchronizing), built from the metadata
@@ -334,7 +360,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     selectedProjectKey ===
       scopedProjectKey(editingPendingProject.environmentId, editingPendingProject.id)
       ? editingPendingProject
-      : (projectsForEnvironment[0] ?? null));
+      : (ordinaryProjectsForEnvironment[0] ?? null));
 
   // Only offer machines that actually host the currently selected repository, so
   // switching computers moves the same repo across machines instead of jumping to
@@ -540,7 +566,12 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     // Options ride along in the same write: a follow-up setSelectedModelOptions
     // call would rebuild the selection from the stale pre-switch model.
     (key: string | null, options?: ReadonlyArray<ProviderOptionSelection>) => {
-      if (!key || !selectedProjectDraftKey) {
+      if (!selectedProjectDraftKey) {
+        return;
+      }
+      if (!key) {
+        if (projectSettings.settings.autoModelPolicy?.mode === "auto")
+          updateComposerDraftSettings(selectedProjectDraftKey, { modelSelection: undefined });
         return;
       }
       const option = modelOptions.find((candidate) => candidate.key === key);
@@ -559,7 +590,12 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       });
       setStickyComposerModelSelection(selection);
     },
-    [modelOptions, selectedEnvironmentServerConfig, selectedProjectDraftKey],
+    [
+      modelOptions,
+      selectedEnvironmentServerConfig,
+      selectedProjectDraftKey,
+      projectSettings.settings.autoModelPolicy,
+    ],
   );
   const setSelectedModelOptions = useCallback(
     (options: ReadonlyArray<ProviderOptionSelection> | undefined) => {
@@ -995,6 +1031,9 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
         attachments: draft.attachments,
         context: draft.context,
         modelSelection: draftModelSelection,
+        autoRouting:
+          projectSettings.settings.autoModelPolicy?.mode === "auto" &&
+          draft.modelSelection === undefined,
         runtimeMode: draft.runtimeMode ?? defaultRuntimeMode,
         interactionMode: resolvePendingTaskInteractionMode({
           preferenceLoaded: planModePreferenceLoaded,
@@ -1042,6 +1081,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       planModePreferenceLoaded,
       startFromOrigin,
       workspaceMode,
+      projectSettings.settings.autoModelPolicy,
     ],
   );
 
@@ -1178,6 +1218,10 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       modelOptions,
       selectedModel,
       selectedModelOption,
+      autoModelEnabled: projectSettings.settings.autoModelPolicy?.mode === "auto",
+      autoModelSelected:
+        projectSettings.settings.autoModelPolicy?.mode === "auto" &&
+        selectedProjectDraft.modelSelection === undefined,
       selectedProviderStatus,
       providerGroups,
       filteredBranches,
@@ -1209,6 +1253,8 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     }),
     [
       attachments,
+      projectSettings.settings.autoModelPolicy,
+      selectedProjectDraft.modelSelection,
       availableBranches,
       beginEditingPendingTask,
       branchQuery,

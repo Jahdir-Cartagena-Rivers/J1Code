@@ -6,6 +6,7 @@ import {
 } from "@t3tools/contracts";
 import { memo, useEffect, useMemo, useState } from "react";
 import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
@@ -35,6 +36,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   model: string;
   selectedModels?: ReadonlyArray<{ instanceId: ProviderInstanceId; model: string }>;
   onToggleModel?: (instanceId: ProviderInstanceId, model: string) => void;
+  onAutoSelect?: () => void;
   lockedProvider: ProviderDriverKind | null;
   lockedContinuationGroupKey?: string | null;
   /** Instance entries rendered in the sidebar + used to resolve display name. */
@@ -285,6 +287,20 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         className="before:hidden"
         padding="none"
       >
+        {props.onAutoSelect && (
+          <div className="p-2">
+            <Button
+              variant="outline"
+              disabled={props.disabled}
+              onClick={() => {
+                props.onAutoSelect?.();
+                setIsMenuOpen(false);
+              }}
+            >
+              Auto · use configured models
+            </Button>
+          </div>
+        )}
         <ModelPickerContent
           activeInstanceId={activeInstanceId}
           model={props.model}

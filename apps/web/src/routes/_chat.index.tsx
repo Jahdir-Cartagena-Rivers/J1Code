@@ -10,12 +10,14 @@ import { NoProjectsHero } from "../components/NoProjectsHero";
 import { sortScopedProjectsForSidebar } from "../components/Sidebar.logic";
 import { ProjectId } from "@t3tools/contracts";
 import { projectEnvironment } from "../state/projects";
+import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
 import { Button } from "../components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../components/ui/empty";
 import { SidebarInset } from "../components/ui/sidebar";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
+import { useArchivedThreadSnapshots } from "../lib/archivedThreadsState";
 import {
   useAllEnvironmentShellsBootstrapped,
   useProjects,
@@ -47,11 +49,18 @@ function IndexDraftLanding() {
   const environment = usePrimaryEnvironment();
   const handleNewThread = useNewThreadHandler();
   const createProject = useAtomCommand(projectEnvironment.create);
+  const unarchiveThread = useAtomCommand(threadEnvironment.unarchive);
   const navigate = useNavigate();
   const startingRef = useRef(false);
   const [startState, setStartState] = useState({ failed: false, retryRequest: 0 });
   const root = environment?.serverConfig?.homeWorkspaceRoot;
   const environmentId = environment?.environmentId;
+  const {
+    snapshots: archivedSnapshots,
+    error: archivedHomeError,
+    isLoading: archivedHomeLoading,
+    refresh: refreshArchivedHome,
+  } = useArchivedThreadSnapshots(environmentId === undefined ? [] : [environmentId]);
   const projectId = ProjectId.make("j1-home");
   const legacyProject = useMemo(
     () =>
@@ -60,9 +69,17 @@ function IndexDraftLanding() {
   );
 
   useEffect(() => {
-    if (!bootstrapped || (!root && !legacyProject) || !environmentId || startingRef.current) return;
+    if (
+      !bootstrapped ||
+      (root !== undefined && archivedHomeLoading) ||
+      (!root && !legacyProject) ||
+      !environmentId ||
+      startingRef.current
+    )
+      return;
     startingRef.current = true;
     void (async () => {
+      if (root !== undefined && archivedHomeError !== null) throw new Error(archivedHomeError);
       if (!root) {
         if (legacyProject)
           await handleNewThread(scopeProjectRef(legacyProject.environmentId, legacyProject.id), {
@@ -76,7 +93,7 @@ function IndexDraftLanding() {
       if (project && project.workspaceRoot !== root)
         throw new Error("Home workspace does not match this environment.");
       if (!project) {
-        const result = await createProject({
+        await createProject({
           environmentId,
           input: {
             projectId,
@@ -86,14 +103,32 @@ function IndexDraftLanding() {
             defaultModelSelection: null,
           },
         });
-        if (result._tag === "Failure") throw new Error("Could not create Home.");
-        await waitForProject(scopeProjectRef(environmentId, projectId));
+        // Another window may have created the singleton before its event reached us.
+        const created = await waitForProject(scopeProjectRef(environmentId, projectId));
+        if (created.workspaceRoot !== root)
+          throw new Error("Home workspace does not match this environment.");
       }
-      const existing = threads.find(
-        (item) =>
-          item.environmentId === environmentId && item.projectId === projectId && !item.archivedAt,
-      );
+      // Home is a singleton. Prefer the original conversation even if it was
+      // archived, so visiting Home never silently starts another general chat.
+      const existing = [
+        ...threads,
+        ...archivedSnapshots.flatMap((entry) =>
+          entry.snapshot.threads.map((thread) => ({
+            ...thread,
+            environmentId: entry.environmentId,
+          })),
+        ),
+      ]
+        .filter((item) => item.environmentId === environmentId && item.projectId === projectId)
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0];
       if (existing) {
+        if (existing.archivedAt) {
+          const result = await unarchiveThread({
+            environmentId,
+            input: { threadId: existing.id },
+          });
+          if (result._tag === "Failure") throw new Error("Could not reopen Home.");
+        }
         await navigate({
           to: "/$environmentId/$threadId",
           params: { environmentId, threadId: existing.id },
@@ -114,7 +149,11 @@ function IndexDraftLanding() {
     projectId,
     projects,
     threads,
+    archivedSnapshots,
+    archivedHomeError,
+    archivedHomeLoading,
     createProject,
+    unarchiveThread,
     handleNewThread,
     navigate,
     startState.retryRequest,
@@ -123,9 +162,10 @@ function IndexDraftLanding() {
   if (startState.failed)
     return (
       <DraftStartError
-        onRetry={() =>
-          setStartState((state) => ({ failed: false, retryRequest: state.retryRequest + 1 }))
-        }
+        onRetry={() => {
+          refreshArchivedHome();
+          setStartState((state) => ({ failed: false, retryRequest: state.retryRequest + 1 }));
+        }}
       />
     );
   if (!root && !legacyProject && bootstrapped) return <NoProjectsHero />;

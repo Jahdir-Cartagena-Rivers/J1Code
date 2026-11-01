@@ -167,6 +167,26 @@ function harness(options: { capability?: boolean; missingProject?: boolean } = {
     rename: () => {
       if (destination) destination = { ...destination, title: "Automatically generated title" };
     },
+    useLegacyText: () => {
+      if (destination)
+        destination = {
+          ...destination,
+          messages: destination.messages.map((message) => ({
+            ...message,
+            text: "Request handed off from [the source conversation](/remote%3Aone/source). Work in this project's workspace and follow its instructions.\n\nFix video uploads, preserving existing data.",
+          })),
+        };
+    },
+    useHomeText: () => {
+      if (destination)
+        destination = {
+          ...destination,
+          messages: destination.messages.map((message) => ({
+            ...message,
+            text: "## Fix uploads\n\nFix video uploads, preserving existing data.\n\n[View the conversation in Home](/remote%3Aone/source)",
+          })),
+        };
+    },
   };
 }
 describe("project handoff", () => {
@@ -186,7 +206,10 @@ describe("project handoff", () => {
         });
         expect(h.commands[2]).toMatchObject({
           type: "thread.turn.start",
-          message: { role: "user", text: expect.stringContaining("preserving existing data") },
+          message: {
+            role: "user",
+            text: "## Fix uploads\n\nFix video uploads, preserving existing data.\n\n[View source conversation](/remote%3Aone/source)",
+          },
         });
         expect(result.at(-1)?.result).toMatchObject({
           url: expect.stringMatching(/^\/remote%3Aone\/j1-handoff-/),
@@ -216,6 +239,24 @@ describe("project handoff", () => {
       const h = harness();
       yield* h.call();
       h.rename();
+      yield* h.call();
+      expect(h.commands).toHaveLength(4);
+    }),
+  );
+  it.effect("accepts an identical retry of a handoff written in the previous format", () =>
+    Effect.gen(function* () {
+      const h = harness();
+      yield* h.call();
+      h.useLegacyText();
+      yield* h.call();
+      expect(h.commands).toHaveLength(4);
+    }),
+  );
+  it.effect("accepts an identical retry of a handoff with the earlier Home link", () =>
+    Effect.gen(function* () {
+      const h = harness();
+      yield* h.call();
+      h.useHomeText();
       yield* h.call();
       expect(h.commands).toHaveLength(4);
     }),

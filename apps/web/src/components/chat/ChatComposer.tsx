@@ -5020,6 +5020,21 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         />
       ) : null}
       <ProviderModelPicker
+        {...(settings.autoModelPolicy?.mode === "auto"
+          ? {
+              onAutoSelect: () =>
+                useComposerDraftStore
+                  .getState()
+                  .setModelSelection(
+                    composerDraftTarget,
+                    settings.autoModelPolicy?.mode === "auto"
+                      ? settings.autoModelPolicy.fast
+                      : null,
+                    { explicit: false },
+                  ),
+              ...(composerDraft.modelSelectionExplicit !== true ? { triggerLabel: "Auto" } : {}),
+            }
+          : {})}
         isComposerOwned
         disabled={providerCatalogPending || isSendBusy}
         {...(routeKind === "draft" && supportsMultipleModels

@@ -3,6 +3,7 @@ import { EnvironmentId, ProviderInstanceId } from "@t3tools/contracts";
 
 import { ProviderSettingsPanel } from "../components/settings/ProviderSettingsPanel";
 import { useSettingsScope } from "../components/settings/SettingsScopeContext";
+import { AutoModelSettings } from "../components/settings/AutoModelSettings";
 
 /**
  * Providers are machine state, so the page shows one environment at a time:
@@ -22,11 +23,17 @@ function SettingsProvidersRoute() {
     );
   }
   return (
-    <ProviderSettingsPanel
-      environmentId={environment.environmentId}
-      {...(target.instanceId ? { instanceId: target.instanceId } : {})}
-      scoped
-    />
+    <>
+      <AutoModelSettings
+        key={environment.environmentId}
+        environmentId={environment.environmentId}
+      />
+      <ProviderSettingsPanel
+        environmentId={environment.environmentId}
+        {...(target.instanceId ? { instanceId: target.instanceId } : {})}
+        scoped
+      />
+    </>
   );
 }
 

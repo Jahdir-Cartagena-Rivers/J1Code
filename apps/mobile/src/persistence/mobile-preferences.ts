@@ -33,6 +33,8 @@ export interface Preferences {
   readonly codeWordBreak?: boolean;
   readonly connectOnboardingOptOutAccounts?: ReadonlyArray<string>;
   readonly collapsedProjectGroups?: readonly string[];
+  /** Device-local manual ordering for project headings. */
+  readonly homeProjectOrder?: readonly string[];
   /** What the Return key does in the composer on a hardware keyboard. iOS only. */
   readonly composerEnterBehavior?: ComposerEnterBehavior;
   /** @deprecated Kept temporarily so older OTA bundles retain the selected mode. */
@@ -103,6 +105,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     codeWordBreak?: boolean;
     connectOnboardingOptOutAccounts?: ReadonlyArray<string>;
     collapsedProjectGroups?: readonly string[];
+    homeProjectOrder?: readonly string[];
     composerEnterBehavior?: ComposerEnterBehavior;
     projectGroupingEnabled?: boolean;
     projectGroupingMode?: SidebarProjectGroupingMode;
@@ -160,6 +163,11 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (Array.isArray(parsed.collapsedProjectGroups)) {
     preferences.collapsedProjectGroups = parsed.collapsedProjectGroups.filter(
+      (key): key is string => typeof key === "string",
+    );
+  }
+  if (Array.isArray(parsed.homeProjectOrder)) {
+    preferences.homeProjectOrder = parsed.homeProjectOrder.filter(
       (key): key is string => typeof key === "string",
     );
   }

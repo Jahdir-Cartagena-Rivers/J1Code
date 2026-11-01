@@ -24,6 +24,25 @@ import {
 const FOLDED_SERVER_SETTINGS = { ...DEFAULT_SERVER_SETTINGS, projectSettingsFolded: true };
 
 describe("serverSettings helpers", () => {
+  it("replaces Auto policy atomically so old capability facts cannot follow a new model", () => {
+    const fast = createModelSelection(ProviderInstanceId.make("codex"), "fast");
+    const deep = createModelSelection(ProviderInstanceId.make("codex"), "deep");
+    const first = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      autoModelPolicy: {
+        mode: "auto",
+        fast,
+        deep,
+        capabilities: { fast: { images: true, contextWindow: 100000 } },
+      },
+    });
+    const replacement = { mode: "auto" as const, fast: deep, deep: fast };
+    expect(
+      applyServerSettingsPatch(first, { autoModelPolicy: replacement }).autoModelPolicy,
+    ).toEqual(replacement);
+    expect(
+      applyServerSettingsPatch(first, { autoModelPolicy: { mode: "manual" } }).autoModelPolicy,
+    ).toEqual({ mode: "manual" });
+  });
   it("changes a cleanup rule without replacing the machine's other rules", () => {
     const enabled = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
       storageCleanup: { worktreeAfterDays: 8, worktreeOnMerge: true, logsAfterDays: 30 },

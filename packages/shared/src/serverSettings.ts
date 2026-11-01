@@ -273,6 +273,8 @@ export function applyServerSettingsPatch(
     providerHealthRefreshInterval,
     backgroundActivityProfile,
     backgroundActivity,
+    // A policy is a complete selection; stale model capability facts must not survive replacement.
+    autoModelPolicy: autoModelPolicyPatch,
     worktreeCleanup: worktreeCleanupPatch,
     // Merged per entry below; its `null` removals must not reach deepMerge.
     usageLimitSources: usageLimitSourcesPatch,
@@ -324,6 +326,7 @@ export function applyServerSettingsPatch(
   const next = deepMerge(current, patchForMerge);
   const nextWithReplacementsBase = {
     ...next,
+    ...(autoModelPolicyPatch !== undefined ? { autoModelPolicy: autoModelPolicyPatch } : {}),
     ...(worktreeCleanupPatch === undefined
       ? {}
       : {

@@ -1,4 +1,5 @@
 import { isChatGptUsageLimitError } from "@t3tools/shared/usageLimits";
+import { RouteRequestControl } from "./chat/RouteRequestControl";
 import { useLoadBalancedEnvironment } from "../hooks/useLoadBalancedEnvironment";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
@@ -299,6 +300,7 @@ import {
   beginBackgroundDraftSubmissionByRef,
   clearBackgroundDraftSubmissionByRef,
   composerDraftHasUserContent,
+  waitForHomeConversation,
   type ComposerFileAttachment,
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
@@ -348,7 +350,7 @@ import {
   serverEnvironment,
 } from "../state/server";
 import { terminalEnvironment } from "../state/terminal";
-import { threadEnvironment, useEnvironmentThread } from "../state/threads";
+import { environmentThreadShells, threadEnvironment, useEnvironmentThread } from "../state/threads";
 import {
   requestOlderThreadTurns,
   threadHasOlderTurns,
@@ -1653,6 +1655,7 @@ export default function ChatView(props: ChatViewProps) {
   const setComposerDraftInteractionMode = useComposerDraftStore(
     (store) => store.setInteractionMode,
   );
+  const copyComposerDraftContent = useComposerDraftStore((store) => store.copyDraftContent);
   const clearComposerDraftContent = useComposerDraftStore((store) => store.clearComposerContent);
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const getDraftSessionByLogicalProjectKey = useComposerDraftStore(
@@ -8423,7 +8426,11 @@ export default function ChatView(props: ChatViewProps) {
               return { context };
             })(),
           },
-          modelSelection: ctxSelectedModelSelection,
+          ...(activeProjectSettings.settings.autoModelPolicy?.mode === "auto" &&
+          useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)
+            ?.modelSelectionExplicit !== true
+            ? { autoRouting: { taskId: String(threadIdForSend), requestEscalation: false } }
+            : { modelSelection: ctxSelectedModelSelection }),
           titleSeed: title,
           runtimeMode,
           interactionMode: sendInteractionMode,
@@ -8548,7 +8555,53 @@ export default function ChatView(props: ChatViewProps) {
       }
       if (!isAtomCommandInterrupted(failure)) {
         const error = squashAtomCommandFailure(failure);
+        let recoveredHome = false;
+        const existingHome =
+          isLocalDraftThread &&
+          draftId &&
+          activeProject?.id === "j1-home" &&
+          error instanceof Error &&
+          error.message.includes("Home already has a conversation.")
+            ? await waitForHomeConversation({
+                read: () =>
+                  appAtomRegistry
+                    .get(environmentThreadShells.threadShellsAtom)
+                    .find(
+                      (thread) =>
+                        thread.environmentId === environmentId &&
+                        thread.projectId === "j1-home" &&
+                        thread.id !== threadIdForSend &&
+                        thread.archivedAt === null,
+                    ) ?? null,
+                subscribe: (inspect) =>
+                  appAtomRegistry.subscribe(environmentThreadShells.threadShellsAtom, inspect),
+              })
+            : null;
         if (
+          existingHome &&
+          draftId !== null &&
+          copyComposerDraftContent(
+            draftId,
+            scopeThreadRef(existingHome.environmentId, existingHome.id),
+          )
+        ) {
+          toastManager.add(
+            stackedThreadToast({
+              type: "info",
+              title: "Home opened in another window",
+              description: "Your unsent message was copied there; the original draft was kept.",
+            }),
+          );
+          await navigate({
+            to: "/$environmentId/$threadId",
+            params: buildThreadRouteParams(
+              scopeThreadRef(existingHome.environmentId, existingHome.id),
+            ),
+          });
+          recoveredHome = true;
+        }
+        if (
+          !recoveredHome &&
           resolvedSubmissionIntent !== "background" &&
           isLocalDraftThread &&
           draftId &&
@@ -8567,10 +8620,12 @@ export default function ChatView(props: ChatViewProps) {
             );
           }
         }
-        setThreadError(
-          threadIdForSend,
-          error instanceof Error ? error.message : "Failed to send message.",
-        );
+        if (!recoveredHome) {
+          setThreadError(
+            threadIdForSend,
+            error instanceof Error ? error.message : "Failed to send message.",
+          );
+        }
         if (backgroundDraftOpened && draftId) {
           toastManager.add(
             stackedThreadToast({
@@ -10012,6 +10067,14 @@ export default function ChatView(props: ChatViewProps) {
                     <ComposerSurface.Shell contextStrip={showComposerContextStrip}>
                       <ComposerSurface.Host>
                         <div ref={attachDraftHeroComposerAnchorRef} className="relative z-10">
+                          {activeThread && activeProject && (
+                            <RouteRequestControl
+                              key={String(activeThread.id)}
+                              environmentId={environmentId}
+                              projectId={activeProject.id}
+                              threadId={activeThread.id}
+                            />
+                          )}
                           <ChatComposer
                             multipleModelSelections={multipleModelSelections}
                             supportsMultipleModels={
@@ -10091,7 +10154,10 @@ export default function ChatView(props: ChatViewProps) {
                             compactDisabled={compactDisabled}
                             compactDisabledReason={compactDisabledReason}
                             resolvedTheme={resolvedTheme}
-                            settings={settings}
+                            settings={{
+                              ...settings,
+                              autoModelPolicy: activeProjectSettings.settings.autoModelPolicy,
+                            }}
                             keybindings={keybindings}
                             terminalOpen={Boolean(terminalUiState.terminalOpen)}
                             gitCwd={gitCwd}

@@ -214,11 +214,16 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   readModel,
   userInputActivity,
   workerDescendantIds = [],
+  routeAdmissionHydrated = false,
+  autoSelection,
 }: {
   readonly command: OrchestrationCommand;
   readonly readModel: OrchestrationReadModel;
   readonly userInputActivity?: OrchestrationThreadActivity;
   readonly workerDescendantIds?: ReadonlyArray<ThreadId>;
+  /** Server-only assertion: both detailed threads loaded inside the serialized queue. */
+  readonly routeAdmissionHydrated?: boolean;
+  readonly autoSelection?: { readonly reason: string; readonly resolverDurationMs: number | null };
 }): Effect.fn.Return<
   DecideOrchestrationCommandResult,
   OrchestrationCommandRejection | PlatformError.PlatformError,
@@ -389,6 +394,19 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      // Home is one durable general conversation. Archived Home threads still
+      // count so reconnects and concurrent clients cannot create replacements.
+      if (
+        command.projectId === "j1-home" &&
+        listThreadsByProjectId(readModel, command.projectId).some(
+          (thread) => thread.deletedAt === null,
+        )
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Home already has a conversation.",
+        });
+      }
       return {
         ...(yield* withEventBase({
           aggregateKind: "thread",
@@ -1414,7 +1432,94 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.route.deliver": {
+      if (!routeAdmissionHydrated) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Route held: serialized detailed thread hydration is not wired.",
+        });
+      }
+      const source = yield* requireThread({ readModel, command, threadId: command.sourceThreadId });
+      const destination = yield* requireThread({ readModel, command, threadId: command.threadId });
+      const reject = (detail: string) =>
+        new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Route held: ${detail}`,
+        });
+      if (source.id === destination.id || command.visitedThreadIds.includes(destination.id)) {
+        return yield* reject("self delivery or routing loop");
+      }
+      for (const thread of [source, destination]) {
+        if (thread.deletedAt !== null || thread.archivedAt !== null) {
+          return yield* reject("source or destination is deleted or archived");
+        }
+        if (
+          thread.runtimeMode !== command.originalRuntimeMode ||
+          (thread.id === source.id &&
+            thread.modelSelection.instanceId !== command.originalProviderInstanceId) ||
+          (thread.session !== null &&
+            (thread.session.runtimeMode !== command.originalRuntimeMode ||
+              thread.session.providerInstanceId !== thread.modelSelection.instanceId))
+        ) {
+          return yield* reject("provider identity or permission mode changed or incompatible");
+        }
+      }
+      if (
+        destination.session?.status === "starting" ||
+        destination.session?.status === "running" ||
+        destination.session?.activeTurnId != null ||
+        destination.latestTurn?.state === "running" ||
+        openRequests(destination).size > 0 ||
+        hasQueuedTurnStartForThread(destination, command.createdAt)
+      ) {
+        return yield* reject("destination is busy or awaiting approval/user input");
+      }
+      if (destination.messages.some((message) => message.id === command.messageId)) {
+        return yield* reject("message identity already exists");
+      }
+      const decided = yield* decideOrchestrationCommand({
+        readModel,
+        command: {
+          type: "thread.turn.start",
+          commandId: command.commandId,
+          threadId: destination.id,
+          message: {
+            messageId: command.messageId,
+            role: "user",
+            text: command.text,
+            attachments: [],
+          },
+          modelSelection: destination.modelSelection,
+          runtimeMode: destination.runtimeMode,
+          interactionMode: destination.interactionMode,
+          createdAt: command.createdAt,
+        },
+      });
+      const events = Array.isArray(decided) ? decided : [decided];
+      return events.map((event, index) => ({
+        ...event,
+        eventId: EventId.make(`route:${command.commandId}:${index}`),
+        ...(index > 0 ? { causationEventId: EventId.make(`route:${command.commandId}:0`) } : {}),
+        metadata: {
+          ...event.metadata,
+          routeId: command.routeId,
+          sourceThreadId: source.id,
+          provenance: command.provenance,
+          visitedThreadIds: [...command.visitedThreadIds, source.id],
+        },
+      }));
+    }
+
     case "thread.turn.start": {
+      // Explicit Auto requires the engine's server-only admission result.
+      // Client-provided model selections cannot bypass admission.
+      if (command.autoRouting !== undefined && !autoSelection) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Auto routing is not available: provider admission is not wired.",
+        });
+      }
+
       if (isImportedAgentSessionMessageId(command.message.messageId)) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
@@ -1498,6 +1603,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.modelSelection !== undefined
             ? { modelSelection: command.modelSelection }
             : {}),
+          ...(command.autoRouting !== undefined ? { autoRouting: command.autoRouting } : {}),
+          ...(autoSelection ? { autoSelection } : {}),
           ...(command.titleSeed !== undefined ? { titleSeed: command.titleSeed } : {}),
           runtimeMode: targetThread.runtimeMode,
           interactionMode: targetThread.interactionMode,
@@ -1546,6 +1653,35 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       return [
         ...lifecycleResetEvents,
         ...(userMessageEvent ? [userMessageEvent] : []),
+        ...(autoSelection
+          ? [
+              {
+                ...(yield* withEventBase({
+                  aggregateKind: "thread",
+                  aggregateId: command.threadId,
+                  occurredAt: command.createdAt,
+                  commandId: command.commandId,
+                })),
+                type: "thread.activity-appended" as const,
+                payload: {
+                  threadId: command.threadId,
+                  activity: {
+                    id: EventId.make(`auto:${command.commandId}`),
+                    kind: "auto-model.selected",
+                    summary: `Auto selected ${command.modelSelection?.model}: ${autoSelection.reason}`,
+                    tone: "info" as const,
+                    turnId: null,
+                    createdAt: command.createdAt,
+                    payload: {
+                      taskId: command.autoRouting?.taskId,
+                      modelSelection: command.modelSelection,
+                      ...autoSelection,
+                    },
+                  },
+                },
+              },
+            ]
+          : []),
         turnStartRequestedEvent,
       ];
     }

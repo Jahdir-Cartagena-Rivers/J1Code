@@ -2,6 +2,16 @@ import { describe, expect, it } from "vite-plus/test";
 import { buildRuntimeInstructions } from "./RuntimeInstructions.ts";
 
 describe("buildRuntimeInstructions", () => {
+  it("does not treat a new handoff as delivery to an existing owner", () => {
+    const instructions = buildRuntimeInstructions({ harness: "Codex" });
+    expect(instructions).toContain(
+      "Use route_task to find an existing owner before creating duplicate work",
+    );
+    expect(instructions).toContain(
+      "A queued or admitted request has not necessarily been delivered",
+    );
+    expect(instructions).toContain("an agent must not redeem that confirmation");
+  });
   it("explains cross-provider delegation without implying automatic context or approvals", () => {
     const instructions = buildRuntimeInstructions({ harness: "Claude Code" });
     expect(instructions).toContain("list_agent_models");

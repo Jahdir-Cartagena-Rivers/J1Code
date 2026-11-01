@@ -47,6 +47,8 @@ import type { TimestampFormat } from "@t3tools/contracts/settings";
 import {
   AlarmClockIcon,
   AlarmClockOffIcon,
+  ArrowDownIcon,
+  ArrowUpIcon,
   CheckIcon,
   ChevronDownIcon,
   CircleAlertIcon,
@@ -126,7 +128,7 @@ import { useThreadActions } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
-import { useClientSettings } from "../hooks/useSettings";
+import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
 import { useRootChatShells, WorkerChatTree } from "./WorkerChats";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
@@ -237,7 +239,7 @@ import {
   useComboboxFilter,
 } from "./ui/combobox";
 import { SidebarContent, SidebarGroup, SidebarMenu, useSidebar } from "./ui/sidebar";
-import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { SidebarChromeFooter, SidebarChromeHeader, SidebarHomeLink } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
@@ -2177,16 +2179,33 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
 
 export default function Sidebar() {
   const projects = useProjects();
+  // Home has one persistent conversation exposed by the top-level Home control.
+  // It is not an ordinary project and must never be grouped with project chats.
+  const sidebarProjects = useMemo(
+    () => projects.filter((project) => project.id !== "j1-home"),
+    [projects],
+  );
   const projectOrder = useUiStateStore((store) => store.projectOrder);
+  const reorderProjects = useUiStateStore((store) => store.reorderProjects);
   const threads = useRootChatShells();
+  const projectThreads = useMemo(
+    () => threads.filter((thread) => thread.projectId !== "j1-home"),
+    [threads],
+  );
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
+  const updateClientSettings = useUpdateClientSettings();
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
+  useEffect(() => {
+    if (sidebarProjectSortOrder !== "manual") {
+      void updateClientSettings({ sidebarProjectSortOrder: "manual" });
+    }
+  }, [sidebarProjectSortOrder, updateClientSettings]);
   const {
     settleThread,
     unsettleThread,
@@ -2321,7 +2340,7 @@ export default function Sidebar() {
   const orderedProjects = useMemo(
     () =>
       orderItemsByPreferredIds({
-        items: projects,
+        items: sidebarProjects,
         preferredIds: projectOrder,
         getId: getProjectOrderKey,
         getPreferenceIds: (project) => [
@@ -2329,12 +2348,12 @@ export default function Sidebar() {
           legacyProjectCwdPreferenceKey(project.workspaceRoot),
         ],
       }),
-    [projectOrder, projects],
+    [projectOrder, sidebarProjects],
   );
   const unsortedProjectGroups = useMemo(
     () =>
       buildSidebarProjectSnapshots({
-        projects: sidebarProjectSortOrder === "manual" ? orderedProjects : projects,
+        projects: sidebarProjectSortOrder === "manual" ? orderedProjects : sidebarProjects,
         settings: projectGroupingSettings,
         primaryEnvironmentId,
         resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
@@ -2344,7 +2363,7 @@ export default function Sidebar() {
       orderedProjects,
       primaryEnvironmentId,
       projectGroupingSettings,
-      projects,
+      sidebarProjects,
       sidebarProjectSortOrder,
     ],
   );
@@ -2422,6 +2441,20 @@ export default function Sidebar() {
   const projectGroupByScopeKey = useMemo(
     () => new Map(projectGroups.map((project) => [project.projectKey, project] as const)),
     [projectGroups],
+  );
+  const moveProjectGroup = useCallback(
+    (projectKey: string, direction: -1 | 1) => {
+      const index = projectGroups.findIndex((project) => project.projectKey === projectKey);
+      const target = projectGroups[index + direction];
+      const project = projectGroups[index];
+      if (!project || !target) return;
+      reorderProjects(
+        orderedProjects.map(getProjectOrderKey),
+        project.memberProjects.map((member) => member.physicalProjectKey),
+        target.memberProjects.map((member) => member.physicalProjectKey),
+      );
+    },
+    [orderedProjects, projectGroups, reorderProjects],
   );
   const selectedProjectScopeItem = useMemo(
     () =>
@@ -2573,7 +2606,7 @@ export default function Sidebar() {
     // memo exactly at the next wake boundary.
     void snoozeWakeTick;
     const preciseNow = new Date().toISOString();
-    const visible = threads.filter(
+    const visible = projectThreads.filter(
       (thread) =>
         thread.archivedAt === null &&
         (scopedProjectKeys === null ||
@@ -2663,7 +2696,7 @@ export default function Sidebar() {
       settledThreads: sortSettledThreads(settled),
       snoozeNow: preciseNow,
     };
-  }, [nowMinute, optimisticDrop, scopedProjectKeys, serverConfigs, snoozeWakeTick, threads]);
+  }, [nowMinute, optimisticDrop, projectThreads, scopedProjectKeys, serverConfigs, snoozeWakeTick]);
 
   const threadSearchInputRef = useRef<HTMLInputElement>(null);
   const [threadSearchQuery, setThreadSearchQuery] = useState("");
@@ -4443,6 +4476,7 @@ export default function Sidebar() {
   return (
     <>
       <SidebarChromeHeader isElectron={isElectron} />
+      <SidebarHomeLink />
       <SidebarContent
         className="min-h-full"
         fixedHeader={
@@ -4560,6 +4594,38 @@ export default function Sidebar() {
                                 primaryEnvironmentId={primaryEnvironmentId}
                                 machineByEnvironmentId={environmentMachineById}
                               />
+                            ) : null}
+                            {project ? (
+                              <>
+                                <Button
+                                  size="icon-xs"
+                                  variant="ghost-muted"
+                                  aria-label={`Move ${project.displayName} up`}
+                                  disabled={projectGroups[0]?.projectKey === project.projectKey}
+                                  onPointerDown={(event) => event.stopPropagation()}
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    moveProjectGroup(project.projectKey, -1);
+                                  }}
+                                >
+                                  <ArrowUpIcon className="size-3.5" />
+                                </Button>
+                                <Button
+                                  size="icon-xs"
+                                  variant="ghost-muted"
+                                  aria-label={`Move ${project.displayName} down`}
+                                  disabled={projectGroups.at(-1)?.projectKey === project.projectKey}
+                                  onPointerDown={(event) => event.stopPropagation()}
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    moveProjectGroup(project.projectKey, 1);
+                                  }}
+                                >
+                                  <ArrowDownIcon className="size-3.5" />
+                                </Button>
+                              </>
                             ) : null}
                             {project ? (
                               <Button

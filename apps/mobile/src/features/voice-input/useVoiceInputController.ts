@@ -15,8 +15,10 @@ import { useSharedValue } from "react-native-reanimated";
 
 import type { ComposerEditorSelection } from "../../components/ComposerEditor";
 import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
-import { androidDictation } from "../../native/androidDictation";
-import { replaceTextRange } from "@t3tools/shared/composerTrigger";
+import { androidDictation, nextAndroidDictationSession } from "../../native/androidDictation";
+import { iosLiveDictation, nextIOSLiveDictationSession } from "../../native/iosLiveDictation";
+import { AndroidDictationLifecycle } from "../../native/androidDictationLifecycle";
+import { AndroidDictationDraft } from "../../native/androidDictationDraft";
 import { getNativeShowcaseScene } from "../showcase/nativeShowcaseScene";
 import {
   VoiceInputController,
@@ -27,6 +29,8 @@ import {
   type VoiceInputState,
 } from "@t3tools/client-runtime/voice-input";
 import { normalizeVoiceInputDecibels, VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
+
+const liveDictation = iosLiveDictation ?? androidDictation;
 
 const INITIAL_STATE: VoiceInputState = { phase: "idle", error: null, errorAction: null };
 const VOICE_METERING_INTERVAL_MS = 80;
@@ -91,12 +95,63 @@ export function useVoiceInputController(input: {
   }
   const latestInputRef = useRef(input);
   latestInputRef.current = input;
-  const androidRequestRef = useRef(0);
+  const liveRequestRef = useRef(0);
+  const livePendingRef = useRef(false);
+  const liveStoppingRef = useRef(false);
+  const iosFallbackRef = useRef(false);
+  const liveLifecycle = useRef(new AndroidDictationLifecycle());
+  const liveDraftRef = useRef<AndroidDictationDraft | null>(null);
+  const liveStartedRef = useRef(0);
+  useEffect(() => {
+    if (!liveDictation) return;
+    const subscription = liveDictation.addListener("onDictation", (event) => {
+      if (!liveLifecycle.current.accepts(event.sessionId)) return;
+      if (event.type === "partial" || event.type === "final") {
+        const current = latestInputRef.current;
+        const result = liveDraftRef.current?.update(
+          current.ownerKey,
+          current.draftMessage,
+          event.text ?? "",
+          event.type === "final" && !iosLiveDictation,
+        );
+        if (!result) {
+          livePendingRef.current = false;
+          liveLifecycle.current.cancel();
+          liveDictation?.cancelDictation(liveRequestRef.current);
+          setState(INITIAL_STATE);
+          return;
+        }
+        // Keep the expected value current even before React commits the render.
+        latestInputRef.current = { ...current, draftMessage: result.text };
+        current.onChangeDraftMessage(result.text);
+        current.onChangeSelection({ start: result.cursor, end: result.cursor });
+      } else if (event.type === "level") {
+        audioLevelsRef.current = [...audioLevelsRef.current.slice(1), event.level ?? 0];
+        audioLevels.value = audioLevelsRef.current;
+        setElapsedSeconds(Math.floor((Date.now() - liveStartedRef.current) / 1000));
+      } else if (event.type === "error") {
+        setState({
+          phase: "error",
+          error: event.message ?? "Speech recognition failed.",
+          errorAction: "retry",
+        });
+      } else if (event.type === "end") {
+        livePendingRef.current = false;
+        liveLifecycle.current.cancel();
+        setState((previous) => (previous.phase === "error" ? previous : INITIAL_STATE));
+      } else if (event.type === "ready" && !liveStoppingRef.current) {
+        setState({ phase: "recording", error: null, errorAction: null });
+      }
+    });
+    return () => subscription.remove();
+  }, [audioLevels]);
   useEffect(() => {
     setState(INITIAL_STATE);
     return () => {
-      androidRequestRef.current += 1;
-      androidDictation?.cancelDictation();
+      liveDictation?.cancelDictation(liveRequestRef.current);
+      liveRequestRef.current = 0;
+      livePendingRef.current = false;
+      liveLifecycle.current.cancel();
     };
   }, [input.ownerKey]);
 
@@ -151,8 +206,10 @@ export function useVoiceInputController(input: {
   useFocusEffect(
     useCallback(
       () => () => {
-        androidRequestRef.current += 1;
-        androidDictation?.cancelDictation();
+        liveDictation?.cancelDictation(liveRequestRef.current);
+        liveRequestRef.current = 0;
+        livePendingRef.current = false;
+        liveLifecycle.current.cancel();
         controller.dispose();
       },
       [controller],
@@ -164,7 +221,16 @@ export function useVoiceInputController(input: {
       // iOS reports `inactive` while its permission dialog is open. Only the
       // real background state cancels preparation; recorder status handles
       // calls and route interruptions during capture.
-      if (nextState === "background") controller.appMovedToBackground();
+      if (nextState === "background") {
+        controller.appMovedToBackground();
+        if (livePendingRef.current) {
+          livePendingRef.current = false;
+          liveLifecycle.current.cancel();
+          liveDictation?.cancelDictation(liveRequestRef.current);
+          liveRequestRef.current = 0;
+          setState(INITIAL_STATE);
+        }
+      }
     });
     return () => subscription.remove();
   }, [controller]);
@@ -225,47 +291,77 @@ export function useVoiceInputController(input: {
   }, [audioLevels, controller, recorder, state.phase]);
 
   const start = useCallback(() => {
-    if (latestInputRef.current.disabled) return;
-    if (!androidDictation) {
+    if (latestInputRef.current.disabled || !latestInputRef.current.ownerKey) return;
+    if (!liveDictation || iosFallbackRef.current) {
       void controller.start();
       return;
     }
+    if (livePendingRef.current) return;
+    livePendingRef.current = true;
+    liveStoppingRef.current = false;
     const snapshot = latestInputRef.current;
-    const revision = revisionRef.current;
-    const request = ++androidRequestRef.current;
-    setState({ phase: "transcribing", error: null, errorAction: null });
-    void androidDictation
-      .dictate()
-      .then((text) => {
-        if (request !== androidRequestRef.current) return;
-        if (
-          revision !== revisionRef.current ||
-          snapshot.ownerKey !== latestInputRef.current.ownerKey
-        ) {
+    const request = iosLiveDictation
+      ? nextIOSLiveDictationSession()
+      : nextAndroidDictationSession();
+    liveRequestRef.current = request;
+    liveLifecycle.current.begin(request);
+    liveStartedRef.current = Date.now();
+    liveDraftRef.current = new AndroidDictationDraft(
+      snapshot.ownerKey!,
+      snapshot.draftMessage,
+      snapshot.selection.start,
+      snapshot.selection.end,
+    );
+    setElapsedSeconds(0);
+    setState({ phase: "preparing", error: null, errorAction: null });
+    void requestRecordingPermissionsAsync()
+      .then(async (permission) => {
+        if (request !== liveRequestRef.current || !livePendingRef.current) return;
+        if (!permission.granted)
+          throw new Error("Microphone permission is required for dictation.");
+        if (liveStoppingRef.current) {
+          livePendingRef.current = false;
+          liveLifecycle.current.cancel();
           setState(INITIAL_STATE);
           return;
         }
-        if (text.trim()) {
-          const result = replaceTextRange(
-            snapshot.draftMessage,
-            snapshot.selection.start,
-            snapshot.selection.end,
-            text.trim(),
-          );
-          latestInputRef.current.onChangeDraftMessage(result.text);
-          latestInputRef.current.onChangeSelection({ start: result.cursor, end: result.cursor });
-        }
-        setState(INITIAL_STATE);
+        await liveDictation?.startDictation(request);
       })
       .catch((error: unknown) => {
-        if (request === androidRequestRef.current)
-          setState({ phase: "error", error: String(error), errorAction: "retry" });
+        if (request !== liveRequestRef.current) return;
+        livePendingRef.current = false;
+        liveLifecycle.current.cancel();
+        if (liveStoppingRef.current) {
+          setState(INITIAL_STATE);
+          return;
+        }
+        const code = (error as { code?: string } | null)?.code;
+        if (
+          iosLiveDictation &&
+          code === "ERR_SPEECH_UNAVAILABLE" &&
+          !liveStoppingRef.current &&
+          latestInputRef.current.ownerKey === snapshot.ownerKey &&
+          latestInputRef.current.draftMessage === snapshot.draftMessage
+        ) {
+          iosFallbackRef.current = true;
+          void controller.start();
+          return;
+        }
+        setState({ phase: "error", error: String(error), errorAction: "retry" });
       });
   }, [controller]);
-  const stop = useCallback(() => controller.stop(), [controller]);
+  const stop = useCallback(() => {
+    if (livePendingRef.current) {
+      liveStoppingRef.current = true;
+      setState({ phase: "transcribing", error: null, errorAction: null });
+      liveDictation?.stopDictation(liveRequestRef.current);
+    } else controller.stop();
+  }, [controller]);
   const cancel = useCallback(() => {
-    androidRequestRef.current += 1;
-    androidDictation?.cancelDictation();
+    liveDictation?.cancelDictation(liveRequestRef.current);
+    liveRequestRef.current = 0;
+    livePendingRef.current = false;
+    liveLifecycle.current.cancel();
     controller.cancel();
     setState(INITIAL_STATE);
   }, [controller]);
@@ -274,14 +370,15 @@ export function useVoiceInputController(input: {
     // Store screenshots show the dictation button even on simulators, whose
     // on-device transcription is unavailable.
     isAvailable:
-      androidDictation !== null ||
+      liveDictation !== null ||
       getLocalVoiceTranscriber() !== null ||
       getNativeShowcaseScene() !== null,
     state,
     audioLevels,
     elapsedSeconds,
     isBusy: voiceInputBlocksSubmission(state),
-    freezesEditor: voiceInputFreezesEditor(state),
+    freezesEditor:
+      liveDictation && !iosFallbackRef.current ? false : voiceInputFreezesEditor(state),
     blocksSubmission: voiceInputBlocksSubmission(state),
     start,
     stop,

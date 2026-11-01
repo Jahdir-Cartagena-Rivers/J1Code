@@ -1132,6 +1132,22 @@ export function createServerEnvironmentAtoms<R, E>(
       scheduler: configScheduler,
       concurrency: configConcurrency,
     }),
+    routingPrepare: createEnvironmentRpcCommand(runtime, {
+      label: "routing:prepare",
+      tag: "routing.prepare",
+    }),
+    routingList: createEnvironmentRpcCommand(runtime, {
+      label: "routing:list",
+      tag: "routing.list",
+    }),
+    routingConfirm: createEnvironmentRpcCommand(runtime, {
+      label: "routing:confirm",
+      tag: "routing.confirm",
+    }),
+    routingStatus: createEnvironmentRpcCommand(runtime, {
+      label: "routing:status",
+      tag: "routing.status",
+    }),
     signalProcess: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:signal-process",
       tag: WS_METHODS.serverSignalProcess,

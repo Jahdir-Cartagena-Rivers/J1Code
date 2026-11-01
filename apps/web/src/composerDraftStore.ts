@@ -569,6 +569,8 @@ interface ComposerDraftStoreState {
   /** Removes draft-session metadata after promotion is complete. */
   finalizePromotedDraftThread: (threadRef: ComposerThreadTarget) => void;
   clearDraftThread: (threadRef: ComposerThreadTarget) => void;
+  /** Copies unsent content to an empty server-thread composer without removing the source draft. */
+  copyDraftContent: (source: ComposerThreadTarget, target: ScopedThreadRef) => boolean;
   setStickyModelSelection: (modelSelection: ModelSelection | null | undefined) => void;
   setPrompt: (threadRef: ComposerThreadTarget, prompt: string) => void;
   setTerminalContexts: (threadRef: ComposerThreadTarget, contexts: TerminalContextDraft[]) => void;
@@ -3000,6 +3002,81 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             return { draftsByThreadKey: nextDraftsByThreadKey };
           });
         },
+        copyDraftContent: (source, target) => {
+          const sourceKey = resolveComposerDraftKey(get(), source);
+          const targetKey = resolveComposerDraftKey(get(), target);
+          if (!sourceKey || !targetKey) return false;
+          const sourceDraftForCopy = get().draftsByThreadKey[sourceKey];
+          if (
+            !sourceDraftForCopy ||
+            composerDraftHasUserContent(get().draftsByThreadKey[targetKey])
+          )
+            return false;
+          const createdPreviews: string[] = [];
+          let copiedImages: ComposerImageAttachment[];
+          try {
+            copiedImages = sourceDraftForCopy.images.map((image) => {
+              if (!image.previewUrl.startsWith("blob:")) return { ...image };
+              if (typeof URL === "undefined") {
+                throw new Error("Cannot safely copy an image preview without object URLs.");
+              }
+              const previewUrl = URL.createObjectURL(image.file);
+              createdPreviews.push(previewUrl);
+              return { ...image, previewUrl };
+            });
+          } catch {
+            // Sharing an object URL would let clearing either draft revoke the
+            // other preview. Keep the losing draft untouched instead.
+            for (const previewUrl of createdPreviews) revokeObjectPreviewUrl(previewUrl);
+            return false;
+          }
+          let copied = false;
+          set((state) => {
+            const sourceDraft = state.draftsByThreadKey[sourceKey];
+            const targetDraft = state.draftsByThreadKey[targetKey];
+            if (!sourceDraft || composerDraftHasUserContent(targetDraft)) return state;
+            const { modelSelectionExplicit: _sourceExplicit, ...sourceDraftWithoutExplicit } =
+              sourceDraft;
+            copied = true;
+            return {
+              draftsByThreadKey: {
+                ...state.draftsByThreadKey,
+                [targetKey]: {
+                  ...sourceDraftWithoutExplicit,
+                  images: copiedImages,
+                  files: [...sourceDraft.files],
+                  nonPersistedImageIds: [...sourceDraft.nonPersistedImageIds],
+                  persistedAttachments: [...sourceDraft.persistedAttachments],
+                  terminalContexts: sourceDraft.terminalContexts.map((context) => ({
+                    ...context,
+                    threadId: target.threadId,
+                  })),
+                  previewAnnotations: [...sourceDraft.previewAnnotations],
+                  reviewComments: [...sourceDraft.reviewComments],
+                  // Keep a deliberate destination model choice; otherwise carry
+                  // the source selection along with the unsent draft.
+                  modelSelectionByProvider: {
+                    ...(targetDraft?.modelSelectionExplicit === true
+                      ? targetDraft.modelSelectionByProvider
+                      : sourceDraft.modelSelectionByProvider),
+                  },
+                  activeProvider:
+                    targetDraft?.modelSelectionExplicit === true
+                      ? targetDraft.activeProvider
+                      : sourceDraft.activeProvider,
+                  ...(targetDraft?.modelSelectionExplicit === true ||
+                  sourceDraft.modelSelectionExplicit === true
+                    ? { modelSelectionExplicit: true as const }
+                    : {}),
+                  runtimeMode: targetDraft?.runtimeMode ?? sourceDraft.runtimeMode,
+                  interactionMode: targetDraft?.interactionMode ?? sourceDraft.interactionMode,
+                },
+              },
+            };
+          });
+          if (!copied) for (const previewUrl of createdPreviews) revokeObjectPreviewUrl(previewUrl);
+          return copied;
+        },
         setTerminalContexts: (threadRef, contexts) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef);
           const threadId = resolveComposerThreadId(get(), threadRef);
@@ -4300,4 +4377,31 @@ export function finalizePromotedDraftThreadByRef(threadRef: ScopedThreadRef): vo
     }
   }
   clearBackgroundDraftSubmissionByRef(threadRef);
+}
+
+/** A rejected singleton create can precede the winning thread's shell event. */
+export function waitForHomeConversation<T>(options: {
+  read: () => T | null;
+  subscribe: (inspect: () => void) => () => void;
+  timeoutMs?: number;
+}): Promise<T | null> {
+  return new Promise((resolve) => {
+    let unsubscribe: (() => void) | undefined;
+    let finished = false;
+    const finish = (value: T | null) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timeout);
+      unsubscribe?.();
+      resolve(value);
+    };
+    const timeout = setTimeout(() => finish(null), options.timeoutMs ?? 10_000);
+    const inspect = () => {
+      const value = options.read();
+      if (value !== null) finish(value);
+    };
+    unsubscribe = options.subscribe(inspect);
+    if (finished) unsubscribe();
+    else inspect();
+  });
 }

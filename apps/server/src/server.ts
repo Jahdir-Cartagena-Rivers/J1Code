@@ -166,7 +166,7 @@ import * as ResourceMonitorBinary from "./resourceTelemetry/ResourceMonitorBinar
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as UsageService from "./usage/UsageService.ts";
-import { OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
+import { OrchestrationAutoLayerLive as OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
 import {
   clearPersistedServerRuntimeState,
   makePersistedServerRuntimeState,
@@ -476,7 +476,7 @@ const ProviderRuntimeLayerLive = ProviderSessionReaperLive.pipe(
   // telemetry instead of waiting for the next status probe.
   Layer.provideMerge(ProviderUsageLimitsIngestionLive),
   Layer.provideMerge(ProviderLayerLive),
-  Layer.provideMerge(OrchestrationLayerLive),
+  Layer.provideMerge(OrchestrationLayerLive.pipe(Layer.provide(ServerSettingsLayerLive))),
 );
 
 const ProviderInstallationRefreshLive = Layer.effectDiscard(

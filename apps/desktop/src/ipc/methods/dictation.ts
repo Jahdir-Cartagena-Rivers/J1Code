@@ -7,6 +7,9 @@ import {
   startWindowsDictation,
   cancelWindowsDictation,
   cancelAllWindowsDictation,
+  stopWindowsDictation,
+  getWindowsDictationText,
+  getWindowsDictationLevel,
 } from "../../voice/WindowsDictation.ts";
 
 export const installDictationLifecycle = Effect.gen(function* () {
@@ -40,4 +43,22 @@ export const cancelDictation = DesktopIpc.makeIpcMethod({
   payload: Request,
   result: Schema.Void,
   handler: ({ requestId }) => Effect.sync(() => cancelWindowsDictation(requestId)),
+});
+export const stopDictation = DesktopIpc.makeIpcMethod({
+  channel: "desktop:dictation-stop",
+  payload: Request,
+  result: Schema.Void,
+  handler: ({ requestId }) => Effect.sync(() => stopWindowsDictation(requestId)),
+});
+export const dictationText = DesktopIpc.makeIpcMethod({
+  channel: "desktop:dictation-text",
+  payload: Request,
+  result: Schema.String,
+  handler: ({ requestId }) => Effect.sync(() => getWindowsDictationText(requestId)),
+});
+export const dictationLevel = DesktopIpc.makeIpcMethod({
+  channel: "desktop:dictation-level",
+  payload: Request,
+  result: Schema.Number,
+  handler: ({ requestId }) => Effect.sync(() => getWindowsDictationLevel(requestId)),
 });

@@ -200,6 +200,71 @@ describe("composerDraftStore assistant citations", () => {
   beforeEach(resetComposerDraftStore);
   afterEach(resetComposerDraftStore);
 
+  it("copies a losing draft to an empty server composer without removing the source", () => {
+    const draftId = DraftId.make("home-losing-draft");
+    const target = scopeThreadRef(TEST_ENVIRONMENT_ID, ThreadId.make("home-winning-thread"));
+    const store = useComposerDraftStore.getState();
+    const createObjectUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:home-copy");
+    store.setLogicalProjectDraftThreadId(
+      "home",
+      scopeProjectRef(TEST_ENVIRONMENT_ID, ProjectId.make("j1-home")),
+      draftId,
+      { threadId: ThreadId.make("home-losing-thread") },
+    );
+    store.setPrompt(draftId, "Keep this request.");
+    store.setModelSelection(draftId, modelSelection(CODEX_DRIVER, "gpt-5.4"), { explicit: true });
+    store.addImages(draftId, [makeImage({ id: "home-image", previewUrl: "blob:home-source" })]);
+    store.addFiles(draftId, [makeFile("home-file")]);
+    store.setTerminalContexts(draftId, [makeTerminalContext({ id: "home-terminal" })]);
+
+    expect(store.copyDraftContent(draftId, target)).toBe(true);
+    expect(store.getComposerDraft(draftId)?.prompt).toContain("Keep this request.");
+    expect(store.getComposerDraft(target)).toMatchObject({
+      prompt: expect.stringContaining("Keep this request."),
+      modelSelectionExplicit: true,
+      images: [expect.objectContaining({ id: "home-image", previewUrl: "blob:home-copy" })],
+      files: [expect.objectContaining({ id: "home-file" })],
+      terminalContexts: [expect.objectContaining({ id: "home-terminal" })],
+    });
+
+    const configuredTarget = scopeThreadRef(
+      TEST_ENVIRONMENT_ID,
+      ThreadId.make("home-configured-winning-thread"),
+    );
+    store.setModelSelection(configuredTarget, modelSelection(CODEX_DRIVER, "gpt-5.4"), {
+      explicit: true,
+    });
+    store.setRuntimeMode(configuredTarget, "approval-required");
+    store.setInteractionMode(configuredTarget, "plan");
+    expect(store.copyDraftContent(draftId, configuredTarget)).toBe(true);
+    expect(store.getComposerDraft(configuredTarget)).toMatchObject({
+      prompt: expect.stringContaining("Keep this request."),
+      modelSelectionExplicit: true,
+      runtimeMode: "approval-required",
+      interactionMode: "plan",
+    });
+
+    store.setPrompt(target, "Existing unsent text.");
+    expect(store.copyDraftContent(draftId, target)).toBe(false);
+    expect(store.getComposerDraft(target)?.prompt).toBe("Existing unsent text.");
+    expect(createObjectUrl).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the source draft when image previews cannot be safely cloned", () => {
+    const draftId = DraftId.make("home-unclonable-draft");
+    const target = scopeThreadRef(TEST_ENVIRONMENT_ID, ThreadId.make("home-target-thread"));
+    const store = useComposerDraftStore.getState();
+    store.setPrompt(draftId, "Keep this safe.");
+    store.addImages(draftId, [makeImage({ id: "home-image", previewUrl: "blob:home-source" })]);
+    vi.spyOn(URL, "createObjectURL").mockImplementation(() => {
+      throw new Error("object URL unavailable");
+    });
+
+    expect(store.copyDraftContent(draftId, target)).toBe(false);
+    expect(store.getComposerDraft(draftId)?.prompt).toBe("Keep this safe.");
+    expect(store.getComposerDraft(target)).toBeNull();
+  });
+
   it("keeps quotes, comments, and remote source IDs through persistence and removes them on clear", async () => {
     await useComposerDraftStore.persist.clearStorage();
     vi.useFakeTimers();
@@ -3401,5 +3466,62 @@ describe("composerDraftStore attachment references", () => {
     expect(merged.draftsByThreadKey[threadKeyFor(threadId, TEST_ENVIRONMENT_ID)]?.prompt).toBe(
       prompt,
     );
+  });
+});
+
+describe("Home creation race recovery", () => {
+  beforeEach(resetComposerDraftStore);
+  afterEach(() => {
+    resetComposerDraftStore();
+    vi.useRealTimers();
+  });
+
+  it.each([false, true])(
+    "waits for the winning event and preserves both drafts (occupied: %s)",
+    async (occupied) => {
+      const { waitForHomeConversation } = await import("./composerDraftStore");
+      const store = useComposerDraftStore.getState();
+      const draftId = DraftId.make("late-home-loser");
+      const target = scopeThreadRef(TEST_ENVIRONMENT_ID, ThreadId.make("late-home-winner"));
+      store.setPrompt(draftId, "Unsent losing request");
+      let winner: typeof target | null = null;
+      const listeners = new Set<() => void>();
+      const waiting = waitForHomeConversation({
+        read: () => winner,
+        subscribe: (inspect) => {
+          listeners.add(inspect);
+          return () => {
+            listeners.delete(inspect);
+          };
+        },
+      });
+      expect(listeners.size).toBe(1);
+      // The winner's composer can change while its shell event is still in flight.
+      if (occupied) store.setPrompt(target, "Other unsent request");
+      winner = target;
+      for (const listener of listeners) listener();
+      const recovered = await waiting;
+      expect(recovered).toEqual(target);
+      expect(store.copyDraftContent(draftId, recovered!)).toBe(!occupied);
+      expect(store.getComposerDraft(draftId)?.prompt).toBe("Unsent losing request");
+      expect(store.getComposerDraft(target)?.prompt).toBe(
+        occupied ? "Other unsent request" : "Unsent losing request",
+      );
+      expect(listeners.size).toBe(0);
+    },
+  );
+
+  it("stops watching if no winner arrives without touching the draft", async () => {
+    const { waitForHomeConversation } = await import("./composerDraftStore");
+    vi.useFakeTimers();
+    const unsubscribe = vi.fn();
+    const draftId = DraftId.make("missing-home-loser");
+    const store = useComposerDraftStore.getState();
+    store.setPrompt(draftId, "Still safe");
+    const waiting = waitForHomeConversation({ read: () => null, subscribe: () => unsubscribe });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await waiting).toBeNull();
+    expect(unsubscribe).toHaveBeenCalledOnce();
+    expect(store.getComposerDraft(draftId)?.prompt).toBe("Still safe");
   });
 });

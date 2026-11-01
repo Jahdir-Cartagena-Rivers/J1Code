@@ -1,3 +1,6 @@
+import * as Effect from "effect/Effect";
+import { ServerSettingsService } from "../serverSettings.ts";
+import { ProviderRegistry } from "../provider/Services/ProviderRegistry.ts";
 import * as Layer from "effect/Layer";
 
 import { OrchestrationCommandReceiptRepositoryLive } from "../persistence/Layers/OrchestrationCommandReceipts.ts";
@@ -28,6 +31,25 @@ const OrchestrationInfrastructureLayerLive = Layer.mergeAll(
 ).pipe(
   Layer.provideMerge(ThreadBackgroundLiveness.layer),
   Layer.provideMerge(ThreadPlanProgress.layer),
+);
+
+export const OrchestrationAutoLayerLive = Layer.mergeAll(
+  OrchestrationInfrastructureLayerLive,
+  Layer.unwrap(
+    Effect.gen(function* () {
+      const settings = yield* ServerSettingsService;
+      const providers = yield* ProviderRegistry;
+      return OrchestrationEngineLive.pipe(
+        Layer.provide(OrchestrationInfrastructureLayerLive),
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.succeed(ServerSettingsService, settings),
+            Layer.succeed(ProviderRegistry, providers),
+          ),
+        ),
+      );
+    }),
+  ),
 );
 
 export const OrchestrationLayerLive = Layer.mergeAll(

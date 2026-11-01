@@ -13,7 +13,7 @@ import {
   type ProjectScopedServerSettingKey,
 } from "@t3tools/contracts";
 import { useRef, useState, type ComponentProps } from "react";
-import { Alert, Platform, Pressable, View } from "react-native";
+import { Alert, Platform, Pressable, View, TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { RUNTIME_MODE_CHOICES } from "../threads/thread-settings-options";
@@ -48,7 +48,7 @@ const PAGE_TITLES: Record<SettingsPage, string> = {
 const PAGE_PROJECT_KEYS: Record<SettingsPage, readonly ProjectScopedServerSettingKey[]> = {
   "new-threads": ["defaultThreadEnvMode", "worktreeSubmodules", "defaultRuntimeMode"],
   "source-control": ["defaultAutoPull", "newWorktreesStartFromOrigin"],
-  "agent-behavior": ["responseStreamingMode", "enableAgentBrowserAccess"],
+  "agent-behavior": ["responseStreamingMode", "enableAgentBrowserAccess", "autoModelPolicy"],
   maintenance: ["continueThreadsAfterServerUpdate"],
 };
 
@@ -151,6 +151,7 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
   const displayTargets = pendingWrites > 0 && pendingTargets !== null ? pendingTargets : targets;
   const hasConnectedSelection = targets.length > 0;
   const reference = displayTargets[0] ?? null;
+  const [editingAutoModel, setEditingAutoModel] = useState<"fast" | "deep" | null>(null);
   const uniform = <K extends keyof ServerSettings>(key: K): ServerSettings[K] | null => {
     if (reference === null) return null;
     const value = reference.settings[key];
@@ -350,6 +351,134 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
 
               {props.page === "agent-behavior" ? (
                 <>
+                  <SettingsSection title="Automatic model selection">
+                    <ChoiceRow
+                      label="Manual selection"
+                      separated={false}
+                      description="Choose the model in each conversation."
+                      selected={reference?.settings.autoModelPolicy?.mode !== "auto"}
+                      disabled={disabledFor("autoModelPolicy")}
+                      onPress={() => write({ autoModelPolicy: { mode: "manual" } })}
+                    />
+                    {(["fast", "deep"] as const).map((kind) => (
+                      <ChoiceRow
+                        key={kind}
+                        label={kind === "fast" ? "Fast model" : "Deep-work model"}
+                        description={
+                          reference?.settings.autoModelPolicy?.mode === "auto"
+                            ? reference.settings.autoModelPolicy[kind].model
+                            : "Choose a configured model to enable Auto."
+                        }
+                        selected={editingAutoModel === kind}
+                        separated
+                        disabled={disabledFor("autoModelPolicy") || displayTargets.length !== 1}
+                        onPress={() => setEditingAutoModel(editingAutoModel === kind ? null : kind)}
+                      />
+                    ))}
+                    {editingAutoModel &&
+                      reference?.environment.serverConfig.providers.flatMap((provider) =>
+                        provider.models.map((model) => (
+                          <ChoiceRow
+                            key={`${provider.instanceId}:${model.slug}`}
+                            label={`${provider.displayName ?? provider.driver} · ${model.name}`}
+                            description={model.slug}
+                            selected={
+                              reference.settings.autoModelPolicy?.mode === "auto" &&
+                              reference.settings.autoModelPolicy[editingAutoModel].instanceId ===
+                                provider.instanceId &&
+                              reference.settings.autoModelPolicy[editingAutoModel].model ===
+                                model.slug
+                            }
+                            separated
+                            disabled={disabledFor("autoModelPolicy")}
+                            onPress={() => {
+                              const selection = {
+                                instanceId: provider.instanceId,
+                                model: model.slug,
+                              };
+                              const previous = reference.settings.autoModelPolicy;
+                              write({
+                                autoModelPolicy: {
+                                  mode: "auto",
+                                  fast: previous?.mode === "auto" ? previous.fast : selection,
+                                  deep: previous?.mode === "auto" ? previous.deep : selection,
+                                  ...(previous?.mode === "auto"
+                                    ? {
+                                        capabilities: {
+                                          ...previous.capabilities,
+                                          [editingAutoModel]: undefined,
+                                        },
+                                      }
+                                    : {}),
+                                  [editingAutoModel]: selection,
+                                },
+                              });
+                              setEditingAutoModel(null);
+                            }}
+                          />
+                        )),
+                      )}
+                    {reference?.settings.autoModelPolicy?.mode === "auto" && (
+                      <View className="gap-2 px-4 py-3">
+                        <Text>
+                          Use models that support agent tools. Enter the documented context capacity
+                          when the provider does not report it.
+                        </Text>
+                        {(["fast", "deep"] as const).map((tier) => {
+                          const policy = reference.settings.autoModelPolicy;
+                          if (policy?.mode !== "auto") return null;
+                          const capacity = policy.capabilities?.[tier]?.contextWindow;
+                          return (
+                            <TextInput
+                              key={`${tier}:${policy[tier].instanceId}:${policy[tier].model}:${capacity}`}
+                              accessibilityLabel={`${tier} model context capacity in tokens`}
+                              placeholder={`${tier === "fast" ? "Fast" : "Deep-work"} model token limit`}
+                              keyboardType="number-pad"
+                              defaultValue={typeof capacity === "number" ? String(capacity) : ""}
+                              className="rounded-lg border border-border px-3 py-2 text-foreground"
+                              onEndEditing={(event) => {
+                                const value = Number(event.nativeEvent.text);
+                                if (!Number.isSafeInteger(value) || value <= 0) {
+                                  Alert.alert("Enter a valid token limit");
+                                  return;
+                                }
+                                write({
+                                  autoModelPolicy: {
+                                    ...policy,
+                                    capabilities: {
+                                      ...policy.capabilities,
+                                      [tier]: { tools: true, contextWindow: value },
+                                    },
+                                  },
+                                });
+                              }}
+                            />
+                          );
+                        })}
+                      </View>
+                    )}
+                  </SettingsSection>
+                  {!projectSelected && (
+                    <SettingsSection title="Request routing">
+                      {(["off", "suggest", "auto"] as const).map((mode, index) => (
+                        <ChoiceRow
+                          key={mode}
+                          label={mode === "off" ? "Off" : mode === "suggest" ? "Suggest" : "Auto"}
+                          description={
+                            mode === "auto"
+                              ? "Route when the work has a clear owner."
+                              : mode === "suggest"
+                                ? "Choose a destination before sending."
+                                : "Keep requests in the current conversation."
+                          }
+                          selected={uniform("chatRoutingMode") === mode}
+                          separated={index > 0}
+                          disabled={disabledFor("chatRoutingMode")}
+                          onPress={() => write({ chatRoutingMode: mode })}
+                        />
+                      ))}
+                    </SettingsSection>
+                  )}
                   <SettingsSection
                     title="Response streaming"
                     trailing={

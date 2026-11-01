@@ -1,4 +1,5 @@
 import type { ComposerTextPaste } from "../native/T3ComposerEditor.types";
+import { resolveAutoModelPolicy } from "@t3tools/shared/projectSettings";
 import { useAtomValue } from "@effect/atom-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "react-native";
@@ -445,6 +446,13 @@ export function useThreadComposerState() {
       attachments,
       context: draft.context,
       modelSelection,
+      autoRouting:
+        draft.modelSelection === undefined &&
+        selectedEnvironmentRuntime?.serverConfig != null &&
+        resolveAutoModelPolicy(
+          selectedEnvironmentRuntime.serverConfig.settings,
+          selectedThreadShell.projectId,
+        )?.mode === "auto",
       runtimeMode: draft.runtimeMode ?? thread.runtimeMode,
       interactionMode: resolveProviderInteractionMode(
         provider,
@@ -750,8 +758,12 @@ export function useThreadComposerState() {
   );
 
   const onUpdateModelSelection = useCallback(
-    (value: ModelSelection) => {
+    (value: ModelSelection | null) => {
       if (!selectedThreadKey) {
+        return;
+      }
+      if (value === null) {
+        updateComposerDraftSettings(selectedThreadKey, { modelSelection: undefined });
         return;
       }
       const provider = selectedEnvironmentRuntime?.serverConfig?.providers.find(

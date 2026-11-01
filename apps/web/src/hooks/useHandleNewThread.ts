@@ -451,7 +451,11 @@ export function useHandleNewThread() {
         : useComposerDraftStore.getState().getDraftSession(routeTarget.draftId)
       : null,
   );
-  const projects = useProjects();
+  const allProjects = useProjects();
+  const projects = useMemo(
+    () => allProjects.filter((project) => project.id !== "j1-home"),
+    [allProjects],
+  );
   const orderedProjects = useMemo(() => {
     return orderItemsByPreferredIds({
       items: projects,

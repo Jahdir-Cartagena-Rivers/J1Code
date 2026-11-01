@@ -23,6 +23,10 @@ type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
  * runtime failure.
  */
 export const RPC_REQUIRED_SCOPES = {
+  "routing.prepare": AuthOrchestrationOperateScope,
+  "routing.list": AuthOrchestrationReadScope,
+  "routing.confirm": AuthOrchestrationOperateScope,
+  "routing.status": AuthOrchestrationReadScope,
   [WS_METHODS.hiveMindSnapshot]: AuthOrchestrationReadScope,
   [WS_METHODS.hiveMindSearch]: AuthOrchestrationReadScope,
   [WS_METHODS.hiveMindConfigure]: AuthAccessWriteScope,

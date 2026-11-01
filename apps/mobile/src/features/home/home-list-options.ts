@@ -1,5 +1,7 @@
 import type { EnvironmentId, SidebarProjectGroupingMode } from "@t3tools/contracts";
 import { DEFAULT_SIDEBAR_PROJECT_SORT_ORDER } from "@t3tools/contracts";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { AsyncResult } from "effect/unstable/reactivity";
 import {
   createContext,
   createElement,
@@ -13,10 +15,13 @@ import {
 } from "react";
 
 import type { HomeProjectSortOrder } from "./homeThreadList";
+import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
+import { moveVisibleProjects } from "./projectOrder";
 
 export interface HomeListOptions {
   readonly selectedEnvironmentId: EnvironmentId | null;
   readonly projectSortOrder: HomeProjectSortOrder;
+  readonly projectOrder: ReadonlyArray<string>;
 }
 
 export interface ResolvedHomeListOptions extends HomeListOptions {
@@ -26,10 +31,8 @@ export interface ResolvedHomeListOptions extends HomeListOptions {
 function defaultHomeListOptions(): HomeListOptions {
   return {
     selectedEnvironmentId: null,
-    projectSortOrder:
-      DEFAULT_SIDEBAR_PROJECT_SORT_ORDER === "manual"
-        ? "updated_at"
-        : DEFAULT_SIDEBAR_PROJECT_SORT_ORDER,
+    projectSortOrder: DEFAULT_SIDEBAR_PROJECT_SORT_ORDER,
+    projectOrder: [],
   };
 }
 
@@ -61,6 +64,11 @@ export function useHomeListOptions(availableEnvironmentIds: ReadonlySet<Environm
   const [localOptions, setLocalOptions] = useState<HomeListOptions>(defaultHomeListOptions);
   const options = shared?.options ?? localOptions;
   const setOptions = shared?.setOptions ?? setLocalOptions;
+  const preferences = useAtomValue(mobilePreferencesAtom);
+  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const persistedProjectOrder = AsyncResult.isSuccess(preferences)
+    ? (preferences.value.homeProjectOrder ?? [])
+    : [];
   const selectedEnvironmentId =
     options.selectedEnvironmentId !== null &&
     availableEnvironmentIds.has(options.selectedEnvironmentId)
@@ -72,6 +80,7 @@ export function useHomeListOptions(availableEnvironmentIds: ReadonlySet<Environm
       : { ...options, selectedEnvironmentId };
   const resolvedOptions: ResolvedHomeListOptions = {
     ...availableOptions,
+    projectOrder: persistedProjectOrder,
     projectGroupingMode: shared?.projectGroupingMode ?? "repository",
   };
 
@@ -81,9 +90,33 @@ export function useHomeListOptions(availableEnvironmentIds: ReadonlySet<Environm
   const setProjectSortOrder = useCallback((value: HomeProjectSortOrder) => {
     setOptions((current) => ({ ...current, projectSortOrder: value }));
   }, []);
+  const moveProject = useCallback(
+    (projectKeys: ReadonlyArray<string>, from: number, to: number) => {
+      if (
+        from < 0 ||
+        to < 0 ||
+        from >= projectKeys.length ||
+        to >= projectKeys.length ||
+        from === to
+      )
+        return;
+      void savePreferences({
+        transform: (current) => ({
+          homeProjectOrder: moveVisibleProjects(
+            current.homeProjectOrder ?? [],
+            projectKeys,
+            from,
+            to,
+          ),
+        }),
+      });
+    },
+    [savePreferences],
+  );
   return {
     options: resolvedOptions,
     setSelectedEnvironmentId,
     setProjectSortOrder,
+    moveProject,
   } as const;
 }

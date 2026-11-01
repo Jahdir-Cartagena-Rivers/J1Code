@@ -24,6 +24,10 @@ import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Metric from "effect/Metric";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import { ServerProvider } from "@t3tools/contracts";
+import { layerTest as autoSettingsLayer } from "../../serverSettings.ts";
+import { makeProviderRegistryLayer } from "../../provider/testUtils/providerRegistryMock.ts";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import { TestClock } from "effect/testing";
@@ -72,6 +76,41 @@ function makeOrchestrationLayer(
   });
   return Layer.mergeAll(
     OrchestrationEngineLive.pipe(
+      Layer.provide(
+        autoSettingsLayer({
+          autoModelPolicy: {
+            mode: "auto",
+            fast: { instanceId: ProviderInstanceId.make("codex"), model: "fast" },
+            deep: { instanceId: ProviderInstanceId.make("codex"), model: "deep" },
+            capabilities: {
+              fast: { tools: true, contextWindow: 200000 },
+              deep: { tools: true, contextWindow: 200000 },
+            },
+          },
+        }),
+      ),
+      Layer.provide(
+        makeProviderRegistryLayer(
+          ["codex", "claudeAgent"].map((instanceId) =>
+            Schema.decodeUnknownSync(ServerProvider)({
+              instanceId,
+              driver: instanceId,
+              enabled: true,
+              installed: true,
+              version: null,
+              status: "ready",
+              auth: { status: "authenticated" },
+              checkedAt: "2026-11-01T00:00:00Z",
+              models: ["fast", "deep"].map((slug) => ({
+                slug,
+                name: slug,
+                isCustom: false,
+                capabilities: null,
+              })),
+            }),
+          ),
+        ),
+      ),
       Layer.provide(OrchestrationProjectionSnapshotQueryLive),
       Layer.provide(OrchestrationProjectionPipelineLive),
     ),
@@ -79,7 +118,7 @@ function makeOrchestrationLayer(
   ).pipe(
     Layer.provideMerge(ThreadBackgroundLiveness.layer),
     Layer.provide(ThreadPlanProgress.layer),
-    Layer.provide(OrchestrationEventStoreLive),
+    Layer.provideMerge(OrchestrationEventStoreLive),
     Layer.provideMerge(OrchestrationCommandReceiptRepositoryLive),
     Layer.provide(
       repositoryIdentityResolver
@@ -109,7 +148,7 @@ async function createOrchestrationSystem(
     readModel: () => runtime.runPromise(snapshotQuery.getSnapshot()),
     readThread: (threadId: ThreadId) =>
       runtime.runPromise(snapshotQuery.getThreadDetailById(threadId)),
-    run: <A, E>(effect: Effect.Effect<A, E>) => runtime.runPromise(effect),
+    run: <A, E>(effect: Effect.Effect<A, E, OrchestrationEventStore>) => runtime.runPromise(effect),
     dispose: () => runtime.dispose(),
   };
 }
@@ -236,6 +275,266 @@ describe("OrchestrationEngine", () => {
     }
   });
 
+  it("routes across ready provider instances but rejects an unavailable destination model", async () => {
+    const system = await createOrchestrationSystem();
+    const projectId = ProjectId.make("route-cross-provider");
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.make("cross-project"),
+          projectId,
+          title: "Cross-provider",
+          workspaceRoot: process.cwd(),
+          defaultModelSelection: null,
+          createdAt: now(),
+        }),
+      );
+      for (const [id, instanceId, model] of [
+        ["cross-source", "codex", "manual"],
+        ["cross-destination", "claudeAgent", "deep"],
+        ["unavailable-destination", "claudeAgent", "missing-model"],
+      ]) {
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.make(id!),
+            threadId: ThreadId.make(id!),
+            projectId,
+            title: id!,
+            modelSelection: { instanceId: ProviderInstanceId.make(instanceId!), model: model! },
+            runtimeMode: "approval-required",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt: now(),
+          }),
+        );
+      }
+      const base = {
+        type: "thread.route.deliver" as const,
+        sourceThreadId: ThreadId.make("cross-source"),
+        originalRuntimeMode: "approval-required" as const,
+        originalProviderInstanceId: ProviderInstanceId.make("codex"),
+        text: "Follow up the assigned task",
+        provenance: "/environment/cross-source",
+        visitedThreadIds: [],
+        createdAt: now(),
+      };
+      const rejected = await system.run(
+        system.engine
+          .dispatch({
+            ...base,
+            commandId: CommandId.make("cross-rejected"),
+            routeId: "cross-rejected",
+            threadId: ThreadId.make("unavailable-destination"),
+            messageId: MessageId.make("cross-rejected-message"),
+          })
+          .pipe(Effect.result),
+      );
+      expect(rejected._tag).toBe("Failure");
+      await system.run(
+        system.engine.dispatch({
+          ...base,
+          commandId: CommandId.make("cross-admitted"),
+          routeId: "cross-admitted",
+          threadId: ThreadId.make("cross-destination"),
+          messageId: MessageId.make("cross-admitted-message"),
+        }),
+      );
+      const result = await system.readThread(ThreadId.make("cross-destination"));
+      expect(
+        Option.isSome(result) &&
+          result.value.messages.some((message) => message.id === "cross-admitted-message"),
+      ).toBe(true);
+    } finally {
+      await system.dispose();
+    }
+  });
+  it("admits Auto with a pinned task, records the selected model, and preserves permissions", async () => {
+    const system = await createOrchestrationSystem();
+    const projectId = ProjectId.make("auto-project");
+    const threadId = ThreadId.make("auto-thread");
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.make("auto-project"),
+          projectId,
+          title: "Auto",
+          workspaceRoot: process.cwd(),
+          defaultModelSelection: null,
+          createdAt: now(),
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("auto-thread"),
+          threadId,
+          projectId,
+          title: "Auto",
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "manual" },
+          runtimeMode: "approval-required",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdAt: now(),
+        }),
+      );
+      for (const index of [0, 1]) {
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.make(`auto-turn-${index}`),
+            threadId,
+            message: {
+              messageId: MessageId.make(`auto-message-${index}`),
+              role: "user",
+              text: "Explain this",
+              attachments: [],
+            },
+            autoRouting: {
+              taskId: "stable",
+              requestEscalation: false,
+              complexity: "simple",
+              highRisk: false,
+              crossComponent: false,
+            },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            createdAt: now(),
+          }),
+        );
+      }
+      const events = await system.run(
+        Effect.gen(function* () {
+          const store = yield* OrchestrationEventStore;
+          return yield* Stream.runCollect(store.readFromSequence(0));
+        }),
+      );
+      const starts = events.filter((event) => event.type === "thread.turn-start-requested");
+      expect(starts).toHaveLength(2);
+      expect(starts[0]?.payload).toMatchObject({
+        modelSelection: { model: "fast" },
+        runtimeMode: "approval-required",
+        autoSelection: { reason: "simple", resolverDurationMs: expect.any(Number) },
+      });
+      expect(starts[1]?.payload).toMatchObject({
+        modelSelection: { model: "fast" },
+        autoSelection: { reason: "pinned" },
+      });
+    } finally {
+      await system.dispose();
+    }
+  });
+  it("rechecks pending destination input inside route admission after restart", async () => {
+    const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-route-restart-"));
+    const databasePath = NodePath.join(directory, "state.sqlite");
+    const projectId = ProjectId.make("route-project");
+    const source = ThreadId.make("route-source");
+    const destination = ThreadId.make("route-destination");
+    const requestId = ApprovalRequestId.make("route-question");
+    let system = await createOrchestrationSystem(databasePath);
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.make("route-project-create"),
+          projectId,
+          title: "Project",
+          workspaceRoot: directory,
+          defaultModelSelection: null,
+          createdAt: now(),
+        }),
+      );
+      for (const threadId of [source, destination]) {
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.make(`create-${threadId}`),
+            threadId,
+            projectId,
+            title: "Chat",
+            modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "default" },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt: now(),
+          }),
+        );
+      }
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.activity.append",
+          commandId: CommandId.make("route-pending-question"),
+          threadId: destination,
+          createdAt: now(),
+          activity: {
+            id: EventId.make("route-pending-question"),
+            kind: "user-input.requested",
+            summary: "Input requested",
+            tone: "info",
+            turnId: null,
+            createdAt: now(),
+            payload: {
+              requestId,
+              responseMode: "message",
+              questions: [{ id: "q", header: "Question", question: "Continue?", options: [] }],
+            },
+          },
+        }),
+      );
+      await system.dispose();
+      system = await createOrchestrationSystem(databasePath);
+      const command = {
+        type: "thread.route.deliver" as const,
+        commandId: CommandId.make("route-attempt-one"),
+        routeId: "route-one",
+        sourceThreadId: source,
+        threadId: destination,
+        messageId: MessageId.make("route-message"),
+        originalRuntimeMode: "full-access" as const,
+        originalProviderInstanceId: ProviderInstanceId.make("codex"),
+        text: "Please continue this task",
+        provenance: "Source chat",
+        visitedThreadIds: [],
+        createdAt: now(),
+      };
+      await expect(system.run(system.engine.dispatch(command))).rejects.toThrow(
+        /awaiting approval or user input/i,
+      );
+      expect(Option.getOrThrow(await system.readThread(destination)).messages).toHaveLength(0);
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.activity.append",
+          commandId: CommandId.make("route-resolved-question"),
+          threadId: destination,
+          createdAt: now(),
+          activity: {
+            id: EventId.make("route-resolved-question"),
+            kind: "user-input.resolved",
+            summary: "Resolved",
+            tone: "info",
+            turnId: null,
+            createdAt: now(),
+            payload: { requestId },
+          },
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({ ...command, commandId: CommandId.make("route-attempt-two") }),
+      );
+      expect(
+        Option.getOrThrow(await system.readThread(destination)).messages.map(
+          (message) => message.text,
+        ),
+      ).toContain("Please continue this task");
+    } finally {
+      await system.dispose();
+    }
+  });
   it("refreshes imported history after restarting without re-emitting old messages", async () => {
     const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-history-restart-"));
     const databasePath = NodePath.join(directory, "state.sqlite");
@@ -615,7 +914,6 @@ describe("OrchestrationEngine", () => {
     const layer = OrchestrationEngineLive.pipe(
       Layer.provide(
         Layer.succeed(ProjectionSnapshotQuery, {
-          getWorkerDescendantIds: () => Effect.succeed([]),
           getUserInputActivity: () => Effect.die("unused"),
           listActivitiesByKind: () => Effect.die("unused"),
           getCommandReadModel: () => Effect.succeed(commandReadModel),
