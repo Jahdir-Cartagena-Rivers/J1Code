@@ -1,5 +1,4 @@
 import { ChatGptUsageLimitNotice } from "./ChatGptUsageLimitNotice";
-import { MobileRouteRequests } from "./MobileRouteRequests";
 import { resolveAutoModelPolicy } from "@t3tools/shared/projectSettings";
 import { useComposerDraft } from "../../state/use-composer-drafts";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
@@ -689,12 +688,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             {selectedProviderStatus.compatibilityAdvisory.message}
           </Text>
         ) : null}
-        <MobileRouteRequests
-          key={composerOwnerKey}
-          environmentId={props.environmentId}
-          projectId={props.selectedThread.projectId}
-          threadId={props.selectedThread.id}
-        />
         {modelUnavailable ? (
           <Pressable accessibilityRole="button" className="px-3 py-2" onPress={openSettings}>
             <Text className="text-xs text-foreground">Model unavailable. Open model settings.</Text>

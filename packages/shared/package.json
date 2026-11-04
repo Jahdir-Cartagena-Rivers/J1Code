@@ -371,6 +371,10 @@
     "./projectChatLinks": {
       "types": "./src/projectChatLinks.ts",
       "import": "./src/projectChatLinks.ts"
+    },
+    "./routeRequestAnchors": {
+      "types": "./src/routeRequestAnchors.ts",
+      "import": "./src/routeRequestAnchors.ts"
     }
   },
   "scripts": {

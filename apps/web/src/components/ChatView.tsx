@@ -9907,91 +9907,115 @@ export default function ChatView(props: ChatViewProps) {
             {/* Messages Wrapper */}
             <div className="relative flex min-h-0 flex-1 flex-col bg-background">
               {/* Messages — LegendList handles virtualization and scrolling internally */}
-              <MessagesTimeline
-                citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}
-                citationHistoryLoading={threadDetailLoading}
-                {...(!paintOnlyDisplayedTimeline
-                  ? {
-                      onCiteAssistantText: citeAssistantText,
-                      agentPanelModel,
-                      onOpenAgents: addAgentsSurface,
-                      onUseArtifactTemplate: useArtifactTemplate,
-                      ...(activeProject ? { onRunShellCommand: runShellCommand } : {}),
-                    }
-                  : {})}
-                isWorking={!paintOnlyDisplayedTimeline && isWorking}
-                isPreparingWorktree={!paintOnlyDisplayedTimeline && isPreparingWorktree}
-                isCompacting={!paintOnlyDisplayedTimeline && isCompacting}
-                activeTurnStartedAt={paintOnlyDisplayedTimeline ? null : activeWorkStartedAt}
-                worktreeSetup={paintOnlyDisplayedTimeline ? null : worktreeSetup}
-                onCancelWorktreeSetup={onCancelWorktreeSetup}
-                {...(draftId ? { onWorktreeSetupWorkLocally } : {})}
-                {...(onOpenWorktreeSetupTerminal ? { onOpenWorktreeSetupTerminal } : {})}
-                listRef={legendListRef}
-                timelineEntries={displayedTimeline.entries}
-                latestTurn={paintOnlyDisplayedTimeline ? null : activeLatestTurn}
-                runningTurnId={paintOnlyDisplayedTimeline ? null : activeRunningTurnId}
-                turnDiffSummaries={
-                  paintOnlyDisplayedTimeline
-                    ? EMPTY_HELD_TURN_DIFF_SUMMARIES
-                    : activeThread.checkpoints
+              <RouteRequestControl
+                key={activeThread?.id ?? "draft"}
+                environmentId={environmentId}
+                projectId={activeThread?.projectId ?? ""}
+                threadId={
+                  isServerThread && !paintOnlyDisplayedTimeline ? (activeThread?.id ?? "") : ""
                 }
-                activeThreadEnvironmentId={
-                  displayedThreadRef?.environmentId ?? activeThread.environmentId
-                }
-                routeThreadKey={displayedTimelineKey}
-                displayThreadKey={displayedTimelineKey}
-                onOpenTurnDiff={paintOnlyDisplayedTimeline ? noopHeldTurnDiff : onOpenTurnDiff}
-                supportsConversationRollback={
-                  !paintOnlyDisplayedTimeline && supportsConversationRollback
-                }
-                onRevertToTurnCount={
-                  paintOnlyDisplayedTimeline ? noopHeldRevert : onRevertTimelineTurn
-                }
-                isRevertingCheckpoint={!paintOnlyDisplayedTimeline && isRevertingCheckpoint}
-                onImageExpand={onExpandTimelineImage}
-                onFileOpen={paintOnlyDisplayedTimeline ? noopHeldAttachment : openFileAttachment}
-                onFileDownload={
-                  paintOnlyDisplayedTimeline ? noopHeldAttachment : downloadFileAttachment
-                }
-                markdownCwd={
-                  paintOnlyDisplayedTimeline
-                    ? (heldPaintContext?.markdownCwd ?? undefined)
-                    : (gitCwd ?? undefined)
-                }
-                resolvedTheme={resolvedTheme}
-                timestampFormat={timestampFormat}
-                workspaceRoot={
-                  paintOnlyDisplayedTimeline
-                    ? (heldPaintContext?.workspaceRoot ?? undefined)
-                    : activeWorkspaceRoot
-                }
-                skills={
-                  activeProviderStatus
-                    ? resolveProviderSkillsForCwd(activeProviderStatus, gitCwd)
-                    : EMPTY_PROVIDER_SKILLS
-                }
-                anchorMessageId={paintOnlyDisplayedTimeline ? null : timelineAnchorMessageId}
-                onAnchorReady={onTimelineAnchorReady}
-                contentInsetEndAdjustment={composerTimelineInset}
-                liveFollowEnabled={!paintOnlyDisplayedTimeline && timelineLiveFollowEnabled}
-                onIsAtEndChange={onIsAtEndChange}
-                onContentOverflowChange={setTimelineOverflows}
-                onToolOutputCollapsedAtEnd={onToolOutputCollapsedAtEnd}
-                onManualNavigation={cancelTimelineLiveFollowForUserNavigation}
-                cancelPositionRestoreRef={cancelPositionRestoreRef}
-                hideEmptyPlaceholder={isDraftHeroState || threadDetailLoading}
-                topFadeEnabled={!hasTimelineTopBanner}
-                loadEarlier={paintOnlyDisplayedTimeline ? null : loadEarlierTurns}
-                queuedMessages={paintOnlyDisplayedTimeline ? EMPTY_QUEUED_MESSAGES : queuedMessages}
-                onSteerQueuedMessage={onSteerQueuedMessage}
-                steerQueuedMessageShortcutLabel={shortcutLabelForCommand(
-                  keybindings,
-                  "thread.steerQueuedMessage",
-                  { context: { terminalFocus: false } },
+                messages={displayedTimeline.entries.flatMap((entry) =>
+                  entry.kind === "message" ? [entry.message] : [],
                 )}
-                onRemoveQueuedMessage={onRemoveQueuedMessage}
-              />
+                activities={activeThread?.activities ?? []}
+                revision={
+                  activeThread?.activities.filter((activity) => activity.kind === "routing.updated")
+                    .length ?? 0
+                }
+              >
+                {(renderRouteRequests) => (
+                  <MessagesTimeline
+                    renderRouteRequests={renderRouteRequests}
+                    citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}
+                    citationHistoryLoading={threadDetailLoading}
+                    {...(!paintOnlyDisplayedTimeline
+                      ? {
+                          onCiteAssistantText: citeAssistantText,
+                          agentPanelModel,
+                          onOpenAgents: addAgentsSurface,
+                          onUseArtifactTemplate: useArtifactTemplate,
+                          ...(activeProject ? { onRunShellCommand: runShellCommand } : {}),
+                        }
+                      : {})}
+                    isWorking={!paintOnlyDisplayedTimeline && isWorking}
+                    isPreparingWorktree={!paintOnlyDisplayedTimeline && isPreparingWorktree}
+                    isCompacting={!paintOnlyDisplayedTimeline && isCompacting}
+                    activeTurnStartedAt={paintOnlyDisplayedTimeline ? null : activeWorkStartedAt}
+                    worktreeSetup={paintOnlyDisplayedTimeline ? null : worktreeSetup}
+                    onCancelWorktreeSetup={onCancelWorktreeSetup}
+                    {...(draftId ? { onWorktreeSetupWorkLocally } : {})}
+                    {...(onOpenWorktreeSetupTerminal ? { onOpenWorktreeSetupTerminal } : {})}
+                    listRef={legendListRef}
+                    timelineEntries={displayedTimeline.entries}
+                    latestTurn={paintOnlyDisplayedTimeline ? null : activeLatestTurn}
+                    runningTurnId={paintOnlyDisplayedTimeline ? null : activeRunningTurnId}
+                    turnDiffSummaries={
+                      paintOnlyDisplayedTimeline
+                        ? EMPTY_HELD_TURN_DIFF_SUMMARIES
+                        : activeThread.checkpoints
+                    }
+                    activeThreadEnvironmentId={
+                      displayedThreadRef?.environmentId ?? activeThread.environmentId
+                    }
+                    routeThreadKey={displayedTimelineKey}
+                    displayThreadKey={displayedTimelineKey}
+                    onOpenTurnDiff={paintOnlyDisplayedTimeline ? noopHeldTurnDiff : onOpenTurnDiff}
+                    supportsConversationRollback={
+                      !paintOnlyDisplayedTimeline && supportsConversationRollback
+                    }
+                    onRevertToTurnCount={
+                      paintOnlyDisplayedTimeline ? noopHeldRevert : onRevertTimelineTurn
+                    }
+                    isRevertingCheckpoint={!paintOnlyDisplayedTimeline && isRevertingCheckpoint}
+                    onImageExpand={onExpandTimelineImage}
+                    onFileOpen={
+                      paintOnlyDisplayedTimeline ? noopHeldAttachment : openFileAttachment
+                    }
+                    onFileDownload={
+                      paintOnlyDisplayedTimeline ? noopHeldAttachment : downloadFileAttachment
+                    }
+                    markdownCwd={
+                      paintOnlyDisplayedTimeline
+                        ? (heldPaintContext?.markdownCwd ?? undefined)
+                        : (gitCwd ?? undefined)
+                    }
+                    resolvedTheme={resolvedTheme}
+                    timestampFormat={timestampFormat}
+                    workspaceRoot={
+                      paintOnlyDisplayedTimeline
+                        ? (heldPaintContext?.workspaceRoot ?? undefined)
+                        : activeWorkspaceRoot
+                    }
+                    skills={
+                      activeProviderStatus
+                        ? resolveProviderSkillsForCwd(activeProviderStatus, gitCwd)
+                        : EMPTY_PROVIDER_SKILLS
+                    }
+                    anchorMessageId={paintOnlyDisplayedTimeline ? null : timelineAnchorMessageId}
+                    onAnchorReady={onTimelineAnchorReady}
+                    contentInsetEndAdjustment={composerTimelineInset}
+                    liveFollowEnabled={!paintOnlyDisplayedTimeline && timelineLiveFollowEnabled}
+                    onIsAtEndChange={onIsAtEndChange}
+                    onContentOverflowChange={setTimelineOverflows}
+                    onToolOutputCollapsedAtEnd={onToolOutputCollapsedAtEnd}
+                    onManualNavigation={cancelTimelineLiveFollowForUserNavigation}
+                    cancelPositionRestoreRef={cancelPositionRestoreRef}
+                    hideEmptyPlaceholder={isDraftHeroState || threadDetailLoading}
+                    topFadeEnabled={!hasTimelineTopBanner}
+                    loadEarlier={paintOnlyDisplayedTimeline ? null : loadEarlierTurns}
+                    queuedMessages={
+                      paintOnlyDisplayedTimeline ? EMPTY_QUEUED_MESSAGES : queuedMessages
+                    }
+                    onSteerQueuedMessage={onSteerQueuedMessage}
+                    steerQueuedMessageShortcutLabel={shortcutLabelForCommand(
+                      keybindings,
+                      "thread.steerQueuedMessage",
+                      { context: { terminalFocus: false } },
+                    )}
+                    onRemoveQueuedMessage={onRemoveQueuedMessage}
+                  />
+                )}
+              </RouteRequestControl>
 
               {/* scroll to end pill — shown when user has scrolled away from the live edge */}
               {showScrollToBottom && (
@@ -10064,19 +10088,6 @@ export default function ChatView(props: ChatViewProps) {
                         : undefined
                     }
                   >
-                    {isServerThread && activeThread && (
-                      <RouteRequestControl
-                        key={String(activeThread.id)}
-                        environmentId={activeThread.environmentId}
-                        projectId={activeThread.projectId}
-                        threadId={activeThread.id}
-                        revision={
-                          activeThread.activities.filter(
-                            (activity) => activity.kind === "routing.updated",
-                          ).length
-                        }
-                      />
-                    )}
                     <ComposerSurface.Shell contextStrip={showComposerContextStrip}>
                       <ComposerSurface.Host>
                         <div ref={attachDraftHeroComposerAnchorRef} className="relative z-10">

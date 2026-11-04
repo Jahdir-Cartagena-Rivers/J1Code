@@ -189,3 +189,61 @@ it("keeps unavailable destination proposals disabled while retaining their link"
   expect(commands.prepare).not.toHaveBeenCalled();
   expect(commands.confirm).not.toHaveBeenCalled();
 });
+
+it("keeps cards in the original message row as receipts and later messages arrive", async () => {
+  const messages = [
+    { id: "original", role: "user", createdAt: "2026-11-04T10:00:00Z" },
+    { id: "followup", role: "user", createdAt: "2026-11-04T11:00:00Z" },
+  ];
+  const first = {
+    kind: "routing.updated",
+    createdAt: "2026-11-04T10:01:00Z",
+    payload: { requestId: "request" },
+  };
+  const mount = (revision: number) => (
+    <RouteRequestControl
+      environmentId={EnvironmentId.make("local")}
+      projectId="home"
+      threadId="source"
+      messages={messages}
+      activities={[first, { ...first, createdAt: "2026-11-04T11:01:00Z" }]}
+      revision={revision}
+    >
+      {(render) => (
+        <>
+          <article data-anchor="original">{render("original")}</article>
+          <article data-anchor="followup">{render("followup")}</article>
+        </>
+      )}
+    </RouteRequestControl>
+  );
+  await act(async () => root.render(mount(1)));
+  expect(container.querySelector('[data-anchor="original"]')?.textContent).toContain(
+    "Approve and send",
+  );
+  expect(container.querySelector('[data-anchor="followup"]')?.textContent).toBe("");
+  expect(commands.list).toHaveBeenCalledTimes(1);
+  commands.list.mockResolvedValue({
+    _tag: "Success",
+    value: [
+      {
+        requestId: "request",
+        status: "completed",
+        summary: "Completed request",
+        destination: { environmentId: "local", projectId: "work", threadId: "target" },
+      },
+    ],
+  });
+  await act(async () => root.render(mount(2)));
+  expect(container.querySelector('[data-anchor="original"]')?.textContent).toContain("Completed");
+  expect(container.querySelector('[data-anchor="followup"]')?.textContent).toBe("");
+  expect(commands.prepare).not.toHaveBeenCalled();
+});
+
+it("keeps a failed request read visible and retryable in history", async () => {
+  commands.list.mockResolvedValue({ _tag: "Failure" });
+  await render();
+  expect(container.textContent).toContain("Could not load requests");
+  expect(container.textContent).toContain("Refresh requests");
+  expect(commands.confirm).not.toHaveBeenCalled();
+});

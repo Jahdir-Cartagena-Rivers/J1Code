@@ -1,6 +1,7 @@
+import { routeRequestAnchors } from "@t3tools/shared/routeRequestAnchors";
 import { CommonActions, useNavigation } from "@react-navigation/native";
-import { useCallback, useEffect, useState } from "react";
-import { AppState, Pressable, ScrollView, View } from "react-native";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { AppState, Pressable, View } from "react-native";
 import { Option } from "effect";
 import {
   ThreadId,
@@ -19,10 +20,14 @@ export function MobileRouteRequests({
   environmentId,
   projectId,
   threadId,
+  children,
+  messages,
 }: {
   environmentId: EnvironmentId;
   projectId: string;
   threadId: string;
+  messages?: Parameters<typeof routeRequestAnchors>[1];
+  children?: (render: (messageId: string) => ReactNode) => ReactNode;
 }) {
   const navigation = useNavigation();
   const list = useAtomCommand(serverEnvironment.routingList, { reportFailure: false });
@@ -44,6 +49,7 @@ export function MobileRouteRequests({
     ).length ?? 0;
   const [requests, setRequests] = useState<ReadonlyArray<typeof ManualRouteStatus.Type>>([]);
   const [notice, setNotice] = useState("");
+  const [noticeRequestId, setNoticeRequestId] = useState<string | null>(null);
   const [deferred, setDeferred] = useState<ReadonlySet<string>>(() => new Set());
   const [busy, setBusy] = useState(false);
   const refresh = useCallback(async () => {
@@ -51,8 +57,14 @@ export function MobileRouteRequests({
       environmentId,
       input: { source: { environmentId, projectId, threadId } },
     });
-    if (result._tag === "Success") setRequests(result.value);
-    else setNotice("Could not load requests. Try again.");
+    if (result._tag === "Success")
+      setRequests((current) =>
+        JSON.stringify(current) === JSON.stringify(result.value) ? current : result.value,
+      );
+    else {
+      setNoticeRequestId(null);
+      setNotice("Could not load requests. Try again.");
+    }
   }, [environmentId, projectId, threadId, list]);
   useEffect(() => {
     const update = () => {
@@ -71,6 +83,7 @@ export function MobileRouteRequests({
   const approve = async (id: string, targetId: string | null) => {
     const target = threads.find((thread) => thread.id === targetId);
     if (!target) return;
+    setNoticeRequestId(id);
     setBusy(true);
     try {
       const prepared = await prepare({
@@ -97,97 +110,124 @@ export function MobileRouteRequests({
       setBusy(false);
     }
   };
-  if (!requests.length && !revision) return null;
-  return (
-    <View className="mx-3 mb-2 rounded-xl border border-border bg-background p-3">
-      <ScrollView style={{ maxHeight: 320 }} contentContainerStyle={{ gap: 12 }}>
-        <Text accessibilityRole="header" className="font-semibold">
-          {requests.some((request) => request.status === "suggested")
-            ? "Review handoff"
-            : "Forwarded requests"}
-        </Text>
-        {requests.map((request) => {
-          const targetId = request.destination?.threadId ?? null;
-          const target = threads.find((thread) => thread.id === targetId);
-          return (
-            <View key={request.requestId} className="gap-2 rounded-lg border border-border p-3">
-              <Text>{request.summary ?? "Forwarded request"}</Text>
-              <Text className="text-xs text-muted-foreground">
-                {manualRouteStatusLabel(request.status)}
-              </Text>
-              {request.reason && request.reason !== "ambiguous-destination" && (
+  const thread = Option.getOrNull(detail.data);
+  const anchors = routeRequestAnchors(
+    requests,
+    messages ?? thread?.messages ?? [],
+    thread?.activities ?? [],
+  );
+  const render = (messageId?: string) => {
+    const visible = messageId
+      ? requests.filter((request) => anchors.get(request.requestId) === messageId)
+      : requests;
+    const relevantNotice =
+      notice &&
+      (noticeRequestId === null
+        ? !messageId ||
+          messageId ===
+            (messages ?? thread?.messages ?? []).find((message) => message.role === "user")?.id
+        : visible.some((request) => request.requestId === noticeRequestId));
+    if (!visible.length)
+      return relevantNotice ? (
+        <View>
+          <Text accessibilityLiveRegion="polite">{notice}</Text>
+          <Pressable accessibilityRole="button" onPress={() => void refresh()}>
+            <Text>Refresh requests</Text>
+          </Pressable>
+        </View>
+      ) : null;
+    return (
+      <View className="mx-3 mb-2 rounded-xl border border-border bg-background p-3">
+        <View className="gap-3">
+          <Text accessibilityRole="header" className="font-semibold">
+            {visible.some((request) => request.status === "suggested")
+              ? "Review handoff"
+              : "Forwarded requests"}
+          </Text>
+          {visible.map((request) => {
+            const targetId = request.destination?.threadId ?? null;
+            const target = threads.find((thread) => thread.id === targetId);
+            return (
+              <View key={request.requestId} className="gap-2 rounded-lg border border-border p-3">
+                <Text>{request.summary ?? "Forwarded request"}</Text>
                 <Text className="text-xs text-muted-foreground">
-                  {manualRouteReasonLabel(request.reason)}
+                  {manualRouteStatusLabel(request.status)}
                 </Text>
-              )}
-              {request.destination && (
-                <Pressable
-                  accessibilityRole="link"
-                  onPress={() =>
-                    navigation.dispatch(
-                      CommonActions.navigate("Thread", {
-                        environmentId: request.destination!.environmentId,
-                        threadId: request.destination!.threadId,
-                      }),
-                    )
-                  }
-                >
-                  <Text className="text-accent underline">
-                    {target
-                      ? `${projectNames.get(target.projectId) ?? "Project"} / ${target.title}`
-                      : "Open destination chat"}
+                {request.reason && request.reason !== "ambiguous-destination" && (
+                  <Text className="text-xs text-muted-foreground">
+                    {manualRouteReasonLabel(request.reason)}
                   </Text>
-                </Pressable>
-              )}
-              {request.status === "suggested" && !request.destination && (
-                <Text>
-                  No suitable working chat is available yet. Continue discussing the destination
-                  here.
-                </Text>
-              )}
-              {request.status === "suggested" && deferred.has(request.requestId) && (
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={busy}
-                  onPress={() =>
-                    setDeferred((current) => {
-                      const next = new Set(current);
-                      next.delete(request.requestId);
-                      return next;
-                    })
-                  }
-                >
-                  <Text>Review request</Text>
-                </Pressable>
-              )}
-              {request.status === "suggested" && !deferred.has(request.requestId) && (
-                <>
+                )}
+                {request.destination && (
                   <Pressable
-                    accessibilityRole="button"
-                    disabled={busy || !target || target.archivedAt !== null}
-                    onPress={() => void approve(request.requestId, targetId)}
+                    accessibilityRole="link"
+                    onPress={() =>
+                      navigation.dispatch(
+                        CommonActions.navigate("Thread", {
+                          environmentId: request.destination!.environmentId,
+                          threadId: request.destination!.threadId,
+                        }),
+                      )
+                    }
                   >
-                    <Text>Approve and send</Text>
+                    <Text className="text-accent underline">
+                      {target
+                        ? `${projectNames.get(target.projectId) ?? "Project"} / ${target.title}`
+                        : "Open destination chat"}
+                    </Text>
                   </Pressable>
+                )}
+                {request.status === "suggested" && !request.destination && (
+                  <Text>
+                    No suitable working chat is available yet. Continue discussing the destination
+                    here.
+                  </Text>
+                )}
+                {request.status === "suggested" && deferred.has(request.requestId) && (
                   <Pressable
                     accessibilityRole="button"
                     disabled={busy}
                     onPress={() =>
-                      setDeferred((current) => new Set([...current, request.requestId]))
+                      setDeferred((current) => {
+                        const next = new Set(current);
+                        next.delete(request.requestId);
+                        return next;
+                      })
                     }
                   >
-                    <Text>Not now</Text>
+                    <Text>Review request</Text>
                   </Pressable>
-                </>
-              )}
-            </View>
-          );
-        })}
-        {!!notice && <Text accessibilityLiveRegion="polite">{notice}</Text>}
-        <Pressable accessibilityRole="button" disabled={busy} onPress={() => void refresh()}>
-          <Text>Refresh status</Text>
-        </Pressable>
-      </ScrollView>
-    </View>
-  );
+                )}
+                {request.status === "suggested" && !deferred.has(request.requestId) && (
+                  <>
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={busy || !target || target.archivedAt !== null}
+                      onPress={() => void approve(request.requestId, targetId)}
+                    >
+                      <Text>Approve and send</Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={busy}
+                      onPress={() =>
+                        setDeferred((current) => new Set([...current, request.requestId]))
+                      }
+                    >
+                      <Text>Not now</Text>
+                    </Pressable>
+                  </>
+                )}
+              </View>
+            );
+          })}
+          {relevantNotice && <Text accessibilityLiveRegion="polite">{notice}</Text>}
+          <Pressable accessibilityRole="button" disabled={busy} onPress={() => void refresh()}>
+            <Text>Refresh status</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  };
+  return children ? children(render) : render();
 }

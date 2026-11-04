@@ -268,6 +268,7 @@ import { ComputerUseAppIcon } from "~/components/Icons";
 // ---------------------------------------------------------------------------
 
 interface TimelineRowSharedState {
+  renderRouteRequests: ((messageId: string) => ReactNode) | undefined;
   citationRequest: AssistantCitationTarget | null;
   listRef: React.RefObject<LegendListRef | null>;
   timestampFormat: TimestampFormat;
@@ -396,6 +397,7 @@ const TIMELINE_MAINTAIN_SCROLL_AT_END_SMOOTH = {
 // ---------------------------------------------------------------------------
 
 interface MessagesTimelineProps {
+  renderRouteRequests?: (messageId: string) => ReactNode;
   citationRequest?: AssistantCitationRequest | null;
   citationHistoryLoading?: boolean;
   onCiteAssistantText?: (
@@ -526,6 +528,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onSteerQueuedMessage = NOOP_QUEUED_MESSAGE_ACTION,
   steerQueuedMessageShortcutLabel = null,
   onRemoveQueuedMessage = NOOP_QUEUED_MESSAGE_ACTION,
+  renderRouteRequests,
 }: MessagesTimelineProps) {
   const listIdentityKey = displayThreadKey ?? routeThreadKey;
   const rememberedPosition = useMemo(
@@ -1141,6 +1144,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
   const sharedState = useMemo<TimelineRowSharedState>(
     () => ({
+      renderRouteRequests,
       citationRequest: readyCitationRequest,
       listRef,
       timestampFormat,
@@ -1179,6 +1183,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }),
     [
       readyCitationRequest,
+      renderRouteRequests,
       listRef,
       timestampFormat,
       routeThreadKey,
@@ -1680,6 +1685,11 @@ function TimelineMinimapNavigationButton({
 type TimelineWorkEntry = Extract<MessagesTimelineRow, { kind: "work" }>["groupedEntries"][number];
 type TimelineRow = MessagesTimelineRow;
 
+function RouteRequestAnchor({ messageId }: { messageId: string }) {
+  const render = use(TimelineRowCtx).renderRouteRequests;
+  return <div data-route-anchor={messageId}>{render?.(messageId)}</div>;
+}
+
 const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: TimelineRow }) {
   const isExpandedToolGroup = row.kind === "work" && row.isExpandedToolGroup;
   const isExpandedToolGroupHeader =
@@ -1734,6 +1744,9 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "turn-fold" ? <TurnFoldTimelineRow row={row} /> : null}
       {row.kind === "context-compaction" ? <ContextCompactionTimelineRow row={row} /> : null}
       {row.kind === "message" && row.message.role === "user" ? <UserTimelineRow row={row} /> : null}
+      {row.kind === "message" && row.message.role === "user" ? (
+        <RouteRequestAnchor messageId={row.message.id} />
+      ) : null}
       {row.kind === "message" && row.message.role === "assistant" ? (
         <AssistantTimelineRow row={row} />
       ) : null}

@@ -252,10 +252,11 @@ Switching an existing session to another provider requires manual selection.
 Each environment has one persistent **Home** conversation above the project list.
 Project chats can route requests too. Set routing to **Off**, **Suggest**, or **Auto**
 in Providers settings on web or desktop, or Agent behavior on mobile. Auto sends
-directly only when there is a clear task owner. Otherwise, choose the destination
-in the approval card that appears in the source conversation. It shows a brief
-summary and a linked proposed destination. Select **Approve and send** to forward it, or **Not now** to keep discussing it here. The destination link remains available after delivery.
-You can leave it for later and keep discussing the request here.
+directly only when there is a clear task owner. Otherwise, approve the proposed
+destination in the card beside the request in conversation history. Cards scroll
+with the conversation, and their status updates in place. Select **Approve and send**
+to forward it, or **Not now** to keep discussing it here. The destination link
+remains available after delivery.
 
 The source conversation stays available. Follow the destination link to continue
 the work, and check the request card for progress. Queued, delivered,

@@ -246,6 +246,7 @@ function isFreshTimestamp(input: string): boolean {
 }
 
 export interface ThreadFeedProps {
+  readonly renderRouteRequests?: (messageId: string) => ReactNode;
   readonly worktreeSetup?: WorktreeSetupCardProps | null;
   readonly setupWorkingStartedAt?: string | null;
   readonly queuedMessages: ReadonlyArray<QueuedThreadMessage>;
@@ -2291,6 +2292,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   // even when the final message update arrives before the turn settles.
   const listAppearanceData = useMemo(
     () => ({
+      renderRouteRequests: props.renderRouteRequests,
       worktreeSetup: props.worktreeSetup,
       setupWorkingStartedAt: props.setupWorkingStartedAt,
       dispatchingMessageId: props.dispatchingMessageId,
@@ -2307,6 +2309,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       viewportWidth,
     }),
     [
+      props.renderRouteRequests,
       props.worktreeSetup,
       props.setupWorkingStartedAt,
       props.dispatchingMessageId,
@@ -2793,6 +2796,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             skills: props.skills,
             onUseArtifactTemplate: props.onUseArtifactTemplate,
           })}
+          {info.item.type === "message" && info.item.message.role === "user"
+            ? props.renderRouteRequests?.(info.item.message.id)
+            : null}
           {props.worktreeSetup && info.index === setupAnchorIndex ? (
             <WorktreeSetupCard key={props.threadId} {...props.worktreeSetup} />
           ) : props.setupWorkingStartedAt && info.index === setupAnchorIndex ? (
@@ -2802,6 +2808,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       </Animated.View>
     ),
     [
+      props.renderRouteRequests,
       props.worktreeSetup,
       props.setupWorkingStartedAt,
       props.threadId,
