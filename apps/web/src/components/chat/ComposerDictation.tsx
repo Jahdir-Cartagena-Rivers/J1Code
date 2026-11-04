@@ -27,7 +27,6 @@ export function ComposerDictation(props: {
 }) {
   const { onBusyChange } = props;
   const [listening, setListening] = useState(false);
-  const [preview, setPreview] = useState("");
   const [level, setLevel] = useState(0);
   const [hasMeter, setHasMeter] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +40,13 @@ export function ComposerDictation(props: {
     onBusyChange(listening);
     return () => onBusyChange(false);
   }, [listening, onBusyChange]);
-  useEffect(() => () => cancelRef.current?.(), []);
+  useEffect(
+    () => () => {
+      latest.current = { ...latest.current, disabled: true };
+      cancelRef.current?.();
+    },
+    [],
+  );
   useEffect(() => {
     if (props.disabled) cancelRef.current?.();
   }, [props.disabled]);
@@ -51,28 +56,42 @@ export function ComposerDictation(props: {
     let active = true;
     let transcript = "";
     let releaseMeter: (() => void) | undefined;
-    const update = (text: string) => {
-      transcript = text;
-      if (active && !cancelled) setPreview(text);
-    };
+    let ownedSuffix = "";
+    let edited = false;
     const insert = (text: string) => {
-      if (cancelled || latest.current.disabled) return;
+      if (!active || cancelled || latest.current.disabled || edited) return;
       const draft = latest.current.value;
-      if (text.trim())
-        latest.current.onChange(draft + (draft && !/\s$/.test(draft) ? " " : "") + text.trim());
+      // Only replace words still owned by this session. An edit to the spoken
+      // suffix takes ownership away from recognition, preserving the user's text.
+      if (ownedSuffix && !draft.endsWith(ownedSuffix)) {
+        edited = true;
+        return;
+      }
+      const base = ownedSuffix ? draft.slice(0, -ownedSuffix.length) : draft;
+      ownedSuffix = text.trim() ? (base && !/\s$/.test(base) ? " " : "") + text.trim() : "";
+      const next = base + ownedSuffix;
+      latest.current = { ...latest.current, value: next };
+      if (next !== draft) latest.current.onChange(next);
+    };
+    const update = (text: string) => {
+      if (!active || cancelled) return;
+      transcript = text;
+      insert(text);
+    };
+    const rollback = () => {
+      insert("");
+      cancelled = true;
     };
     const cleanup = () => {
       active = false;
       cancelRef.current = null;
       finishRef.current = null;
       setListening(false);
-      setPreview("");
       setLevel(0);
       setHasMeter(false);
       releaseMeter?.();
     };
     setError(null);
-    setPreview("");
     setListening(true);
     const bridge = window.desktopBridge;
     if (
@@ -96,7 +115,7 @@ export function ComposerDictation(props: {
           .catch(() => {});
       }, 350);
       cancelRef.current = () => {
-        cancelled = true;
+        rollback();
         void bridge.cancelDictation?.(request).catch(() => {});
       };
       finishRef.current = () => {
@@ -218,7 +237,7 @@ export function ComposerDictation(props: {
       cleanup();
     };
     cancelRef.current = () => {
-      cancelled = true;
+      rollback();
       active = false;
       releaseMeter?.();
       releaseMeter = undefined;
@@ -279,7 +298,7 @@ export function ComposerDictation(props: {
             </span>
           ) : null}
           <span role="status" className="max-w-64 text-xs text-muted-foreground">
-            {preview || "Listening…"}
+            Listening&#8230;
           </span>
         </div>
       ) : null}

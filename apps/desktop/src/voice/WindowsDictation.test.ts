@@ -3,8 +3,12 @@ import * as NodeEvents from "node:events";
 import * as NodeStream from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-const mock = vi.hoisted(() => ({ spawn: vi.fn() }));
+const mock = vi.hoisted(() => ({
+  spawn: vi.fn(),
+  runtime: vi.fn((): { python: string; model: string } | null => null),
+}));
 vi.mock("node:child_process", () => ({ spawn: mock.spawn }));
+vi.mock("./WhisperRuntime.ts", () => ({ getWhisperRuntime: mock.runtime }));
 import {
   startWindowsDictation,
   cancelWindowsDictation,
@@ -13,7 +17,10 @@ import {
   getWindowsDictationLevel,
 } from "./WindowsDictation.ts";
 
-afterEach(() => vi.clearAllMocks());
+afterEach(() => {
+  vi.clearAllMocks();
+  mock.runtime.mockReturnValue(null);
+});
 function child() {
   const process = Object.assign(new NodeEvents.EventEmitter(), {
     stdout: new NodeStream.PassThrough(),
@@ -25,6 +32,22 @@ function child() {
   return process;
 }
 describe("Windows dictation process lifecycle", () => {
+  it("uses the installed Whisper worker through the same session protocol", async () => {
+    mock.runtime.mockReturnValue({ python: "voice/python.exe", model: "voice/model" });
+    const process = child();
+    const result = startWindowsDictation("whisper", "win32");
+    expect(mock.spawn).toHaveBeenCalledWith(
+      "voice/python.exe",
+      ["-u", "-c", expect.stringContaining("WhisperModel"), "voice/model"],
+      expect.objectContaining({ windowsHide: true }),
+    );
+    process.stdout.write(`P\t${Buffer.from("Proposed words").toString("base64")}\n`);
+    expect(getWindowsDictationText("whisper")).toBe("Proposed words");
+    stopWindowsDictation("whisper");
+    process.stdout.write(`F\t${Buffer.from("Correct words.").toString("base64")}\n`);
+    process.emit("close", 0);
+    await expect(result).resolves.toBe("Correct words.");
+  });
   it("keeps phrases available until finish and returns the accumulated text", async () => {
     const process = child();
     const result = startWindowsDictation("long-session", "win32");

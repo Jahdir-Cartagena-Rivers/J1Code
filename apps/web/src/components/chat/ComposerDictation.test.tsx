@@ -65,8 +65,8 @@ it("shows interim words, continues after an engine pause, and inserts the final 
       results: [result("first phrase", true), result("next words", false)],
     }),
   );
-  expect(container.textContent).toContain("first phrase next words");
-  expect(change).not.toHaveBeenCalled();
+  expect(change).toHaveBeenLastCalledWith("Draft first phrase next words");
+  expect(container.textContent).not.toContain("first phrase next words");
   await act(() => recognition.onend?.());
   expect(recognition.start).toHaveBeenCalledTimes(2);
   await act(() => recognition.onresult?.({ results: [result("second phrase", true)] }));
@@ -75,7 +75,7 @@ it("shows interim words, continues after an engine pause, and inserts the final 
   await act(() => recognition.onend?.());
   expect(change).toHaveBeenCalledWith("Draft first phrase second phrase");
 });
-it("does not insert speech when cancelled", async () => {
+it("removes proposed speech when cancelled", async () => {
   await act(() =>
     root.render(
       <ComposerDictation
@@ -91,7 +91,7 @@ it("does not insert speech when cancelled", async () => {
   await act(() => recognition.onresult?.({ results: [result("private words", true)] }));
   await act(() => button("Cancel dictation").click());
   await act(() => recognition.onend?.());
-  expect(change).not.toHaveBeenCalled();
+  expect(change).toHaveBeenLastCalledWith("Draft");
 });
 it("appends recognized speech to edits made while listening", async () => {
   const render = (value: string) => (
@@ -141,4 +141,36 @@ it("releases the browser microphone meter on cancellation", async () => {
   expect(stopTrack).toHaveBeenCalledOnce();
   expect(close).toHaveBeenCalledOnce();
   await act(() => FakeRecognition.current.onend?.());
+});
+
+it("preserves corrections to proposed speech when later results arrive or are cancelled", async () => {
+  const render = (value: string) => (
+    <ComposerDictation value={value} onChange={change} onBusyChange={() => {}} disabled={false} />
+  );
+  await act(() => root.render(render("Draft")));
+  await act(() => button("Dictate message").click());
+  const recognition = FakeRecognition.current;
+  await act(() => recognition.onresult?.({ results: [result("wrong words", false)] }));
+  expect(change).toHaveBeenLastCalledWith("Draft wrong words");
+  await act(() => root.render(render("Draft corrected words")));
+  change.mockClear();
+  await act(() => recognition.onresult?.({ results: [result("different words", true)] }));
+  await act(() => button("Cancel dictation").click());
+  await act(() => recognition.onend?.());
+  expect(change).not.toHaveBeenCalled();
+});
+it("replaces interim text without duplicating speech and preserves edits before it", async () => {
+  const render = (value: string) => (
+    <ComposerDictation value={value} onChange={change} onBusyChange={() => {}} disabled={false} />
+  );
+  await act(() => root.render(render("Draft")));
+  await act(() => button("Dictate message").click());
+  const recognition = FakeRecognition.current;
+  await act(() => recognition.onresult?.({ results: [result("some", false)] }));
+  await act(() => root.render(render("Edited draft some")));
+  await act(() => recognition.onresult?.({ results: [result("some words", true)] }));
+  expect(change).toHaveBeenLastCalledWith("Edited draft some words");
+  await act(() => button("Finish dictation").click());
+  await act(() => recognition.onend?.());
+  expect(change).toHaveBeenLastCalledWith("Edited draft some words");
 });

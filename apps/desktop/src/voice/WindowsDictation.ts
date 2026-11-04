@@ -1,5 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off globalTimers:off
 import * as NodeChildProcess from "node:child_process";
+import { getWhisperRuntime } from "./WhisperRuntime.ts";
+import { whisperWorker } from "./WhisperWorker.ts";
 
 const sessions = new Map<
   string,
@@ -10,6 +12,7 @@ const sessions = new Map<
     pending: string;
     level: number;
     stopping: boolean;
+    finishTimeout: number;
     timer?: ReturnType<typeof setTimeout>;
   }
 >();
@@ -80,7 +83,7 @@ export function stopWindowsDictation(requestId: string): void {
   if (session && !session.stopping) {
     session.stopping = true;
     session.child.stdin?.end("stop\n");
-    session.timer = setTimeout(() => session.child.kill(), 10_000);
+    session.timer = setTimeout(() => session.child.kill(), session.finishTimeout);
   }
 }
 
@@ -101,10 +104,13 @@ export function startWindowsDictation(
 ): Promise<string> {
   if (platform !== "win32") return Promise.reject(new Error("Native dictation requires Windows."));
   if (sessions.size > 0) return Promise.reject(new Error("Dictation is already listening."));
+  const whisper = getWhisperRuntime();
   return new Promise((resolve, reject) => {
     const child = NodeChildProcess.spawn(
-      "powershell.exe",
-      ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
+      whisper?.python ?? "powershell.exe",
+      whisper
+        ? ["-u", "-c", whisperWorker, whisper.model]
+        : ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
       {
         windowsHide: true,
         stdio: ["pipe", "pipe", "pipe"],
@@ -117,6 +123,7 @@ export function startWindowsDictation(
       pending: "",
       level: 0,
       stopping: false,
+      finishTimeout: whisper ? 60_000 : 10_000,
     };
     sessions.set(requestId, session);
     child.stdin?.on("error", () => {});
