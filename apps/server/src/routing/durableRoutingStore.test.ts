@@ -30,6 +30,43 @@ const request: RouteRequest = {
 const runtime = (path: string) => ManagedRuntime.make(NodeSqliteClient.layer({ filename: path }));
 
 describe("durable routing store", () => {
+  it("CAS-protects automatic rediscovery and keeps retries bound to original intent", async () => {
+    const db = runtime(":memory:");
+    try {
+      await db.runPromise(migration);
+      const store = await db.runPromise(makeDurableRoutingStore);
+      const original = {
+        ...request,
+        destination: null,
+        ambiguous: true,
+        initiation: "automatic" as const,
+      };
+      const first = await db.runPromise(store.create(original));
+      await expect(
+        db.runPromise(store.commitDiscoveredOwner("stable", 0, request.destination!, ["write"])),
+      ).rejects.toThrow();
+      expect((await db.runPromise(store.get("stable")))?.revision).toBe(0);
+      const results = await Promise.allSettled(
+        ["one", "two"].map((threadId) =>
+          db.runPromise(
+            store.commitDiscoveredOwner("stable", 0, { ...request.source, threadId }, []),
+          ),
+        ),
+      );
+      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      const retry = await db.runPromise(store.create(original));
+      expect(retry.state.fingerprint).toBe(first.state.fingerprint);
+      expect(retry.state.status).toBe("queued");
+      expect(retry.state.originalRequest).toEqual(first.state.originalRequest);
+      await expect(
+        db.runPromise(
+          store.commitDiscoveredOwner("stable", retry.revision, request.destination!, []),
+        ),
+      ).rejects.toThrow();
+    } finally {
+      await db.dispose();
+    }
+  });
   it("atomically deduplicates concurrent requests and rejects changed input and stale send claims", async () => {
     const dir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-routing-"));
     const db = runtime(NodePath.join(dir, "routes.sqlite"));

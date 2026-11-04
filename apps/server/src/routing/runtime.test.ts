@@ -13,6 +13,7 @@ import {
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import { expect, it } from "vite-plus/test";
@@ -31,6 +32,7 @@ import { OrchestrationProjectionSnapshotQueryLive } from "../orchestration/Layer
 import * as ThreadBackgroundLiveness from "../orchestration/ThreadBackgroundLiveness.ts";
 import * as ThreadPlanProgress from "../orchestration/ThreadPlanProgress.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ServerConfig } from "../config.ts";
 
 import { makeEngineRouteDrain, shouldWakeRouteDrain } from "./engineDrain.ts";
@@ -180,6 +182,92 @@ effectIt.effect(
         yield* ports.release!(destination, "task", "release");
         expect((yield* ports.owner(source, "task")).destination).toBeNull();
         expect((yield* ports.get("r"))?.status).toBe("admitted");
+        const coordinator = { ...source, threadId: "coordinator" };
+        for (const id of ["coordinator", "competing-coordinator"])
+          yield* engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.make(id),
+            threadId: ThreadId.make(id),
+            projectId: ProjectId.make("p"),
+            title: id,
+            modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "default" },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt,
+          });
+        yield* engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.make("coordinator-busy"),
+          threadId: ThreadId.make("coordinator"),
+          createdAt,
+          session: {
+            threadId: ThreadId.make("coordinator"),
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: TurnId.make("busy-turn"),
+            lastError: null,
+            updatedAt: createdAt,
+          },
+        });
+        for (const mode of ["auto", "suggest"] as const)
+          yield* ports.submit({
+            route: {
+              requestId: `integration-${mode}`,
+              taskId: "audio-build-integration",
+              source,
+              destination: null,
+              content: "Include completed audio changes in the next build",
+              mode,
+              initiation: "automatic",
+              ambiguous: true,
+              visited: [],
+              maxHops: 8,
+            },
+            fingerprint: `integration-${mode}`,
+            originalRequest: "Include completed audio changes in the next build",
+            sourceUrl: "/env/source",
+          });
+        expect((yield* ports.get("integration-auto"))?.status).toBe("suggested");
+        yield* ports.claim!(coordinator, "project-build-integration", "claim-coordinator");
+        expect(yield* ports.owner(source, "audio-build-integration")).toEqual({
+          destination: coordinator,
+          ambiguous: false,
+        });
+        expect((yield* ports.get("integration-auto"))?.status).toBe("queued");
+        expect((yield* ports.get("integration-suggest"))?.status).toBe("suggested");
+        expect((yield* ports.get("integration-auto"))?.receipts).toEqual([]);
+        const snapshots = yield* ProjectionSnapshotQuery;
+        const sourceDetail = Option.getOrThrow(
+          yield* snapshots.getThreadDetailById(ThreadId.make("source")),
+        );
+        expect(
+          Option.getOrThrow(yield* snapshots.getThreadShellById(ThreadId.make("source")))
+            .hasPendingApprovals,
+        ).toBe(false);
+        expect(sourceDetail.activities).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              kind: "routing.updated",
+              payload: expect.objectContaining({ requestId: "integration-auto", status: "queued" }),
+            }),
+          ]),
+        );
+        expect((yield* ports.owner(source, "unrelated-audio-fix")).ambiguous).toBe(true);
+        expect((yield* ports.owner(destination, "audio-build-integration")).destination).toBeNull();
+        yield* ports.claim!(
+          { ...coordinator, threadId: "competing-coordinator" },
+          "project-build-integration",
+          "claim-competing",
+        );
+        expect((yield* ports.owner(source, "audio-build-integration")).ambiguous).toBe(true);
+        yield* ports.claim!(destination, "audio-build-integration", "claim-exact");
+        expect(yield* ports.owner(source, "audio-build-integration")).toEqual({
+          destination,
+          ambiguous: false,
+        });
       }).pipe(Effect.provide(RoutingRuntimeLive));
     }).pipe(
       Effect.provide(
@@ -190,7 +278,7 @@ effectIt.effect(
             getDescriptor: Effect.die("unused"),
           }),
           Layer.succeed(ServerSettingsService, {
-            getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
+            getSettings: Effect.succeed({ ...DEFAULT_SERVER_SETTINGS, chatRoutingMode: "auto" }),
           } as unknown as ServerSettingsService["Service"]),
         ),
       ),

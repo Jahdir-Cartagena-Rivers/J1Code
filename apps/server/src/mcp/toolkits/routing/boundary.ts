@@ -54,6 +54,7 @@ export interface RoutingPorts {
     source: RouteEndpoint,
     taskId: string,
     candidate?: RouteEndpoint,
+    request?: string,
   ) => Effect.Effect<
     {
       readonly destination: RouteEndpoint | null;
@@ -106,7 +107,7 @@ export const routeRequest = Effect.fn("RoutingBoundary.route")(function* (unknow
   const source = yield* currentEndpoint;
   const ports = yield* RoutingBoundaryPorts;
   const policy = yield* ports.policy(source, input.requestId, input.taskId);
-  const owner = yield* ports.owner(source, input.taskId, input.candidate);
+  const owner = yield* ports.owner(source, input.taskId, input.candidate, input.request);
   if (owner.destination) {
     const actual = yield* ports.current(
       owner.destination.environmentId,

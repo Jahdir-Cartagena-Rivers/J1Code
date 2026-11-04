@@ -85,9 +85,9 @@ const click = async (label: string) => {
 };
 it("loads pending matches without sending, and sends only after explicit approval", async () => {
   await render();
-  expect(container.querySelector('[aria-label="Requests: 1 awaiting approval"]')).toBeTruthy();
+  expect(container.querySelector('[aria-label="Request approvals"]')).toBeTruthy();
+  expect(container.textContent).toContain("Add the new Home requirements");
   expect(commands.prepare).not.toHaveBeenCalled();
-  await click("Review request");
   expect(commands.confirm).not.toHaveBeenCalled();
   await click("Approve and send");
   expect(commands.prepare).toHaveBeenCalledWith({
@@ -107,16 +107,48 @@ it("loads pending matches without sending, and sends only after explicit approva
 it("keeps the request for review when the destination changes, without confirming", async () => {
   commands.prepare.mockResolvedValue({ _tag: "Failure" });
   await render();
-  await click("Review request");
   await click("Approve and send");
   expect(commands.confirm).not.toHaveBeenCalled();
   expect(container.textContent).toContain("conversation is unavailable");
 });
 it("leaving a suggestion for later never sends it", async () => {
   await render();
-  await click("Review request");
   await click("Not now");
   expect(commands.prepare).not.toHaveBeenCalled();
   expect(commands.confirm).not.toHaveBeenCalled();
-  expect(container.querySelector('[aria-label="Requests: 1 awaiting approval"]')).toBeTruthy();
+  expect(container.textContent).toContain("Review request");
+});
+it("keeps an ordinary chat free of routing controls when there is no request", async () => {
+  commands.list.mockResolvedValue({ _tag: "Success", value: [] });
+  await render();
+  expect(container.textContent).toBe("");
+});
+it("automatically shows a new source routing notice without opening a control", async () => {
+  commands.list.mockResolvedValue({ _tag: "Success", value: [] });
+  await render();
+  commands.list.mockResolvedValue({
+    _tag: "Success",
+    value: [
+      {
+        requestId: "new",
+        status: "suggested",
+        summary: "Review the audio integration",
+        destination: { threadId: "target" },
+      },
+    ],
+  });
+  await act(async () =>
+    root.render(
+      <RouteRequestControl
+        environmentId={EnvironmentId.make("local")}
+        projectId="home"
+        threadId="source"
+        revision={1}
+      />,
+    ),
+  );
+  expect(container.textContent).toContain("Review the audio integration");
+  expect(container.textContent).toContain("Approve and send");
+  expect(commands.prepare).not.toHaveBeenCalled();
+  expect(commands.confirm).not.toHaveBeenCalled();
 });

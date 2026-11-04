@@ -11,6 +11,8 @@ import { makeDurableRoutingStore } from "./durableRoutingStore.ts";
 import { makeSnapshotRoutingAdapter } from "./snapshotRoutingAdapter.ts";
 import { makeEngineRouteDrain } from "./engineDrain.ts";
 import { makeRouteTransportConsumer } from "./transportConsumer.ts";
+import { isBuildIntegrationRequest, PROJECT_BUILD_OWNER_TASK } from "./integrationOwner.ts";
+import { makeRouteSourceNotifier } from "./sourceActivity.ts";
 const encodeIdentity = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 /** Runtime registration shares the persisted store with admission and receipt consumers. */
@@ -22,6 +24,7 @@ export const RoutingRuntimeLive = Layer.effect(
     const settings = yield* ServerSettingsService;
     const sql = yield* SqlClient.SqlClient;
     const store = yield* makeDurableRoutingStore;
+    const notify = yield* makeRouteSourceNotifier;
     const drain = yield* makeEngineRouteDrain;
     const consumer = yield* makeRouteTransportConsumer;
     yield* consumer.start;
@@ -44,6 +47,79 @@ export const RoutingRuntimeLive = Layer.effect(
           ),
         ),
     });
+    const owner: RoutingBoundaryPorts["Service"]["owner"] = (source, taskId, candidate, request) =>
+      Effect.gen(function* () {
+        const exact = yield* sql<{
+          thread_id: string;
+        }>`SELECT DISTINCT thread_id FROM task_owner_bindings
+        WHERE task_id = ${taskId} AND environment_id = ${source.environmentId} AND revocation_json IS NULL
+        AND (${taskId} <> ${PROJECT_BUILD_OWNER_TASK} OR project_id = ${source.projectId})`;
+        // Existing task ownership always wins, including an unavailable or conflicting owner.
+        if (exact.length) {
+          if (exact.length !== 1) return { destination: null, ambiguous: true };
+          const destination = yield* adapter.current(source.environmentId, exact[0]!.thread_id);
+          return { destination, ambiguous: destination === null };
+        }
+        if (isBuildIntegrationRequest(taskId, request)) {
+          const coordinators = yield* sql<{
+            thread_id: string;
+          }>`SELECT DISTINCT thread_id FROM task_owner_bindings
+          WHERE task_id = ${PROJECT_BUILD_OWNER_TASK} AND environment_id = ${source.environmentId}
+          AND project_id = ${source.projectId} AND revocation_json IS NULL`;
+          if (coordinators.length) {
+            if (coordinators.length !== 1) return { destination: null, ambiguous: true };
+            const destination = yield* adapter.current(
+              source.environmentId,
+              coordinators[0]!.thread_id,
+            );
+            return { destination, ambiguous: destination === null };
+          }
+        }
+        return yield* adapter.owner(source, taskId, candidate);
+      }).pipe(Effect.mapError(error));
+    const reconsider = Effect.gen(function* () {
+      const settingsNow = yield* settings.getSettings;
+      if (settingsNow.chatRoutingMode !== "auto") return;
+      const rows = yield* sql<{
+        request_id: string;
+      }>`SELECT request_id FROM durable_routes WHERE status = 'suggested'
+        AND json_extract(state_json, '$.originalRequest.mode') = 'auto'
+        AND json_extract(state_json, '$.originalRequest.source.environmentId') = ${environmentId}`;
+      for (const entry of rows) {
+        const row = yield* store.get(entry.request_id);
+        if (!row || row.state.status !== "suggested") continue;
+        const request = row.state.originalRequest;
+        const resolved = yield* owner(
+          request.source,
+          request.taskId ?? "",
+          undefined,
+          request.content,
+        );
+        if (
+          !resolved.destination ||
+          resolved.ambiguous ||
+          resolved.destination.threadId === request.source.threadId
+        )
+          continue;
+        const target = yield* adapter.inspect(resolved.destination).pipe(Effect.result);
+        if (target._tag === "Failure") continue;
+        const changed = yield* store
+          .commitDiscoveredOwner(
+            entry.request_id,
+            row.revision,
+            resolved.destination,
+            target.success.permissions,
+          )
+          .pipe(Effect.result);
+        if (changed._tag === "Success") yield* notify(changed.success);
+      }
+      yield* drain.drain();
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("Pending routing rediscovery could not finish", { cause }),
+      ),
+    );
+    yield* reconsider;
     return RoutingBoundaryPorts.of({
       ...adapter,
       release: (endpoint, taskId, requestId) =>
@@ -65,6 +141,7 @@ export const RoutingRuntimeLive = Layer.effect(
             binding_id: string;
           }>`SELECT binding_id FROM task_owner_bindings WHERE task_id = ${taskId} AND environment_id = ${endpoint.environmentId} AND project_id = ${endpoint.projectId} AND thread_id = ${endpoint.threadId} AND revocation_json IS NULL`;
           for (const row of rows) yield* owners.revoke(row.binding_id);
+          yield* reconsider;
         }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.mapError(error)),
       claim: (endpoint, taskId, requestId) =>
         Effect.gen(function* () {
@@ -88,6 +165,7 @@ export const RoutingRuntimeLive = Layer.effect(
               .update(yield* encodeIdentity([endpoint, taskId, requestId]))
               .digest("hex"),
           });
+          yield* reconsider;
         }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.mapError(error)),
       policy: (source, requestId, taskId) =>
         Effect.gen(function* () {
@@ -110,17 +188,7 @@ export const RoutingRuntimeLive = Layer.effect(
           ];
           return { ...policy, visited, maxHops: 8 };
         }).pipe(Effect.mapError(error)),
-      owner: (source, taskId, candidate) =>
-        Effect.gen(function* () {
-          const rows = yield* sql<{
-            thread_id: string;
-          }>`SELECT DISTINCT thread_id FROM task_owner_bindings
-        WHERE task_id = ${taskId} AND environment_id = ${source.environmentId}
-        AND revocation_json IS NULL`;
-          if (rows.length !== 1) return yield* adapter.owner(source, taskId, candidate);
-          const destination = yield* adapter.current(source.environmentId, rows[0]!.thread_id);
-          return { destination, ambiguous: destination === null };
-        }).pipe(Effect.mapError(error)),
+      owner,
       receipt: (endpoint, id, kind) =>
         Effect.gen(function* () {
           const row = yield* store.get(id);
@@ -134,7 +202,7 @@ export const RoutingRuntimeLive = Layer.effect(
             destination.environmentId !== endpoint.environmentId
           )
             return yield* Effect.fail("Route unavailable.");
-          return (yield* store.transition(id, row.revision, {
+          const changed = yield* store.transition(id, row.revision, {
             type: "receipt",
             receipt: {
               requestId: id,
@@ -144,7 +212,9 @@ export const RoutingRuntimeLive = Layer.effect(
               kind,
               receiptId: `recipient:${id}:${row.state.attemptId}:${kind}`,
             },
-          })).state;
+          });
+          yield* notify(changed);
+          return changed.state;
         }).pipe(Effect.mapError(error)),
       submit: (input) =>
         Effect.gen(function* () {
@@ -163,8 +233,11 @@ export const RoutingRuntimeLive = Layer.effect(
               destination?.permissions ??
               [],
           });
+          yield* notify(row);
           yield* drain.drain();
-          return (yield* store.get(row.state.request.requestId))!.state;
+          const latest = (yield* store.get(row.state.request.requestId))!;
+          if (latest.revision !== row.revision) yield* notify(latest);
+          return latest.state;
         }).pipe(Effect.mapError(error)),
       get: (id) =>
         store.get(id).pipe(

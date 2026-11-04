@@ -4,6 +4,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import {
   registerRoute,
   resolveRoute,
+  resolveDiscoveredOwner,
   type RouteEndpoint,
   type RouteResolutionAuthority,
   type RouteState,
@@ -205,6 +206,18 @@ export const makeDurableRoutingStoreWithResolution = (verifier?: RouteResolution
         wrap(
           "resolve",
           transition(id, revision, (state) => resolveRoute(state, authority)),
+        ),
+      commitDiscoveredOwner: (
+        id: string,
+        revision: number,
+        destination: RouteEndpoint,
+        permissions: readonly string[],
+      ) =>
+        wrap(
+          "rediscover",
+          transition(id, revision, (state) =>
+            resolveDiscoveredOwner(state, destination, permissions),
+          ),
         ),
       queued: () =>
         wrap(

@@ -253,14 +253,21 @@ Each environment has one persistent **Home** conversation above the project list
 Project chats can route requests too. Set routing to **Off**, **Suggest**, or **Auto**
 in Providers settings on web or desktop, or Agent behavior on mobile. Auto sends
 directly only when there is a clear task owner. Otherwise, choose the destination
-using the **Requests** icon in the source chat. Its count shows requests awaiting approval.
-Review a request, choose its destination, then select **Approve and send**.
+in the approval card that appears in the source conversation. It shows a brief
+summary and the proposed destination. Choose the conversation, then select **Approve and send**.
+You can leave it for later and keep discussing the request here.
 
 The source conversation stays available. Follow the destination link to continue
-the work, and open Requests to check progress. Queued, delivered,
+the work, and check the request card for progress. Queued, delivered,
 accepted, and completed are separate states: delivery does not mean the receiving
 agent has incorporated the request. A busy chat receives the request at a safe
 boundary; routing never interrupts its current turn or grants broader permissions.
+
+When a chat is coordinating a project's combined build, integration requests can
+reach that coordinator even when they use a different feature task name. A specific
+task owner still takes precedence. Other work in the same project is not redirected
+merely because it shares the project. Pending Auto requests are checked again when
+an owner becomes known; Suggest requests still wait for your approval.
 
 ## Images and videos in messages
 

@@ -104,6 +104,34 @@ export function resolveRoute(state: RouteState, authority: RouteResolutionAuthor
   };
 }
 
+/** Server-only rediscovery under the original Auto authorization. It cannot
+ * approve Suggest requests or manufacture a user confirmation. The caller must
+ * verify a unique current owner and refresh endpoint permissions before CAS.
+ */
+export function resolveDiscoveredOwner(
+  state: RouteState,
+  destination: RouteEndpoint,
+  destinationPermissions: readonly string[],
+): RouteState {
+  if (
+    state.status !== "suggested" ||
+    state.originalRequest.mode !== "auto" ||
+    state.request.mode !== "auto" ||
+    state.originalRequest.initiation !== "automatic" ||
+    state.resolution !== null
+  )
+    throw new Error("Automatic rediscovery is not authorized");
+  const request = structuredClone({
+    ...state.request,
+    destination,
+    destinationPermissions,
+    ambiguous: false,
+  });
+  const reason = blockedReason(request);
+  if (reason) throw new Error(reason);
+  return { ...state, request, status: "queued", reason: null };
+}
+
 /** Binds original intent; discovery and user selection cannot change identity.
  * requestId is the independent durable uniqueness key. */
 export function routeFingerprint(request: RouteRequest): string {

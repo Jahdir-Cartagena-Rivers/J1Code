@@ -11,6 +11,8 @@ describe("buildRuntimeInstructions", () => {
       "A queued or admitted request has not necessarily been delivered",
     );
     expect(instructions).toContain("an agent must not redeem that confirmation");
+    expect(instructions).toContain('taskId "project-build-integration"');
+    expect(instructions).toContain("approval card in the source chat");
   });
   it("explains cross-provider delegation without implying automatic context or approvals", () => {
     const instructions = buildRuntimeInstructions({ harness: "Claude Code" });

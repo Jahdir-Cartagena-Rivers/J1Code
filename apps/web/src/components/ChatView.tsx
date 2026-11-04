@@ -379,6 +379,7 @@ import type { AssistantCitationRequest } from "./chat/AssistantCitationSource";
 import { resolveTimelineIsAtEnd, worktreeSetupAgentStarted } from "./chat/MessagesTimeline.logic";
 import { resolveComposerTimelineInset, resolveScrollToEndClearance } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
+import { RouteRequestControl } from "./chat/RouteRequestControl";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
 import { expandedImageKey, type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NoActiveThreadState } from "./NoActiveThreadState";
@@ -9836,7 +9837,6 @@ export default function ChatView(props: ChatViewProps) {
               : { onOpenPullRequest: openProjectPullRequest })}
             activeThreadEnvironmentId={activeThread.environmentId}
             activeThreadId={activeThread.id}
-            activeThreadProjectId={activeThread.projectId}
             {...(routeKind === "draft" && draftId ? { draftId } : {})}
             activeThreadTitle={activeThread.title}
             isServerThread={isServerThread}
@@ -10064,6 +10064,19 @@ export default function ChatView(props: ChatViewProps) {
                         : undefined
                     }
                   >
+                    {isServerThread && activeThread && (
+                      <RouteRequestControl
+                        key={String(activeThread.id)}
+                        environmentId={activeThread.environmentId}
+                        projectId={activeThread.projectId}
+                        threadId={activeThread.id}
+                        revision={
+                          activeThread.activities.filter(
+                            (activity) => activity.kind === "routing.updated",
+                          ).length
+                        }
+                      />
+                    )}
                     <ComposerSurface.Shell contextStrip={showComposerContextStrip}>
                       <ComposerSurface.Host>
                         <div ref={attachDraftHeroComposerAnchorRef} className="relative z-10">

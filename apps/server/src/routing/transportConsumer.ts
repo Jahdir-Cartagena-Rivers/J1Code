@@ -2,6 +2,7 @@ import { type OrchestrationEvent } from "@t3tools/contracts";
 import { Effect, Option, Schema, Semaphore, Stream } from "effect";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { makeDurableRoutingStore } from "./durableRoutingStore.ts";
+import { makeRouteSourceNotifier } from "./sourceActivity.ts";
 
 const Transport = Schema.Struct({
   routeId: Schema.String,
@@ -24,6 +25,7 @@ const decodeTransport = Schema.decodeUnknownOption(Transport);
 export const makeRouteTransportConsumer = Effect.gen(function* () {
   const engine = yield* OrchestrationEngineService;
   const store = yield* makeDurableRoutingStore;
+  const notify = yield* makeRouteSourceNotifier;
   const mutex = yield* Semaphore.make(1);
   const consume = Effect.fn("RouteTransportConsumer.consume")(function* (
     candidate: OrchestrationEvent,
@@ -98,7 +100,10 @@ export const makeRouteTransportConsumer = Effect.gen(function* () {
             : { type: "send-interrupted" },
         )
         .pipe(Effect.result);
-      if (result._tag === "Success") return;
+      if (result._tag === "Success") {
+        yield* notify(result.success);
+        return;
+      }
       const current = yield* store.get(evidence.routeId);
       if (current?.revision === row.revision) return yield* Effect.fail(result.failure);
     }

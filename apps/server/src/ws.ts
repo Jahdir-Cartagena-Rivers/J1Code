@@ -4,6 +4,7 @@ import { makeManualRouteBoundary } from "./routing/manualRouteBoundary.ts";
 import { makeManualRouteRpc } from "./routing/manualRouteRpc.ts";
 import { makeDurableRoutingStore } from "./routing/durableRoutingStore.ts";
 import { makeEngineRouteDrain } from "./routing/engineDrain.ts";
+import { makeRouteSourceNotifier } from "./routing/sourceActivity.ts";
 import { ManualRouteActionError } from "@t3tools/contracts";
 import {
   sameUsageLimitCommandCoverage,
@@ -520,6 +521,7 @@ const makeWsRpcLayer = (
       const routeEnvironmentId = yield* (yield* RoutingEnvironment).getEnvironmentId;
       const routeStore = yield* makeDurableRoutingStore;
       const routeDrain = yield* makeEngineRouteDrain;
+      const notifyRouteSource = yield* makeRouteSourceNotifier;
       const manualRouting = makeManualRouteRpc(
         makeManualRouteBoundary({
           environmentId: routeEnvironmentId,
@@ -575,6 +577,7 @@ const makeWsRpcLayer = (
                 authenticatedUser: true,
               }),
             );
+            await Effect.runPromise(notifyRouteSource(result));
             await Effect.runPromise(routeDrain.drain());
             return result;
           },
