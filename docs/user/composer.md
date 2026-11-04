@@ -143,7 +143,9 @@ Open **Home chat** in the sidebar for an ongoing general conversation. Project r
 
 ## Voice input
 
-On Windows desktop, use the composer's microphone to dictate with your default microphone and an installed Windows speech language. The text and microphone level appear while you speak. Choose **Finish dictation** to add the recognized text to your draft, or **Cancel dictation** to discard it. Review the text before sending.
+On Windows desktop, use the composer's microphone to dictate with your default microphone. Proposed words appear directly in your draft while you speak. Choose **Finish dictation** to keep the recognized text, or **Cancel dictation** to remove it. If you correct the proposed words while listening, recognition stops replacing them to preserve your edits. Review the text before sending.
+
+For local English Whisper transcription, install [uv](https://docs.astral.sh/uv/getting-started/installation/) and run `./scripts/setup-local-dictation.ps1` from a source checkout. This downloads a Python runtime and Whisper Small English model into `%LOCALAPPDATA%/J1Code/voice`. Subsequent transcription runs locally on CPU; recordings are not saved. Sessions stop after two minutes. Without that setup, Windows desktop uses its installed Windows speech language. Browser and mobile dictation continue to use their platform's speech services.
 
 On Android, the microphone opens the device's speech input dialog. It prefers offline recognition, but support and network use depend on your installed speech service. Canceling leaves your draft intact. A native app rebuild is required for this control.
 
@@ -237,9 +239,13 @@ when context capacity is not reported, enter the model's documented token limit.
 
 Select **Auto** in the composer to use those preferences, or pick a model manually.
 Auto keeps a task's model stable and can escalate substantial work. The chat records
-the selected model and reason. If Auto cannot establish that a request fits—such as
-an attachment or an existing session without current context usage—choose a model
-manually. Switching an existing session to another provider is not supported by Auto.
+the selected model and reason. Enable image support in the model preferences for
+models that accept images. Files are read through tools; image budgets are estimates.
+When an existing session has no fresh context report, Auto keeps its current model
+and lets the provider manage context when that model is in your Auto preferences.
+Otherwise it chooses from your preferences using an estimate of visible history.
+Substantial work can still escalate within the same provider using that estimate.
+Switching an existing session to another provider requires manual selection.
 
 ## Routing requests between conversations
 
@@ -247,10 +253,11 @@ Each environment has one persistent **Home** conversation above the project list
 Project chats can route requests too. Set routing to **Off**, **Suggest**, or **Auto**
 in Providers settings on web or desktop, or Agent behavior on mobile. Auto sends
 directly only when there is a clear task owner. Otherwise, choose the destination
-and confirm under **Request routing** in the source chat.
+using the **Requests** icon in the source chat. Its count shows requests awaiting approval.
+Review a request, choose its destination, then select **Approve and send**.
 
 The source conversation stays available. Follow the destination link to continue
-the work, and refresh Request routing to check progress. Queued, delivered,
+the work, and open Requests to check progress. Queued, delivered,
 accepted, and completed are separate states: delivery does not mean the receiving
 agent has incorporated the request. A busy chat receives the request at a safe
 boundary; routing never interrupts its current turn or grants broader permissions.

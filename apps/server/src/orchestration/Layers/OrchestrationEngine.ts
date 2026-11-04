@@ -12,6 +12,7 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 import { makeAutoModelAdmission } from "../../provider/AutoModelAdmission.ts";
 import { autoModelCandidates, autoModelSelection } from "../../provider/AutoModelCandidates.ts";
+import { autoModelContext } from "../../provider/AutoModelContext.ts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
@@ -371,15 +372,12 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           const compatible = candidates.filter(
             (candidate) =>
               !thread.session ||
-              candidate.ref.instanceId ===
-                (thread.session.providerInstanceId ?? thread.modelSelection.instanceId),
+              (candidate.ref.instanceId ===
+                (thread.session.providerInstanceId ?? thread.modelSelection.instanceId) &&
+                (!providers.find((provider) => provider.instanceId === candidate.ref.instanceId)
+                  ?.requiresNewThreadForModelChange ||
+                  candidate.ref.modelId === thread.modelSelection.model)),
           );
-          const textBytes = new TextEncoder().encode(
-            thread.messages.map((message) => message.text).join("\n") + command.message.text,
-          ).length;
-          const hasAttachments =
-            command.message.attachments.length > 0 ||
-            thread.messages.some((message) => (message.attachments?.length ?? 0) > 0);
           const usage = thread.activities.findLast(
             (activity) => activity.kind === "context-window.updated",
           );
@@ -389,13 +387,28 @@ const makeOrchestrationEngine = Effect.gen(function* () {
             Predicate.isNumber(usage.payload.usedTokens)
               ? usage.payload.usedTokens
               : null;
-          const requiredContextTokens = hasAttachments
-            ? null
-            : thread.session
-              ? usedTokens !== null
-                ? usedTokens + new TextEncoder().encode(command.message.text).length + 32768
-                : null
-              : textBytes + 32768;
+          const context = autoModelContext({
+            history: thread.messages,
+            message: command.message,
+            hasSession: !!thread.session,
+            usedTokens,
+          });
+          const escalationRequested =
+            command.autoRouting!.requestEscalation ||
+            classifiedTask.complexity === "complex" ||
+            command.autoRouting!.complexity === "complex" ||
+            command.autoRouting!.highRisk === true ||
+            command.autoRouting!.crossComponent === true;
+          const continuation =
+            context.continuation && !escalationRequested
+              ? compatible.find(
+                  (candidate) =>
+                    candidate.ref.instanceId === thread.modelSelection.instanceId &&
+                    candidate.ref.modelId === thread.modelSelection.model &&
+                    JSON.stringify(candidate.ref.options ?? []) ===
+                      JSON.stringify(thread.modelSelection.options ?? []),
+                )?.ref
+              : undefined;
           const receipt = yield* autoAdmission
             .admit({
               threadId: command.threadId,
@@ -412,6 +425,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                   ).ref,
                 },
                 candidates: compatible,
+                ...(continuation ? { continuation } : {}),
                 task: {
                   id: command.autoRouting!.taskId,
                   complexity: command.autoRouting!.complexity ?? classifiedTask.complexity,
@@ -419,12 +433,11 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                   crossComponent:
                     command.autoRouting!.crossComponent ?? classifiedTask.crossComponent,
                   requiresTools: true,
-                  requiresImages: hasAttachments,
-                  requiredContextTokens,
+                  requiresImages: context.requiresImages,
+                  requiredContextTokens: continuation ? null : context.estimatedTokens,
                 },
                 safeBoundary: true,
-                requestEscalation:
-                  command.autoRouting!.requestEscalation || classifiedTask.complexity === "complex",
+                requestEscalation: escalationRequested,
               },
             })
             .pipe(
@@ -446,7 +459,10 @@ const makeOrchestrationEngine = Effect.gen(function* () {
             return yield* reject("provider requires a new thread for model changes");
           admittedCommand = { ...command, modelSelection: selection };
           autoSelection = {
-            reason: receipt.reason,
+            reason:
+              receipt.reason === "context-continuation"
+                ? "Keeping the current model while the provider manages context; a fresh token report is unavailable or image usage is not yet known."
+                : `${receipt.reason}${context.estimated ? " · estimated context budget; provider limits still apply" : ""}`,
             resolverDurationMs: receipt.resolverDurationMs,
           };
         }

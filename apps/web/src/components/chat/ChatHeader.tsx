@@ -52,10 +52,12 @@ import { cn } from "~/lib/utils";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { Button } from "../ui/button";
 import { Menu, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
+import { RouteRequestControl } from "./RouteRequestControl";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
   activeThreadId: ThreadId;
+  activeThreadProjectId: string;
   draftId?: DraftId;
   activeThreadTitle: string;
   /** Drafts have no server thread yet, so the title carries no action menu. */
@@ -126,6 +128,7 @@ export function shouldShowOpenInPicker(input: {
 export const ChatHeader = memo(function ChatHeader({
   activeThreadEnvironmentId,
   activeThreadId,
+  activeThreadProjectId,
   draftId,
   activeThreadTitle,
   isServerThread,
@@ -500,6 +503,14 @@ export const ChatHeader = memo(function ChatHeader({
           "[[data-panel-animations=true]_&]:motion-safe:transition-[padding-right] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out",
         )}
       >
+        {isServerThread && activeProject && (
+          <RouteRequestControl
+            key={String(activeThreadId)}
+            environmentId={activeThreadEnvironmentId}
+            projectId={activeThreadProjectId}
+            threadId={activeThreadId}
+          />
+        )}
         <Menu open={actionsCollapsed && actionsOpen} onOpenChange={setActionsOpen}>
           <MenuTrigger
             className={

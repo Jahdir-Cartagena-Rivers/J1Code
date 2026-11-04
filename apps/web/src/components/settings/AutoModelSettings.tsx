@@ -5,6 +5,7 @@ import { useEnvironmentSettings, useUpdateEnvironmentSettings } from "../../hook
 import { serverEnvironment } from "../../state/server";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { Switch } from "../ui/switch";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 
@@ -31,10 +32,18 @@ export function AutoModelSettings({ environmentId }: { environmentId: Environmen
       ? String(policy.capabilities.deep.contextWindow)
       : "",
   );
+  const [fastImages, setFastImages] = useState(
+    policy?.mode === "auto" && policy.capabilities?.fast?.images === true,
+  );
+  const [deepImages, setDeepImages] = useState(
+    policy?.mode === "auto" && policy.capabilities?.deep?.images === true,
+  );
   useEffect(() => {
     if (policy?.mode === "auto") {
       setFast(policy.fast);
       setDeep(policy.deep);
+      setFastImages(policy.capabilities?.fast?.images === true);
+      setDeepImages(policy.capabilities?.deep?.images === true);
       setFastContext(
         typeof policy.capabilities?.fast?.contextWindow === "number"
           ? String(policy.capabilities.fast.contextWindow)
@@ -66,8 +75,8 @@ export function AutoModelSettings({ environmentId }: { environmentId: Environmen
                 fast,
                 deep,
                 capabilities: {
-                  fast: { tools: true, contextWindow: Number(fastContext) },
-                  deep: { tools: true, contextWindow: Number(deepContext) },
+                  fast: { tools: true, images: fastImages, contextWindow: Number(fastContext) },
+                  deep: { tools: true, images: deepImages, contextWindow: Number(deepContext) },
                 },
               }
             : { mode: "manual" },
@@ -100,8 +109,13 @@ export function AutoModelSettings({ environmentId }: { environmentId: Environmen
               const choice = choices.find((item) => item.value === value);
               if (choice) {
                 change(choice.selection);
-                if (label === "Fast model") setFastContext("");
-                else setDeepContext("");
+                if (label === "Fast model") {
+                  setFastContext("");
+                  setFastImages(false);
+                } else {
+                  setDeepContext("");
+                  setDeepImages(false);
+                }
               }
             }}
           >
@@ -142,6 +156,28 @@ export function AutoModelSettings({ environmentId }: { environmentId: Environmen
           onChange={(event) => setDeepContext(event.target.value)}
         />
       </label>
+      <div className="flex gap-2">
+        <label className="flex items-center gap-2 text-sm">
+          <Switch
+            aria-label="Fast model supports images"
+            checked={fastImages}
+            onCheckedChange={setFastImages}
+          />
+          Fast model supports images
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <Switch
+            aria-label="Deep-work model supports images"
+            checked={deepImages}
+            onCheckedChange={setDeepImages}
+          />
+          Deep-work model supports images
+        </label>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Enable image support only for models that accept images. Context budgets are estimates; the
+        provider manages actual limits and compaction.
+      </p>
       <div className="flex gap-2">
         <Button
           disabled={

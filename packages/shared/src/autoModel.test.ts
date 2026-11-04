@@ -28,6 +28,32 @@ it("routes bounded rewrites cheaply and prioritizes implementation and uncertain
 });
 import type { AutoModelCandidate, AutoModelInput, AutoModelRef } from "./autoModel.ts";
 
+it("continues the exact configured model without fresh native usage, while checking readiness and images", () => {
+  const input = {
+    ...base,
+    continuation: fast,
+    task: { ...base.task, requiredContextTokens: null },
+  };
+  expect(resolveAutoModel(input)).toMatchObject({
+    status: "selected",
+    reason: "context-continuation",
+    pin: { ref: fast },
+  });
+  expect(
+    resolveAutoModel({ ...input, candidates: [{ ...candidate(fast), available: false }] }),
+  ).toMatchObject({ status: "blocked" });
+  expect(
+    resolveAutoModel({
+      ...input,
+      task: { ...input.task, requiresImages: true },
+      candidates: [{ ...candidate(fast), images: "unknown" }],
+    }),
+  ).toMatchObject({ status: "blocked" });
+  expect(
+    resolveAutoModel({ ...input, pin: { taskId: "task", ref: deep, mode: "deep" } }),
+  ).toMatchObject({ status: "blocked", reason: "unsafe-switch" });
+});
+
 const fast: AutoModelRef = { provider: "codex", instanceId: "local", modelId: "explicit-fast" };
 const deep: AutoModelRef = { provider: "claude", instanceId: "remote", modelId: "explicit-deep" };
 const candidate = (ref: AutoModelRef): AutoModelCandidate => ({

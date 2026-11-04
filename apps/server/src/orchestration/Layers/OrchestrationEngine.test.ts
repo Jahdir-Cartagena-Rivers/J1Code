@@ -84,7 +84,7 @@ function makeOrchestrationLayer(
             deep: { instanceId: ProviderInstanceId.make("codex"), model: "deep" },
             capabilities: {
               fast: { tools: true, contextWindow: 200000 },
-              deep: { tools: true, contextWindow: 200000 },
+              deep: { tools: true, images: true, contextWindow: 200000 },
             },
           },
         }),
@@ -407,6 +407,57 @@ describe("OrchestrationEngine", () => {
           }),
         );
       }
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.make("auto-native-session"),
+          threadId,
+          createdAt: now(),
+          session: {
+            threadId,
+            status: "ready",
+            providerName: "codex",
+            runtimeMode: "approval-required",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: now(),
+          },
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make("auto-missing-usage"),
+          threadId,
+          message: {
+            messageId: MessageId.make("auto-missing-usage-message"),
+            role: "user",
+            text: "Rewrite the summary",
+            attachments: [],
+          },
+          autoRouting: { taskId: "stable", requestEscalation: false },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          createdAt: now(),
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make("auto-escalate-without-usage"),
+          threadId,
+          message: {
+            messageId: MessageId.make("auto-escalate-message"),
+            role: "user",
+            text: "Investigate the implementation",
+            attachments: [],
+          },
+          autoRouting: { taskId: "stable", requestEscalation: true },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          createdAt: now(),
+        }),
+      );
       const events = await system.run(
         Effect.gen(function* () {
           const store = yield* OrchestrationEventStore;
@@ -414,16 +465,119 @@ describe("OrchestrationEngine", () => {
         }),
       );
       const starts = events.filter((event) => event.type === "thread.turn-start-requested");
-      expect(starts).toHaveLength(2);
+      expect(starts).toHaveLength(4);
       expect(starts[0]?.payload).toMatchObject({
         modelSelection: { model: "fast" },
         runtimeMode: "approval-required",
-        autoSelection: { reason: "simple", resolverDurationMs: expect.any(Number) },
+        autoSelection: {
+          reason: expect.stringContaining("simple"),
+          resolverDurationMs: expect.any(Number),
+        },
       });
       expect(starts[1]?.payload).toMatchObject({
         modelSelection: { model: "fast" },
-        autoSelection: { reason: "pinned" },
+        autoSelection: { reason: expect.stringContaining("pinned") },
       });
+      expect(starts[2]?.payload).toMatchObject({
+        modelSelection: { model: "fast" },
+        runtimeMode: "approval-required",
+        autoSelection: { reason: expect.stringContaining("Keeping the current model") },
+      });
+      expect(starts[3]?.payload).toMatchObject({
+        modelSelection: { model: "deep" },
+        runtimeMode: "approval-required",
+        autoSelection: { reason: expect.stringContaining("escalated") },
+      });
+    } finally {
+      await system.dispose();
+    }
+  });
+  it("admits files, escalates images to a supported model, and estimates existing manual sessions", async () => {
+    const system = await createOrchestrationSystem();
+    const projectId = ProjectId.make("auto-media-project");
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.make("media-project"),
+          projectId,
+          title: "Media",
+          workspaceRoot: process.cwd(),
+          defaultModelSelection: null,
+          createdAt: now(),
+        }),
+      );
+      for (const kind of ["file", "image", "existing"] as const) {
+        const threadId = ThreadId.make(`auto-${kind}`);
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.make(`create-${kind}`),
+            threadId,
+            projectId,
+            title: kind,
+            modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "manual" },
+            runtimeMode: "approval-required",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt: now(),
+          }),
+        );
+        if (kind === "existing")
+          await system.run(
+            system.engine.dispatch({
+              type: "thread.session.set",
+              commandId: CommandId.make("existing-session"),
+              threadId,
+              createdAt: now(),
+              session: {
+                threadId,
+                status: "ready",
+                providerName: "codex",
+                runtimeMode: "approval-required",
+                activeTurnId: null,
+                lastError: null,
+                updatedAt: now(),
+              },
+            }),
+          );
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.make(`send-${kind}`),
+            threadId,
+            message: {
+              messageId: MessageId.make(`message-${kind}`),
+              role: "user",
+              text: "Rewrite this",
+              attachments:
+                kind === "existing"
+                  ? []
+                  : [
+                      {
+                        type: kind,
+                        id: `asset-${kind}`,
+                        name: kind === "image" ? "photo.png" : "notes.txt",
+                        mimeType: kind === "image" ? "image/png" : "text/plain",
+                        sizeBytes: 1000,
+                      },
+                    ],
+            },
+            autoRouting: { taskId: `media-${kind}`, requestEscalation: false },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            createdAt: now(),
+          }),
+        );
+        const thread = Option.getOrThrow(await system.readThread(threadId));
+        expect(thread.modelSelection.model).toBe(kind === "image" ? "deep" : "fast");
+        expect(thread.runtimeMode).toBe("approval-required");
+        expect(thread.messages[0]?.attachments).toHaveLength(kind === "existing" ? 0 : 1);
+        expect(
+          thread.activities.find((activity) => activity.kind === "auto-model.selected")?.summary,
+        ).toContain("estimated context budget");
+      }
     } finally {
       await system.dispose();
     }

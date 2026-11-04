@@ -429,30 +429,53 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                           if (policy?.mode !== "auto") return null;
                           const capacity = policy.capabilities?.[tier]?.contextWindow;
                           return (
-                            <TextInput
-                              key={`${tier}:${policy[tier].instanceId}:${policy[tier].model}:${capacity}`}
-                              accessibilityLabel={`${tier} model context capacity in tokens`}
-                              placeholder={`${tier === "fast" ? "Fast" : "Deep-work"} model token limit`}
-                              keyboardType="number-pad"
-                              defaultValue={typeof capacity === "number" ? String(capacity) : ""}
-                              className="rounded-lg border border-border px-3 py-2 text-foreground"
-                              onEndEditing={(event) => {
-                                const value = Number(event.nativeEvent.text);
-                                if (!Number.isSafeInteger(value) || value <= 0) {
-                                  Alert.alert("Enter a valid token limit");
-                                  return;
-                                }
-                                write({
-                                  autoModelPolicy: {
-                                    ...policy,
-                                    capabilities: {
-                                      ...policy.capabilities,
-                                      [tier]: { tools: true, contextWindow: value },
+                            <View key={`${tier}-capabilities`} className="gap-2">
+                              <SettingsSwitchRow
+                                icon="photo"
+                                label={`${tier === "fast" ? "Fast" : "Deep-work"} model supports images`}
+                                subtitle="Enable only for a model that accepts images."
+                                value={policy.capabilities?.[tier]?.images === true}
+                                onValueChange={(images) =>
+                                  write({
+                                    autoModelPolicy: {
+                                      ...policy,
+                                      capabilities: {
+                                        ...policy.capabilities,
+                                        [tier]: { ...policy.capabilities?.[tier], images },
+                                      },
                                     },
-                                  },
-                                });
-                              }}
-                            />
+                                  })
+                                }
+                              />
+                              <TextInput
+                                key={`${tier}:${policy[tier].instanceId}:${policy[tier].model}:${capacity}`}
+                                accessibilityLabel={`${tier} model context capacity in tokens`}
+                                placeholder={`${tier === "fast" ? "Fast" : "Deep-work"} model token limit`}
+                                keyboardType="number-pad"
+                                defaultValue={typeof capacity === "number" ? String(capacity) : ""}
+                                className="rounded-lg border border-border px-3 py-2 text-foreground"
+                                onEndEditing={(event) => {
+                                  const value = Number(event.nativeEvent.text);
+                                  if (!Number.isSafeInteger(value) || value <= 0) {
+                                    Alert.alert("Enter a valid token limit");
+                                    return;
+                                  }
+                                  write({
+                                    autoModelPolicy: {
+                                      ...policy,
+                                      capabilities: {
+                                        ...policy.capabilities,
+                                        [tier]: {
+                                          ...policy.capabilities?.[tier],
+                                          tools: true,
+                                          contextWindow: value,
+                                        },
+                                      },
+                                    },
+                                  });
+                                }}
+                              />
+                            </View>
                           );
                         })}
                       </View>
