@@ -686,6 +686,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       "!**/*.d.cts",
       "!apps/desktop/resources/browser-secret",
       "!apps/desktop/resources/browser-secret/**/*",
+      "!apps/desktop/prod-resources/lightpanda",
+      "!apps/desktop/prod-resources/lightpanda/**/*",
       "!apps/desktop/prod-resources/browser-secret",
       "!apps/desktop/prod-resources/browser-secret/**/*",
       "!apps/desktop/prod-resources/windows-server",

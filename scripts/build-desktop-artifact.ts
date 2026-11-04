@@ -958,6 +958,8 @@ export const DESKTOP_FILE_EXCLUSIONS = [
   "!**/*.d.cts",
   "!apps/desktop/resources/browser-secret",
   "!apps/desktop/resources/browser-secret/**/*",
+  "!apps/desktop/prod-resources/lightpanda",
+  "!apps/desktop/prod-resources/lightpanda/**/*",
   "!apps/desktop/prod-resources/browser-secret",
   "!apps/desktop/prod-resources/browser-secret/**/*",
   // Windows stages the server sidecar below prod-resources so electron-builder
