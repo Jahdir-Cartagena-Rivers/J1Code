@@ -1,12 +1,19 @@
-import { useState } from "react";
-import type { EnvironmentId } from "@t3tools/contracts";
+import { useCallback, useEffect, useState } from "react";
+import { InboxIcon } from "lucide-react";
+import {
+  manualRouteReasonLabel,
+  manualRouteStatusLabel,
+  type EnvironmentId,
+  type ManualRouteStatus,
+} from "@t3tools/contracts";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useProjects, useThreadShells } from "../../state/entities";
 import { Button } from "../ui/button";
-import { useThreadShells } from "../../state/entities";
+import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 
-/** Confirmation is a client action; agents cannot redeem the connection-bound token. */
+/** Only an explicit client action can redeem a destination confirmation. */
 export function RouteRequestControl({
   environmentId,
   projectId,
@@ -16,167 +23,197 @@ export function RouteRequestControl({
   projectId: string;
   threadId: string;
 }) {
+  const list = useAtomCommand(serverEnvironment.routingList, { reportFailure: false });
   const prepare = useAtomCommand(serverEnvironment.routingPrepare, { reportFailure: false });
   const confirm = useAtomCommand(serverEnvironment.routingConfirm, { reportFailure: false });
-  const status = useAtomCommand(serverEnvironment.routingStatus, { reportFailure: false });
-  const list = useAtomCommand(serverEnvironment.routingList, { reportFailure: false });
-  const [requests, setRequests] = useState<
-    ReadonlyArray<{ requestId: string; summary?: string; status: string }>
-  >([]);
-  const [requestId, setRequestId] = useState("");
-  const [destination, setDestination] = useState("");
-  const [token, setToken] = useState<string | null>(null);
+  const [requests, setRequests] = useState<ReadonlyArray<typeof ManualRouteStatus.Type>>([]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [destination, setDestination] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const projects = useProjects();
+  const projectNames = new Map(
+    projects
+      .filter((project) => project.environmentId === environmentId)
+      .map((project) => [project.id, project.title]),
+  );
   const threads = useThreadShells().filter(
     (thread) =>
       thread.environmentId === environmentId &&
       thread.archivedAt === null &&
       thread.id !== threadId,
   );
-  const source = { environmentId, projectId, threadId };
-  const refresh = async () => {
-    const result = await list({ environmentId, input: { source } });
-    if (result._tag === "Failure") {
-      setNotice("Could not load routing requests. Try again.");
-      return;
-    }
-    setRequests(result.value);
-    if (!result.value.length) setNotice("No routed requests in this conversation.");
-  };
-  const inspect = async () => {
+  const refresh = useCallback(async () => {
+    const result = await list({
+      environmentId,
+      input: { source: { environmentId, projectId, threadId } },
+    });
+    if (result._tag === "Success") {
+      setRequests(result.value);
+      setNotice((value) => (value === "Could not load requests. Try again." ? "" : value));
+    } else setNotice("Could not load requests. Try again.");
+  }, [environmentId, projectId, threadId, list]);
+  useEffect(() => {
+    let disposed = false;
+    const update = () => {
+      if (!disposed && document.visibilityState === "visible") void refresh();
+    };
+    update();
+    // Routing receipts are not part of the chat stream. Refresh only visible clients,
+    // with one small source-scoped request, never one request per saved conversation.
+    const timer = window.setInterval(update, 30_000);
+    window.addEventListener("focus", update);
+    document.addEventListener("visibilitychange", update);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", update);
+      document.removeEventListener("visibilitychange", update);
+    };
+  }, [refresh]);
+  const pending = requests.filter((request) => request.status === "suggested");
+  const approve = async () => {
+    const target = threads.find((thread) => thread.id === destination);
+    if (!selected || !target) return;
     setBusy(true);
     try {
-      const result = await status({ environmentId, input: { requestId, source } });
-      if (result._tag === "Failure") {
-        setNotice("Request unavailable in this conversation.");
-        return;
-      }
-      setNotice(
-        `${result.value.status}${result.value.reason ? `: ${result.value.reason}` : ""}. Sent, accepted and completed are separate states.`,
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
-  const select = async () => {
-    setBusy(true);
-    setToken(null);
-    try {
-      const target = threads.find((thread) => thread.id === destination);
-      if (!target) {
-        setNotice("Destination is no longer available.");
-        return;
-      }
-      const result = await prepare({
+      const prepared = await prepare({
         environmentId,
         input: {
-          requestId,
-          source,
+          requestId: selected,
+          source: { environmentId, projectId, threadId },
           destination: { environmentId, projectId: target.projectId, threadId: target.id },
         },
       });
-      if (result._tag === "Failure") {
-        setNotice("Destination unavailable or request changed. Check its status.");
+      if (prepared._tag === "Failure") {
+        setNotice("This request changed or the conversation is unavailable. Review it again.");
+        await refresh();
         return;
       }
-      setToken(result.value.token);
-      setNotice("Destination checked. Confirm to queue this request there.");
+      const result = await confirm({ environmentId, input: { token: prepared.value.token } });
+      setNotice(
+        result._tag === "Success"
+          ? `Queued for ${target.title}. Delivery and acceptance will appear below.`
+          : "Could not approve this request. It may have changed; review it again.",
+      );
+      if (result._tag === "Success") {
+        setSelected(null);
+        setDestination(null);
+      }
+      await refresh();
     } finally {
       setBusy(false);
     }
   };
   return (
-    <details className="px-3 py-1 text-xs">
-      <summary>Request routing</summary>
-      <div className="space-y-2 py-2">
-        <Button size="sm" variant="outline" onClick={() => void refresh()}>
-          Refresh requests
-        </Button>
-        <Select
-          items={requests.map((request) => ({
-            value: request.requestId,
-            label: request.summary ?? request.status,
-          }))}
-          value={requestId || null}
-          onValueChange={(value) => {
-            setRequestId(value ?? "");
-            setToken(null);
-          }}
-        >
-          <SelectTrigger aria-label="Routing request">
-            <SelectValue placeholder="Choose a request" />
-          </SelectTrigger>
-          <SelectPopup>
-            {requests.map((request) => (
-              <SelectItem key={request.requestId} value={request.requestId}>
-                {request.summary ?? "Request"} · {request.status}
-              </SelectItem>
-            ))}
-          </SelectPopup>
-        </Select>
-        <Select
-          items={threads.map((thread) => ({ value: thread.id, label: thread.title }))}
-          value={destination || null}
-          onValueChange={(value) => {
-            setDestination(value ?? "");
-            setToken(null);
-          }}
-        >
-          <SelectTrigger aria-label="Destination conversation">
-            <SelectValue placeholder="Choose a conversation" />
-          </SelectTrigger>
-          <SelectPopup>
-            {threads.map((thread) => (
-              <SelectItem key={thread.id} value={thread.id}>
-                {thread.title}
-              </SelectItem>
-            ))}
-          </SelectPopup>
-        </Select>
-        <div className="flex gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={busy || !requestId}
-            onClick={() => void inspect()}
-          >
-            Check status
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={busy || !requestId || !destination}
-            onClick={() => void select()}
-          >
-            Review destination
-          </Button>
-          {token && (
+    <div className="shrink-0">
+      <Popover
+        onOpenChange={(open) => {
+          if (open) void refresh();
+        }}
+      >
+        <PopoverTrigger
+          render={
             <Button
-              size="sm"
-              disabled={busy}
-              onClick={async () => {
-                setBusy(true);
-                const saved = token;
-                setToken(null);
-                try {
-                  const r = await confirm({ environmentId, input: { token: saved } });
-                  setNotice(
-                    r._tag === "Success"
-                      ? "Queued. Check status for delivery and acceptance."
-                      : "Confirmation expired or request changed. Review it again.",
-                  );
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              Confirm routing
+              size="compact"
+              title="Requests"
+              variant={pending.length ? "outline" : "ghost"}
+              aria-label={
+                pending.length ? `Requests: ${pending.length} awaiting approval` : "Requests"
+              }
+            />
+          }
+        >
+          <InboxIcon />
+          {pending.length > 0 ? pending.length : null}
+        </PopoverTrigger>
+        <PopoverPopup width="lg" side="bottom" align="end">
+          <div className="max-h-96 space-y-3 overflow-y-auto text-sm">
+            <h2 className="font-medium">Requests</h2>
+            <p className="text-xs text-muted-foreground">
+              Approve where uncertain matches belong. Your original conversation stays here.
+            </p>
+            {!requests.length && <p>No requests in this conversation.</p>}
+            {[...pending, ...requests.filter((request) => request.status !== "suggested")].map(
+              (request) => (
+                <div key={request.requestId} className="space-y-2 rounded-md border p-3">
+                  <p className="whitespace-pre-wrap break-words">
+                    {request.summary || "Forwarded request"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {manualRouteStatusLabel(request.status)}
+                    {request.destination &&
+                      ` · ${threads.find((thread) => thread.id === request.destination?.threadId)?.title ?? "Destination unavailable"}`}
+                  </p>
+                  {request.reason && (
+                    <p className="text-xs text-muted-foreground">
+                      {manualRouteReasonLabel(request.reason)}
+                    </p>
+                  )}
+                  {request.status === "suggested" && selected !== request.requestId && (
+                    <Button
+                      size="compact"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => {
+                        setSelected(request.requestId);
+                        setDestination(request.destination?.threadId ?? null);
+                        setNotice("");
+                      }}
+                    >
+                      Review request
+                    </Button>
+                  )}
+                  {request.status === "suggested" && selected === request.requestId && (
+                    <>
+                      <Select
+                        items={threads.map((thread) => ({
+                          value: thread.id,
+                          label: `${projectNames.get(thread.projectId) ?? "Project"} / ${thread.title}`,
+                        }))}
+                        value={destination}
+                        onValueChange={setDestination}
+                      >
+                        <SelectTrigger aria-label="Destination conversation">
+                          <SelectValue placeholder="Choose a conversation" />
+                        </SelectTrigger>
+                        <SelectPopup>
+                          {threads.map((thread) => (
+                            <SelectItem key={thread.id} value={thread.id}>
+                              {projectNames.get(thread.projectId) ?? "Project"} / {thread.title}
+                            </SelectItem>
+                          ))}
+                        </SelectPopup>
+                      </Select>
+                      <div className="flex gap-2">
+                        <Button
+                          size="compact"
+                          disabled={busy || !threads.some((thread) => thread.id === destination)}
+                          onClick={() => void approve()}
+                        >
+                          Approve and send
+                        </Button>
+                        <Button
+                          size="compact"
+                          variant="ghost"
+                          disabled={busy}
+                          onClick={() => setSelected(null)}
+                        >
+                          Not now
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ),
+            )}
+            {notice && <p role="status">{notice}</p>}
+            <Button size="compact" variant="ghost" disabled={busy} onClick={() => void refresh()}>
+              Refresh
             </Button>
-          )}
-        </div>
-        {notice && <p role="status">{notice}</p>}
-      </div>
-    </details>
+          </div>
+        </PopoverPopup>
+      </Popover>
+    </div>
   );
 }

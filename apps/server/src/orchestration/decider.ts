@@ -1635,6 +1635,20 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
                   occurredAt: command.createdAt,
                   commandId: command.commandId,
                 })),
+                type: "thread.meta-updated" as const,
+                payload: {
+                  threadId: command.threadId,
+                  modelSelection: command.modelSelection!,
+                  updatedAt: command.createdAt,
+                },
+              },
+              {
+                ...(yield* withEventBase({
+                  aggregateKind: "thread",
+                  aggregateId: command.threadId,
+                  occurredAt: command.createdAt,
+                  commandId: command.commandId,
+                })),
                 type: "thread.activity-appended" as const,
                 payload: {
                   threadId: command.threadId,

@@ -66,6 +66,11 @@ export interface AutoModelInput {
   /** True only after in-flight generation/tools have drained and switching is safe. */
   readonly safeBoundary: boolean;
   readonly requestEscalation?: boolean;
+  /** Existing native session whose hidden context cannot currently be measured.
+   * Continuing its exact model leaves context management with the provider; it
+   * must never authorize a blind model switch or bypass readiness/capabilities.
+   */
+  readonly continuation?: AutoModelRef;
 }
 export type AutoModelExclusionCode =
   | "missing"
@@ -94,6 +99,7 @@ export type AutoModelDecision =
         | "escalated"
         | "escalation-deferred"
         | "capability-escalation"
+        | "context-continuation"
         | AutoModelRule;
       readonly exclusions: readonly AutoModelExclusion[];
     }
@@ -142,7 +148,9 @@ export function resolveAutoModel(input: AutoModelInput): AutoModelDecision {
         codes.push(candidate.images === false ? "images-unsupported" : "images-unknown");
       const required = input.task.requiredContextTokens;
       const capacity = candidate.contextWindow;
-      if (required === null || capacity === "unknown") codes.push("context-unknown");
+      if (required === null && input.continuation && sameSelection(ref, input.continuation)) {
+        // The active provider owns compaction and the actual multimodal token count.
+      } else if (required === null || capacity === "unknown") codes.push("context-unknown");
       else if (
         !Number.isSafeInteger(required) ||
         required < 0 ||
@@ -166,6 +174,18 @@ export function resolveAutoModel(input: AutoModelInput): AutoModelDecision {
   const rule = autoModelRule(input.task);
   const pin = input.pin;
   if (pin && pin.taskId !== input.task.id) return blocked("task-mismatch");
+  if (!input.manual && input.continuation && input.task.requiredContextTokens === null) {
+    if (pin && !sameSelection(pin.ref, input.continuation)) return blocked("unsafe-switch");
+    if (!eligible(input.continuation)) return blocked("ineligible");
+    return selected(
+      pin ?? {
+        taskId: input.task.id,
+        ref: input.continuation,
+        mode: sameSelection(input.continuation, config.fast) ? "fast" : "deep",
+      },
+      "context-continuation",
+    );
+  }
   if (input.manual) {
     if (pin && !sameSelection(pin.ref, input.manual) && !input.safeBoundary)
       return blocked("unsafe-switch");

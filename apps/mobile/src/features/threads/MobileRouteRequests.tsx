@@ -1,10 +1,16 @@
-import { useState } from "react";
-import { Pressable, View } from "react-native";
-import type { EnvironmentId, ManualRouteStatus } from "@t3tools/contracts";
+import { useCallback, useEffect, useState } from "react";
+import { AppState, Modal, Pressable, ScrollView, View } from "react-native";
+import { SymbolView } from "../../components/AppSymbol";
+import {
+  manualRouteReasonLabel,
+  manualRouteStatusLabel,
+  type EnvironmentId,
+  type ManualRouteStatus,
+} from "@t3tools/contracts";
 import { AppText as Text } from "../../components/AppText";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { useThreadShells } from "../../state/entities";
+import { useProjects, useThreadShells } from "../../state/entities";
 
 export function MobileRouteRequests({
   environmentId,
@@ -18,6 +24,12 @@ export function MobileRouteRequests({
   const list = useAtomCommand(serverEnvironment.routingList, { reportFailure: false });
   const prepare = useAtomCommand(serverEnvironment.routingPrepare, { reportFailure: false });
   const confirm = useAtomCommand(serverEnvironment.routingConfirm, { reportFailure: false });
+  const projects = useProjects();
+  const projectNames = new Map(
+    projects
+      .filter((project) => project.environmentId === environmentId)
+      .map((project) => [project.id, project.title]),
+  );
   const threads = useThreadShells().filter(
     (thread) =>
       thread.environmentId === environmentId &&
@@ -28,27 +40,35 @@ export function MobileRouteRequests({
   const [requests, setRequests] = useState<ReadonlyArray<typeof ManualRouteStatus.Type>>([]);
   const [requestId, setRequestId] = useState<string | null>(null);
   const [destinationId, setDestinationId] = useState<string | null>(null);
-  const [token, setToken] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const source = { environmentId, projectId, threadId };
-  const refresh = async () => {
-    setBusy(true);
-    try {
-      const result = await list({ environmentId, input: { source } });
-      if (result._tag === "Success") {
-        setRequests(result.value);
-        setNotice(result.value.length ? "" : "No routed requests in this conversation.");
-      } else setNotice("Could not load requests. Try again.");
-    } finally {
-      setBusy(false);
-    }
-  };
+  const refresh = useCallback(async () => {
+    const result = await list({
+      environmentId,
+      input: { source: { environmentId, projectId, threadId } },
+    });
+    if (result._tag === "Success") {
+      setRequests(result.value);
+      setNotice(result.value.length ? "" : "No routed requests in this conversation.");
+    } else setNotice("Could not load requests. Try again.");
+  }, [environmentId, projectId, threadId, list]);
+  useEffect(() => {
+    const update = () => {
+      if (AppState.currentState === "active") void refresh();
+    };
+    update();
+    const timer = setInterval(update, 30_000);
+    const listener = AppState.addEventListener("change", update);
+    return () => {
+      clearInterval(timer);
+      listener.remove();
+    };
+  }, [refresh]);
   const review = async () => {
     const target = threads.find((thread) => thread.id === destinationId);
     if (!requestId || !target) return;
     setBusy(true);
-    setToken(null);
     try {
       const result = await prepare({
         environmentId,
@@ -59,26 +79,55 @@ export function MobileRouteRequests({
         },
       });
       if (result._tag === "Success") {
-        setToken(result.value.token);
-        setNotice("Destination checked. Confirm to queue this request.");
+        const confirmed = await confirm({ environmentId, input: { token: result.value.token } });
+        setNotice(
+          confirmed._tag === "Success"
+            ? `Queued for ${target.title}. Delivery and acceptance appear separately.`
+            : "Request changed. Review it again.",
+        );
+        if (confirmed._tag === "Success") {
+          setRequestId(null);
+          setDestinationId(null);
+        }
+        await refresh();
       } else setNotice("Request changed or destination unavailable. Refresh and try again.");
     } finally {
       setBusy(false);
     }
   };
   return (
-    <View className="px-3 py-1">
+    <View className="items-end px-3 py-1">
       <Pressable
         accessibilityRole="button"
+        accessibilityLabel={`Requests: ${requests.filter((request) => request.status === "suggested").length} awaiting approval`}
+        className="flex-row items-center gap-2 p-2"
         onPress={() => {
           setOpen(!open);
           if (!open) void refresh();
         }}
       >
-        <Text className="text-xs text-muted-foreground">Request routing</Text>
+        <SymbolView name="bell.badge" size={18} tintColorClassName="accent-icon" />
+        {requests.some((request) => request.status === "suggested") && (
+          <Text>{requests.filter((request) => request.status === "suggested").length}</Text>
+        )}
       </Pressable>
-      {open && (
-        <View className="gap-2 py-2">
+      <Modal
+        visible={open}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setOpen(false)}
+      >
+        <ScrollView
+          className="flex-1 bg-background"
+          contentContainerStyle={{ padding: 24, gap: 16 }}
+        >
+          <Text className="text-lg font-semibold">Requests</Text>
+          <Text>
+            Approve where uncertain matches belong. Your original conversation stays here.
+          </Text>
+          <Pressable accessibilityRole="button" onPress={() => setOpen(false)}>
+            <Text>Done</Text>
+          </Pressable>
           <Pressable accessibilityRole="button" disabled={busy} onPress={() => void refresh()}>
             <Text>Refresh requests</Text>
           </Pressable>
@@ -87,16 +136,20 @@ export function MobileRouteRequests({
               accessibilityRole="button"
               accessibilityState={{ selected: requestId === request.requestId }}
               key={request.requestId}
-              disabled={busy}
+              disabled={busy || request.status !== "suggested"}
               onPress={() => {
                 setRequestId(request.requestId);
                 setDestinationId(request.destination?.threadId ?? null);
-                setToken(null);
               }}
             >
               <Text>
-                {request.summary ?? "Request"} · {request.status}
+                {request.summary ?? "Request"} · {manualRouteStatusLabel(request.status)}
               </Text>
+              {request.reason && (
+                <Text className="text-xs text-muted-foreground">
+                  {manualRouteReasonLabel(request.reason)}
+                </Text>
+              )}
               <Text className="text-xs text-muted-foreground">
                 Delivered: {request.delivered ? "yes" : "no"} · Accepted:{" "}
                 {request.accepted ? "yes" : "no"} · Completed: {request.completed ? "yes" : "no"}
@@ -112,46 +165,22 @@ export function MobileRouteRequests({
                 disabled={busy}
                 onPress={() => {
                   setDestinationId(thread.id);
-                  setToken(null);
                 }}
               >
                 <Text>
                   {destinationId === thread.id ? "✓ " : ""}
-                  {thread.title}
+                  {projectNames.get(thread.projectId) ?? "Project"} / {thread.title}
                 </Text>
               </Pressable>
             ))}
           {requestId && destinationId && (
             <Pressable accessibilityRole="button" disabled={busy} onPress={() => void review()}>
-              <Text>Review destination</Text>
-            </Pressable>
-          )}
-          {token && (
-            <Pressable
-              accessibilityRole="button"
-              disabled={busy}
-              onPress={async () => {
-                const saved = token;
-                setToken(null);
-                setBusy(true);
-                try {
-                  const result = await confirm({ environmentId, input: { token: saved } });
-                  setNotice(
-                    result._tag === "Success"
-                      ? "Queued. Refresh to check delivery and acceptance."
-                      : "Confirmation expired or request changed. Review again.",
-                  );
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              <Text>Confirm routing</Text>
+              <Text>Approve and send</Text>
             </Pressable>
           )}
           {!!notice && <Text accessibilityLiveRegion="polite">{notice}</Text>}
-        </View>
-      )}
+        </ScrollView>
+      </Modal>
     </View>
   );
 }

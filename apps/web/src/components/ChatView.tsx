@@ -1,5 +1,4 @@
 import { isChatGptUsageLimitError } from "@t3tools/shared/usageLimits";
-import { RouteRequestControl } from "./chat/RouteRequestControl";
 import { useLoadBalancedEnvironment } from "../hooks/useLoadBalancedEnvironment";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
@@ -9837,6 +9836,7 @@ export default function ChatView(props: ChatViewProps) {
               : { onOpenPullRequest: openProjectPullRequest })}
             activeThreadEnvironmentId={activeThread.environmentId}
             activeThreadId={activeThread.id}
+            activeThreadProjectId={activeThread.projectId}
             {...(routeKind === "draft" && draftId ? { draftId } : {})}
             activeThreadTitle={activeThread.title}
             isServerThread={isServerThread}
@@ -10067,14 +10067,6 @@ export default function ChatView(props: ChatViewProps) {
                     <ComposerSurface.Shell contextStrip={showComposerContextStrip}>
                       <ComposerSurface.Host>
                         <div ref={attachDraftHeroComposerAnchorRef} className="relative z-10">
-                          {activeThread && activeProject && (
-                            <RouteRequestControl
-                              key={String(activeThread.id)}
-                              environmentId={environmentId}
-                              projectId={activeProject.id}
-                              threadId={activeThread.id}
-                            />
-                          )}
                           <ChatComposer
                             multipleModelSelections={multipleModelSelections}
                             supportsMultipleModels={
