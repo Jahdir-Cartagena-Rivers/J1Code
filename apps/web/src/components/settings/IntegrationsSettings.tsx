@@ -1471,7 +1471,7 @@ export function IntegrationsSettingsPanel() {
       <SettingsSection id="browser" title="Browser">
         <LightpandaSetting />
         {previewDefaultsDisabled ? (
-          <SettingsUnavailableGroup message="Only available in the desktop app.">
+          <SettingsUnavailableGroup message="Visual browser controls are available in the desktop app.">
             {previewDefaults}
           </SettingsUnavailableGroup>
         ) : (

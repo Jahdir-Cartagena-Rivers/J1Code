@@ -3,8 +3,9 @@ import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 import { applyServerSettingsPatch } from "./serverSettings.ts";
 
+const decodeProfile = Schema.decodeSync(BotProfile);
 const profile = (id: string) =>
-  Schema.decodeSync(BotProfile)({
+  decodeProfile({
     id: BotId.make(id),
     name: id,
     description: "",
