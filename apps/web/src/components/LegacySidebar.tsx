@@ -193,6 +193,7 @@ import {
 } from "./Sidebar.logic";
 import { sortThreads } from "../lib/threadSort";
 import { SidebarChromeFooter, SidebarChromeHeader, SidebarHomeLink } from "./sidebar/SidebarChrome";
+import { SidebarBots } from "./sidebar/SidebarBots";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { CommandDialogTrigger } from "./ui/command";
@@ -3751,6 +3752,7 @@ export default function LegacySidebar() {
       ))}
       <SidebarChromeHeader isElectron={isElectron} />
       <SidebarHomeLink />
+      <SidebarBots />
 
       <SidebarProjectsContent
         showArm64IntelBuildWarning={showArm64IntelBuildWarning}
