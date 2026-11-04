@@ -13,6 +13,7 @@ import { makeEngineRouteDrain } from "./engineDrain.ts";
 import { makeRouteTransportConsumer } from "./transportConsumer.ts";
 import { isBuildIntegrationRequest, PROJECT_BUILD_OWNER_TASK } from "./integrationOwner.ts";
 import { makeRouteSourceNotifier } from "./sourceActivity.ts";
+import { suggestWorkingChat } from "./workingChatSuggestion.ts";
 const encodeIdentity = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 /** Runtime registration shares the persisted store with admission and receipt consumers. */
@@ -75,8 +76,13 @@ export const RoutingRuntimeLive = Layer.effect(
             return { destination, ambiguous: destination === null };
           }
         }
-        return yield* adapter.owner(source, taskId, candidate);
-      }).pipe(Effect.mapError(error));
+        const hinted = yield* adapter.owner(source, taskId, candidate);
+        if (hinted.destination) return hinted;
+        return {
+          destination: yield* suggestWorkingChat(source, `${taskId} ${request ?? ""}`),
+          ambiguous: true,
+        };
+      }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.mapError(error));
     const reconsider = Effect.gen(function* () {
       const settingsNow = yield* settings.getSettings;
       if (settingsNow.chatRoutingMode !== "auto") return;

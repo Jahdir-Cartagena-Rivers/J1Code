@@ -10,7 +10,7 @@ import { registerRoute, transitionRoute, type RouteEndpoint } from "./routeState
 
 const source = { environmentId: "local", projectId: "home", threadId: "source" };
 const destination = { environmentId: "local", projectId: "work", threadId: "target" };
-function fixture() {
+function fixture(proposal: RouteEndpoint | null = null) {
   let stored = {
     revision: 0,
     state: registerRoute({
@@ -41,6 +41,7 @@ function fixture() {
     authenticate: async () => session,
     get: async () => stored,
     list: async () => ["r"],
+    suggest: async () => proposal,
     inspect: async (_session, endpoint: RouteEndpoint) =>
       available
         ? {
@@ -152,4 +153,12 @@ describe("manual authenticated route boundary", () => {
     f.revoke();
     await expect(f.boundary.status("r", source)).rejects.toThrow("Unauthorized");
   });
+});
+
+it("proposes a destination for legacy suggestions without changing or sending them", async () => {
+  const f = fixture(destination);
+  expect(await f.boundary.list(source)).toMatchObject([{ destination, status: "suggested" }]);
+  expect(f.get().revision).toBe(0);
+  expect(f.get().state.request.destination).toBeNull();
+  expect(f.get().state.receipts).toEqual([]);
 });

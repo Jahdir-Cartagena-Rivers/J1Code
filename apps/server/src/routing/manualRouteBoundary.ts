@@ -15,6 +15,7 @@ export interface ManualRoutePorts {
   readonly authenticate: () => Promise<AuthenticatedSession>;
   readonly get: (id: string) => Promise<Stored | null>;
   readonly list?: (source: RouteEndpoint) => Promise<readonly string[]>;
+  readonly suggest?: (source: RouteEndpoint, request: string) => Promise<RouteEndpoint | null>;
   /** Exact environment/project/thread lookup, including current availability and access. */
   readonly inspect: (
     session: AuthenticatedSession,
@@ -28,8 +29,7 @@ export interface ManualRoutePorts {
 }
 
 /** Construct per authenticated UI connection only. Do not expose prepare/confirm through MCP.
- * The UI must call prepare after an explicit destination selection and confirm after the user
- * approves that exact selection. Authentication alone cannot prove physical human interaction.
+ * The UI calls prepare and confirm only when the user approves the exact proposed destination. Authentication alone cannot prove physical human interaction.
  * Tokens are connection-local, expire after one minute and are consumed even on failed attempts.
  * Restart/reconnect requires a new user action; durable revision CAS prevents double confirmation.
  */
@@ -85,7 +85,11 @@ export function makeManualRouteBoundary(ports: ManualRoutePorts) {
             revision: stored.revision,
             status: state.status,
             reason: state.reason,
-            destination: state.request.destination,
+            destination:
+              state.request.destination ??
+              (state.status === "suggested" && ports.suggest
+                ? await ports.suggest(source, state.originalRequest.content)
+                : null),
             delivered: seen("delivered"),
             accepted: seen("accepted"),
             completed: seen("completed"),

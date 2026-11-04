@@ -254,7 +254,7 @@ Project chats can route requests too. Set routing to **Off**, **Suggest**, or **
 in Providers settings on web or desktop, or Agent behavior on mobile. Auto sends
 directly only when there is a clear task owner. Otherwise, choose the destination
 in the approval card that appears in the source conversation. It shows a brief
-summary and the proposed destination. Choose the conversation, then select **Approve and send**.
+summary and a linked proposed destination. Select **Approve and send** to forward it, or **Not now** to keep discussing it here. The destination link remains available after delivery.
 You can leave it for later and keep discussing the request here.
 
 The source conversation stays available. Follow the destination link to continue

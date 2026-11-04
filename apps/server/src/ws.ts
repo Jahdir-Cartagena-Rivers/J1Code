@@ -5,6 +5,7 @@ import { makeManualRouteRpc } from "./routing/manualRouteRpc.ts";
 import { makeDurableRoutingStore } from "./routing/durableRoutingStore.ts";
 import { makeEngineRouteDrain } from "./routing/engineDrain.ts";
 import { makeRouteSourceNotifier } from "./routing/sourceActivity.ts";
+import { suggestWorkingChat } from "./routing/workingChatSuggestion.ts";
 import { ManualRouteActionError } from "@t3tools/contracts";
 import {
   sameUsageLimitCommandCoverage,
@@ -544,6 +545,12 @@ const makeWsRpcLayer = (
             return currentSession;
           },
           get: (id) => Effect.runPromise(routeStore.get(id)),
+          suggest: (source, request) =>
+            Effect.runPromise(
+              suggestWorkingChat(source, request).pipe(
+                Effect.provideService(SqlClient.SqlClient, sql),
+              ),
+            ),
           list: async (source) =>
             (
               await Effect.runPromise(

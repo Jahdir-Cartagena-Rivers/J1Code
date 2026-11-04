@@ -2,14 +2,17 @@ import { useCallback, useEffect, useState } from "react";
 import {
   manualRouteReasonLabel,
   manualRouteStatusLabel,
-  type EnvironmentId,
+  EnvironmentId,
+  ThreadId,
+  ProjectId,
   type ManualRouteStatus,
 } from "@t3tools/contracts";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useProjects, useThreadShells } from "../../state/entities";
 import { Button } from "../ui/button";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Link } from "@tanstack/react-router";
+import { buildThreadRouteParams } from "../../threadRoutes";
 
 /** Only an explicit client action can redeem a destination confirmation. */
 export function RouteRequestControl({
@@ -28,7 +31,6 @@ export function RouteRequestControl({
   const confirm = useAtomCommand(serverEnvironment.routingConfirm, { reportFailure: false });
   const [requests, setRequests] = useState<ReadonlyArray<typeof ManualRouteStatus.Type>>([]);
   const [selected, setSelected] = useState<string | null>(null);
-  const [destination, setDestination] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [deferred, setDeferred] = useState<ReadonlySet<string>>(() => new Set());
@@ -39,10 +41,7 @@ export function RouteRequestControl({
       .map((project) => [project.id, project.title]),
   );
   const threads = useThreadShells().filter(
-    (thread) =>
-      thread.environmentId === environmentId &&
-      thread.archivedAt === null &&
-      thread.id !== threadId,
+    (thread) => thread.environmentId === environmentId && thread.id !== threadId,
   );
   const refresh = useCallback(async () => {
     const result = await list({
@@ -77,12 +76,11 @@ export function RouteRequestControl({
   const pending = requests.filter((request) => request.status === "suggested");
   const selectedRequest =
     selected ?? pending.find((request) => !deferred.has(request.requestId))?.requestId;
-  const selectedDestination =
-    destination ??
-    requests.find((request) => request.requestId === selectedRequest)?.destination?.threadId ??
-    null;
   const approve = async () => {
-    const target = threads.find((thread) => thread.id === selectedDestination);
+    const proposal = requests.find((request) => request.requestId === selectedRequest)?.destination;
+    const target = threads.find(
+      (thread) => thread.id === proposal?.threadId && thread.archivedAt === null,
+    );
     if (!selectedRequest || !target) return;
     setBusy(true);
     try {
@@ -107,7 +105,6 @@ export function RouteRequestControl({
       );
       if (result._tag === "Success") {
         setSelected(null);
-        setDestination(null);
       }
       await refresh();
     } finally {
@@ -134,10 +131,27 @@ export function RouteRequestControl({
               </p>
               <p className="text-xs text-muted-foreground">
                 {manualRouteStatusLabel(request.status)}
-                {request.status !== "suggested" &&
-                  request.destination &&
-                  ` · ${threads.find((thread) => thread.id === request.destination?.threadId)?.title ?? "Destination unavailable"}`}
               </p>
+              {request.destination && (
+                <Link
+                  to="/$environmentId/$threadId"
+                  params={buildThreadRouteParams({
+                    environmentId: EnvironmentId.make(request.destination.environmentId),
+                    threadId: ThreadId.make(request.destination.threadId),
+                  })}
+                  className="text-primary underline"
+                >
+                  {projectNames.get(ProjectId.make(request.destination.projectId)) ?? "Project"} /{" "}
+                  {threads.find((thread) => thread.id === request.destination?.threadId)?.title ??
+                    "Open destination chat"}
+                </Link>
+              )}
+              {request.status === "suggested" && !request.destination && (
+                <p>
+                  No suitable working chat is available yet. Continue discussing the destination
+                  here.
+                </p>
+              )}
               {request.reason && request.reason !== "ambiguous-destination" && (
                 <p className="text-xs text-muted-foreground">
                   {manualRouteReasonLabel(request.reason)}
@@ -150,7 +164,6 @@ export function RouteRequestControl({
                   disabled={busy}
                   onClick={() => {
                     setSelected(request.requestId);
-                    setDestination(request.destination?.threadId ?? null);
                     setNotice("");
                   }}
                 >
@@ -159,30 +172,17 @@ export function RouteRequestControl({
               )}
               {request.status === "suggested" && selectedRequest === request.requestId && (
                 <>
-                  <Select
-                    items={threads.map((thread) => ({
-                      value: thread.id,
-                      label: `${projectNames.get(thread.projectId) ?? "Project"} / ${thread.title}`,
-                    }))}
-                    value={selectedDestination}
-                    onValueChange={setDestination}
-                  >
-                    <SelectTrigger aria-label="Destination conversation">
-                      <SelectValue placeholder="Choose a conversation" />
-                    </SelectTrigger>
-                    <SelectPopup>
-                      {threads.map((thread) => (
-                        <SelectItem key={thread.id} value={thread.id}>
-                          {projectNames.get(thread.projectId) ?? "Project"} / {thread.title}
-                        </SelectItem>
-                      ))}
-                    </SelectPopup>
-                  </Select>
                   <div className="flex gap-2">
                     <Button
                       size="compact"
                       disabled={
-                        busy || !threads.some((thread) => thread.id === selectedDestination)
+                        busy ||
+                        !request.destination ||
+                        !threads.some(
+                          (thread) =>
+                            thread.id === request.destination?.threadId &&
+                            thread.archivedAt === null,
+                        )
                       }
                       onClick={() => void approve()}
                     >
@@ -195,7 +195,6 @@ export function RouteRequestControl({
                       onClick={() => {
                         setDeferred((current) => new Set([...current, request.requestId]));
                         setSelected(null);
-                        setDestination(null);
                       }}
                     >
                       Not now

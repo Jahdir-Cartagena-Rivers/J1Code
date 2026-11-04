@@ -1,11 +1,20 @@
 // @vitest-environment jsdom
-import { cloneElement, type ReactElement, type ReactNode, act } from "react";
+import { type ReactNode, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 import { EnvironmentId } from "@t3tools/contracts";
 import { RouteRequestControl } from "./RouteRequestControl";
 
 const commands = vi.hoisted(() => ({ list: vi.fn(), prepare: vi.fn(), confirm: vi.fn() }));
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({
+    params,
+    children,
+  }: {
+    params: { environmentId: string; threadId: string };
+    children: ReactNode;
+  }) => <a href={`/${params.environmentId}/${params.threadId}`}>{children}</a>,
+}));
 vi.mock("../../state/server", () => ({
   serverEnvironment: { routingList: "list", routingPrepare: "prepare", routingConfirm: "confirm" },
 }));
@@ -24,20 +33,7 @@ vi.mock("../../state/entities", () => ({
     },
   ],
 }));
-vi.mock("../ui/popover", () => ({
-  Popover: ({ children }: { children: ReactNode }) => children,
-  PopoverTrigger: ({ render, children }: { render: ReactElement; children: ReactNode }) =>
-    cloneElement(render, {}, children),
-  PopoverPopup: ({ children }: { children: ReactNode }) => children,
-}));
 vi.mock("../ui/button", () => ({ Button: "button" }));
-vi.mock("../ui/select", () => ({
-  Select: ({ children }: { children: ReactNode }) => children,
-  SelectTrigger: "div",
-  SelectValue: "span",
-  SelectPopup: "div",
-  SelectItem: "div",
-}));
 let root: Root;
 let container: HTMLDivElement;
 beforeEach(() => {
@@ -49,7 +45,7 @@ beforeEach(() => {
         requestId: "request",
         status: "suggested",
         summary: "Add the new Home requirements",
-        destination: { threadId: "target" },
+        destination: { environmentId: "local", projectId: "work", threadId: "target" },
         reason: "Two possible owners",
       },
     ],
@@ -123,6 +119,25 @@ it("keeps an ordinary chat free of routing controls when there is no request", a
   await render();
   expect(container.textContent).toBe("");
 });
+it("links completed handoffs and does not ask for a chat selection", async () => {
+  commands.list.mockResolvedValue({
+    _tag: "Success",
+    value: [
+      {
+        requestId: "done",
+        status: "completed",
+        summary: "Audio changes",
+        destination: { environmentId: "local", projectId: "work", threadId: "target" },
+      },
+    ],
+  });
+  await render();
+  expect(container.querySelector('a[href="/local/target"]')?.textContent).toContain(
+    "Home improvements",
+  );
+  expect(container.querySelector('[aria-label="Destination conversation"]')).toBeNull();
+  expect(container.textContent).not.toContain("Approve and send");
+});
 it("automatically shows a new source routing notice without opening a control", async () => {
   commands.list.mockResolvedValue({ _tag: "Success", value: [] });
   await render();
@@ -133,7 +148,7 @@ it("automatically shows a new source routing notice without opening a control", 
         requestId: "new",
         status: "suggested",
         summary: "Review the audio integration",
-        destination: { threadId: "target" },
+        destination: { environmentId: "local", projectId: "work", threadId: "target" },
       },
     ],
   });
@@ -149,6 +164,28 @@ it("automatically shows a new source routing notice without opening a control", 
   );
   expect(container.textContent).toContain("Review the audio integration");
   expect(container.textContent).toContain("Approve and send");
+  expect(commands.prepare).not.toHaveBeenCalled();
+  expect(commands.confirm).not.toHaveBeenCalled();
+});
+
+it("keeps unavailable destination proposals disabled while retaining their link", async () => {
+  commands.list.mockResolvedValue({
+    _tag: "Success",
+    value: [
+      {
+        requestId: "missing",
+        status: "suggested",
+        summary: "Audio work",
+        destination: { environmentId: "local", projectId: "work", threadId: "unavailable" },
+      },
+    ],
+  });
+  await render();
+  const approve = [...container.querySelectorAll("button")].find(
+    (button) => button.textContent === "Approve and send",
+  );
+  expect(approve?.disabled).toBe(true);
+  expect(container.querySelector('a[href="/local/unavailable"]')).not.toBeNull();
   expect(commands.prepare).not.toHaveBeenCalled();
   expect(commands.confirm).not.toHaveBeenCalled();
 });

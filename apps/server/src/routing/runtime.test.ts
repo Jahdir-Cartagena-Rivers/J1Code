@@ -15,9 +15,7 @@ import { it as effectIt } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Layer from "effect/Layer";
-import * as Stream from "effect/Stream";
 import { expect, it } from "vite-plus/test";
-import * as Fiber from "effect/Fiber";
 
 import { OrchestrationCommandReceiptRepositoryLive } from "../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { OrchestrationEventStoreLive } from "../persistence/Layers/OrchestrationEventStore.ts";
@@ -35,8 +33,7 @@ import { OrchestrationEngineService } from "../orchestration/Services/Orchestrat
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ServerConfig } from "../config.ts";
 
-import { makeEngineRouteDrain, shouldWakeRouteDrain } from "./engineDrain.ts";
-import { makeDurableRoutingStore } from "./durableRoutingStore.ts";
+import { shouldWakeRouteDrain } from "./engineDrain.ts";
 
 it("wakes for release of an approval, not routine tool activity", () => {
   const activity = (kind: string) =>
@@ -212,6 +209,47 @@ effectIt.effect(
             updatedAt: createdAt,
           },
         });
+        const proposed = yield* ports.owner(
+          source,
+          "new-audio-work",
+          undefined,
+          "Improve transcription",
+        );
+        expect(proposed).toEqual({ destination: coordinator, ambiguous: true });
+        const proposedRoute = yield* ports.submit({
+          route: {
+            requestId: "working-proposal",
+            taskId: "new-audio-work",
+            source,
+            destination: proposed.destination,
+            content: "Improve transcription",
+            mode: "auto",
+            initiation: "automatic",
+            ambiguous: proposed.ambiguous,
+            visited: [],
+            maxHops: 8,
+          },
+          fingerprint: "working-proposal",
+          originalRequest: "Improve transcription",
+          sourceUrl: "/env/source",
+        });
+        expect(proposedRoute.status).toBe("suggested");
+        expect(proposedRoute.receipts).toEqual([]);
+        yield* engine.dispatch({
+          type: "thread.archive",
+          commandId: CommandId.make("archive-proposal"),
+          threadId: ThreadId.make("coordinator"),
+        });
+        expect(
+          (yield* ports.owner(source, "new-audio-work", undefined, "Improve transcription"))
+            .destination,
+        ).toBeNull();
+        yield* engine.dispatch({
+          type: "thread.unarchive",
+          commandId: CommandId.make("restore-proposal"),
+          threadId: ThreadId.make("coordinator"),
+        });
+
         for (const mode of ["auto", "suggest"] as const)
           yield* ports.submit({
             route: {

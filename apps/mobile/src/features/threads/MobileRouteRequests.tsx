@@ -1,5 +1,6 @@
+import { CommonActions, useNavigation } from "@react-navigation/native";
 import { useCallback, useEffect, useState } from "react";
-import { AppState, Modal, Pressable, ScrollView, View } from "react-native";
+import { AppState, Pressable, ScrollView, View } from "react-native";
 import { Option } from "effect";
 import {
   ThreadId,
@@ -23,6 +24,7 @@ export function MobileRouteRequests({
   projectId: string;
   threadId: string;
 }) {
+  const navigation = useNavigation();
   const list = useAtomCommand(serverEnvironment.routingList, { reportFailure: false });
   const prepare = useAtomCommand(serverEnvironment.routingPrepare, { reportFailure: false });
   const confirm = useAtomCommand(serverEnvironment.routingConfirm, { reportFailure: false });
@@ -33,10 +35,7 @@ export function MobileRouteRequests({
       .map((project) => [project.id, project.title]),
   );
   const threads = useThreadShells().filter(
-    (thread) =>
-      thread.environmentId === environmentId &&
-      thread.archivedAt === null &&
-      thread.id !== threadId,
+    (thread) => thread.environmentId === environmentId && thread.id !== threadId,
   );
   const detail = useEnvironmentThread(environmentId, ThreadId.make(threadId));
   const revision =
@@ -44,10 +43,8 @@ export function MobileRouteRequests({
       (activity) => activity.kind === "routing.updated",
     ).length ?? 0;
   const [requests, setRequests] = useState<ReadonlyArray<typeof ManualRouteStatus.Type>>([]);
-  const [requestId, setRequestId] = useState<string | null>(null);
-  const [destinationId, setDestinationId] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
   const [notice, setNotice] = useState("");
+  const [deferred, setDeferred] = useState<ReadonlySet<string>>(() => new Set());
   const [busy, setBusy] = useState(false);
   const refresh = useCallback(async () => {
     const result = await list({
@@ -110,10 +107,7 @@ export function MobileRouteRequests({
             : "Forwarded requests"}
         </Text>
         {requests.map((request) => {
-          const targetId =
-            requestId === request.requestId
-              ? destinationId
-              : (request.destination?.threadId ?? null);
+          const targetId = request.destination?.threadId ?? null;
           const target = threads.find((thread) => thread.id === targetId);
           return (
             <View key={request.requestId} className="gap-2 rounded-lg border border-border p-3">
@@ -126,29 +120,63 @@ export function MobileRouteRequests({
                   {manualRouteReasonLabel(request.reason)}
                 </Text>
               )}
-              {request.status === "suggested" && (
+              {request.destination && (
+                <Pressable
+                  accessibilityRole="link"
+                  onPress={() =>
+                    navigation.dispatch(
+                      CommonActions.navigate("Thread", {
+                        environmentId: request.destination!.environmentId,
+                        threadId: request.destination!.threadId,
+                      }),
+                    )
+                  }
+                >
+                  <Text className="text-accent underline">
+                    {target
+                      ? `${projectNames.get(target.projectId) ?? "Project"} / ${target.title}`
+                      : "Open destination chat"}
+                  </Text>
+                </Pressable>
+              )}
+              {request.status === "suggested" && !request.destination && (
+                <Text>
+                  No suitable working chat is available yet. Continue discussing the destination
+                  here.
+                </Text>
+              )}
+              {request.status === "suggested" && deferred.has(request.requestId) && (
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={busy}
+                  onPress={() =>
+                    setDeferred((current) => {
+                      const next = new Set(current);
+                      next.delete(request.requestId);
+                      return next;
+                    })
+                  }
+                >
+                  <Text>Review request</Text>
+                </Pressable>
+              )}
+              {request.status === "suggested" && !deferred.has(request.requestId) && (
                 <>
                   <Pressable
                     accessibilityRole="button"
-                    disabled={busy}
-                    onPress={() => {
-                      setRequestId(request.requestId);
-                      setDestinationId(targetId);
-                      setOpen(true);
-                    }}
-                  >
-                    <Text>
-                      {target
-                        ? `${projectNames.get(target.projectId) ?? "Project"} / ${target.title}`
-                        : "Choose a conversation"}
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    disabled={busy || !target}
+                    disabled={busy || !target || target.archivedAt !== null}
                     onPress={() => void approve(request.requestId, targetId)}
                   >
                     <Text>Approve and send</Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={busy}
+                    onPress={() =>
+                      setDeferred((current) => new Set([...current, request.requestId]))
+                    }
+                  >
+                    <Text>Not now</Text>
                   </Pressable>
                 </>
               )}
@@ -160,38 +188,6 @@ export function MobileRouteRequests({
           <Text>Refresh status</Text>
         </Pressable>
       </ScrollView>
-      <Modal
-        visible={open}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setOpen(false)}
-      >
-        <ScrollView
-          className="flex-1 bg-background"
-          contentContainerStyle={{ padding: 24, gap: 16 }}
-        >
-          <Text accessibilityRole="header" className="font-semibold">
-            Choose a conversation
-          </Text>
-          <Pressable accessibilityRole="button" onPress={() => setOpen(false)}>
-            <Text>Cancel</Text>
-          </Pressable>
-          {threads.map((thread) => (
-            <Pressable
-              key={thread.id}
-              accessibilityRole="button"
-              onPress={() => {
-                setDestinationId(thread.id);
-                setOpen(false);
-              }}
-            >
-              <Text>
-                {projectNames.get(thread.projectId) ?? "Project"} / {thread.title}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-      </Modal>
     </View>
   );
 }
