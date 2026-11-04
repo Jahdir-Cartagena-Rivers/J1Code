@@ -20,6 +20,7 @@ export const DesktopBackendBootstrap = Schema.Struct({
   otlpLogsUrl: Schema.optional(Schema.String),
   desktopTelemetryFd: Schema.optionalKey(PositiveInt),
   desktopTelemetryControlFd: Schema.optionalKey(PositiveInt),
+  lightpandaExecutablePath: Schema.optionalKey(TrimmedNonEmptyString),
   resourceMonitorPath: Schema.optionalKey(TrimmedNonEmptyString),
 });
 

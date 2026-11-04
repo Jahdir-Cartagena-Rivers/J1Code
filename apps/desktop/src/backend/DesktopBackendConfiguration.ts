@@ -583,6 +583,15 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
         onNone: () => ({}),
         onSome: (resourceMonitorPath) => ({ resourceMonitorPath }),
       }),
+      ...(environment.isPackaged && environment.platform === "win32"
+        ? {
+            lightpandaExecutablePath: environment.path.join(
+              environment.resourcesPath,
+              "lightpanda",
+              "lightpanda.exe",
+            ),
+          }
+        : {}),
       ...buildObservabilityFragment(input.observabilitySettings),
     };
 

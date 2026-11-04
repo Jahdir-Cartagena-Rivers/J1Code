@@ -205,7 +205,19 @@ describe("desktop background backend", () => {
         workerPath: "unused",
         sourceRuntimeDir,
       };
+      await NodeFSP.mkdir(NodePath.join(sourceRuntimeDir, "resources", "lightpanda"));
+      await NodeFSP.writeFile(
+        NodePath.join(sourceRuntimeDir, "resources", "lightpanda", "lightpanda.exe"),
+        "native snapshot",
+      );
       const first = await stageBackgroundRuntime(options);
+      expect(
+        await NodeFSP.readFile(
+          NodePath.join(first, "resources", "lightpanda", "lightpanda.exe"),
+          "utf8",
+        ),
+      ).toBe("native snapshot");
+
       await NodeFSP.writeFile(
         NodePath.join(sourceRuntimeDir, "resources", "server.asar"),
         "new archive",

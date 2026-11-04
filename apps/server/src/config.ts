@@ -97,6 +97,7 @@ export class ServerConfig extends Context.Service<
     readonly desktopBackgroundBootstrap?: boolean;
     readonly desktopTelemetryFd?: number | undefined;
     readonly desktopTelemetryControlFd?: number | undefined;
+    readonly lightpandaExecutablePath?: string | undefined;
     readonly resourceMonitorPath?: string | undefined;
     readonly autoBootstrapProjectFromCwd: boolean;
     readonly logWebSocketEvents: boolean;

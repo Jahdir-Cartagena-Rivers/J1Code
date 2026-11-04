@@ -455,6 +455,7 @@ export const resolveServerConfig = (
       ...(desktopBackgroundBootstrap ? { desktopBackgroundBootstrap: true } : {}),
       desktopTelemetryFd,
       desktopTelemetryControlFd,
+      lightpandaExecutablePath: bootstrap?.lightpandaExecutablePath,
       resourceMonitorPath,
       autoBootstrapProjectFromCwd,
       logWebSocketEvents,

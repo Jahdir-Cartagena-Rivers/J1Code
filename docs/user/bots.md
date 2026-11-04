@@ -8,6 +8,6 @@ Bots use the selected project's normal workspace and approval settings. Their mo
 
 ## Background browser
 
-Install a compatible native Lightpanda executable on the J1 server. In **Settings → Integrations → Browser → Background browser**, enter its full executable path. Leave the field blank to disable it. Enable **Agent browser access** for the project and start a new agent session to apply that permission.
+Install a compatible native Lightpanda executable on the J1 server. In **Settings → Integrations → Browser → Background browser**, leave the field blank to use the bundled Windows browser, enter a custom executable path to override it, or enter `disabled` to turn it off. On servers without a bundled browser, install Lightpanda and enter its full path. Enable **Agent browser access** for the project and start a new agent session to apply that permission.
 
 Agents can discover the browser with `background_browser_tools`, use its advertised tools through `background_browser_call`, and release it with `background_browser_close`. Each provider session gets a separate temporary browser; idle sessions close automatically. Cookies and page state are separate from the visual browser. Use the collaborative browser for visual inspection and recordings.

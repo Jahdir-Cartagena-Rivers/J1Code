@@ -1434,7 +1434,7 @@ function LightpandaSetting() {
       settingKeys={["lightpandaExecutablePath"]}
       id="lightpanda-background-browser"
       title="Background browser"
-      description="Use native Lightpanda for agent research and page automation. Enter its executable path on the connected server, or leave blank to disable. The visual browser keeps its own profiles."
+      description="Use native Lightpanda for agent research and page automation. Leave blank to use the bundled browser, enter a custom executable path on the connected server, or enter disabled to turn it off. The visual browser keeps its own profiles."
     >
       <DraftInput
         nativeInput

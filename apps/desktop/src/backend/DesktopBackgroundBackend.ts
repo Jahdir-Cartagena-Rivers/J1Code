@@ -190,6 +190,8 @@ export async function ensureBackgroundServer(
   delete bootstrap.desktopTelemetryControlFd;
   if (bootstrap.resourceMonitorPath)
     bootstrap.resourceMonitorPath = relocate(bootstrap.resourceMonitorPath);
+  if (bootstrap.lightpandaExecutablePath)
+    bootstrap.lightpandaExecutablePath = relocate(bootstrap.lightpandaExecutablePath);
   const input = {
     protocol: 1 as const,
     hostPid: 0,

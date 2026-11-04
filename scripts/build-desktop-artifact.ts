@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { stageLightpanda, validatePackagedLightpanda } from "./stage-lightpanda.ts";
 // @effect-diagnostics nodeBuiltinImport:off - Node's typed junction API avoids Windows symlink privileges while keeping the probe isolated.
 
 import * as NodeFSP from "node:fs/promises";
@@ -1034,7 +1035,8 @@ export function resolveWindowsServerAsarIgnoreGlobs(arch: typeof BuildArch.Type)
   ];
 }
 
-export const WINDOWS_PACKAGED_PAYLOAD_FILE_LIMIT = 80;
+// Native browser licenses and corresponding source add 23 external files.
+export const WINDOWS_PACKAGED_PAYLOAD_FILE_LIMIT = 104;
 export const WINDOWS_SERVER_RESOURCE_SOURCE_DIR = "apps/desktop/prod-resources/windows-server";
 export const WINDOWS_SERVER_EXTRA_RESOURCES = [
   {
@@ -2694,6 +2696,15 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       : {}),
     extraResources: [
       ...DESKTOP_EXTRA_RESOURCES,
+      ...(platform === "win"
+        ? [
+            {
+              from: "apps/desktop/prod-resources/lightpanda",
+              to: "lightpanda",
+              filter: ["**/*"],
+            },
+          ]
+        : []),
       ...(platform === "linux" ? LINUX_CAPTURE_EXTRA_RESOURCES : []),
       ...(platform === "linux" ? LINUX_BROWSER_SECRET_EXTRA_RESOURCES : []),
       ...(platform === "win" ? WINDOWS_SERVER_EXTRA_RESOURCES : []),
@@ -3155,6 +3166,7 @@ export const validateWindowsPackagedPayload = Effect.fn(
   // The version the embedded Linux CLI archive must carry; its top-level
   // directory is named t3-<version>-linux-<arch>.
   readonly appVersion: string;
+  readonly expectLightpanda?: boolean;
   readonly expectWslRuntime?: boolean;
   readonly fileLimit?: number;
   readonly verbose?: boolean;
@@ -3356,6 +3368,11 @@ export const validateWindowsPackagedPayload = Effect.fn(
     }
   }
 
+  if (input.expectLightpanda) {
+    yield* Effect.tryPromise(() =>
+      validatePackagedLightpanda(path.join(packagedAppDir, "resources/lightpanda")),
+    );
+  }
   const fileCount = yield* countPayloadFiles(packagedAppDir);
   if (fileCount > fileLimit) {
     return yield* new WindowsPackagedPayloadValidationError({
@@ -3772,6 +3789,11 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     }),
     { label: "vp install --prod", verbose: options.verbose },
   );
+  if (options.platform === "win" && options.arch === "x64") {
+    yield* Effect.tryPromise(() =>
+      stageLightpanda(path.join(stageAppDir, "apps/desktop/prod-resources/lightpanda")),
+    );
+  }
   yield* stageClerkPasskeyNativeBinaries(stageAppDir, options.platform, options.arch);
   yield* stageKeyringNativeBinaries(stageAppDir, options.platform, options.arch);
 
@@ -3904,6 +3926,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       appExecutableName: `${resolveDesktopProductName(appVersion)}.exe`,
       targetArch: options.arch,
       appVersion,
+      expectLightpanda: options.arch === "x64",
       expectWslRuntime: bundlesWslRuntime({
         platform: options.platform,
         runtimeArchivePath: options.wslRuntime,
