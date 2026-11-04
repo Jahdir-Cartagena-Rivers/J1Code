@@ -29,6 +29,7 @@ import { OrchestrationProjectionSnapshotQueryLive } from "../orchestration/Layer
 import * as ThreadBackgroundLiveness from "../orchestration/ThreadBackgroundLiveness.ts";
 import * as ThreadPlanProgress from "../orchestration/ThreadPlanProgress.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
+import { ProviderService } from "../provider/Services/ProviderService.ts";
 import { ServerConfig } from "../config.ts";
 
 import { makeEngineRouteDrain, shouldWakeRouteDrain } from "./engineDrain.ts";
@@ -214,4 +215,91 @@ effectIt.effect("keeps a route queued while the destination runs and wakes on it
       );
     }),
   ).pipe(Effect.provide(makeOrchestrationLayer())),
+);
+
+effectIt.effect("delivers into a capable running destination without waiting for idle", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const engine = yield* OrchestrationEngineService;
+      const projectId = ProjectId.make("busy-project");
+      const createdAt = "2026-01-01T00:00:00.000Z";
+      yield* engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.make("busy-project"),
+        projectId,
+        title: "P",
+        workspaceRoot: process.cwd(),
+        defaultModelSelection: null,
+        createdAt,
+      });
+      for (const id of ["source-busy", "destination-busy"]) {
+        yield* engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make(`create-${id}`),
+          threadId: ThreadId.make(id),
+          projectId,
+          title: id,
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "default" },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+        });
+      }
+      const threadId = ThreadId.make("destination-busy");
+      const setSession = (status: "running" | "ready") =>
+        engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.make(`session-${status}`),
+          threadId,
+          createdAt,
+          session: {
+            threadId,
+            status,
+            providerName: "codex",
+            providerInstanceId: ProviderInstanceId.make("codex"),
+            runtimeMode: "full-access",
+            activeTurnId: status === "running" ? TurnId.make("active") : null,
+            lastError: null,
+            updatedAt: createdAt,
+          },
+        });
+      yield* setSession("running");
+      const store = yield* makeDurableRoutingStore;
+      yield* store.create({
+        requestId: "busy-route",
+        source: { environmentId: "e", projectId, threadId: "source-busy" },
+        destination: { environmentId: "e", projectId, threadId },
+        content: "Follow up",
+        permissionCeiling: ["runtime:full-access", "provider:codex"],
+        destinationPermissions: ["runtime:full-access", "provider:codex"],
+        visited: [],
+        maxHops: 3,
+        ambiguous: false,
+        mode: "auto",
+        initiation: "automatic",
+      });
+      const drain = yield* makeEngineRouteDrain;
+      yield* drain.start;
+      expect((yield* store.get("busy-route"))?.state.status).toBe("admitted");
+      const sequence = yield* engine.latestSequence;
+      yield* drain.drain();
+      expect(yield* engine.latestSequence).toBe(sequence);
+      const events = yield* engine.readEvents(0, 100).pipe(Stream.runCollect);
+      const sent = events.filter((event) => event.type === "thread.turn-start-requested");
+      expect(sent).toHaveLength(1);
+      expect(sent[0]?.metadata.routeSteerTurnId).toBe("active");
+    }),
+  ).pipe(
+    Effect.provide(
+      Layer.merge(
+        makeOrchestrationLayer(),
+        Layer.mock(ProviderService)({
+          getCapabilities: () =>
+            Effect.succeed({ sessionModelSwitch: "in-session", activeTurnSteering: true }),
+        }),
+      ),
+    ),
+  ),
 );

@@ -5155,6 +5155,13 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     // instead, so they don't block the user's next turn.
     const steeringTurnState =
       context.turnState && context.turnState.synthetic !== true ? context.turnState : null;
+    if (input.steer && steeringTurnState?.turnId !== input.steer.turnId) {
+      return yield* new ProviderAdapterValidationError({
+        provider: PROVIDER,
+        operation: "sendTurn",
+        issue: "Active turn changed before routed steering.",
+      });
+    }
     if (context.turnState && steeringTurnState === null) {
       yield* completeTurn(context, "completed");
     }
@@ -5266,6 +5273,13 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
     if (steeringTurnState === null) context.turnStartMessageIds.push(turnId);
     yield* updateResumeCursor(context);
+    if (input.steer && context.turnState !== steeringTurnState) {
+      return yield* new ProviderAdapterValidationError({
+        provider: PROVIDER,
+        operation: "sendTurn",
+        issue: "Active turn changed before routed steering.",
+      });
+    }
     yield* Queue.offer(context.promptQueue, {
       type: "message",
       message:
@@ -5586,6 +5600,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   return {
     provider: PROVIDER,
     capabilities: {
+      activeTurnSteering: true,
       sessionModelSwitch: "in-session",
     },
     compaction: { type: "slash-command", command: "/compact" },

@@ -7,6 +7,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  TurnId,
   ThreadRouteDeliverCommand,
   ClientOrchestrationCommand,
 } from "@t3tools/contracts";
@@ -108,6 +109,83 @@ it.layer(NodeServices.layer)("atomic route admission", (it) => {
       const readModel = yield* model;
       const error = yield* Effect.flip(decideOrchestrationCommand({ readModel, command }));
       expect(error._tag).toBe("OrchestrationCommandInvariantError");
+    }),
+  );
+  it.effect("admits only the expected running turn for live steering", () =>
+    Effect.gen(function* () {
+      const base = yield* model;
+      const activeTurnId = TurnId.make("active-turn");
+      const readModel = {
+        ...base,
+        threads: base.threads.map((thread) =>
+          thread.id === threadId
+            ? {
+                ...thread,
+                session: {
+                  threadId,
+                  status: "running" as const,
+                  providerName: "codex",
+                  providerInstanceId: ProviderInstanceId.make("codex"),
+                  runtimeMode: "full-access" as const,
+                  activeTurnId,
+                  lastError: null,
+                  updatedAt: createdAt,
+                },
+              }
+            : thread,
+        ),
+      };
+      const result = yield* decideOrchestrationCommand({
+        readModel,
+        command: { ...command, activeTurnId },
+        routeAdmissionHydrated: true,
+      });
+      const events = Array.isArray(result) ? result : [result];
+      expect(events.every((event) => event.metadata.routeSteerTurnId === activeTurnId)).toBe(true);
+      expect(events.find((event) => event.type === "thread.message-sent")?.payload).toMatchObject({
+        turnId: activeTurnId,
+      });
+      for (const kind of ["approval.requested", "user-input.requested"]) {
+        const blocked = {
+          ...readModel,
+          threads: readModel.threads.map((thread) =>
+            thread.id === threadId
+              ? {
+                  ...thread,
+                  activities: [
+                    {
+                      id: EventId.make("pending"),
+                      kind,
+                      tone: "info" as const,
+                      summary: "Pending",
+                      payload: { requestId: "pending" },
+                      turnId: activeTurnId,
+                      createdAt,
+                    },
+                  ],
+                }
+              : thread,
+          ),
+        };
+        const failure = yield* Effect.flip(
+          decideOrchestrationCommand({
+            readModel: blocked,
+            command: { ...command, activeTurnId },
+            routeAdmissionHydrated: true,
+          }),
+        );
+        expect(failure._tag).toBe("OrchestrationCommandInvariantError");
+      }
+      for (const expected of [undefined, TurnId.make("stale-turn")]) {
+        const rejected = yield* Effect.flip(
+          decideOrchestrationCommand({
+            readModel,
+            command: { ...command, ...(expected ? { activeTurnId: expected } : {}) },
+            routeAdmissionHydrated: true,
+          }),
+        );
+        expect(rejected._tag).toBe("OrchestrationCommandInvariantError");
+      }
     }),
   );
   it.effect("admits idle same-mode delivery using destination context and stable events", () =>

@@ -1780,6 +1780,31 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     });
     yield* assertDelegatedWorkerActive(parsed.threadId, "ProviderService.sendTurn");
 
+    if (parsed.steer !== undefined) {
+      const routed = yield* resolveRoutableSession({
+        threadId: parsed.threadId,
+        operation: "ProviderService.sendTurn",
+        allowRecovery: false,
+      });
+      if (
+        !routed.isActive ||
+        routed.adapter.capabilities.activeTurnSteering !== true ||
+        routed.runtimeMode !== parsed.steer.runtimeMode ||
+        !parsed.input ||
+        (parsed.attachments?.length ?? 0) > 0 ||
+        parsed.modelSelection !== undefined ||
+        parsed.continuation === true
+      ) {
+        return yield* toValidationError(
+          "ProviderService.sendTurn",
+          "Active-turn routing is unavailable or the session permissions changed.",
+        );
+      }
+      // A steer belongs to the existing turn: no recovery, model switch, new-turn
+      // memory admission, or turn-start analytics may run along this path.
+      return yield* routed.adapter.sendTurn(parsed);
+    }
+
     const attachments = [...(parsed.attachments ?? [])];
     let memoryForTurn: TurnMemory | undefined;
     if (!parsed.input && attachments.length === 0 && parsed.continuation !== true) {

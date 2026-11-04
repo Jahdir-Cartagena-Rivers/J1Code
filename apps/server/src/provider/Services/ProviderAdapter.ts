@@ -43,6 +43,8 @@ export type ProviderCompaction<TError> =
   | { readonly type: "slash-command"; readonly command: `/${string}` };
 
 export interface ProviderAdapterCapabilities {
+  /** Active user input can be accepted without interrupting or queuing another turn. */
+  readonly activeTurnSteering?: boolean;
   /**
    * Declares whether changing the model on an existing session is supported.
    */

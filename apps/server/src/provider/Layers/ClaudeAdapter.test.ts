@@ -6680,9 +6680,18 @@ describe("ClaudeAdapterLive", () => {
         attachments: [],
       });
       secondTurnId = secondTurn.turnId;
+      const stale = yield* adapter
+        .sendTurn({
+          threadId: session.threadId,
+          input: "late",
+          steer: { turnId: firstTurn.turnId, runtimeMode: "full-access" },
+        })
+        .pipe(Effect.exit);
+      assert.equal(stale._tag, "Failure");
       const steer = yield* adapter.sendTurn({
         threadId: session.threadId,
         input: "steer the second turn",
+        steer: { turnId: secondTurn.turnId, runtimeMode: "full-access" },
         attachments: [],
       });
       assert.equal(steer.turnId, secondTurn.turnId);

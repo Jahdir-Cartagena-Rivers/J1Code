@@ -2575,6 +2575,17 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
   });
 
   const sendTurn: CodexAdapterShape["sendTurn"] = Effect.fn("sendTurn")(function* (input) {
+    if (input.steer) {
+      const session = yield* requireSession(input.threadId);
+      return yield* session.runtime
+        .sendTurn({
+          input: input.input ?? "",
+          expectedTurnId: input.steer.turnId,
+        })
+        .pipe(
+          Effect.mapError((cause) => mapCodexRuntimeError(input.threadId, "turn/steer", cause)),
+        );
+    }
     // Codex ingests images only. Anything else would be inlined as an image
     // and rejected or misread; generic files reach the agent through the path
     // line ProviderService puts in the prompt. Images are passed by path
@@ -2804,6 +2815,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     capabilities: {
       sessionModelSwitch: "in-session",
       promptlessTurnContinuation: true,
+      activeTurnSteering: true,
     },
     startSession,
     sendTurn,

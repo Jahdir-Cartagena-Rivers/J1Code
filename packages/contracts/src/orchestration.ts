@@ -1688,6 +1688,7 @@ export const ThreadRouteDeliverCommand = Schema.Struct({
   type: Schema.Literal("thread.route.deliver"),
   commandId: CommandId,
   routeId: TrimmedNonEmptyString,
+  activeTurnId: Schema.optional(TurnId),
   sourceThreadId: ThreadId,
   threadId: ThreadId,
   messageId: MessageId,
@@ -2063,6 +2064,7 @@ export type OrchestrationClientOrigin = typeof OrchestrationClientOrigin.Type;
 
 export const OrchestrationEventMetadata = Schema.Struct({
   routeId: Schema.optional(TrimmedNonEmptyString),
+  routeSteerTurnId: Schema.optional(TurnId),
   sourceThreadId: Schema.optional(ThreadId),
   provenance: Schema.optional(TrimmedNonEmptyString),
   visitedThreadIds: Schema.optional(Schema.Array(ThreadId)),

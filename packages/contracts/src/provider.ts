@@ -70,6 +70,8 @@ export type ProviderSessionStartInput = typeof ProviderSessionStartInput.Type;
 
 export const ProviderSendTurnInput = Schema.Struct({
   threadId: ThreadId,
+  /** Server-owned same-turn delivery. Never starts or replaces a provider turn. */
+  steer: Schema.optional(Schema.Struct({ turnId: TurnId, runtimeMode: RuntimeMode })),
   /** Internal recovery signal. Allows an empty turn only for adapters that
       explicitly support promptless continuation. */
   continuation: Schema.optional(Schema.Boolean),

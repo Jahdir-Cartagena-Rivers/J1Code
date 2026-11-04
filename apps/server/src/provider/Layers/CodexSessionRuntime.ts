@@ -189,7 +189,27 @@ export interface CodexSessionRuntimeOptions {
   readonly mcpCapabilities?: ReadonlySet<string>;
 }
 
+/** Native expected-turn guard prevents a late route from starting a replacement turn. */
+export function steerCodexTurn(
+  client: {
+    readonly request: (
+      method: "turn/steer",
+      params: EffectCodexSchema.V2TurnSteerParams,
+    ) => Effect.Effect<EffectCodexSchema.V2TurnSteerResponse, CodexErrors.CodexAppServerError>;
+  },
+  threadId: string,
+  expectedTurnId: TurnId,
+  text: string,
+) {
+  return client.request("turn/steer", {
+    threadId,
+    expectedTurnId,
+    input: [{ type: "text", text }],
+  });
+}
+
 export interface CodexSessionRuntimeSendTurnInput {
+  readonly expectedTurnId?: TurnId;
   readonly input?: string;
   readonly attachments?: ReadonlyArray<{
     readonly type: "localImage";
@@ -2550,6 +2570,15 @@ export const makeCodexSessionRuntime = (
       sendTurn: (input) =>
         Effect.gen(function* () {
           const providerThreadId = yield* readProviderThreadId;
+          if (input.expectedTurnId !== undefined) {
+            const response = yield* steerCodexTurn(
+              client,
+              providerThreadId,
+              input.expectedTurnId,
+              input.input ?? "",
+            );
+            return { threadId: options.threadId, turnId: TurnId.make(response.turnId) };
+          }
           if (hasConfiguredMcpServer(options.appServerArgs)) {
             yield* client.request("config/mcpServer/reload", undefined).pipe(
               Effect.catch((cause) =>
