@@ -115,7 +115,12 @@ function hasQueuedTurnStartForThread(
   let latestUserMessageAt: string | null = null;
   let latestUserMessageAtMs = Number.NEGATIVE_INFINITY;
   for (const message of thread.messages) {
-    if (message.role !== "user" || isImportedAgentSessionMessageId(message.id)) continue;
+    if (
+      message.role !== "user" ||
+      isImportedAgentSessionMessageId(message.id) ||
+      (message.id.startsWith("route:") && message.turnId !== null)
+    )
+      continue;
     const messageAtMs = Date.parse(message.createdAt);
     latestUserMessageAtMs = Math.max(latestUserMessageAtMs, messageAtMs);
     if (messageAtMs === latestUserMessageAtMs) {
@@ -1467,9 +1472,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       }
       if (
         destination.session?.status === "starting" ||
-        destination.session?.status === "running" ||
-        destination.session?.activeTurnId != null ||
-        destination.latestTurn?.state === "running" ||
+        (command.activeTurnId === undefined &&
+          (destination.session?.status === "running" ||
+            destination.session?.activeTurnId != null ||
+            destination.latestTurn?.state === "running")) ||
+        (command.activeTurnId !== undefined &&
+          (destination.session?.status !== "running" ||
+            destination.session.activeTurnId !== command.activeTurnId)) ||
         openRequests(destination).size > 0 ||
         hasQueuedTurnStartForThread(destination, command.createdAt)
       ) {
@@ -1499,11 +1508,15 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       const events = Array.isArray(decided) ? decided : [decided];
       return events.map((event, index) => ({
         ...event,
+        ...(event.type === "thread.message-sent" && command.activeTurnId
+          ? { payload: { ...event.payload, turnId: command.activeTurnId } }
+          : {}),
         eventId: EventId.make(`route:${command.commandId}:${index}`),
         ...(index > 0 ? { causationEventId: EventId.make(`route:${command.commandId}:0`) } : {}),
         metadata: {
           ...event.metadata,
           routeId: command.routeId,
+          ...(command.activeTurnId ? { routeSteerTurnId: command.activeTurnId } : {}),
           sourceThreadId: source.id,
           provenance: command.provenance,
           visitedThreadIds: [...command.visitedThreadIds, source.id],

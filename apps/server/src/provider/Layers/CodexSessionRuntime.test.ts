@@ -4,7 +4,7 @@ import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { describe } from "vite-plus/test";
-import { DEFAULT_MODEL, ThreadId } from "@t3tools/contracts";
+import { DEFAULT_MODEL, ThreadId, TurnId } from "@t3tools/contracts";
 import * as CodexErrors from "effect-codex-app-server/errors";
 import * as CodexRpc from "effect-codex-app-server/rpc";
 import * as EffectCodexSchema from "effect-codex-app-server/schema";
@@ -16,6 +16,7 @@ import {
 import { codexSessionAppServerArgs } from "./codexLaunchArgs.ts";
 import {
   buildTurnStartParams,
+  steerCodexTurn,
   describeMcpElicitation,
   hasConfiguredMcpServer,
   isRecoverableThreadResumeError,
@@ -1080,3 +1081,49 @@ describe("openCodexThread", () => {
     }),
   );
 });
+
+it.effect(
+  "steers the exact native turn and propagates stale-turn rejection without starting another",
+  () =>
+    Effect.gen(function* () {
+      const requests: unknown[] = [];
+      let reject = false;
+      const request: Parameters<typeof steerCodexTurn>[0]["request"] = (method, params) => {
+        requests.push({ method, params });
+        return reject ? Effect.die("stale expected turn") : Effect.succeed({ turnId: "active" });
+      };
+      const result = yield* steerCodexTurn(
+        { request },
+        "native-thread",
+        TurnId.make("active"),
+        "Include the latest fix before building",
+      );
+      NodeAssert.equal(result.turnId, "active");
+      reject = true;
+      const failure = yield* steerCodexTurn(
+        { request },
+        "native-thread",
+        TurnId.make("old"),
+        "late",
+      ).pipe(Effect.exit);
+      NodeAssert.equal(failure._tag, "Failure");
+      NodeAssert.deepEqual(requests, [
+        {
+          method: "turn/steer",
+          params: {
+            threadId: "native-thread",
+            expectedTurnId: "active",
+            input: [{ type: "text", text: "Include the latest fix before building" }],
+          },
+        },
+        {
+          method: "turn/steer",
+          params: {
+            threadId: "native-thread",
+            expectedTurnId: "old",
+            input: [{ type: "text", text: "late" }],
+          },
+        },
+      ]);
+    }),
+);

@@ -2,6 +2,7 @@ import { CommandId, MessageId, ThreadId, type OrchestrationEvent } from "@t3tool
 import { DateTime, Effect, Option, Semaphore, Stream } from "effect";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ProviderService } from "../provider/Services/ProviderService.ts";
 import { makeDurableRoutingStore } from "./durableRoutingStore.ts";
 
 /** Only events that can release or change admission eligibility wake the queue. */
@@ -27,6 +28,7 @@ export function shouldWakeRouteDrain(event: OrchestrationEvent): boolean {
 export const makeEngineRouteDrain = Effect.gen(function* () {
   const engine = yield* OrchestrationEngineService;
   const snapshots = yield* ProjectionSnapshotQuery;
+  const providers = yield* Effect.serviceOption(ProviderService);
   const store = yield* makeDurableRoutingStore;
   const mutex = yield* Semaphore.make(1);
   const sweep = Effect.fn("EngineRouteDrain.drain")(function* () {
@@ -51,13 +53,19 @@ export const makeEngineRouteDrain = Effect.gen(function* () {
         d.projectId !== request.destination.projectId ||
         d.hasPendingApprovals ||
         d.hasPendingUserInput ||
-        d.session?.status === "running" ||
         d.session?.status === "starting" ||
-        d.session?.activeTurnId != null ||
         s.runtimeMode !== d.runtimeMode ||
         !request.permissionCeiling.includes(`runtime:${s.runtimeMode}`)
       )
         continue;
+      const activeTurnId = d.session?.activeTurnId;
+      if (d.session?.status === "running" || activeTurnId != null) {
+        if (!activeTurnId || Option.isNone(providers)) continue;
+        const capabilities = yield* providers.value
+          .getCapabilities(d.modelSelection.instanceId)
+          .pipe(Effect.option);
+        if (Option.isNone(capabilities) || capabilities.value.activeTurnSteering !== true) continue;
+      }
       // CAS loser does no I/O. Revision gives each definitively rejected attempt a new command ID.
       const claimed = yield* store.transition(id, row.revision, {
         type: "begin-send",
@@ -68,6 +76,7 @@ export const makeEngineRouteDrain = Effect.gen(function* () {
           type: "thread.route.deliver",
           commandId: CommandId.make(claimed.state.attemptId!),
           routeId: id,
+          ...(activeTurnId ? { activeTurnId } : {}),
           sourceThreadId: s.id,
           threadId: d.id,
           messageId: MessageId.make(`route:${id}`),

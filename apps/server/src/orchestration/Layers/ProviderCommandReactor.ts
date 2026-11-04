@@ -1307,6 +1307,82 @@ const make = Effect.gen(function* () {
       return;
     }
     const { message, hasOtherUserMessages } = turnStart.value;
+    const { routeId, sourceThreadId } = event.metadata;
+    const routed = routeId !== undefined || sourceThreadId !== undefined;
+    const correlated =
+      routeId !== undefined &&
+      sourceThreadId !== undefined &&
+      sourceThreadId !== event.payload.threadId &&
+      event.commandId !== null;
+    const appendRouteTransportEvidence = (outcome: "sent" | "outcome-unknown") =>
+      Effect.gen(function* () {
+        if (!correlated) {
+          yield* Effect.logWarning("Routed provider transport cannot be safely correlated", {
+            eventId: event.eventId,
+            threadId: event.payload.threadId,
+          });
+          return;
+        }
+        // Stable across replay; transport evidence never implies agent acceptance or completion.
+        const identity = [
+          routeId,
+          event.commandId,
+          event.payload.messageId,
+          event.payload.threadId,
+          outcome,
+        ]
+          .map((part) => encodeURIComponent(part ?? ""))
+          .join(":");
+        yield* orchestrationEngine.dispatch({
+          type: "thread.activity.append",
+          commandId: CommandId.make(`route-transport:${identity}`),
+          threadId: event.payload.threadId,
+          activity: {
+            id: EventId.make(`route-transport:${identity}`),
+            tone: "info",
+            kind: "route.transport",
+            summary:
+              outcome === "sent" ? "Route sent to provider" : "Route transport outcome unknown",
+            payload: {
+              routeId,
+              sourceThreadId,
+              receivingThreadId: event.payload.threadId,
+              commandId: event.commandId,
+              messageId: event.payload.messageId,
+              outcome,
+            },
+            turnId: null,
+            createdAt: event.payload.createdAt,
+          },
+          createdAt: event.payload.createdAt,
+        });
+      }).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Could not persist routed provider transport evidence", {
+            eventId: event.eventId,
+            cause: Cause.pretty(cause),
+          }),
+        ),
+      );
+    if (event.metadata.routeSteerTurnId !== undefined) {
+      yield* providerService
+        .sendTurn({
+          threadId: event.payload.threadId,
+          input: message.text,
+          steer: {
+            turnId: event.metadata.routeSteerTurnId,
+            runtimeMode: event.payload.runtimeMode,
+          },
+        })
+        .pipe(
+          Effect.matchCauseEffect({
+            onSuccess: () => appendRouteTransportEvidence("sent"),
+            onFailure: () => appendRouteTransportEvidence("outcome-unknown"),
+          }),
+        );
+      return;
+    }
+
     const appendTurnStartFailure = (summary: string, detail: string) =>
       appendProviderFailureActivity({
         threadId: event.payload.threadId,
@@ -1600,63 +1676,6 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const { routeId, sourceThreadId } = event.metadata;
-    const routed = routeId !== undefined || sourceThreadId !== undefined;
-    const correlated =
-      routeId !== undefined &&
-      sourceThreadId !== undefined &&
-      sourceThreadId !== event.payload.threadId &&
-      event.commandId !== null;
-    const appendRouteTransportEvidence = (outcome: "sent" | "outcome-unknown") =>
-      Effect.gen(function* () {
-        if (!correlated) {
-          yield* Effect.logWarning("Routed provider transport cannot be safely correlated", {
-            eventId: event.eventId,
-            threadId: event.payload.threadId,
-          });
-          return;
-        }
-        // Stable across replay; transport evidence never implies agent acceptance or completion.
-        const identity = [
-          routeId,
-          event.commandId,
-          event.payload.messageId,
-          event.payload.threadId,
-          outcome,
-        ]
-          .map((part) => encodeURIComponent(part ?? ""))
-          .join(":");
-        yield* orchestrationEngine.dispatch({
-          type: "thread.activity.append",
-          commandId: CommandId.make(`route-transport:${identity}`),
-          threadId: event.payload.threadId,
-          activity: {
-            id: EventId.make(`route-transport:${identity}`),
-            tone: "info",
-            kind: "route.transport",
-            summary:
-              outcome === "sent" ? "Route sent to provider" : "Route transport outcome unknown",
-            payload: {
-              routeId,
-              sourceThreadId,
-              receivingThreadId: event.payload.threadId,
-              commandId: event.commandId,
-              messageId: event.payload.messageId,
-              outcome,
-            },
-            turnId: null,
-            createdAt: event.payload.createdAt,
-          },
-          createdAt: event.payload.createdAt,
-        });
-      }).pipe(
-        Effect.catchCause((cause) =>
-          Effect.logWarning("Could not persist routed provider transport evidence", {
-            eventId: event.eventId,
-            cause: Cause.pretty(cause),
-          }),
-        ),
-      );
     const send = providerService.sendTurn(sendTurnRequest.value).pipe(
       Effect.tap(() => Effect.sync(() => pendingProviderHandoffs.delete(event.payload.threadId))),
       Effect.matchCauseEffect({

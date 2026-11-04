@@ -861,91 +861,135 @@ describe("ProviderCommandReactor", () => {
     }),
   );
 
-  for (const rejects of [false, true]) {
-    effectIt.effect(
-      `records routed transport only after provider settles (rejects=${rejects})`,
-      () =>
-        Effect.gen(function* () {
-          const harness = yield* Effect.promise(() =>
-            createHarness({ titleRegenerationBeforeStart: "two" }),
-          );
-          const entered = yield* Deferred.make<void>();
-          const release = yield* Deferred.make<void>();
-          harness.sendTurn.mockImplementation(() =>
-            Deferred.succeed(entered, undefined).pipe(
-              Effect.andThen(Deferred.await(release)),
-              Effect.andThen(
-                rejects
-                  ? Effect.die(new Error("Provider response lost"))
-                  : Effect.succeed({
-                      threadId: ThreadId.make("thread-1"),
-                      turnId: asTurnId("turn-1"),
-                    }),
+  for (const active of [false, true]) {
+    for (const rejects of [false, true]) {
+      effectIt.effect(
+        `records routed transport only after provider settles (active=${active}, rejects=${rejects})`,
+        () =>
+          Effect.gen(function* () {
+            const harness = yield* Effect.promise(() =>
+              createHarness({ titleRegenerationBeforeStart: "two" }),
+            );
+            const entered = yield* Deferred.make<void>();
+            const release = yield* Deferred.make<void>();
+            harness.sendTurn.mockImplementation(() =>
+              Deferred.succeed(entered, undefined).pipe(
+                Effect.andThen(Deferred.await(release)),
+                Effect.andThen(
+                  rejects
+                    ? Effect.die(new Error("Provider response lost"))
+                    : Effect.succeed({
+                        threadId: ThreadId.make("thread-1"),
+                        turnId: asTurnId("turn-1"),
+                      }),
+                ),
               ),
-            ),
-          );
-          const receipt = yield* harness.engine.streamDomainEvents.pipe(
-            Stream.filter(
-              (event) =>
-                event.type === "thread.activity-appended" &&
-                event.payload.activity.kind === "route.transport",
-            ),
-            Stream.take(1),
-            Stream.toPull,
-            Scope.provide(scope!),
-          );
-          const command = {
-            type: "thread.route.deliver" as const,
-            commandId: CommandId.make("route-command"),
-            routeId: "route-test",
-            sourceThreadId: ThreadId.make("thread-2"),
-            threadId: ThreadId.make("thread-1"),
-            messageId: asMessageId("route-message"),
-            originalRuntimeMode: "approval-required" as const,
-            originalProviderInstanceId: ProviderInstanceId.make("codex"),
-            text: "Investigate routed task",
-            provenance: "test source",
-            visitedThreadIds: [],
-            createdAt: "2026-01-01T00:00:00.000Z",
-          };
-          yield* harness.engine.dispatch(command);
-          yield* Deferred.await(entered);
-          const before = yield* Effect.promise(harness.readModel);
-          expect(
-            before.threads
-              .find((thread) => thread.id === command.threadId)
-              ?.activities.filter((activity) => activity.kind === "route.transport"),
-          ).toEqual([]);
-          yield* Deferred.succeed(release, undefined);
-          yield* receipt;
-          const after = yield* Effect.promise(harness.readModel);
-          const activities = after.threads.find(
-            (thread) => thread.id === command.threadId,
-          )!.activities;
-          const evidence = activities.filter((activity) => activity.kind === "route.transport");
-          expect(evidence).toHaveLength(1);
-          expect(evidence[0]?.payload).toMatchObject({
-            routeId: command.routeId,
-            commandId: command.commandId,
-            messageId: command.messageId,
-            receivingThreadId: command.threadId,
-            sourceThreadId: command.sourceThreadId,
-            outcome: rejects ? "outcome-unknown" : "sent",
-          });
-          expect(
-            activities.some((activity) => activity.kind === "provider.turn.start.failed"),
-          ).toBe(false);
-          yield* harness.engine.dispatch(command);
-          yield* Effect.promise(harness.drain);
-          expect(harness.sendTurn).toHaveBeenCalledTimes(1);
-          const replay = yield* Effect.promise(harness.readModel);
-          expect(
-            replay.threads
-              .find((thread) => thread.id === command.threadId)
-              ?.activities.filter((activity) => activity.kind === "route.transport"),
-          ).toEqual(evidence);
-        }),
-    );
+            );
+            const receipt = yield* harness.engine.streamDomainEvents.pipe(
+              Stream.filter(
+                (event) =>
+                  event.type === "thread.activity-appended" &&
+                  event.payload.activity.kind === "route.transport",
+              ),
+              Stream.take(1),
+              Stream.toPull,
+              Scope.provide(scope!),
+            );
+            const command = {
+              type: "thread.route.deliver" as const,
+              commandId: CommandId.make("route-command"),
+              routeId: "route-test",
+              sourceThreadId: ThreadId.make("thread-2"),
+              threadId: ThreadId.make("thread-1"),
+              messageId: asMessageId("route-message"),
+              originalRuntimeMode: "approval-required" as const,
+              originalProviderInstanceId: ProviderInstanceId.make("codex"),
+              text: "Investigate routed task",
+              provenance: "test source",
+              visitedThreadIds: [],
+              createdAt: "2026-01-01T00:00:00.000Z",
+            };
+            if (active) {
+              yield* harness.engine.dispatch({
+                type: "thread.session.set",
+                commandId: CommandId.make("running-session"),
+                threadId: command.threadId,
+                createdAt: command.createdAt,
+                session: {
+                  threadId: command.threadId,
+                  status: "running",
+                  providerName: "codex",
+                  providerInstanceId: ProviderInstanceId.make("codex"),
+                  runtimeMode: "approval-required",
+                  activeTurnId: asTurnId("active-turn"),
+                  lastError: null,
+                  updatedAt: command.createdAt,
+                },
+              });
+              Object.assign(command, { activeTurnId: asTurnId("active-turn") });
+            }
+            yield* harness.engine.dispatch(command);
+            yield* Deferred.await(entered);
+            const before = yield* Effect.promise(harness.readModel);
+            expect(
+              before.threads
+                .find((thread) => thread.id === command.threadId)
+                ?.activities.filter((activity) => activity.kind === "route.transport"),
+            ).toEqual([]);
+            yield* Deferred.succeed(release, undefined);
+            yield* receipt;
+            const after = yield* Effect.promise(harness.readModel);
+            const activities = after.threads.find(
+              (thread) => thread.id === command.threadId,
+            )!.activities;
+            const evidence = activities.filter((activity) => activity.kind === "route.transport");
+            expect(evidence).toHaveLength(1);
+            expect(evidence[0]?.payload).toMatchObject({
+              routeId: command.routeId,
+              commandId: command.commandId,
+              messageId: command.messageId,
+              receivingThreadId: command.threadId,
+              sourceThreadId: command.sourceThreadId,
+              outcome: rejects ? "outcome-unknown" : "sent",
+            });
+            expect(
+              activities.some((activity) => activity.kind === "provider.turn.start.failed"),
+            ).toBe(false);
+            yield* harness.engine.dispatch(command);
+            yield* Effect.promise(harness.drain);
+            expect(harness.sendTurn).toHaveBeenCalledTimes(1);
+            if (active) {
+              expect(harness.sendTurn).toHaveBeenCalledWith({
+                threadId: command.threadId,
+                input: command.text,
+                steer: { turnId: "active-turn", runtimeMode: "approval-required" },
+              });
+            }
+
+            const replay = yield* Effect.promise(harness.readModel);
+            if (active) {
+              const destination = replay.threads.find((thread) => thread.id === command.threadId)!;
+              expect(destination.session).toMatchObject({
+                status: "running",
+                activeTurnId: "active-turn",
+              });
+              expect(destination.latestTurn).toMatchObject({
+                turnId: "active-turn",
+                state: "running",
+              });
+              expect(
+                destination.messages.find((message) => message.id === command.messageId)?.turnId,
+              ).toBe("active-turn");
+            }
+
+            expect(
+              replay.threads
+                .find((thread) => thread.id === command.threadId)
+                ?.activities.filter((activity) => activity.kind === "route.transport"),
+            ).toEqual(evidence);
+          }),
+      );
+    }
   }
 
   it("reacts to thread.turn.start by ensuring session and sending provider turn", async () => {

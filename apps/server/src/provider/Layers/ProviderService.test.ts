@@ -421,6 +421,7 @@ function makeProviderServiceLayer(
   input: {
     readonly directory?: ProviderSessionDirectory.ProviderSessionDirectory["Service"];
     readonly supportsConversationRollback?: boolean;
+    readonly activeTurnSteering?: boolean;
     readonly analyticsLayer?: Layer.Layer<AnalyticsService.AnalyticsService>;
     readonly settingsLayer?: typeof defaultServerSettingsLayer;
     readonly registry?: ProviderAdapterRegistry.ProviderAdapterRegistry["Service"];
@@ -429,6 +430,8 @@ function makeProviderServiceLayer(
   } = {},
 ) {
   const codex = makeFakeCodexAdapter(CODEX_DRIVER, input.supportsConversationRollback);
+  if (input.activeTurnSteering !== undefined)
+    Object.assign(codex.adapter.capabilities, { activeTurnSteering: input.activeTurnSteering });
   const claude = makeFakeCodexAdapter(CLAUDE_AGENT_DRIVER);
   const cursor = makeFakeCodexAdapter(CURSOR_DRIVER);
   const registry =
@@ -1170,6 +1173,46 @@ it.effect("ProviderServiceLive rejects new sessions for disabled custom instance
     assert.equal(codex.startSession.mock.calls.length, 0);
   }).pipe(Effect.provide(NodeServices.layer)),
 );
+
+for (const supported of [false, true]) {
+  const live = makeProviderServiceLayer({ activeTurnSteering: supported });
+  live.layer(`live route service (supported=${supported})`, (it) => {
+    it.effect("preserves the bound session and rejects permission/model changes", () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService.ProviderService;
+        const threadId = asThreadId("live-route");
+        yield* provider.startSession(threadId, {
+          provider: CODEX_DRIVER,
+          providerInstanceId: codexInstanceId,
+          threadId,
+          runtimeMode: "full-access",
+        });
+        const input = {
+          threadId,
+          input: "include this fix",
+          steer: { turnId: TurnId.make("active"), runtimeMode: "full-access" as const },
+        };
+        if (supported) {
+          yield* provider.sendTurn(input);
+          assert.equal(live.codex.sendTurn.mock.calls.length, 1);
+          assert.deepEqual(live.codex.sendTurn.mock.calls[0]?.[0], input);
+        } else {
+          const failure = yield* Effect.flip(provider.sendTurn(input));
+          assert.instanceOf(failure, ProviderValidationError);
+        }
+        for (const changed of [
+          { ...input, steer: { ...input.steer, runtimeMode: "approval-required" as const } },
+          { ...input, modelSelection: createModelSelection(codexInstanceId, "other") },
+        ]) {
+          const failure = yield* Effect.flip(provider.sendTurn(changed));
+          assert.instanceOf(failure, ProviderValidationError);
+        }
+        assert.equal(live.codex.startSession.mock.calls.length, 1);
+        assert.equal(live.codex.interruptTurn.mock.calls.length, 0);
+      }),
+    );
+  });
+}
 
 const routing = makeProviderServiceLayer();
 
