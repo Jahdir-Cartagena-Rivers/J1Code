@@ -39,7 +39,10 @@ export function routeRequestAnchors(
     const summary = request.summary?.trim();
     const exact =
       summary && summary.length >= 20
-        ? users.find((message) => message.text?.trim().startsWith(summary))
+        ? users.find(
+            (message) =>
+              (!time || message.createdAt <= time) && message.text?.trim().startsWith(summary),
+          )
         : undefined;
     const message =
       exact ?? (time ? users.findLast((message) => message.createdAt <= time) : users[0]);

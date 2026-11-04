@@ -44,3 +44,16 @@ it("matches legacy request text and preserves records without notices", () => {
   expect(routeRequestAnchors([{ requestId: "unknown" }], users, []).get("unknown")).toBe("first");
   expect(routeRequestAnchors([{ requestId: "empty" }], [], []).size).toBe(0);
 });
+
+it("does not move a card to a later followup quoting its summary", () => {
+  const summary = "The forwarded implementation request";
+  const later = [
+    ...messages,
+    { id: "quote", role: "user", createdAt: "2026-11-04T12:00:00Z", text: summary },
+  ];
+  expect(
+    routeRequestAnchors([{ requestId: "r", summary }], later, [
+      { kind: "routing.updated", createdAt: "2026-11-04T10:02:00Z", payload: { requestId: "r" } },
+    ]).get("r"),
+  ).toBe("first");
+});
