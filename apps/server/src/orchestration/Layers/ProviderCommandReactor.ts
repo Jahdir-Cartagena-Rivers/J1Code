@@ -26,6 +26,7 @@ import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import { botTurnContext } from "../botTurnContext.ts";
 import * as Equal from "effect/Equal";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -893,11 +894,23 @@ const make = Effect.gen(function* () {
       threadModelSelections.set(input.threadId, input.modelSelection);
     }
     const previousMessages = pendingProviderHandoffs.get(input.threadId);
+    const bot = thread.bot
+      ? yield* projectionSnapshotQuery.getThreadBotIdentity(input.threadId)
+      : null;
+    const botContext = botTurnContext(bot);
+    if (botContext.length + input.messageText.length > PROVIDER_SEND_TURN_MAX_INPUT_CHARS) {
+      return yield* new ProviderAdapterRequestError({
+        provider: providerErrorLabel(String(thread.modelSelection.instanceId)),
+        method: "thread.turn.start",
+        detail: "Shorten this message or the bot instructions to fit the provider input limit.",
+      });
+    }
     const currentMessagePrefix = "\n\nCURRENT USER MESSAGE:\n";
     const handoff = previousMessages
       ? formatProviderHandoff(
           previousMessages,
           PROVIDER_SEND_TURN_MAX_INPUT_CHARS -
+            botContext.length -
             input.messageText.length -
             currentMessagePrefix.length,
         )
@@ -912,7 +925,8 @@ const make = Effect.gen(function* () {
       });
     }
     const normalizedInput = toNonEmptyProviderInput(
-      handoff ? `${handoff}${currentMessagePrefix}${input.messageText}` : input.messageText,
+      botContext +
+        (handoff ? `${handoff}${currentMessagePrefix}${input.messageText}` : input.messageText),
     );
     const normalizedAttachments = input.attachments ?? [];
     const activeSession = yield* providerService

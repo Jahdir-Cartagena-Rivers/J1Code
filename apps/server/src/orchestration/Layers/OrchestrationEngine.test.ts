@@ -962,6 +962,7 @@ describe("OrchestrationEngine", () => {
     const layer = OrchestrationEngineLive.pipe(
       Layer.provide(
         Layer.succeed(ProjectionSnapshotQuery, {
+          getThreadBotIdentity: () => Effect.die("unused bot identity lookup"),
           getUserInputActivity: () => Effect.die("unused"),
           listActivitiesByKind: () => Effect.die("unused"),
           getCommandReadModel: () => Effect.succeed(commandReadModel),

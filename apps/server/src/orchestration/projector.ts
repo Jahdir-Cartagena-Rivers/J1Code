@@ -438,6 +438,7 @@ export function projectEvent(
           OrchestrationThread,
           {
             id: payload.threadId,
+            ...(payload.bot ? { bot: payload.bot } : {}),
             projectId: payload.projectId,
             title: payload.title,
             modelSelection: payload.modelSelection,

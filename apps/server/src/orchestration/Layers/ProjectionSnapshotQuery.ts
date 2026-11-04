@@ -31,6 +31,7 @@ import {
   ProjectId,
   ThreadLinkedPullRequest,
   ThreadTitleState,
+  ThreadBotIdentity,
   ThreadId,
   ThreadPullRequestSnapshot,
   ThreadPullRequestStack,
@@ -130,6 +131,7 @@ const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
   Struct.assign({
     parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
     modelSelection: Schema.fromJsonString(ModelSelection),
+    bot: Schema.NullOr(Schema.fromJsonString(ThreadBotIdentity)),
     titleState: Schema.NullOr(Schema.fromJsonString(ThreadTitleState)),
     linkedPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
     branchPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
@@ -571,6 +573,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           title,
           title_state_json AS "titleState",
           model_selection_json AS "modelSelection",
+          bot_identity_json AS "bot",
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",
           branch,
@@ -634,6 +637,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           title,
           title_state_json AS "titleState",
           model_selection_json AS "modelSelection",
+          bot_identity_json AS "bot",
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",
           branch,
@@ -724,6 +728,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           title,
           title_state_json AS "titleState",
           model_selection_json AS "modelSelection",
+          bot_identity_json AS "bot",
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",
           branch,
@@ -1343,6 +1348,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           title,
           title_state_json AS "titleState",
           model_selection_json AS "modelSelection",
+          bot_identity_json AS "bot",
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",
           branch,
@@ -2415,6 +2421,7 @@ pending_approval_requests AS (
                 projectId: row.projectId,
                 title: row.title,
                 modelSelection: row.modelSelection,
+                ...(row.bot ? { bot: row.bot } : {}),
                 runtimeMode: row.runtimeMode,
                 interactionMode: row.interactionMode,
                 branch: row.branch,
@@ -2661,6 +2668,7 @@ pending_approval_requests AS (
                   projectId: row.projectId,
                   title: row.title,
                   modelSelection: row.modelSelection,
+                  ...(row.bot ? { bot: row.bot } : {}),
                   runtimeMode: row.runtimeMode,
                   interactionMode: row.interactionMode,
                   branch: row.branch,
@@ -2823,6 +2831,7 @@ pending_approval_requests AS (
                         projectId: row.projectId,
                         title: row.title,
                         modelSelection: row.modelSelection,
+                        ...(row.bot ? { bot: { id: row.bot.id, name: row.bot.name } } : {}),
                         runtimeMode: row.runtimeMode,
                         interactionMode: row.interactionMode,
                         branch: row.branch,
@@ -3010,6 +3019,7 @@ pending_approval_requests AS (
                   projectId: row.projectId,
                   title: row.title,
                   modelSelection: row.modelSelection,
+                  ...(row.bot ? { bot: { id: row.bot.id, name: row.bot.name } } : {}),
                   runtimeMode: row.runtimeMode,
                   interactionMode: row.interactionMode,
                   branch: row.branch,
@@ -3359,6 +3369,9 @@ pending_approval_requests AS (
         projectId: threadRow.value.projectId,
         title: threadRow.value.title,
         modelSelection: threadRow.value.modelSelection,
+        ...(threadRow.value.bot
+          ? { bot: { id: threadRow.value.bot.id, name: threadRow.value.bot.name } }
+          : {}),
         runtimeMode: threadRow.value.runtimeMode,
         interactionMode: threadRow.value.interactionMode,
         branch: threadRow.value.branch,
@@ -3398,6 +3411,26 @@ pending_approval_requests AS (
         planProgress: threadPlanProgress.getThreadPlanProgress(threadRow.value.threadId),
       } satisfies OrchestrationThreadShell);
     });
+
+  const findThreadBot = SqlSchema.findOneOption({
+    Request: ThreadIdLookupInput,
+    Result: Schema.Struct({ bot: Schema.NullOr(Schema.fromJsonString(ThreadBotIdentity)) }),
+    execute: ({ threadId }) =>
+      sql`SELECT bot_identity_json AS bot FROM projection_threads WHERE thread_id = ${threadId} AND deleted_at IS NULL`,
+  });
+  const getThreadBotIdentity: ProjectionSnapshotQueryShape["getThreadBotIdentity"] = Effect.fn(
+    "ProjectionSnapshotQuery.getThreadBotIdentity",
+  )(function* (threadId) {
+    const row = yield* findThreadBot({ threadId }).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.getThreadBotIdentity:query",
+          "ProjectionSnapshotQuery.getThreadBotIdentity:decodeRow",
+        ),
+      ),
+    );
+    return Option.isSome(row) ? row.value.bot : null;
+  });
 
   const getThreadRuntimeContext: ProjectionSnapshotQueryShape["getThreadRuntimeContext"] =
     Effect.fn("ProjectionSnapshotQuery.getThreadRuntimeContext")(function* (threadId) {
@@ -3661,6 +3694,7 @@ pending_approval_requests AS (
         projectId: threadRow.value.projectId,
         title: threadRow.value.title,
         modelSelection: threadRow.value.modelSelection,
+        ...(threadRow.value.bot ? { bot: threadRow.value.bot } : {}),
         runtimeMode: threadRow.value.runtimeMode,
         interactionMode: threadRow.value.interactionMode,
         branch: threadRow.value.branch,
@@ -3888,6 +3922,7 @@ pending_approval_requests AS (
       );
 
   return {
+    getThreadBotIdentity,
     getCommandReadModel,
     getUserInputActivity,
     listActivitiesByKind,

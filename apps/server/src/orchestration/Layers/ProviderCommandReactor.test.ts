@@ -7,6 +7,7 @@ import {
   ModelSelection,
   ProviderRuntimeEvent,
   ProviderSession,
+  type ThreadBotIdentity,
   ProviderDriverKind,
   ProviderInstanceId,
   ProviderSetupError,
@@ -14,6 +15,7 @@ import {
 import { createModelSelection } from "@t3tools/shared/model";
 import {
   ApprovalRequestId,
+  BotId,
   CommandId,
   ComposerContextId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -170,6 +172,7 @@ describe("ProviderCommandReactor", () => {
   async function createHarness(input?: {
     readonly baseDir?: string;
     readonly initialTitle?: string;
+    readonly bot?: ThreadBotIdentity;
     readonly deferReactorStart?: boolean;
     readonly threadModelSelection?: ModelSelection;
     readonly sessionModelSwitch?: "unsupported" | "in-session";
@@ -527,6 +530,7 @@ describe("ProviderCommandReactor", () => {
         threadId: ThreadId.make("thread-1"),
         projectId: asProjectId("project-1"),
         title: input?.initialTitle ?? "Thread",
+        ...(input?.bot ? { bot: input.bot } : {}),
         modelSelection: modelSelection,
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
@@ -967,6 +971,7 @@ describe("ProviderCommandReactor", () => {
 
     await waitFor(() => harness.startSession.mock.calls.length === 1);
     await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({ input: "hello reactor" });
     expect(harness.startSession.mock.calls[0]?.[0]).toEqual(ThreadId.make("thread-1"));
     expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
       cwd: "/tmp/provider-project",
@@ -985,6 +990,103 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.runtimeMode).toBe("approval-required");
     expect(harness.startSession.mock.calls[0]?.[1]).not.toHaveProperty("title");
   });
+
+  it("sends the saved bot instructions through the provider without changing approval mode", async () => {
+    const harness = await createHarness({
+      bot: {
+        id: BotId.make("bot-reviewer"),
+        name: "Reviewer",
+        instructions: "Review changes and cite evidence.",
+      },
+    });
+    const now = "2026-01-01T00:00:00.000Z";
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-1"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-1"),
+          role: "user",
+          text: "hello reactor",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+      input:
+        'User-configured bot profile for this conversation:\n{"name":"Reviewer","instructions":"Review changes and cite evidence."}\n\nhello reactor',
+    });
+    expect(harness.startSession.mock.calls[0]?.[0]).toEqual(ThreadId.make("thread-1"));
+    expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
+      cwd: "/tmp/provider-project",
+      modelSelection: {
+        instanceId: ProviderInstanceId.make("codex"),
+        model: "gpt-5-codex",
+      },
+      runtimeMode: "approval-required",
+    });
+
+    const readModel = await harness.readModel();
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+    expect(thread?.activities.some((activity) => activity.kind === "route.transport")).toBe(false);
+    expect(thread?.session?.threadId).toBe("thread-1");
+    expect(thread?.session?.status).toBe("starting");
+    expect(thread?.session?.runtimeMode).toBe("approval-required");
+    expect(harness.startSession.mock.calls[0]?.[1]).not.toHaveProperty("title");
+  });
+
+  effectIt.effect("rejects a bot turn that exceeds the combined provider input limit", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() =>
+        createHarness({
+          bot: {
+            id: BotId.make("large-profile"),
+            name: "Large profile",
+            instructions: "x".repeat(32_000),
+          },
+        }),
+      );
+      const receipt = yield* harness.engine.streamDomainEvents.pipe(
+        Stream.filter(
+          (event) =>
+            event.type === "thread.activity-appended" &&
+            event.payload.activity.kind === "provider.turn.start.failed",
+        ),
+        Stream.take(1),
+        Stream.toPull,
+        Scope.provide(scope!),
+      );
+      yield* harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("oversized-bot-turn"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("oversized-bot-message"),
+          role: "user",
+          text: "y".repeat(100_000),
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      });
+      yield* receipt;
+      yield* Effect.promise(harness.drain);
+      expect(harness.sendTurn).not.toHaveBeenCalled();
+      const thread = (yield* Effect.promise(harness.readModel)).threads.find(
+        (entry) => entry.id === "thread-1",
+      );
+      expect(thread?.session?.lastError).toContain("bot instructions");
+    }),
+  );
 
   effectIt.effect("forwards only a user-renamed title when starting a provider session", () =>
     Effect.gen(function* () {

@@ -415,6 +415,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         type: "thread.created",
         payload: {
           threadId: command.threadId,
+          ...(command.bot ? { bot: command.bot } : {}),
           projectId: command.projectId,
           title: command.title,
           modelSelection: command.modelSelection,

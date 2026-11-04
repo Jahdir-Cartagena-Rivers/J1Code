@@ -1425,6 +1425,28 @@ function BrowserProfilesSetting({ disabled }: { readonly disabled: boolean }) {
   );
 }
 
+function LightpandaSetting() {
+  const path = useScopedSettings((settings) => settings.lightpandaExecutablePath);
+  const update = useUpdateScopedSettings();
+  return (
+    <SettingsRow
+      serverScoped
+      settingKeys={["lightpandaExecutablePath"]}
+      id="lightpanda-background-browser"
+      title="Background browser"
+      description="Use native Lightpanda for agent research and page automation. Enter its executable path on the connected server, or leave blank to disable. The visual browser keeps its own profiles."
+    >
+      <DraftInput
+        nativeInput
+        aria-label="Lightpanda executable path"
+        value={path}
+        maxLength={4096}
+        onCommit={(value) => update({ lightpandaExecutablePath: value.trim() })}
+      />
+    </SettingsRow>
+  );
+}
+
 export function IntegrationsSettingsPanel() {
   // Client-local preview defaults are editable only where the preview exists.
   const previewDefaultsDisabled = !isElectron;
@@ -1447,6 +1469,7 @@ export function IntegrationsSettingsPanel() {
           the preview defaults below are device-local and ignore it. */}
       <ProjectDefaultsSettings category="integrations" />
       <SettingsSection id="browser" title="Browser">
+        <LightpandaSetting />
         {previewDefaultsDisabled ? (
           <SettingsUnavailableGroup message="Only available in the desktop app.">
             {previewDefaults}

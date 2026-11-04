@@ -4,6 +4,7 @@ import * as SchemaIssue from "effect/SchemaIssue";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import * as Struct from "effect/Struct";
 import { OrchestrationMessageContext } from "./composerContext.ts";
+import { ThreadBotIdentity, ThreadBotReference } from "./botIdentity.ts";
 import { ProviderOptionSelections } from "./model.ts";
 import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import {
@@ -793,6 +794,7 @@ export type ThreadPullRequestLink = typeof ThreadPullRequestLink.Type;
 
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
+  bot: Schema.optionalKey(Schema.NullOr(ThreadBotIdentity)),
   projectId: ProjectId,
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
@@ -884,6 +886,7 @@ export type OrchestrationProjectShell = typeof OrchestrationProjectShell.Type;
 
 export const OrchestrationThreadShell = Schema.Struct({
   id: ThreadId,
+  bot: Schema.optionalKey(Schema.NullOr(ThreadBotReference)),
   /** Saved worker lineage; absent on servers predating worker chat navigation. */
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   projectId: ProjectId,
@@ -1121,6 +1124,7 @@ const ProjectDeleteCommand = Schema.Struct({
 
 const ThreadCreateCommand = Schema.Struct({
   type: Schema.Literal("thread.create"),
+  bot: Schema.optionalKey(Schema.NullOr(ThreadBotIdentity)),
   commandId: CommandId,
   threadId: ThreadId,
   projectId: ProjectId,
@@ -1803,6 +1807,7 @@ export const ProjectDeletedPayload = Schema.Struct({
 
 export const ThreadCreatedPayload = Schema.Struct({
   threadId: ThreadId,
+  bot: Schema.optionalKey(Schema.NullOr(ThreadBotIdentity)),
   projectId: ProjectId,
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,

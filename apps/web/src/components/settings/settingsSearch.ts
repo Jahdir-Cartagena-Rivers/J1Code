@@ -633,6 +633,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     targetId: "browser",
   },
   {
+    id: "lightpanda-background-browser",
+    title: "Background browser",
+    to: "/settings/integrations",
+    targetId: "lightpanda-background-browser",
+    searchTerms: ["lightpanda native executable path headless research bots automation"],
+  },
+  {
     id: "browser-default-profile",
     title: "Default browser profile",
     to: "/settings/integrations",

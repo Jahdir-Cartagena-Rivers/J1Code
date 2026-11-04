@@ -26,6 +26,7 @@ import type {
   OrchestrationThreadShell,
   ProjectId,
   ThreadId,
+  ThreadBotIdentity,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import type * as Option from "effect/Option";
@@ -252,6 +253,10 @@ export interface ProjectionSnapshotQueryShape {
   ) => Effect.Effect<Option.Option<OrchestrationThreadShell>, ProjectionRepositoryError>;
 
   /** Read the active thread and session facts used to ingest provider events. */
+  readonly getThreadBotIdentity: (
+    threadId: ThreadId,
+  ) => Effect.Effect<ThreadBotIdentity | null, ProjectionRepositoryError>;
+
   readonly getThreadRuntimeContext: (
     threadId: ThreadId,
   ) => Effect.Effect<

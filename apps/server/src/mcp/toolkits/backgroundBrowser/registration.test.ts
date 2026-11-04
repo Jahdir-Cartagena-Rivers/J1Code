@@ -1,0 +1,22 @@
+import { expect, it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import { McpServer } from "effect/unstable/ai";
+import { ServerSettingsService } from "../../../serverSettings.ts";
+import { BackgroundBrowserToolkit } from "./tools.ts";
+import { BackgroundBrowserHandlers } from "./handlers.ts";
+import { BackgroundBrowserLive } from "./runtime.ts";
+
+const registration = McpServer.toolkit(BackgroundBrowserToolkit).pipe(
+  Layer.provide(BackgroundBrowserHandlers),
+  Layer.provide(BackgroundBrowserLive),
+  Layer.provideMerge(McpServer.McpServer.layer),
+  Layer.provide(ServerSettingsService.layerTest()),
+);
+
+it.effect("registers native browser tools before any browser process starts", () =>
+  Effect.gen(function* () {
+    const registry = yield* McpServer.McpServer;
+    expect(registry.tools.map(({ tool }) => tool.name)).toContain("background_browser_call");
+  }).pipe(Effect.provide(registration)),
+);
