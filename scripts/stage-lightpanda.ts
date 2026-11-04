@@ -7,7 +7,7 @@ import * as NodeUtil from "node:util";
 const run = NodeUtil.promisify(NodeChildProcess.execFile);
 export const LIGHTPANDA_SOURCE = "090488933101502abe191bdde4bca837c6db1911";
 const base =
-  "https://github.com/Jahdir-Cartagena-Rivers/browser/releases/download/windows-native-0904889/";
+  "https://github.com/Jahdir-Cartagena-Rivers/browser/releases/download/windows-native-v0.1.0/";
 export function verifyNativeHash(bytes: Uint8Array, expected: string) {
   if (NodeCrypto.createHash("sha256").update(bytes).digest("hex") !== expected)
     throw new Error("Lightpanda integrity check failed");
