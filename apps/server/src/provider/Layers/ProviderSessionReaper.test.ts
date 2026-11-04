@@ -234,6 +234,7 @@ describe("ProviderSessionReaper", () => {
       Layer.provideMerge(
         Layer.succeed(ProjectionSnapshotQuery, {
           getWorkerDescendantIds: () => Effect.succeed([]),
+          getThreadBotIdentity: () => Effect.die("unused bot identity lookup"),
           getUserInputActivity: () => Effect.die("unused"),
           listActivitiesByKind: () => Effect.die("unused"),
           getCommandReadModel: () => Effect.die("unused"),

@@ -275,6 +275,7 @@ export function applyServerSettingsPatch(
     backgroundActivity,
     // A policy is a complete selection; stale model capability facts must not survive replacement.
     autoModelPolicy: autoModelPolicyPatch,
+    bots: botsPatch,
     worktreeCleanup: worktreeCleanupPatch,
     // Merged per entry below; its `null` removals must not reach deepMerge.
     usageLimitSources: usageLimitSourcesPatch,
@@ -363,6 +364,7 @@ export function applyServerSettingsPatch(
     ...(patch.providerInstances !== undefined
       ? { providerInstances: patch.providerInstances }
       : {}),
+    ...(botsPatch !== undefined ? { bots: mergeSettingsEntries(current.bots, botsPatch) } : {}),
     ...(projectSettingsOverridesPatch !== undefined
       ? {
           projectSettingsOverrides: Object.fromEntries(

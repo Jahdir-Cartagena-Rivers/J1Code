@@ -627,6 +627,17 @@ describe("buildCodexAdditionalContext", () => {
     NodeAssert.doesNotMatch(value, /<runtime_info>[^<]*\n/);
   });
 
+  it("advertises background research and visual browser tools only with browser access", () => {
+    const enabled = buildCodexAdditionalContext(runtime, { browser: true, device: false });
+    const tools = enabled.t3_code_tools?.value ?? "";
+    NodeAssert.match(tools, /background_browser_tools/);
+    NodeAssert.match(tools, /background_browser_call/);
+    NodeAssert.match(tools, /preview_status/);
+    NodeAssert.ok(Buffer.byteLength(tools) < 4_000);
+    const disabled = buildCodexAdditionalContext(runtime, { browser: false, device: false });
+    NodeAssert.equal(disabled.t3_code_tools, undefined);
+  });
+
   it("keeps every entry under Codex's 1,000 token cap per entry", () => {
     const context = buildCodexAdditionalContext(runtime, { browser: true, device: true });
     for (const entry of Object.values(context)) {

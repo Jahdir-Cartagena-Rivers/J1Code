@@ -240,6 +240,7 @@ import {
 } from "./ui/combobox";
 import { SidebarContent, SidebarGroup, SidebarMenu, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader, SidebarHomeLink } from "./sidebar/SidebarChrome";
+import { SidebarBots } from "./sidebar/SidebarBots";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
@@ -4477,6 +4478,7 @@ export default function Sidebar() {
     <>
       <SidebarChromeHeader isElectron={isElectron} />
       <SidebarHomeLink />
+      <SidebarBots />
       <SidebarContent
         className="min-h-full"
         fixedHeader={

@@ -1069,6 +1069,7 @@ describe("OrchestrationEngine", () => {
       Layer.provide(
         Layer.succeed(ProjectionSnapshotQuery, {
           getWorkerDescendantIds: () => Effect.die("unused"),
+          getThreadBotIdentity: () => Effect.die("unused bot identity lookup"),
           getUserInputActivity: () => Effect.die("unused"),
           listActivitiesByKind: () => Effect.die("unused"),
           getCommandReadModel: () => Effect.succeed(commandReadModel),

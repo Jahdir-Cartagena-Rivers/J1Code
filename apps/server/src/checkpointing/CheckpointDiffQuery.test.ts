@@ -76,6 +76,7 @@ describe("CheckpointDiffQuery.layer", () => {
         Layer.provideMerge(
           Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
             getWorkerDescendantIds: () => Effect.succeed([]),
+            getThreadBotIdentity: () => Effect.die("unused bot identity lookup"),
             getUserInputActivity: () => Effect.die("unused"),
             listActivitiesByKind: () => Effect.die("unused"),
             getCommandReadModel: () =>
@@ -195,6 +196,7 @@ describe("CheckpointDiffQuery.layer", () => {
         Layer.provideMerge(
           Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
             getWorkerDescendantIds: () => Effect.succeed([]),
+            getThreadBotIdentity: () => Effect.die("unused bot identity lookup"),
             getUserInputActivity: () => Effect.die("unused"),
             listActivitiesByKind: () => Effect.die("unused"),
             getCommandReadModel: () =>
@@ -289,6 +291,7 @@ describe("CheckpointDiffQuery.layer", () => {
         Layer.provideMerge(
           Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
             getWorkerDescendantIds: () => Effect.succeed([]),
+            getThreadBotIdentity: () => Effect.die("unused bot identity lookup"),
             getUserInputActivity: () => Effect.die("unused"),
             listActivitiesByKind: () => Effect.die("unused"),
             getCommandReadModel: () =>
@@ -368,6 +371,7 @@ describe("CheckpointDiffQuery.layer", () => {
         Layer.provideMerge(
           Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
             getWorkerDescendantIds: () => Effect.succeed([]),
+            getThreadBotIdentity: () => Effect.die("unused bot identity lookup"),
             getUserInputActivity: () => Effect.die("unused"),
             listActivitiesByKind: () => Effect.die("unused"),
             getCommandReadModel: () =>
@@ -432,6 +436,7 @@ describe("CheckpointDiffQuery.layer", () => {
         Layer.provideMerge(
           Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
             getWorkerDescendantIds: () => Effect.succeed([]),
+            getThreadBotIdentity: () => Effect.die("unused bot identity lookup"),
             getUserInputActivity: () => Effect.die("unused"),
             listActivitiesByKind: () => Effect.die("unused"),
             getCommandReadModel: () =>

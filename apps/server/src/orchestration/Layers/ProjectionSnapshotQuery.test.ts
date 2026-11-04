@@ -112,6 +112,42 @@ const projectionSnapshotLayer = it.layer(
 );
 
 projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
+  it.effect(
+    "retains bot identity in initial shells, individual shells, details and command snapshots",
+    () =>
+      Effect.gen(function* () {
+        const query = yield* ProjectionSnapshotQuery;
+        const sql = yield* SqlClient.SqlClient;
+        const bot = { id: "review-bot", name: "Reviewer", instructions: "Review with evidence." };
+        const id = ThreadId.make("bot-query-thread");
+        yield* sql`INSERT INTO projection_projects
+        (project_id, title, workspace_root, scripts_json, created_at, updated_at)
+        VALUES ('bot-query-project', 'Bots', '/bots', '[]', '2026-11-04T00:00:00Z', '2026-11-04T00:00:00Z')`;
+        yield* sql`INSERT INTO projection_threads
+        (thread_id, project_id, title, model_selection_json, bot_identity_json, runtime_mode, interaction_mode, created_at, updated_at)
+        VALUES (${id}, 'bot-query-project', 'Review', ${encodeWorkerNavigationPayload({ instanceId: "codex", model: "gpt-5" })}, ${encodeWorkerNavigationPayload(bot)}, 'approval-required', 'default', '2026-11-04T00:00:00Z', '2026-11-04T00:00:00Z')`;
+        try {
+          assert.deepEqual(
+            (yield* query.getShellSnapshot()).threads.find((thread) => thread.id === id)?.bot,
+            { id: bot.id, name: bot.name },
+          );
+          assert.deepEqual(Option.getOrThrow(yield* query.getThreadShellById(id)).bot, {
+            id: bot.id,
+            name: bot.name,
+          });
+          assert.deepEqual(Option.getOrThrow(yield* query.getThreadDetailById(id)).bot, bot);
+          assert.deepEqual(yield* query.getThreadBotIdentity(id), bot);
+          assert.deepEqual(
+            (yield* query.getCommandReadModel()).threads.find((thread) => thread.id === id)?.bot,
+            bot,
+          );
+        } finally {
+          yield* sql`DELETE FROM projection_threads WHERE thread_id = ${id}`;
+          yield* sql`DELETE FROM projection_projects WHERE project_id = 'bot-query-project'`;
+        }
+      }),
+  );
+
   it.effect("exposes saved worker lineage in initial, streamed, and archived shells", () =>
     Effect.gen(function* () {
       const query = yield* ProjectionSnapshotQuery;

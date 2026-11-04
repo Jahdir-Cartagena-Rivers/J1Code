@@ -612,6 +612,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           });
           yield* projectionThreadRepository.upsert({
             threadId: event.payload.threadId,
+            bot: event.payload.bot ?? null,
             projectId: event.payload.projectId,
             title: event.payload.title,
             modelSelection: event.payload.modelSelection,

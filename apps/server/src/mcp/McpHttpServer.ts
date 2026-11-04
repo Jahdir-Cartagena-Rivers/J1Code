@@ -1,3 +1,6 @@
+import { BackgroundBrowserToolkit } from "./toolkits/backgroundBrowser/tools.ts";
+import { BackgroundBrowserHandlers } from "./toolkits/backgroundBrowser/handlers.ts";
+import { BackgroundBrowserLive } from "./toolkits/backgroundBrowser/runtime.ts";
 import { RoutingToolkit } from "./toolkits/routing/tools.ts";
 import { RoutingToolkitHandlers } from "./toolkits/routing/handlers.ts";
 import { RoutingRuntimeLive } from "../routing/runtime.ts";
@@ -685,6 +688,10 @@ export const McpTransportLive = McpServer.layerHttp({
 }).pipe(Layer.provide(McpAuthMiddlewareLive));
 
 export const layer = Layer.mergeAll(
+  McpServer.toolkit(BackgroundBrowserToolkit).pipe(
+    Layer.provide(BackgroundBrowserHandlers),
+    Layer.provide(BackgroundBrowserLive),
+  ),
   McpServer.toolkit(HomeToolkit).pipe(Layer.provide(HomeToolkitHandlersLive)),
   McpServer.toolkit(RoutingToolkit).pipe(
     Layer.provide(RoutingToolkitHandlers),

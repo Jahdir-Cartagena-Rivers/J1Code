@@ -1,4 +1,5 @@
 import { SshDeviceHostConfigs } from "./device.ts";
+import { BotProfiles, BotProfileUpdates } from "./bot.ts";
 import * as Effect from "effect/Effect";
 import * as Duration from "effect/Duration";
 import * as Schema from "effect/Schema";
@@ -1136,6 +1137,10 @@ export const StorageCleanupSettings = Schema.Struct({
 export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
 
 export const ServerSettings = Schema.Struct({
+  lightpandaExecutablePath: Schema.String.check(Schema.isMaxLength(4096)).pipe(
+    Schema.withDecodingDefault(Effect.succeed("")),
+  ),
+  bots: BotProfiles.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   chatRoutingMode: ChatRoutingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("suggest" as const)),
   ),
@@ -1504,6 +1509,8 @@ const OpenCodeSettingsPatch = Schema.Struct({
 });
 
 export const ServerSettingsPatch = Schema.Struct({
+  lightpandaExecutablePath: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(4096))),
+  bots: Schema.optionalKey(BotProfileUpdates),
   chatRoutingMode: Schema.optionalKey(ChatRoutingMode),
   autoModelPolicy: Schema.optionalKey(Schema.NullOr(AutoModelPolicy)),
   worktreeCleanup: Schema.optionalKey(

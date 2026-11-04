@@ -100,6 +100,7 @@ function harness(options: { capability?: boolean; missingProject?: boolean } = {
           if (command.type === "thread.create")
             destination = {
               ...makeThread(),
+              bot: null,
               id: command.threadId,
               projectId: command.projectId,
               title: command.title,

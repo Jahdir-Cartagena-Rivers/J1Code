@@ -500,6 +500,8 @@ export function buildLocalDraftThread(
 export function buildLoadingThreadFromShell(shell: ThreadShell): Thread {
   return {
     ...shell,
+    // The full immutable profile arrives with the detail snapshot, never the shell.
+    bot: null,
     messages: [],
     proposedPlans: [],
     activities: [],
