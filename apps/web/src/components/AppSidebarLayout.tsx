@@ -301,6 +301,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
       >
         <ProjectProjectionRetention />
         <Sidebar
+          variant="inset"
           side="left"
           collapsible="offcanvas"
           data-app-sidebar=""

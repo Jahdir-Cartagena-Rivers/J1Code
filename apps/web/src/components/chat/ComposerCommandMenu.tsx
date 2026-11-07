@@ -1,3 +1,4 @@
+import { scrollParent, scrollWithin } from "../../vendor/mausbot/scrollWithin";
 import {
   formatProviderSkillDisplayName,
   resolveProviderSkillSourceKind,
@@ -85,7 +86,14 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
     const el = listRef.current.querySelector<HTMLElement>(
       `[data-composer-item-id="${CSS.escape(props.activeItemId)}"]`,
     );
-    el?.scrollIntoView({ block: "nearest" });
+    if (!el) return;
+    const scroller = scrollParent(el);
+    if (!scroller) return;
+    const itemBounds = el.getBoundingClientRect();
+    const viewportBounds = scroller.getBoundingClientRect();
+    if (itemBounds.top < viewportBounds.top) scrollWithin(scroller, el);
+    else if (itemBounds.bottom > viewportBounds.bottom)
+      scrollWithin(scroller, el, "start", scroller.clientHeight - el.offsetHeight);
   }, [props.activeItemId]);
 
   return (

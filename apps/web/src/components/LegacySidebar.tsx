@@ -1,3 +1,4 @@
+import { LEGACY_BOTS_ENABLED } from "@t3tools/shared/legacy-bots";
 import { isStandaloneBotProject } from "@t3tools/shared/bot-workspace";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
@@ -3759,7 +3760,7 @@ export default function LegacySidebar() {
       ))}
       <SidebarChromeHeader isElectron={isElectron} />
       <SidebarHomeLink />
-      <SidebarBots />
+      {LEGACY_BOTS_ENABLED ? <SidebarBots /> : null}
 
       <SidebarProjectsContent
         showArm64IntelBuildWarning={showArm64IntelBuildWarning}

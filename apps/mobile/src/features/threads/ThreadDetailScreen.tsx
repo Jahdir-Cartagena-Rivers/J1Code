@@ -1,3 +1,4 @@
+import { LEGACY_BOTS_ENABLED } from "@t3tools/shared/legacy-bots";
 import { BotCallControl } from "../bots/BotCallControl";
 import { BotBrowserButton } from "../bots/BotBrowserButton";
 import { BotVoiceControl } from "../bots/BotVoiceControl";
@@ -895,7 +896,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
 
   return (
     <View className="flex-1">
-      {props.botVoice ? (
+      {LEGACY_BOTS_ENABLED && props.botVoice ? (
         <>
           <BotBrowserButton
             environmentId={props.environmentId}

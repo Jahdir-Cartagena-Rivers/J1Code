@@ -1,3 +1,4 @@
+import { LEGACY_BOTS_ENABLED } from "@t3tools/shared/legacy-bots";
 import { isStandaloneBotProject } from "@t3tools/shared/bot-workspace";
 import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
 import type { ThreadMoveDestination } from "../threads/threadOrder";
@@ -1026,7 +1027,7 @@ export function HomeScreen(props: HomeScreenProps) {
   if (!hasAnyThreads) {
     return (
       <View className="flex-1 bg-screen android:bg-header">
-        <BotRoster onSelectThread={props.onSelectThread} />
+        {LEGACY_BOTS_ENABLED ? <BotRoster onSelectThread={props.onSelectThread} /> : null}
         <View
           className={cn(
             "flex-1 items-center justify-center bg-screen px-8",
@@ -1123,7 +1124,7 @@ export function HomeScreen(props: HomeScreenProps) {
           onSelectThread={props.onSelectThread}
         />
       ) : null}
-      <BotRoster onSelectThread={props.onSelectThread} />
+      {LEGACY_BOTS_ENABLED ? <BotRoster onSelectThread={props.onSelectThread} /> : null}
       <View
         className={
           Platform.OS === "android"

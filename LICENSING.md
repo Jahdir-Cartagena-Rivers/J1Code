@@ -43,3 +43,7 @@ Copyright eligibility and ownership depend on actual authorship, including the
 human contribution to AI-assisted work. This policy is not an ownership audit or
 a guarantee against copying. Obtain an IP lawyer's review before commercial
 enforcement or rights-sensitive distribution.
+
+## OpenMausBot components
+
+The adapted UI foundation and scrolling helper in `apps/web/src/vendor/mausbot/` retain their Apache-2.0 license. Their source is pinned to OpenMausBot commit `d818c28aa80686dc1d7db64ebeffa2a9dc468762` at https://github.com/milind-soni/OpenMausBot. License and notice copies ship in the web client under `licenses/mausbot/`. J1 branding is independent; no OpenMausBot enterprise code or mascot is included.

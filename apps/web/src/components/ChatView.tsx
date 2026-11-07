@@ -1,3 +1,4 @@
+import { LEGACY_BOTS_ENABLED } from "@t3tools/shared/legacy-bots";
 import { BotCallControl } from "./chat/BotCallControl";
 import { BotBrowserButton } from "./chat/BotBrowserButton";
 import { BotVoiceControl } from "./chat/BotVoiceControl";
@@ -10050,7 +10051,7 @@ export default function ChatView(props: ChatViewProps) {
                 )}
               </RouteRequestControl>
 
-              {activeServerThread?.bot ? (
+              {LEGACY_BOTS_ENABLED && activeServerThread?.bot ? (
                 <div className="flex flex-wrap justify-end px-4">
                   <BotBrowserButton
                     environmentId={activeServerThread.environmentId}

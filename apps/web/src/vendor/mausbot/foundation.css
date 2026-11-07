@@ -1,0 +1,66 @@
+/* Adapted from OpenMausBot src/styles.css, Apache-2.0.
+ * Upstream d818c28aa80686dc1d7db64ebeffa2a9dc468762.
+ * https://github.com/milind-soni/OpenMausBot
+ * See LICENSE and NOTICE alongside this file. */
+:root:is(.dark) {
+  --maus-app: #121212;
+  --maus-panel: #0e0e0e;
+  --maus-raised: #202020;
+  --maus-raised-hover: #2c2c2c;
+  --maus-composer: #1f1f1f;
+  --maus-composer-ring: #2a2a2a;
+  --maus-menu: #1f1f1f;
+  --maus-menu-hover: #f5f5f50f;
+  --maus-menu-active: #f5f5f514;
+  --maus-card: #1f1f1f;
+  --maus-inset: #1b1b1b;
+  --maus-control: #282828;
+  --maus-hairline: #383838;
+  --maus-ink: #f5f5f5;
+  --maus-ink-secondary: #f5f5f5a8;
+  --maus-ink-tertiary: #f5f5f591;
+  --maus-accent: #1084fe;
+  --maus-accent-border: #459ffe;
+  --maus-focus: #459ffe;
+  --maus-accent-text: #7fc0ff;
+  --maus-bubble-user: #5a5a5a;
+  --maus-success: #38d591;
+  --maus-danger: #ff5667;
+  --maus-warning: #ff9800;
+}
+:root:not(.dark) {
+  --maus-app: #fcfcfc;
+  --maus-panel: #f5f5f5;
+  --maus-raised: #e4e4e4;
+  --maus-raised-hover: #d8d8d8;
+  --maus-card: #efefef;
+  --maus-inset: #e9e9e9;
+  --maus-control: #e3e3e3;
+  --maus-hairline: #1c1c1c3d;
+  --maus-edge: #1c1c1c14;
+  --maus-ink: #1c1c1c;
+  --maus-ink-secondary: #1c1c1cad;
+  --maus-ink-tertiary: #1c1c1ca6;
+  --maus-accent: #126fd4;
+  --maus-accent-border: #1680f3;
+  --maus-accent-text: #0b69cc;
+  --maus-focus: #0b6dd3;
+  --maus-accent-ink: #ffffff;
+  --maus-composer: #ffffff;
+  --maus-composer-ring: #1c1c1c1f;
+  --maus-menu: #ffffff;
+  --maus-menu-hover: #1c1c1c0f;
+  --maus-menu-active: #1c1c1c14;
+  --maus-bubble-user: #1c1c1c;
+  --maus-bubble-user-ink: #fcfcfc;
+  --maus-success: #007a44;
+  --maus-danger: #cd2834;
+  --maus-danger-ink: #ffffff;
+  --maus-success-ink: #ffffff;
+  --maus-warning: #9c5b00;
+  --maus-scrollbar: #c4c4c4;
+  --maus-maus-line: #5f5f5f;
+}
+:root {
+  --maus-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}

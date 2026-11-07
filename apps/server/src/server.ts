@@ -1,4 +1,3 @@
-import { BotRoutineRuntimeLive } from "./bots/routineRuntime.ts";
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeHttp from "node:http";
 import { AgentHistoryLive } from "./project/AgentHistoryLive.ts";
@@ -978,7 +977,6 @@ const makeServerLayer = Layer.unwrap(
       routesLayer,
       httpListeningLayer,
       runtimeStateLayer.pipe(Layer.provide(launcherLayer)),
-      BotRoutineRuntimeLive,
       tailscaleServeLayer,
       cloudDesiredLinkReconcileLayer,
       HeapSnapshot.layer,

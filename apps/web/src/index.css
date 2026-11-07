@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./vendor/mausbot/foundation.css";
 
 @custom-variant dark (&:is(.dark, .dark *));
 @custom-variant light (&:not(.dark, .dark *));
@@ -2234,4 +2235,28 @@ code {
 
 .composer-tiptap li[data-checked] > div > p {
   margin: 0;
+}
+
+/* Default surfaces inherit the upstream palette; saved custom themes keep their own colors. */
+:root:not([data-theme-id]),
+:root[data-theme-id=""] {
+  --background: var(--maus-app);
+  --app-chrome-background: var(--maus-panel);
+  --card: var(--maus-card);
+  --popover: var(--maus-menu);
+  --surface-raised: var(--maus-raised);
+  --foreground: var(--maus-ink);
+  --card-foreground: var(--maus-ink);
+  --popover-foreground: var(--maus-ink);
+  --muted-foreground: var(--maus-ink-secondary);
+  --placeholder: var(--maus-ink-tertiary);
+  --sidebar: var(--maus-panel);
+  --sidebar-foreground: var(--maus-ink);
+  --sidebar-muted-foreground: var(--maus-ink-secondary);
+  --sidebar-control-surface: var(--maus-raised);
+  --sidebar-row-hover: var(--maus-raised-hover);
+  --sidebar-row-active: var(--maus-raised);
+  --sidebar-row-selected: var(--maus-raised);
+  --border: color-mix(in srgb, var(--maus-ink) 8%, transparent);
+  --sidebar-border: var(--border);
 }

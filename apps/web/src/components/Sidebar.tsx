@@ -1,3 +1,4 @@
+import { LEGACY_BOTS_ENABLED } from "@t3tools/shared/legacy-bots";
 import { isStandaloneBotProject } from "@t3tools/shared/bot-workspace";
 import { requestCustomSnooze } from "./CustomSnoozeDialog";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
@@ -4483,7 +4484,7 @@ export default function Sidebar() {
     <>
       <SidebarChromeHeader isElectron={isElectron} />
       <SidebarHomeLink />
-      <SidebarBots />
+      {LEGACY_BOTS_ENABLED ? <SidebarBots /> : null}
       <SidebarContent
         className="min-h-full"
         fixedHeader={
