@@ -21,6 +21,7 @@ export const DesktopBackendBootstrap = Schema.Struct({
   desktopTelemetryFd: Schema.optionalKey(PositiveInt),
   desktopTelemetryControlFd: Schema.optionalKey(PositiveInt),
   lightpandaExecutablePath: Schema.optionalKey(TrimmedNonEmptyString),
+  mausbotResourcesPath: Schema.optionalKey(TrimmedNonEmptyString),
   resourceMonitorPath: Schema.optionalKey(TrimmedNonEmptyString),
 });
 

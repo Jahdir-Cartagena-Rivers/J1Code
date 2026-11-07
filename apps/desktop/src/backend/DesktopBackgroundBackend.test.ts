@@ -74,6 +74,9 @@ describe("desktop background backend", () => {
         port: scenario === "change-port" ? 4889 : old.bootstrap.port,
         tailscaleServeEnabled: scenario === "enable-tailscale",
         tailscaleServePort: scenario === "change-tailscale-port" ? 8443 : 443,
+        ...(scenario === "upgrade"
+          ? { mausbotResourcesPath: NodePath.join(sourceRuntimeDir, "resources", "mausbot") }
+          : {}),
       };
       const livePids = new Set([record.hostPid, record.serverPid]);
       const steps: string[] = [];
@@ -123,7 +126,18 @@ describe("desktop background backend", () => {
           record = { ...input, hostPid: 33333, serverPid: 44444 };
           expect(record.version).toBe(options.version);
           expect(record.bootstrap.desktopBootstrapToken).toBe("retained-token");
-          expect(record.bootstrap).toMatchObject(requestedBootstrap);
+          expect(record.bootstrap).toMatchObject({
+            ...requestedBootstrap,
+            ...(scenario === "upgrade"
+              ? {
+                  mausbotResourcesPath: NodePath.join(
+                    NodePath.dirname(record.executablePath),
+                    "resources",
+                    "mausbot",
+                  ),
+                }
+              : {}),
+          });
           expect(args?.[0]).toBe(
             NodePath.join(NodePath.dirname(record.executablePath), "worker.cjs"),
           );
@@ -143,6 +157,15 @@ describe("desktop background backend", () => {
           await NodeFSP.writeFile(executablePath, "executable");
           await NodeFSP.writeFile(entryPath, "server");
           await NodeFSP.writeFile(workerPath, "worker");
+          if (scenario === "upgrade") {
+            await NodeFSP.mkdir(NodePath.join(sourceRuntimeDir, "resources", "mausbot"), {
+              recursive: true,
+            });
+            await NodeFSP.writeFile(
+              NodePath.join(sourceRuntimeDir, "resources", "mausbot", "runtime.zip"),
+              "new assistant runtime",
+            );
+          }
         }
         const launch = ensureBackgroundServer(
           {
@@ -167,6 +190,13 @@ describe("desktop background backend", () => {
           expect(steps).toEqual(scenario === "stage-failure" ? [] : ["stop"]);
         } else {
           const result = await launch;
+          if (scenario === "upgrade")
+            expect(
+              await NodeFSP.readFile(
+                NodePath.join(result.bootstrap.mausbotResourcesPath!, "runtime.zip"),
+                "utf8",
+              ),
+            ).toBe("new assistant runtime");
           expect(result.version).toBe(options.version);
           expect(steps).toEqual(scenario === "same-version" ? [] : ["stop", "stopped", "spawn"]);
           if (scenario === "same-version") expect(result).toEqual(old);

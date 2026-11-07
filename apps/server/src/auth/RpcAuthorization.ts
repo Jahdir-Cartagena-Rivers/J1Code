@@ -23,6 +23,8 @@ type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
  * runtime failure.
  */
 export const RPC_REQUIRED_SCOPES = {
+  [WS_METHODS.mausbotOpen]: AuthAccessWriteScope,
+  [WS_METHODS.mausbotApprovalMode]: AuthAccessWriteScope,
   "routing.prepare": AuthOrchestrationOperateScope,
   "routing.list": AuthOrchestrationReadScope,
   "routing.confirm": AuthOrchestrationOperateScope,

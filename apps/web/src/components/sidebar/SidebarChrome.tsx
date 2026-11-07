@@ -1,4 +1,10 @@
-import { HouseIcon, ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
+import {
+  HouseIcon,
+  SparklesIcon,
+  ArrowLeftIcon,
+  ChartNoAxesColumnIcon,
+  SettingsIcon,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useCallback, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
@@ -79,7 +85,9 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   );
 });
 
-export const SidebarHomeLink = memo(function SidebarHomeLink() {
+export const SidebarHomeLink = memo(function SidebarHomeLink({
+  assistants = true,
+}: { assistants?: boolean } = {}) {
   const environment = usePrimaryEnvironment();
   const threads = useThreadShells();
   const home = useMemo(
@@ -104,6 +112,14 @@ export const SidebarHomeLink = memo(function SidebarHomeLink() {
             <WorkerChatTree parent={{ environmentId: home.environmentId, threadId: home.id }} />
           ) : null}
         </SidebarMenuItem>
+        {assistants && environment?.serverConfig?.environment.capabilities.mausbot ? (
+          <SidebarMenuItem>
+            <SidebarMenuButton render={<Link to="/assistants" />}>
+              <SparklesIcon />
+              <span>Bots</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        ) : null}
       </SidebarMenu>
     </div>
   );
@@ -160,7 +176,9 @@ function SidebarUtilityItem({
   );
 }
 
-export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
+export const SidebarUtilityMenu = memo(function SidebarUtilityMenu({
+  embedded = false,
+}: { embedded?: boolean } = {}) {
   const navigate = useNavigate();
   const navigateToMainApp = useNavigateToMainApp();
   const { isMobile, setOpenMobile } = useSidebar();
@@ -213,11 +231,13 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
         </SidebarMenuItem>
       ) : (
         <>
-          <SidebarUtilityItem
-            icon={<SettingsIcon />}
-            label="Settings"
-            onClick={handleSettingsClick}
-          />
+          {!embedded && (
+            <SidebarUtilityItem
+              icon={<SettingsIcon />}
+              label="Settings"
+              onClick={handleSettingsClick}
+            />
+          )}
           {pullRequestsSupported ? (
             <SidebarUtilityItem
               icon={<PullRequestGlyph.pullRequest />}
@@ -238,13 +258,15 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   );
 });
 
-export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
+export const SidebarChromeFooter = memo(function SidebarChromeFooter({
+  embedded = false,
+}: { embedded?: boolean } = {}) {
   return (
     <SidebarFooter>
       <SidebarThreadUndoNotice />
       <SidebarProviderUpdatePill />
       <SidebarUpdateArchitectureWarning />
-      <SidebarUtilityMenu />
+      <SidebarUtilityMenu embedded={embedded} />
     </SidebarFooter>
   );
 });

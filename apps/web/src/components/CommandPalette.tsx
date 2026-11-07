@@ -164,6 +164,7 @@ import { orderItemsByPreferredIds, sortLogicalProjectsForSidebar } from "./Sideb
 import { resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
 import { CommandPaletteContent } from "./CommandPaletteContent";
 import { CommandPaletteResults } from "./CommandPaletteResults";
+import { useMausbotSearch } from "./mausbotSearch";
 import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon, ForgejoIcon } from "./Icons";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { ProjectFavicon } from "./ProjectFavicon";
@@ -835,6 +836,7 @@ function OpenCommandPaletteDialog(props: {
   );
   const threadSearchQuery = currentView === null && !isActionsOnly ? deferredQuery : "";
   const threadSearch = useThreadSearch(environmentIds, threadSearchQuery);
+  const botSearch = useMausbotSearch(deferredQuery, currentView === null && !isActionsOnly);
   const threadContentMatchByKey = useMemo(
     () =>
       new Map(
@@ -2604,11 +2606,63 @@ function OpenCommandPaletteDialog(props: {
     displayedGroups = relativePathNeedsActiveProject ? [] : cloneDestinationBrowseGroups;
   } else if (isBrowsing) {
     displayedGroups = relativePathNeedsActiveProject ? [] : browseGroups;
+  } else if (currentView === null && !isActionsOnly && botSearch.connected) {
+    const botItems: CommandPaletteActionItem[] = botSearch.rows
+      .filter((row) => row.kind !== "message")
+      .map((row) => ({
+        kind: "action",
+        value: `mausbot:${row.key}`,
+        title: row.title,
+        description: row.description,
+        searchTerms: [deferredQuery, row.title],
+        icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
+        run: () => botSearch.land(row.key),
+      }));
+    const messageItems: CommandPaletteActionItem[] = botSearch.rows
+      .filter((row) => row.kind === "message")
+      .map((row) => ({
+        kind: "action",
+        value: `mausbot:${row.key}`,
+        title: row.title,
+        description: row.description,
+        searchTerms: [deferredQuery, row.title],
+        icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
+        run: () => botSearch.land(row.key),
+      }));
+    const status: CommandPaletteActionItem[] =
+      botSearch.pending || botSearch.error
+        ? [
+            {
+              kind: "action",
+              value: "mausbot:status",
+              title: botSearch.error ?? "Searching bots…",
+              searchTerms: [],
+              icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
+              disabled: !botSearch.error,
+              keepOpen: true,
+              run: async () => {
+                botSearch.retry();
+              },
+            },
+          ]
+        : [];
+    displayedGroups = [
+      ...(botItems.length
+        ? [{ value: "mausbot-bots", label: "Bots and rooms", items: botItems }]
+        : []),
+      ...displayedGroups,
+      ...(messageItems.length
+        ? [{ value: "mausbot-messages", label: "Bot messages", items: messageItems }]
+        : []),
+      ...(status.length ? [{ value: "mausbot-status", label: "Bots", items: status }] : []),
+    ];
   }
 
   const inputPlaceholder =
     remoteProjectInputPlaceholder(addProjectCloneFlow) ??
-    getCommandPaletteInputPlaceholder(paletteMode);
+    (paletteMode === "root" && botSearch.connected
+      ? "Search bots, chats, projects, and commands..."
+      : getCommandPaletteInputPlaceholder(paletteMode));
   const isSubmenu = paletteMode === "submenu" || paletteMode === "submenu-browse";
   const hasHighlightedBrowseItem = highlightedItemValue?.startsWith("browse:") ?? false;
   const canSubmitBrowsePath =

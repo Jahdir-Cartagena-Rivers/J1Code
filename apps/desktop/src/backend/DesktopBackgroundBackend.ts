@@ -192,6 +192,8 @@ export async function ensureBackgroundServer(
     bootstrap.resourceMonitorPath = relocate(bootstrap.resourceMonitorPath);
   if (bootstrap.lightpandaExecutablePath)
     bootstrap.lightpandaExecutablePath = relocate(bootstrap.lightpandaExecutablePath);
+  if (bootstrap.mausbotResourcesPath)
+    bootstrap.mausbotResourcesPath = relocate(bootstrap.mausbotResourcesPath);
   const input = {
     protocol: 1 as const,
     hostPid: 0,

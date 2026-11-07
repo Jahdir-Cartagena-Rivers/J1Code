@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { stageLightpanda, validatePackagedLightpanda } from "./stage-lightpanda.ts";
+import { stageMausbotArchive } from "./stage-mausbot.ts";
 // @effect-diagnostics nodeBuiltinImport:off - Node's typed junction API avoids Windows symlink privileges while keeping the probe isolated.
 
 import * as NodeFSP from "node:fs/promises";
@@ -960,6 +961,8 @@ export const DESKTOP_FILE_EXCLUSIONS = [
   "!apps/desktop/resources/browser-secret/**/*",
   "!apps/desktop/prod-resources/lightpanda",
   "!apps/desktop/prod-resources/lightpanda/**/*",
+  "!apps/desktop/prod-resources/mausbot",
+  "!apps/desktop/prod-resources/mausbot/**/*",
   "!apps/desktop/prod-resources/browser-secret",
   "!apps/desktop/prod-resources/browser-secret/**/*",
   // Windows stages the server sidecar below prod-resources so electron-builder
@@ -2705,6 +2708,11 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
               to: "lightpanda",
               filter: ["**/*"],
             },
+            {
+              from: "apps/desktop/prod-resources/mausbot",
+              to: "mausbot",
+              filter: ["runtime.zip"],
+            },
           ]
         : []),
       ...(platform === "linux" ? LINUX_CAPTURE_EXTRA_RESOURCES : []),
@@ -3794,6 +3802,9 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   if (options.platform === "win" && options.arch === "x64") {
     yield* Effect.tryPromise(() =>
       stageLightpanda(path.join(stageAppDir, "apps/desktop/prod-resources/lightpanda")),
+    );
+    yield* Effect.tryPromise(() =>
+      stageMausbotArchive(path.join(stageAppDir, "apps/desktop/prod-resources/mausbot")),
     );
   }
   yield* stageClerkPasskeyNativeBinaries(stageAppDir, options.platform, options.arch);

@@ -2133,7 +2133,7 @@ function LegacyFeaturesSection() {
             />
             <SettingsRow
               {...searchableSetting("legacy-sidebar")}
-              description="Restore per-project thread trees instead of the default flat sidebar."
+              description="Group chats into project trees. Turn off to use a flat chat list."
               control={
                 <Switch
                   checked={settings.legacySidebarEnabled}

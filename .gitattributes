@@ -3,3 +3,5 @@
 # Batch files need CRLF for cmd.exe to parse them reliably.
 *.cmd text eol=crlf
 *.bat text eol=crlf
+# Preserve whitespace in upstream license notices.
+third_party/mausbot/cua-driver-windows/*.txt -whitespace

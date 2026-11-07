@@ -590,6 +590,7 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
               "lightpanda",
               "lightpanda.exe",
             ),
+            mausbotResourcesPath: environment.path.join(environment.resourcesPath, "mausbot"),
           }
         : {}),
       ...buildObservabilityFragment(input.observabilitySettings),

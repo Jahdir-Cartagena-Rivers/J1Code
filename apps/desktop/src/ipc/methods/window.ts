@@ -310,6 +310,23 @@ export const openExternal = DesktopIpc.makeIpcMethod({
     return yield* shell.openExternal(url);
   }),
 });
+// Adapted from OpenMausBot electron/main.mjs (d818c28), Apache-2.0; see the bundled upstream notice.
+export const captureMausbotScreenFrame = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.CAPTURE_MAUSBOT_SCREEN_FRAME_CHANNEL,
+  payload: Schema.Undefined,
+  result: Schema.NullOr(Schema.String),
+  handler: Effect.fn("desktop.ipc.window.captureMausbotScreenFrame")(function* () {
+    const environment = yield* DesktopEnvironment.DesktopEnvironment;
+    if (environment.platform !== "darwin" && environment.platform !== "win32") return null;
+    return yield* Effect.promise(async () => {
+      const sources = await Electron.desktopCapturer.getSources({
+        types: ["screen"],
+        thumbnailSize: { width: 1280, height: 800 },
+      });
+      return sources[0]?.thumbnail.toDataURL() ?? null;
+    });
+  }),
+});
 
 export const openSystemSettings = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.OPEN_SYSTEM_SETTINGS_CHANNEL,

@@ -1,5 +1,6 @@
 import { Outlet, createFileRoute, redirect, useLocation } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
+import { useMausbotWorkspaceState } from "../components/MausbotShell";
 import { RotateCcwIcon } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { useSettingsRestore } from "../components/settings/SettingsPanels";
@@ -111,6 +112,7 @@ function SettingsScopeBoundary({ pathname, children }: { pathname: string; child
 }
 
 function SettingsContentLayout() {
+  const { settingsHosted } = useMausbotWorkspaceState();
   const location = useLocation();
   const navigateToMainApp = useNavigateToMainApp();
   useEscapeToGoBack(navigateToMainApp);
@@ -118,20 +120,35 @@ function SettingsContentLayout() {
   const [restoreSignal, setRestoreSignal] = useState(0);
 
   return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none isolate">
+    <SidebarInset
+      className={
+        settingsHosted
+          ? "m-0! h-full! min-h-0 overflow-hidden overscroll-y-none isolate"
+          : "h-dvh min-h-0 overflow-hidden overscroll-y-none isolate"
+      }
+    >
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
-        <WorkspacePageHeader electron={isElectron}>
-          <div className="flex w-full items-center gap-3">
-            <SettingsBreadcrumb pathname={location.pathname} />
-            {location.pathname === "/settings/general" ? (
-              <div className="ms-auto flex shrink-0 items-center">
-                <RestoreDeviceDefaultsButton
-                  onRestored={() => setRestoreSignal((value) => value + 1)}
-                />
-              </div>
-            ) : null}
+        {!settingsHosted && (
+          <WorkspacePageHeader electron={isElectron}>
+            <div className="flex w-full items-center gap-3">
+              <SettingsBreadcrumb pathname={location.pathname} />
+              {location.pathname === "/settings/general" ? (
+                <div className="ms-auto flex shrink-0 items-center">
+                  <RestoreDeviceDefaultsButton
+                    onRestored={() => setRestoreSignal((value) => value + 1)}
+                  />
+                </div>
+              ) : null}
+            </div>
+          </WorkspacePageHeader>
+        )}
+        {settingsHosted && location.pathname === "/settings/general" && (
+          <div className="flex justify-end px-3 py-2">
+            <RestoreDeviceDefaultsButton
+              onRestored={() => setRestoreSignal((value) => value + 1)}
+            />
           </div>
-        </WorkspacePageHeader>
+        )}
 
         <div
           key={`${JSON.stringify(search)}:${restoreSignal}`}

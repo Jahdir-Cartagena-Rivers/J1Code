@@ -2,6 +2,7 @@ import * as Mime from "effect/unstable/http/Mime";
 import {
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
+  AuthAccessWriteScope,
   EnvironmentHttpApi,
 } from "@t3tools/contracts";
 import { isDevProxiedPath } from "@t3tools/shared/devProxy";
@@ -28,6 +29,7 @@ import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 import { OtlpTracer, OtlpSerialization } from "effect/unstable/observability";
 
 import * as ServerConfig from "./config.ts";
+import { MausbotService } from "./mausbot/Service.ts";
 import { ASSET_ROUTE_PREFIX, resolveAsset } from "./assets/AssetAccess.ts";
 import { githubMediaResponse } from "./assets/GitHubMediaFetch.ts";
 import { statMediaFile, streamMediaFile, type OpenMediaFile } from "./assets/MediaFile.ts";
@@ -273,7 +275,10 @@ export function resolveDevRedirectUrl(devUrl: URL, requestUrl: URL): string {
 }
 
 const authenticateRawRouteWithScope = (
-  scope: typeof AuthOrchestrationReadScope | typeof AuthOrchestrationOperateScope,
+  scope:
+    | typeof AuthOrchestrationReadScope
+    | typeof AuthOrchestrationOperateScope
+    | typeof AuthAccessWriteScope,
 ) =>
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
@@ -293,6 +298,62 @@ const authenticateRawRouteWithScope = (
       return yield* failEnvironmentScopeRequired(scope);
     }
   });
+
+export const mausbotRouteLayer = Layer.unwrap(
+  Effect.gen(function* () {
+    const runtime = yield* MausbotService;
+    return HttpRouter.add(
+      "*",
+      "/api/mausbot/*",
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const url = new URL(request.url, "http://j1.invalid");
+        const view = /^\/api\/mausbot\/runtime\/([a-f0-9]{64})(\/.*)$/.exec(url.pathname);
+        if (view) {
+          if (!(yield* runtime.authorizeView(view[1]!)))
+            return HttpServerResponse.jsonUnsafe(
+              { error: "This assistant window expired. Reopen it from J1." },
+              { status: 401 },
+            );
+        } else {
+          // Settings and computer controls require the owner's J1 scope when opening a window.
+          yield* authenticateRawRouteWithScope(AuthAccessWriteScope);
+        }
+        if (url.pathname === "/api/mausbot/status" && request.method === "GET")
+          return HttpServerResponse.jsonUnsafe(yield* runtime.status);
+        if (url.pathname === "/api/mausbot/stop" && request.method === "POST") {
+          yield* runtime.stop;
+          return HttpServerResponse.empty({ status: 204 });
+        }
+        if (!view) return HttpServerResponse.empty({ status: 404 });
+        const bytes = ["GET", "HEAD"].includes(request.method)
+          ? undefined
+          : new Uint8Array(yield* request.arrayBuffer);
+        return yield* runtime
+          .forward(
+            view[2]! + url.search,
+            request.method,
+            request.headers["content-type"],
+            bytes,
+            view[1]!,
+          )
+          .pipe(
+            Effect.map(HttpServerResponse.fromWeb),
+            Effect.catch((message) =>
+              Effect.succeed(HttpServerResponse.jsonUnsafe({ error: message }, { status: 503 })),
+            ),
+          );
+      }).pipe(
+        HttpMiddleware.withLoggerDisabled,
+        Effect.catchTags({
+          EnvironmentAuthInvalidError: HttpServerRespondable.toResponse,
+          EnvironmentInternalError: HttpServerRespondable.toResponse,
+          EnvironmentScopeRequiredError: HttpServerRespondable.toResponse,
+        }),
+      ),
+    );
+  }),
+);
 
 export const serverEnvironmentHttpApiLayer = HttpApiBuilder.group(
   EnvironmentHttpApi,
@@ -380,6 +441,7 @@ const UNTRACED_REQUEST_PATHS: ReadonlySet<string> = new Set([OTLP_TRACES_PROXY_P
 // TracerDisabledWhen again; server.test.ts fails if a later layer replaces it.
 // The query string is ignored, as in routing.
 export const untracedRequestsLayer = Layer.succeed(HttpMiddleware.TracerDisabledWhen)((request) => {
+  if (request.url.startsWith("/api/mausbot/")) return true;
   const queryIndex = request.url.indexOf("?");
   return UNTRACED_REQUEST_PATHS.has(
     queryIndex === -1 ? request.url : request.url.slice(0, queryIndex),

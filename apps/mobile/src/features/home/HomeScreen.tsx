@@ -37,6 +37,7 @@ import { AppText } from "../../components/AppText";
 import { RowPressable } from "../../components/RowPressable";
 import { WorkerChatTree } from "../threads/WorkerChats";
 import { BotRoster } from "../bots/BotRoster";
+import { MausbotWorkspace } from "../mausbot/MausbotWorkspace";
 import {
   groupHomeList,
   groupedHomeItemsAreEqual,
@@ -1028,6 +1029,11 @@ export function HomeScreen(props: HomeScreenProps) {
     return (
       <View className="flex-1 bg-screen android:bg-header">
         {LEGACY_BOTS_ENABLED ? <BotRoster onSelectThread={props.onSelectThread} /> : null}
+        <MausbotWorkspace
+          environmentId={
+            props.selectedEnvironmentId ?? props.environments[0]?.environmentId ?? null
+          }
+        />
         <View
           className={cn(
             "flex-1 items-center justify-center bg-screen px-8",
@@ -1125,6 +1131,9 @@ export function HomeScreen(props: HomeScreenProps) {
         />
       ) : null}
       {LEGACY_BOTS_ENABLED ? <BotRoster onSelectThread={props.onSelectThread} /> : null}
+      <MausbotWorkspace
+        environmentId={props.selectedEnvironmentId ?? props.environments[0]?.environmentId ?? null}
+      />
       <View
         className={
           Platform.OS === "android"

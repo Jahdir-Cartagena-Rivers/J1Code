@@ -456,6 +456,9 @@ export const resolveServerConfig = (
       desktopTelemetryFd,
       desktopTelemetryControlFd,
       lightpandaExecutablePath: bootstrap?.lightpandaExecutablePath,
+      mausbotResourcesPath:
+        bootstrap?.mausbotResourcesPath ??
+        Option.getOrUndefined(yield* Config.String("J1_MAUSBOT_RESOURCES").pipe(Config.option)),
       resourceMonitorPath,
       autoBootstrapProjectFromCwd,
       logWebSocketEvents,

@@ -1,6 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - host-owned credential discovery for the selected memory authority.
-import * as path from "node:path";
-import * as os from "node:os";
+import * as NodePath from "node:path";
+import * as NodeOS from "node:os";
 import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
@@ -16,8 +16,18 @@ export class HiveTransportError extends Schema.TaggedError<HiveTransportError>()
 export async function selectedHiveConnection(file: string): Promise<HiveConnection | null> {
   const config = await readHiveConfig(file);
   if (config.backend?.mode !== "external") return null;
+  return readExternalConnection(config.backend.connectionFile);
+}
+
+/** An assistant can opt into the same external connection without switching J1's default built-in store. */
+export async function externalHiveConnection(file: string): Promise<HiveConnection> {
+  const config = await readHiveConfig(file);
+  return readExternalConnection(config.backend?.connectionFile);
+}
+
+async function readExternalConnection(connectionFile?: string): Promise<HiveConnection> {
   const location =
-    config.backend.connectionFile ?? path.join(os.homedir(), ".hive-mind", "connection.json");
+    connectionFile ?? NodePath.join(NodeOS.homedir(), ".hive-mind", "connection.json");
   let connection: HiveConnection;
   try {
     connection = Schema.decodeUnknownSync(Connection)(

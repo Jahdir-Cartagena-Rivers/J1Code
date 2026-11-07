@@ -2260,3 +2260,19 @@ code {
   --border: color-mix(in srgb, var(--maus-ink) 8%, transparent);
   --sidebar-border: var(--border);
 }
+
+/* The upstream floating composer is opaque; retain J1's attached approvals and controls. */
+:root:is(:not([data-theme-id]), [data-theme-id=""]) [data-slot="composer-shell"] {
+  --chat-composer-glass-surface: var(--maus-composer);
+  --chat-composer-outline: var(--maus-composer-ring);
+  --glass-blur: 0px;
+  --glass-saturation: 100%;
+  --glass-opacity: 100%;
+}
+:root:is(:not([data-theme-id]), [data-theme-id=""]) [data-slot="composer-host"] {
+  box-shadow: var(--maus-shadow-float);
+}
+:root:is(:not([data-theme-id]), [data-theme-id=""]) [data-chat-composer-surface] {
+  background-color: var(--maus-composer);
+  transition-timing-function: var(--maus-ease-out);
+}

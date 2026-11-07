@@ -1,0 +1,23 @@
+import { describe, expect, it } from "vitest";
+import { PLACES, placeOffered } from "@/lib/place";
+
+describe("J1 native places", () => {
+  it("keeps native and browser choices without offering container desktops", () => {
+    expect(PLACES.filter((place) => placeOffered(place, { j1Managed: true }))).toEqual([
+      "cloud",
+      "local",
+      "browser",
+    ]);
+  });
+  it("preserves the upstream self-hosted and cloud-home decisions", () => {
+    expect(PLACES.filter((place) => placeOffered(place, {}))).toEqual([
+      "cloud",
+      "vm",
+      "local",
+      "browser",
+    ]);
+    expect(
+      PLACES.filter((place) => placeOffered(place, { cloudHome: true, j1Managed: true })),
+    ).toEqual(["cloud", "browser"]);
+  });
+});

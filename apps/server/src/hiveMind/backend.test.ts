@@ -19,6 +19,7 @@ import {
 import { HiveMindRuntime } from "./runtime.ts";
 import { hivePaths } from "./config.ts";
 import { readHiveMind } from "./store.ts";
+import { externalHiveConnection } from "./connection.ts";
 
 const cleanups: Array<() => Promise<unknown>> = [];
 afterEach(async () => {
@@ -53,6 +54,27 @@ const pixel = Buffer.from(
 );
 
 describe("selected Hive Mind backend", () => {
+  it("lets an assistant connect externally without changing J1's built-in authority", async () => {
+    const f = await fixture();
+    const config = JSON.stringify({
+      version: 1,
+      backend: { mode: "builtin", connectionFile: f.connectionFile },
+    });
+    await fs.writeFile(hivePaths(f.file).config, config);
+    await fs.writeFile(
+      f.connectionFile,
+      JSON.stringify({ origin: "https://hive.example", token: "x".repeat(32) }),
+    );
+    expect(await selectedHiveConnection(f.file)).toBeNull();
+    expect((await externalHiveConnection(f.file)).origin).toBe("https://hive.example");
+    expect(await fs.readFile(hivePaths(f.file).config, "utf8")).toBe(config);
+    await fs.writeFile(
+      f.connectionFile,
+      JSON.stringify({ origin: "http://remote.example", token: "x".repeat(32) }),
+    );
+    await expect(externalHiveConnection(f.file)).rejects.toThrow("Invalid Hive Mind connection");
+    expect(await selectedHiveConnection(f.file)).toBeNull();
+  });
   it("keeps built-in as default without requiring a standalone app", async () => {
     const f = await fixture();
     expect(await selectedHiveConnection(f.file)).toBeNull();

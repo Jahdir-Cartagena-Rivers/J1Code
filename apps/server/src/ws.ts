@@ -169,6 +169,8 @@ import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
+import { MausbotService } from "./mausbot/Service.ts";
+import { MausbotRuntimeError } from "@t3tools/contracts";
 import { requiredScopeForRpcMethod, requiredScopeForDeviceList } from "./auth/RpcAuthorization.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
@@ -771,6 +773,7 @@ const makeWsRpcLayer = (
         ),
       );
       const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+      const mausbot = yield* MausbotService;
       const sourceControlDiscovery = yield* SourceControlDiscovery.SourceControlDiscovery;
       const automaticGitFetchInterval = serverSettings.getSettings.pipe(
         Effect.map(
@@ -2480,6 +2483,20 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.serverProbe, Effect.succeed({}), {
             "rpc.aggregate": "server",
           }),
+        [WS_METHODS.mausbotOpen]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.mausbotOpen,
+            mausbot
+              .open(currentSession, input.frameOrigin, input.viewKey)
+              .pipe(Effect.mapError((message) => new MausbotRuntimeError({ message }))),
+          ),
+        [WS_METHODS.mausbotApprovalMode]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.mausbotApprovalMode,
+            mausbot
+              .setApprovalMode(currentSession, input)
+              .pipe(Effect.mapError((message) => new MausbotRuntimeError({ message }))),
+          ),
         [WS_METHODS.serverGetConfig]: (_input) =>
           observeRpcEffect(
             WS_METHODS.serverGetConfig,
@@ -4024,6 +4041,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
     const hiveMindService = yield* HiveMindService;
     // Capture the server-owned pool before the router builds each socket's RPC scope.
     const backgroundBrowser = yield* BackgroundBrowser;
+    const mausbot = yield* MausbotService;
     const config = yield* ServerConfig.ServerConfig;
     const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
     const serverSelfUpdate = yield* ServerSelfUpdate.withRunningThreadContinuation({
@@ -4093,6 +4111,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
               Layer.provideMerge(RpcSerialization.layerJson),
               Layer.provide(Layer.succeed(HiveMindService, hiveMindService)),
               Layer.provide(Layer.succeed(BackgroundBrowser, backgroundBrowser)),
+              Layer.provide(Layer.succeed(MausbotService, mausbot)),
               Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),
               Layer.provide(AgentSessionScanner.layer),
               Layer.provide(ProviderMaintenanceRunner.layer),

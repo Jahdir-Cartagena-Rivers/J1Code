@@ -1,0 +1,151 @@
+// @effect-diagnostics nodeBuiltinImport:off - Exercises the real child/loopback boundary with isolated fixtures.
+import * as NodeFSP from "node:fs/promises";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+import { describe, expect, it } from "vite-plus/test";
+import { MausbotRuntime } from "./Runtime.ts";
+
+const fixtureSource = `
+const http = require('node:http');
+const fs = require('node:fs');
+const path = require('node:path');
+let owner = '';
+let browser = process.env.J1_MAUSBOT_LIGHTPANDA_PATH;
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', value => { owner += value; });
+fs.writeFileSync(path.join(process.env.OMB_DATA_DIR, 'fixture-pid'), String(process.pid));
+const server = http.createServer((req, res) => {
+  res.setHeader('content-type', 'application/json');
+  res.setHeader('content-security-policy', "default-src 'self'; frame-ancestors 'none'; connect-src 'self'");
+  if(req.url === '/api/edition') return res.end(JSON.stringify({edition:'oss'}));
+  if(req.url === '/api/auth/pairing') {
+    if(req.headers['x-openmausbot-cli-owner'] !== owner.trim()) { res.statusCode = 403; return res.end('{}'); }
+    return res.end(JSON.stringify({code:'fixture-only-code'}));
+  }
+  if(req.url === '/api/auth/pair') return res.end(JSON.stringify({token:'fixture-only-token'}));
+  if(req.headers.authorization !== 'Bearer fixture-only-token') { res.statusCode = 401; return res.end('{}'); }
+  if(req.url === '/api/bots/redirect') { res.statusCode = 302; res.setHeader('location','https://example.invalid'); return res.end('{}'); }
+  if(req.url === '/api/bots/large') return res.end(JSON.stringify('x'.repeat(4*1024*1024)));
+  if(req.url === '/api/bots/browser-path') return res.end(JSON.stringify({browser}));
+  res.end(JSON.stringify({ok:true,method:req.method,trust:process.env.OMB_LOOPBACK_TRUST,dataDir:process.env.OMB_DATA_DIR}));
+});
+process.on('message', message => { if(message?.type === 'j1:shutdown') server.close(() => process.exit(0)); if(message?.type === 'j1:browser') { browser = message.executable; process.send({type:'j1:browser-applied',requestId:message.requestId}); } });
+server.listen(Number(process.env.OMB_PORT), '127.0.0.1', () => console.log('openmausbot server on http://127.0.0.1:'+process.env.OMB_PORT));
+`;
+
+async function fixture() {
+  const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-mausbot-runtime-test-"));
+  const resources = NodePath.join(root, "resources");
+  const dataDir = NodePath.join(root, "state");
+  await NodeFSP.mkdir(NodePath.join(resources, "server"), { recursive: true });
+  await NodeFSP.writeFile(NodePath.join(resources, "server", "index.js"), fixtureSource);
+  const runtime = new MausbotRuntime({ platform: "linux", resources, dataDir });
+  return { runtime, resources, dataDir, root };
+}
+
+describe("managed upstream runtime", () => {
+  it("starts one isolated child, authenticates server-side, and stops its captured process", async () => {
+    const { runtime, dataDir, root } = await fixture();
+    try {
+      await Promise.all([runtime.start(), runtime.start(), runtime.start()]);
+      expect(runtime.running).toBe(true);
+      await runtime.setBrowserExecutablePath("custom-lightpanda.exe");
+      expect(await runtime.request("/api/bots/browser-path", "GET")).toEqual({
+        browser: "custom-lightpanda.exe",
+      });
+      await runtime.setBrowserExecutablePath("");
+      expect(await runtime.request("/api/bots/browser-path", "GET")).toEqual({ browser: "" });
+      expect(await runtime.request("/api/bots", "GET")).toEqual({
+        ok: true,
+        method: "GET",
+        trust: "service",
+        dataDir,
+      });
+      const pid = Number(await NodeFSP.readFile(NodePath.join(dataDir, "fixture-pid"), "utf8"));
+      await runtime.stop();
+      expect(runtime.running).toBe(false);
+      expect(() => process.kill(pid, 0)).toThrow();
+      await expect(runtime.request("/api/bots", "GET")).rejects.toThrow("not running");
+    } finally {
+      await runtime.stop();
+      await NodeFSP.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects enterprise payloads before starting a process", async () => {
+    const { runtime, resources, root } = await fixture();
+    try {
+      await NodeFSP.mkdir(NodePath.join(resources, "server", "enterprise"));
+      await expect(runtime.start()).rejects.toThrow("enterprise code");
+      expect(runtime.running).toBe(false);
+    } finally {
+      await runtime.stop();
+      await NodeFSP.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps upstream credentials server-side and denies private routes on the streaming transport", async () => {
+    const { runtime, root } = await fixture();
+    try {
+      await runtime.start();
+      const response = await runtime.forward("/api/bots?view=all", "GET");
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ ok: true, method: "GET" });
+      expect([...response.headers.keys()]).not.toContain("authorization");
+      const embedded = await runtime.forward(
+        "/",
+        "GET",
+        undefined,
+        undefined,
+        undefined,
+        "https://j1.example",
+      );
+      expect(embedded.headers.get("content-security-policy")).toBe(
+        "default-src 'self'; frame-ancestors 'self' https://j1.example; connect-src 'self'",
+      );
+      for (const path of [
+        "//other.invalid/",
+        "/api/auth/pair",
+        "/api/internal/browser/mcp",
+        "/%2e%2e/api/bots",
+        "/api/bots\\auth",
+      ])
+        await expect(runtime.forward(path, "POST")).rejects.toThrow();
+      await expect(runtime.forward("/api/bots/redirect", "GET")).rejects.toThrow("redirects");
+      await expect(runtime.forward("/api/updates/check", "GET")).rejects.toThrow(
+        "J1 Code owns updates",
+      );
+      await expect(
+        runtime.forward("/api/bots", "GET", undefined, new Uint8Array([1])),
+      ).rejects.toThrow("body");
+    } finally {
+      await runtime.stop();
+      await NodeFSP.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects escaped routes, cross-service URLs, oversized requests and redirected responses", async () => {
+    const { runtime, root } = await fixture();
+    try {
+      await runtime.start();
+      for (const route of [
+        "https://example.invalid/api/bots",
+        "/api/auth/pairing",
+        "/api/bots/%2e%2e/auth",
+        "/api/bots/../auth",
+        "/api/bots?token=x",
+        "/api/bots\\auth",
+      ])
+        await expect(runtime.request(route, "POST", {})).rejects.toThrow("not exposed");
+      await expect(runtime.request("/api/bots", "POST", "x".repeat(256 * 1024))).rejects.toThrow(
+        "256 KiB",
+      );
+      await expect(runtime.request("/api/bots", "GET", {})).rejects.toThrow("cannot contain");
+      await expect(runtime.request("/api/bots/redirect", "GET")).rejects.toThrow();
+      await expect(runtime.request("/api/bots/large", "GET")).rejects.toThrow("4 MiB");
+    } finally {
+      await runtime.stop();
+      await NodeFSP.rm(root, { recursive: true, force: true });
+    }
+  });
+});

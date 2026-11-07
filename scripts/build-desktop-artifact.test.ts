@@ -688,6 +688,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       "!apps/desktop/resources/browser-secret/**/*",
       "!apps/desktop/prod-resources/lightpanda",
       "!apps/desktop/prod-resources/lightpanda/**/*",
+      "!apps/desktop/prod-resources/mausbot",
+      "!apps/desktop/prod-resources/mausbot/**/*",
       "!apps/desktop/prod-resources/browser-secret",
       "!apps/desktop/prod-resources/browser-secret/**/*",
       "!apps/desktop/prod-resources/windows-server",
@@ -770,6 +772,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           to: "resource-monitor",
         },
         { from: "apps/desktop/prod-resources/lightpanda", to: "lightpanda", filter: ["**/*"] },
+        { from: "apps/desktop/prod-resources/mausbot", to: "mausbot", filter: ["runtime.zip"] },
         ...WINDOWS_SERVER_EXTRA_RESOURCES,
         ...WSL_RUNTIME_EXTRA_RESOURCES,
       ]);
@@ -781,6 +784,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           to: "resource-monitor",
         },
         { from: "apps/desktop/prod-resources/lightpanda", to: "lightpanda", filter: ["**/*"] },
+        { from: "apps/desktop/prod-resources/mausbot", to: "mausbot", filter: ["runtime.zip"] },
         ...WINDOWS_SERVER_EXTRA_RESOURCES,
       ]);
       assert.deepStrictEqual(win.nsis, { differentialPackage: true });

@@ -585,10 +585,29 @@ function SidebarFooter({ className, ...props }: React.ComponentProps<"div">) {
 function SidebarContent({
   className,
   fixedHeader,
+  scrollable = true,
   ...props
 }: React.ComponentProps<"div"> & {
   fixedHeader?: React.ReactNode;
+  scrollable?: boolean;
 }) {
+  if (!scrollable) {
+    // An embedded sidebar participates in its host's single navigation scroll.
+    return (
+      <>
+        {fixedHeader ? <div className="w-full shrink-0">{fixedHeader}</div> : null}
+        <div
+          className={cn(
+            "flex w-full min-w-0 shrink-0 flex-col [overflow-anchor:none] [&>[data-sidebar=group]+[data-sidebar=group]]:pt-0",
+            className,
+          )}
+          data-sidebar="content"
+          data-slot="sidebar-content"
+          {...props}
+        />
+      </>
+    );
+  }
   return (
     <>
       {fixedHeader ? <div className="w-full shrink-0">{fixedHeader}</div> : null}

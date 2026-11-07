@@ -27,6 +27,7 @@
   --maus-success: #38d591;
   --maus-danger: #ff5667;
   --maus-warning: #ff9800;
+  --maus-shadow-float: 0 0 #0000;
 }
 :root:not(.dark) {
   --maus-app: #fcfcfc;
@@ -60,6 +61,7 @@
   --maus-warning: #9c5b00;
   --maus-scrollbar: #c4c4c4;
   --maus-maus-line: #5f5f5f;
+  --maus-shadow-float: 0 4px 12px -1px rgb(28 28 28 / 0.08), 0 2px 4px -2px rgb(28 28 28 / 0.06);
 }
 :root {
   --maus-ease-out: cubic-bezier(0.22, 1, 0.36, 1);

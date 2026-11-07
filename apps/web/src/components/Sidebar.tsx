@@ -2180,7 +2180,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   );
 });
 
-export default function Sidebar() {
+export default function Sidebar({ embedded = false }: { embedded?: boolean } = {}) {
   const projects = useProjects();
   // Home has one persistent conversation exposed by the top-level Home control.
   // It is not an ordinary project and must never be grouped with project chats.
@@ -4482,16 +4482,18 @@ export default function Sidebar() {
   const newThreadInProjectShortcutLabel = shortcutLabelForCommand(keybindings, "chat.newLocal");
   return (
     <>
-      <SidebarChromeHeader isElectron={isElectron} />
-      <SidebarHomeLink />
+      {!embedded && <SidebarChromeHeader isElectron={isElectron} />}
+      <SidebarHomeLink assistants={!embedded} />
       {LEGACY_BOTS_ENABLED ? <SidebarBots /> : null}
       <SidebarContent
-        className="min-h-full"
+        scrollable={!embedded}
+        className={embedded ? undefined : "min-h-full"}
         fixedHeader={
           // Lifted above the stage backdrop, whose fade bleeds below the
           // header and would otherwise paint across the search row's outline.
           <SidebarGroup className="z-[1]">
             <SidebarThreadHeader
+              hideSearch={embedded}
               searchFieldRef={headerSearchRef}
               hasProjects={projectGroups.length > 0}
               projectScope={
@@ -5073,7 +5075,7 @@ export default function Sidebar() {
           ) : null}
         </SidebarGroup>
       </SidebarContent>
-      <SidebarChromeFooter />
+      {!embedded && <SidebarChromeFooter />}
     </>
   );
 }

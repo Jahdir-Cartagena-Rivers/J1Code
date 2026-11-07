@@ -35,6 +35,12 @@ into J1's attachment storage for provider adapters; actual image understanding
 depends on the chosen provider's capabilities. Manage the standalone vault,
 skills and indexing in Hive Mind; J1's built-in setup remains separate.
 
+## Assistant notes
+
+In an assistant’s **Memory** settings, you can enable **Hive Mind extended memory** using the external connection configured in J1. J1’s default memory backend can remain built-in. Enabling copies that assistant’s local notes and topic files to its own Hive Mind scope. Logs are excluded. Local files stay editable and remain the source of truth; changes sync before extended recall.
+
+Extended recall retrieves relevant passages beyond the notes always loaded into a turn. It does not increase the model’s context limit. Turning memory off stops recall; turning extended recall off preserves existing local notes and Hive Mind copies. Connection failures are reported without switching stores.
+
 ## Built-in memory
 
 Hive Mind keeps facts that Claude and Codex can use across J1 Code chats and projects on the same server. When you explain a lasting preference, project decision, or named concept, the agent can save it. You can also say “remember this in Hive Mind” and describe the fact directly.

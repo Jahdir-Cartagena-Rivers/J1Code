@@ -412,6 +412,8 @@ export const WS_METHODS = {
   // Server meta
   serverProbe: "server.probe",
   serverGetConfig: "server.getConfig",
+  mausbotOpen: "mausbot.open",
+  mausbotApprovalMode: "mausbot.approvalMode",
   botRoutineHistory: "bots.routineHistory",
   botCallTurn: "bots.callTurn",
   botBrowserPage: "bots.browserPage",
@@ -532,6 +534,46 @@ const WsBotCallTurnRpc = Rpc.make(WS_METHODS.botCallTurn, {
   payload: Schema.Struct({ threadId: ThreadId, messageId: MessageId }),
   success: Schema.NullOr(BotCallTurn),
   error: Schema.Union([BotCallTurnError, EnvironmentAuthorizationError]),
+});
+
+export class MausbotRuntimeError extends Schema.TaggedError<MausbotRuntimeError>()(
+  "MausbotRuntimeError",
+  { message: Schema.String },
+) {}
+const WsMausbotOpenRpc = Rpc.make(WS_METHODS.mausbotOpen, {
+  payload: Schema.Struct({
+    frameOrigin: Schema.optional(Schema.String.check(Schema.isMaxLength(512))),
+    viewKey: Schema.optional(Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/))),
+  }),
+  success: Schema.Struct({ relativeUrl: Schema.String }),
+  error: Schema.Union([MausbotRuntimeError, EnvironmentAuthorizationError]),
+});
+const MausbotObjectId = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,120}$/));
+export const MausbotApprovalModeInput = Schema.Struct({
+  botId: MausbotObjectId,
+  mode: Schema.Literals(["ask", "edits", "auto", "full", "custom"]),
+  options: Schema.optional(
+    Schema.Struct({
+      acknowledgeLocalAuto: Schema.optional(Schema.Boolean),
+      threadId: Schema.optional(MausbotObjectId),
+      modelSelection: Schema.optional(
+        Schema.Struct({
+          instanceId: Schema.String.check(Schema.isMaxLength(240)),
+          model: Schema.String.check(Schema.isMaxLength(512)),
+        }),
+      ),
+      updateBotDefault: Schema.optional(Schema.Boolean),
+      threadOnly: Schema.optional(Schema.Boolean),
+      allThreads: Schema.optional(Schema.Boolean),
+      refreshPermissions: Schema.optional(Schema.Boolean),
+    }),
+  ),
+});
+export type MausbotApprovalModeInput = typeof MausbotApprovalModeInput.Type;
+const WsMausbotApprovalModeRpc = Rpc.make(WS_METHODS.mausbotApprovalMode, {
+  payload: MausbotApprovalModeInput,
+  success: Schema.Unknown,
+  error: Schema.Union([MausbotRuntimeError, EnvironmentAuthorizationError]),
 });
 
 const WsBotBrowserPageRpc = Rpc.make(WS_METHODS.botBrowserPage, {
@@ -1555,6 +1597,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsBotRoutineHistoryRpc,
   WsBotCallTurnRpc,
+  WsMausbotOpenRpc,
+  WsMausbotApprovalModeRpc,
   WsBotBrowserPageRpc,
   WsBotBrowserActionRpc,
   WsServerRefreshProvidersRpc,

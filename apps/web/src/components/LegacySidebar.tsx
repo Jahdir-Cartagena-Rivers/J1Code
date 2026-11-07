@@ -2849,6 +2849,7 @@ function SortableProjectItem({
 }
 
 interface SidebarProjectsContentProps {
+  embedded?: boolean;
   showArm64IntelBuildWarning: boolean;
   arm64IntelBuildWarningDescription: string | null;
   desktopUpdateButtonAction: "download" | "install" | "none";
@@ -2943,22 +2944,25 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
 
   return (
     <SidebarContent
+      scrollable={!props.embedded}
       fixedHeader={
-        // Lifted above the stage backdrop, whose fade bleeds below the
-        // header and would otherwise paint across the search row's outline.
-        <SidebarGroup className="z-[1]">
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <CommandDialogTrigger
-                render={<SidebarMenuButton data-testid="command-palette-trigger" />}
-              >
-                <SearchIcon />
-                <span className="flex-1 truncate">Search</span>
-                {commandPaletteShortcutLabel ? <Kbd>{commandPaletteShortcutLabel}</Kbd> : null}
-              </CommandDialogTrigger>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarGroup>
+        props.embedded ? undefined : (
+          // Lifted above the stage backdrop, whose fade bleeds below the
+          // header and would otherwise paint across the search row's outline.
+          <SidebarGroup className="z-[1]">
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <CommandDialogTrigger
+                  render={<SidebarMenuButton data-testid="command-palette-trigger" />}
+                >
+                  <SearchIcon />
+                  <span className="flex-1 truncate">Search</span>
+                  {commandPaletteShortcutLabel ? <Kbd>{commandPaletteShortcutLabel}</Kbd> : null}
+                </CommandDialogTrigger>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroup>
+        )
       }
     >
       {showArm64IntelBuildWarning && arm64IntelBuildWarningDescription ? (
@@ -3097,7 +3101,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
   );
 });
 
-export default function LegacySidebar() {
+export default function LegacySidebar({ embedded = false }: { embedded?: boolean } = {}) {
   const allProjects = useProjects();
   const projects = useMemo(
     () =>
@@ -3758,11 +3762,13 @@ export default function LegacySidebar() {
       {prewarmedSidebarThreadRefs.map((threadRef) => (
         <SidebarThreadDetailPrewarmer key={scopedThreadKey(threadRef)} threadRef={threadRef} />
       ))}
-      <SidebarChromeHeader isElectron={isElectron} />
-      <SidebarHomeLink />
+      {!embedded && <SidebarChromeHeader isElectron={isElectron} />}
+      <SidebarHomeLink assistants={!embedded} />
+      {embedded && <div className="px-3 py-1 text-xs text-sidebar-muted-foreground">Chats</div>}
       {LEGACY_BOTS_ENABLED ? <SidebarBots /> : null}
 
       <SidebarProjectsContent
+        embedded={embedded}
         showArm64IntelBuildWarning={showArm64IntelBuildWarning}
         arm64IntelBuildWarningDescription={arm64IntelBuildWarningDescription}
         desktopUpdateButtonAction={desktopUpdateButtonAction}
@@ -3800,7 +3806,7 @@ export default function LegacySidebar() {
         attachProjectListAutoAnimateRef={attachProjectListAutoAnimateRef}
         projectsLength={projects.length}
       />
-      <SidebarChromeFooter />
+      {!embedded && <SidebarChromeFooter />}
     </>
   );
 }

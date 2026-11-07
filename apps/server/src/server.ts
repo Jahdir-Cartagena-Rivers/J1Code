@@ -26,9 +26,11 @@ import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as HostPowerMonitor from "./background/HostPowerMonitor.ts";
 import * as ServerConfig from "./config.ts";
+import { MausbotService } from "./mausbot/Service.ts";
 import { HiveMindService } from "./hiveMind/HiveMindService.ts";
 import {
   otlpTracesProxyRouteLayer,
+  mausbotRouteLayer,
   assetRouteLayer,
   attachmentUploadRouteLayer,
   serverEnvironmentHttpApiLayer,
@@ -610,6 +612,7 @@ export const makeRoutesLayer = Layer.mergeAll(
       Layer.provide(environmentAuthenticatedAuthLayer),
     ),
     otlpTracesProxyRouteLayer,
+    mausbotRouteLayer,
     assetRouteLayer,
     attachmentUploadRouteLayer,
     deviceHubProxyRouteLayer,
@@ -621,6 +624,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   untracedRequestsLayer,
 ).pipe(
   Layer.provide(HiveMindService.layer),
+  Layer.provide(MausbotService.layer),
   Layer.provide(BackgroundBrowserLive),
   // Both transports consume the same service instance, so caches single-flight across clients
   // and mutations observed on WebSocket invalidate patches subsequently read over HTTP.

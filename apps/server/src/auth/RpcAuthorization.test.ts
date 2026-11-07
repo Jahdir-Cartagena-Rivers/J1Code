@@ -17,6 +17,10 @@ import {
 } from "./RpcAuthorization.ts";
 
 describe("RPC authorization scopes", () => {
+  it("requires owner scope to open the managed assistant workspace", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.mausbotOpen)).toBe(AuthAccessWriteScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.mausbotApprovalMode)).toBe(AuthAccessWriteScope);
+  });
   it("separates Hive Mind reads, memory changes, and environment configuration", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.hiveMindSnapshot)).toBe(AuthOrchestrationReadScope);
     expect(requiredScopeForRpcMethod(WS_METHODS.hiveMindSearch)).toBe(AuthOrchestrationReadScope);

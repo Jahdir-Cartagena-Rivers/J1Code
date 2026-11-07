@@ -115,8 +115,29 @@ export function useSettingsSearchTarget<T extends HTMLElement>(id: string | unde
   const targetRef = useCallback(
     (target: T | null) => {
       if (target && isSearchTarget) {
-        scrollAndFocusSettingsTarget(target, highlightTarget);
-        onTargetHandled();
+        // A search can mount this row inside a panel that is still expanding.
+        // Scrolling before its height settles leaves the destination below the viewport.
+        let live = true;
+        let frame = requestAnimationFrame(() => {
+          frame = requestAnimationFrame(() => {
+            const animations: Animation[] = [];
+            for (let node: HTMLElement | null = target; node; node = node.parentElement) {
+              animations.push(...node.getAnimations());
+              if (node.hasAttribute("data-settings-page-scroll")) break;
+            }
+            void Promise.all(
+              animations.map((animation) => animation.finished.catch(() => undefined)),
+            ).then(() => {
+              if (!live || !target.isConnected) return;
+              scrollAndFocusSettingsTarget(target, highlightTarget);
+              onTargetHandled();
+            });
+          });
+        });
+        return () => {
+          live = false;
+          cancelAnimationFrame(frame);
+        };
       }
     },
     [highlightTarget, isSearchTarget, onTargetHandled],
