@@ -30,6 +30,36 @@ describe("persisted bot profiles", () => {
     expect(decodePatch({ bots: { [bot.id]: null } }).bots).toEqual({ [bot.id]: null });
   });
 
+  it("round trips a custom icon and accepts existing profiles without one", () => {
+    const custom = decodeSettings({
+      bots: { [bot.id]: { ...bot, icon: "🌱", voiceURI: "local-voice-id", voiceAutoPlay: true } },
+    });
+    expect(decodeSettings(encodeSettings(custom)).bots[bot.id]?.icon).toBe("🌱");
+    expect(decodeSettings(encodeSettings(custom)).bots[bot.id]?.voiceURI).toBe("local-voice-id");
+    expect(decodeSettings(encodeSettings(custom)).bots[bot.id]?.voiceAutoPlay).toBe(true);
+    expect(decodeSettings({ bots: { [bot.id]: bot } }).bots[bot.id]?.icon).toBeUndefined();
+    expect(() => decodeProfiles({ [bot.id]: { ...bot, icon: "x".repeat(17) } })).toThrow();
+  });
+
+  it("preserves standalone and existing project-linked bot profiles", () => {
+    const settings = decodeSettings({ bots: { [bot.id]: { ...bot, projectId: null } } });
+    expect(decodeSettings(encodeSettings(settings)).bots[bot.id]?.projectId).toBeNull();
+    expect(decodeSettings({ bots: { [bot.id]: bot } }).bots[bot.id]?.projectId).toBe("garden");
+  });
+
+  it("persists bot routines and rejects duplicate identities", () => {
+    const routine = {
+      id: "water",
+      name: "Water check",
+      prompt: "Check the garden",
+      enabled: true,
+      schedule: { type: "interval", anchorAt: "2026-01-01T00:00:00Z", everyMinutes: 60 },
+    };
+    const settings = decodeSettings({ bots: { [bot.id]: { ...bot, routines: [routine] } } });
+    expect(decodeSettings(encodeSettings(settings)).bots[bot.id]?.routines).toEqual([routine]);
+    expect(() => decodeProfiles({ [bot.id]: { ...bot, routines: [routine, routine] } })).toThrow();
+  });
+
   it("keeps older settings valid with no bots", () => {
     expect(decodeSettings({}).bots).toEqual({});
   });

@@ -4,6 +4,17 @@ import { requireMcpCapability } from "../../McpInvocationContext.ts";
 import { ServerSettingsService } from "../../../serverSettings.ts";
 import { BackgroundBrowser } from "./runtime.ts";
 import { BackgroundBrowserToolkit } from "./tools.ts";
+import { ProjectionSnapshotQuery } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
+
+const sessionId = Effect.fn("BackgroundBrowser.sessionId")(function* (scope: {
+  threadId: import("@t3tools/contracts").ThreadId;
+  providerSessionId: string;
+}) {
+  const bot = yield* (yield* ProjectionSnapshotQuery)
+    .getThreadBotIdentity(scope.threadId)
+    .pipe(Effect.mapError(() => "Could not resolve browser ownership."));
+  return bot ? `bot-thread:${scope.threadId}` : scope.providerSessionId;
+});
 
 const decodeArguments = Schema.decodeEffect(
   Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
@@ -18,10 +29,11 @@ const request = Effect.fn("BackgroundBrowser.request")(function* (method: string
   );
   const browser = yield* BackgroundBrowser;
   return yield* browser.request(
-    scope.providerSessionId,
+    yield* sessionId(scope),
     settings.lightpandaExecutablePath,
     method,
     params,
+    scope.threadId,
   );
 });
 
@@ -40,6 +52,6 @@ export const BackgroundBrowserHandlers = BackgroundBrowserToolkit.toLayer({
       const scope = yield* requireMcpCapability("preview").pipe(
         Effect.mapError((error) => error.message),
       );
-      return { closed: yield* (yield* BackgroundBrowser).close(scope.providerSessionId) };
+      return { closed: yield* (yield* BackgroundBrowser).close(yield* sessionId(scope)) };
     }),
 });

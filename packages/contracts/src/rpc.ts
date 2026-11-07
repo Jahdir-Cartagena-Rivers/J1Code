@@ -1,3 +1,14 @@
+import { ThreadId, MessageId } from "./baseSchemas.ts";
+import {
+  BotId,
+  BotBrowserPage,
+  BotBrowserAction,
+  BotBrowserError,
+  BotRoutineRun,
+  BotRoutineHistoryError,
+  BotCallTurn,
+  BotCallTurnError,
+} from "./bot.ts";
 import {
   ManualRoutePrepareInput,
   ManualRouteListInput,
@@ -401,6 +412,10 @@ export const WS_METHODS = {
   // Server meta
   serverProbe: "server.probe",
   serverGetConfig: "server.getConfig",
+  botRoutineHistory: "bots.routineHistory",
+  botCallTurn: "bots.callTurn",
+  botBrowserPage: "bots.browserPage",
+  botBrowserAction: "bots.browserAction",
   serverRefreshProviders: "server.refreshProviders",
   serverUpdateProvider: "server.updateProvider",
   serverUpdateServer: "server.updateServer",
@@ -505,6 +520,32 @@ const WsServerGetConfigRpc = Rpc.make(WS_METHODS.serverGetConfig, {
   payload: Schema.Struct({}),
   success: ServerConfig,
   error: Schema.Union([KeybindingsConfigError, ServerSettingsError, EnvironmentAuthorizationError]),
+});
+
+const WsBotRoutineHistoryRpc = Rpc.make(WS_METHODS.botRoutineHistory, {
+  payload: Schema.Struct({ botId: BotId }),
+  success: Schema.Array(BotRoutineRun),
+  error: Schema.Union([BotRoutineHistoryError, EnvironmentAuthorizationError]),
+});
+
+const WsBotCallTurnRpc = Rpc.make(WS_METHODS.botCallTurn, {
+  payload: Schema.Struct({ threadId: ThreadId, messageId: MessageId }),
+  success: Schema.NullOr(BotCallTurn),
+  error: Schema.Union([BotCallTurnError, EnvironmentAuthorizationError]),
+});
+
+const WsBotBrowserPageRpc = Rpc.make(WS_METHODS.botBrowserPage, {
+  payload: Schema.Struct({
+    threadId: ThreadId,
+    revision: Schema.optional(Schema.String.check(Schema.isMaxLength(128))),
+  }),
+  success: Schema.NullOr(BotBrowserPage),
+  error: Schema.Union([BotBrowserError, EnvironmentAuthorizationError]),
+});
+const WsBotBrowserActionRpc = Rpc.make(WS_METHODS.botBrowserAction, {
+  payload: Schema.Struct({ threadId: ThreadId, action: BotBrowserAction }),
+  success: BotBrowserPage,
+  error: Schema.Union([BotBrowserError, EnvironmentAuthorizationError]),
 });
 
 const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, {
@@ -1512,6 +1553,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsHiveMindImportRpc,
   WsServerProbeRpc,
   WsServerGetConfigRpc,
+  WsBotRoutineHistoryRpc,
+  WsBotCallTurnRpc,
+  WsBotBrowserPageRpc,
+  WsBotBrowserActionRpc,
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,
   WsProviderConsumeResetCreditRpc,

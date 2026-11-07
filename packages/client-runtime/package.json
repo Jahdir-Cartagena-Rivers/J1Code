@@ -4,6 +4,14 @@
   "license": "SEE LICENSE IN ../../LICENSE",
   "type": "module",
   "exports": {
+    "./bots/browser-document": {
+      "types": "./src/bots/browserDocument.ts",
+      "default": "./src/bots/browserDocument.ts"
+    },
+    "./bots/browser-event": {
+      "types": "./src/bots/browserEvent.ts",
+      "default": "./src/bots/browserEvent.ts"
+    },
     "./state/hive-mind": {
       "types": "./src/state/hiveMind.ts",
       "default": "./src/state/hiveMind.ts"

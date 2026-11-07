@@ -1,3 +1,4 @@
+import { isStandaloneBotProject } from "@t3tools/shared/bot-workspace";
 import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
 import type { ThreadMoveDestination } from "../threads/threadOrder";
 import { computeThreadMoveAvailability } from "../threads/threadOrder";
@@ -335,11 +336,17 @@ export function HomeScreen(props: HomeScreenProps) {
   // Home is represented by the persistent top-level row, outside the
   // ordinary project list and its activity-based thread shelves.
   const projectThreads = useMemo(
-    () => props.threads.filter((thread) => thread.projectId !== "j1-home"),
+    () =>
+      props.threads.filter(
+        (thread) => thread.projectId !== "j1-home" && !isStandaloneBotProject(thread.projectId),
+      ),
     [props.threads],
   );
   const projectListProjects = useMemo(
-    () => props.projects.filter((project) => project.id !== "j1-home"),
+    () =>
+      props.projects.filter(
+        (project) => project.id !== "j1-home" && !isStandaloneBotProject(project.id),
+      ),
     [props.projects],
   );
 

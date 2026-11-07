@@ -1,13 +1,21 @@
+import { botVoice, type BotVoice } from "../../native/botVoice";
+import { BOT_ICON_CHOICES } from "@t3tools/shared/bot-icons";
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import {
   BotId,
+  BotRoutine,
   ThreadId,
   type BotProfile,
   type EnvironmentId,
   type ServerConfig,
 } from "@t3tools/contracts";
+import { standaloneBotWorkspace, isStandaloneBotProject } from "@t3tools/shared/bot-workspace";
+import { latestBotConversation } from "@t3tools/shared/bot-conversations";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import * as Schema from "effect/Schema";
+import { BotRoutineHistory } from "./BotRoutineHistory";
+import { BotRoutinesEditor } from "./BotRoutinesEditor";
 import { useEffect, useMemo, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -23,10 +31,13 @@ import { ControlPill, ControlPillMenu } from "../../components/ControlPill";
 import { MaterialButton } from "../../components/MaterialButton";
 import { RowPressable } from "../../components/RowPressable";
 import { uuidv4 } from "../../lib/uuid";
-import { useProjects, useThreadShells } from "../../state/entities";
+import { useProjects, useThreadShells, waitForProject } from "../../state/entities";
 import { environmentServerConfigsAtom, serverEnvironment } from "../../state/server";
+import { projectEnvironment } from "../../state/projects";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
+
+const isRoutine = Schema.is(BotRoutine);
 
 interface Target {
   environmentId: EnvironmentId;
@@ -42,6 +53,7 @@ export function BotRoster({
   const projects = useProjects();
   const threads = useThreadShells();
   const create = useAtomCommand(threadEnvironment.create);
+  const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
   const [editor, setEditor] = useState<Target | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [pending, setPending] = useState<{
@@ -63,9 +75,7 @@ export function BotRoster({
         ),
     [configs],
   );
-  const firstProject = projects.find(
-    (project) => project.id !== "j1-home" && configs.has(project.environmentId),
-  );
+  const firstEnvironment = configs.keys().next().value;
   useEffect(() => {
     if (!pending) return;
     const thread = threads.find(
@@ -80,30 +90,53 @@ export function BotRoster({
   const open = async (environmentId: EnvironmentId, profile: BotProfile, fresh: boolean) => {
     if (creating || pending) return;
     setError(null);
-    const existing = !fresh
-      ? threads
-          .filter(
-            (thread) =>
-              thread.environmentId === environmentId &&
-              thread.bot?.id === profile.id &&
-              thread.archivedAt === null,
-          )
-          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
-      : undefined;
+    const existing = !fresh ? latestBotConversation(threads, environmentId, profile.id) : undefined;
     if (existing) {
       onSelectThread(existing);
       return;
     }
-    const project = projects.find(
-      (entry) => entry.environmentId === environmentId && entry.id === profile.projectId,
-    );
     const config = configs.get(environmentId);
-    if (!project || !config) {
-      setError("This bot's project is unavailable. Edit the bot to choose a project.");
+    if (!config) {
+      setError("This environment is unavailable.");
       return;
     }
     setCreating(true);
     try {
+      let project = projects.find(
+        (entry) => entry.environmentId === environmentId && entry.id === profile.projectId,
+      );
+      if (profile.projectId === null) {
+        if (!config.botWorkspaceRoot) {
+          setError("This environment needs an update to support standalone bots.");
+          return;
+        }
+        const workspace = standaloneBotWorkspace(config.botWorkspaceRoot, profile.id);
+        project = projects.find(
+          (entry) => entry.environmentId === environmentId && entry.id === workspace.projectId,
+        );
+        if (!project) {
+          await createProject({
+            environmentId,
+            input: {
+              ...workspace,
+              title: profile.name,
+              createWorkspaceRootIfMissing: true,
+              defaultModelSelection: null,
+              createdAt: new Date().toISOString(),
+            },
+          });
+          project =
+            (await waitForProject({ environmentId, projectId: workspace.projectId })) ?? undefined;
+        }
+        if (project && project.workspaceRoot !== workspace.workspaceRoot) {
+          setError("The bot workspace does not match its expected location.");
+          return;
+        }
+      }
+      if (!project) {
+        setError("This bot's project is unavailable. Edit the bot to choose a project.");
+        return;
+      }
       const threadId = ThreadId.make(uuidv4());
       const settings = resolveProjectSettings(config.settings, project.id, project).settings;
       const result = await create({
@@ -123,6 +156,8 @@ export function BotRoster({
       });
       if (result._tag === "Success") setPending({ environmentId, threadId });
       else setError("The conversation could not be created.");
+    } catch {
+      setError("The bot workspace could not be opened. Try again.");
     } finally {
       setCreating(false);
     }
@@ -135,8 +170,8 @@ export function BotRoster({
         <ControlPill
           label="Add bot"
           variant="pill"
-          disabled={!firstProject}
-          onPress={() => firstProject && setEditor({ environmentId: firstProject.environmentId })}
+          disabled={!firstEnvironment}
+          onPress={() => firstEnvironment && setEditor({ environmentId: firstEnvironment })}
         />
       </View>
       <ScrollView style={{ maxHeight: 240 }} nestedScrollEnabled>
@@ -152,6 +187,7 @@ export function BotRoster({
                 >
                   <AppText>
                     {profile.pinned ? "★ " : ""}
+                    {profile.icon ? `${profile.icon} ` : ""}
                     {profile.name}
                     {profile.archived ? " (Archived)" : ""}
                   </AppText>
@@ -166,10 +202,31 @@ export function BotRoster({
                     attributes: { disabled: profile.archived },
                   },
                   { id: "edit", title: "Edit bot" },
+                  ...threads
+                    .filter(
+                      (thread) =>
+                        thread.environmentId === environmentId &&
+                        thread.bot?.id === profile.id &&
+                        thread.id.startsWith("bot-routine:") &&
+                        thread.archivedAt === null,
+                    )
+                    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+                    .map((thread) => ({
+                      id: `thread:${thread.id}`,
+                      title: `${thread.title} - ${thread.latestTurn?.state ?? "starting"}`,
+                    })),
                 ]}
                 onPressAction={({ nativeEvent }) => {
                   if (nativeEvent.event === "edit") setEditor({ environmentId, profile });
                   else if (nativeEvent.event === "new") void open(environmentId, profile, true);
+                  else if (nativeEvent.event.startsWith("thread:")) {
+                    const found = threads.find(
+                      (thread) =>
+                        thread.environmentId === environmentId &&
+                        `thread:${thread.id}` === nativeEvent.event,
+                    );
+                    if (found) onSelectThread(found);
+                  }
                 }}
               >
                 <ControlPill
@@ -221,15 +278,14 @@ function BotEditor({
   const projects = useProjects().filter(
     (project) =>
       project.id !== "j1-home" &&
+      !isStandaloneBotProject(project.id) &&
       configs.has(project.environmentId) &&
       (!target.profile || project.environmentId === target.environmentId),
   );
   const [projectKey, setProjectKey] = useState(
-    JSON.stringify([
-      target.environmentId,
-      target.profile?.projectId ??
-        projects.find((project) => project.environmentId === target.environmentId)?.id,
-    ]),
+    target.profile?.projectId
+      ? JSON.stringify([target.environmentId, target.profile.projectId])
+      : "standalone",
   );
   const project = projects.find(
     (entry) => JSON.stringify([entry.environmentId, entry.id]) === projectKey,
@@ -237,10 +293,29 @@ function BotEditor({
   const environmentId = project?.environmentId ?? target.environmentId;
   const config = configs.get(environmentId);
   const [name, setName] = useState(target.profile?.name ?? "");
+  const [icon, setIcon] = useState(target.profile?.icon ?? "");
   const [description, setDescription] = useState(target.profile?.description ?? "");
   const [instructions, setInstructions] = useState(target.profile?.instructions ?? "");
+  const [voiceURI, setVoiceURI] = useState(target.profile?.voiceURI ?? "");
+  const [voiceAutoPlay, setVoiceAutoPlay] = useState(target.profile?.voiceAutoPlay ?? false);
+  const [voices, setVoices] = useState<ReadonlyArray<BotVoice>>([]);
+  useEffect(() => {
+    let mounted = true;
+    void botVoice
+      ?.voices()
+      .then((available) => {
+        if (mounted) setVoices(available);
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, []);
   const [pinned, setPinned] = useState(target.profile?.pinned ?? false);
   const [archived, setArchived] = useState(target.profile?.archived ?? false);
+  const [routines, setRoutines] = useState<ReadonlyArray<typeof BotRoutine.Type>>(
+    target.profile?.routines ?? [],
+  );
   const models =
     config?.providers.flatMap((provider) =>
       provider.models.map((model) => ({
@@ -272,7 +347,8 @@ function BotEditor({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const save = async () => {
-    if (!project || !selection || !name.trim() || saving) return;
+    if (!selection || !name.trim() || saving || routines.some((routine) => !isRoutine(routine)))
+      return;
     setSaving(true);
     setError(null);
     try {
@@ -280,9 +356,13 @@ function BotEditor({
       const profile: BotProfile = {
         id: target.profile?.id ?? BotId.make(uuidv4()),
         name: name.trim(),
+        routines,
+        ...(icon.trim() ? { icon: icon.trim() } : {}),
+        ...(voiceURI ? { voiceURI } : {}),
+        voiceAutoPlay,
         description: description.trim(),
         instructions: instructions.trim(),
-        projectId: project.id,
+        projectId: project?.id ?? null,
         modelSelection: selection,
         pinned,
         archived,
@@ -328,6 +408,32 @@ function BotEditor({
               maxLength={80}
             />
           </View>
+          <View className="gap-2">
+            <AppText>Choose an icon</AppText>
+            <View className="flex-row flex-wrap gap-1">
+              {BOT_ICON_CHOICES.map((choice) => (
+                <ControlPill
+                  key={choice.label}
+                  accessibilityLabel={choice.label}
+                  label={choice.icon}
+                  variant={icon === choice.icon ? "primary" : "pill"}
+                  onPress={() => setIcon(choice.icon)}
+                />
+              ))}
+              <ControlPill label="Clear" variant="pill" onPress={() => setIcon("")} />
+            </View>
+          </View>
+          <View className="gap-1">
+            <AppText>Icon (emoji)</AppText>
+            <TextInput
+              accessibilityLabel="Bot icon"
+              className="rounded-lg border border-border p-3 text-foreground"
+              value={icon}
+              onChangeText={setIcon}
+              maxLength={16}
+              placeholder="🤖"
+            />
+          </View>
           <View className="gap-1">
             <AppText>Description</AppText>
             <TextInput
@@ -340,11 +446,18 @@ function BotEditor({
           </View>
           <ControlPillMenu
             title="Project"
-            actions={projects.map((entry) => ({
-              id: JSON.stringify([entry.environmentId, entry.id]),
-              title: entry.title,
-            }))}
+            actions={[
+              { id: "standalone", title: "Standalone" },
+              ...projects.map((entry) => ({
+                id: JSON.stringify([entry.environmentId, entry.id]),
+                title: entry.title,
+              })),
+            ]}
             onPressAction={({ nativeEvent }) => {
+              if (nativeEvent.event === "standalone") {
+                setProjectKey("standalone");
+                return;
+              }
               const next = projects.find(
                 (entry) => JSON.stringify([entry.environmentId, entry.id]) === nativeEvent.event,
               );
@@ -355,7 +468,7 @@ function BotEditor({
             }}
           >
             <ControlPill
-              label={project?.title ?? "Choose project"}
+              label={project?.title ?? "Standalone"}
               accessibilityLabel="Bot project"
               variant="pill"
             />
@@ -375,6 +488,48 @@ function BotEditor({
               variant="pill"
             />
           </ControlPillMenu>
+          {botVoice ? (
+            <View className="gap-2">
+              <AppText>Voice</AppText>
+              <ControlPillMenu
+                title="Bot voice"
+                actions={[
+                  { id: "default", title: "Device default" },
+                  ...voices.map((voice) => ({
+                    id: voice.id,
+                    title: `${voice.name} (${voice.language})`,
+                  })),
+                ]}
+                onPressAction={({ nativeEvent }) =>
+                  setVoiceURI(nativeEvent.event === "default" ? "" : nativeEvent.event)
+                }
+              >
+                <ControlPill
+                  label={voices.find((voice) => voice.id === voiceURI)?.name ?? "Device default"}
+                  accessibilityLabel="Bot voice"
+                  variant="pill"
+                />
+              </ControlPillMenu>
+              <View className="flex-row items-center justify-between">
+                <AppText>Read replies automatically</AppText>
+                <Switch
+                  accessibilityLabel="Read replies automatically"
+                  value={voiceAutoPlay}
+                  onValueChange={setVoiceAutoPlay}
+                />
+              </View>
+            </View>
+          ) : (
+            <AppText>Update the mobile app to use bot voice.</AppText>
+          )}
+          <BotRoutinesEditor routines={routines} onChange={setRoutines} />
+          {target.profile ? (
+            <BotRoutineHistory
+              environmentId={environmentId}
+              botId={target.profile.id}
+              routines={routines}
+            />
+          ) : null}
           <View className="gap-1">
             <AppText>Instructions</AppText>
             <TextInput
@@ -401,10 +556,20 @@ function BotEditor({
               />
             </View>
           ) : null}
+          {routines.some((routine) => !isRoutine(routine)) ? (
+            <AppText accessibilityRole="alert">
+              Complete each routine name, instructions and valid UTC start time before saving.
+            </AppText>
+          ) : null}
           {error ? <AppText accessibilityRole="alert">{error}</AppText> : null}
           <MaterialButton
             label={saving ? "Saving…" : "Save bot"}
-            disabled={saving || !name.trim() || !project || !selection}
+            disabled={
+              saving ||
+              !name.trim() ||
+              !selection ||
+              routines.some((routine) => !isRoutine(routine))
+            }
             onPress={() => void save()}
             tone="primary"
           />

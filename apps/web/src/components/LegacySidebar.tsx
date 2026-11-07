@@ -1,3 +1,4 @@
+import { isStandaloneBotProject } from "@t3tools/shared/bot-workspace";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
 import { Spinner } from "~/components/ui/spinner";
@@ -3098,12 +3099,18 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
 export default function LegacySidebar() {
   const allProjects = useProjects();
   const projects = useMemo(
-    () => allProjects.filter((project) => project.id !== "j1-home"),
+    () =>
+      allProjects.filter(
+        (project) => project.id !== "j1-home" && !isStandaloneBotProject(project.id),
+      ),
     [allProjects],
   );
   const allSidebarThreads = useRootChatShells();
   const sidebarThreads = useMemo(
-    () => allSidebarThreads.filter((thread) => thread.projectId !== "j1-home"),
+    () =>
+      allSidebarThreads.filter(
+        (thread) => thread.projectId !== "j1-home" && !isStandaloneBotProject(thread.projectId),
+      ),
     [allSidebarThreads],
   );
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);

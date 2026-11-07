@@ -4,6 +4,26 @@
   "license": "SEE LICENSE IN ../../LICENSE",
   "type": "module",
   "exports": {
+    "./bot-conversations": {
+      "types": "./src/botConversations.ts",
+      "import": "./src/botConversations.ts"
+    },
+    "./bot-call-controller": {
+      "types": "./src/botCallController.ts",
+      "import": "./src/botCallController.ts"
+    },
+    "./bot-voice-conversation": {
+      "types": "./src/botVoiceConversation.ts",
+      "import": "./src/botVoiceConversation.ts"
+    },
+    "./bot-icons": {
+      "types": "./src/botIcons.ts",
+      "import": "./src/botIcons.ts"
+    },
+    "./bot-workspace": {
+      "types": "./src/botWorkspace.ts",
+      "import": "./src/botWorkspace.ts"
+    },
     "./autoModel": {
       "types": "./src/autoModel.ts",
       "import": "./src/autoModel.ts"

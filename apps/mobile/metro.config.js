@@ -48,6 +48,7 @@ config.resolver = {
     ...config.resolver?.extraNodeModules,
     "@t3tools/mobile-third-party-licenses": generatedLicenseModuleRoot,
     "@t3tools/mobile-device-stream": generatedDeviceStreamRoot,
+    "@t3tools/mobile-bot-browser": path.join(__dirname, ".generated", "bot-browser"),
     shiki: mobileShikiRoot,
     "@shikijs/core": resolveShikiDependencyRoot("@shikijs/core"),
     "@shikijs/engine-javascript": resolveShikiDependencyRoot("@shikijs/engine-javascript"),
@@ -120,7 +121,17 @@ async function prepareDeviceStream() {
   }
 }
 
-module.exports = Promise.all([generateMobileThirdPartyLicenses(), prepareDeviceStream()]).then(() =>
+async function prepareBotBrowser() {
+  const { generateBotBrowserScript } = await import(
+    pathToFileURL(path.join(__dirname, "scripts", "generate-bot-browser.mts")).href
+  );
+  await generateBotBrowserScript();
+}
+module.exports = Promise.all([
+  generateMobileThirdPartyLicenses(),
+  prepareDeviceStream(),
+  prepareBotBrowser(),
+]).then(() =>
   withUniwindConfig(config, {
     cssEntryFile: "./global.css",
     extraThemes,

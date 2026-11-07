@@ -1,3 +1,8 @@
+import { BotProfile } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
+import * as WorkspacePaths from "../../workspace/WorkspacePaths.ts";
+import { makeRoutineAdmission } from "../../bots/routineAdmission.ts";
+import { makeRoutineScheduler } from "../../bots/routineScheduler.ts";
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
@@ -857,6 +862,76 @@ describe("ProviderCommandReactor", () => {
           input: text,
           ...(attachments.length > 0 ? { attachments } : {}),
         }),
+      );
+    }),
+  );
+
+  effectIt.effect("sends a due bot routine through the provider reactor exactly once", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness());
+      const entered = yield* Deferred.make<void>();
+      harness.sendTurn.mockImplementation((input) =>
+        Deferred.succeed(entered, undefined).pipe(
+          Effect.as({
+            threadId: (input as { threadId: ThreadId }).threadId,
+            turnId: TurnId.make("routine-turn"),
+          }),
+        ),
+      );
+      const bot = yield* Schema.decodeUnknownEffect(BotProfile)({
+        id: "test-bot",
+        name: "Reviewer",
+        description: "",
+        instructions: "Review changes and cite evidence.",
+        projectId: "project-1",
+        modelSelection: { instanceId: "codex", model: "gpt-5-codex" },
+        pinned: false,
+        archived: false,
+        createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+        routines: [
+          {
+            id: "review",
+            name: "Review",
+            prompt: "Check the project",
+            enabled: true,
+            schedule: { type: "once", at: "2026-01-01T00:00:00Z" },
+          },
+        ],
+      });
+      const admit = yield* Effect.promise(() =>
+        runtime!.runPromise(
+          makeRoutineAdmission.pipe(
+            Effect.provide(
+              Layer.mergeAll(
+                ServerSettingsService.layerTest(),
+                WorkspacePaths.layer,
+                ServerConfig.layerTest(process.cwd(), { prefix: "routine-reactor-" }),
+              ).pipe(Layer.provideMerge(NodeServices.layer)),
+            ),
+          ),
+        ),
+      );
+      const scheduler = yield* Effect.promise(() =>
+        runtime!.runPromise(
+          makeRoutineScheduler({
+            profiles: Effect.succeed([bot]),
+            admit: (profile, routine, occurrence) =>
+              admit(profile, routine, occurrence).pipe(Effect.mapError(String)),
+          }),
+        ),
+      );
+      const now = Date.parse("2026-01-01T00:00:00Z");
+      yield* scheduler.sweep(now);
+      yield* Deferred.await(entered);
+      yield* scheduler.sweep(now);
+      yield* Effect.promise(() => harness.drain());
+      expect(harness.sendTurn).toHaveBeenCalledTimes(1);
+      expect(harness.sendTurn).toHaveBeenCalledWith(
+        expect.objectContaining({ input: expect.stringContaining("Check the project") }),
+      );
+      expect((harness.sendTurn.mock.calls[0]?.[0] as { input: string }).input).toContain(
+        "Review changes and cite evidence.",
       );
     }),
   );

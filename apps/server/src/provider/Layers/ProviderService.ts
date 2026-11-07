@@ -494,7 +494,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   const analytics = yield* Effect.service(AnalyticsService.AnalyticsService);
   const serverConfig = yield* ServerConfig.ServerConfig;
   const hiveFile = `${serverConfig.stateDir}/hive-mind.json`;
-  type TurnMemory = { connection: HiveConnection; project: string; packet: HivePacket };
+  type TurnMemory = { connection: HiveConnection; project: string | null; packet: HivePacket };
   type MemoryOutcome = {
     eventId: string;
     provider: string;
@@ -1905,12 +1905,17 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     }
 
     let threadTitle: string | undefined;
+    let standaloneBot = false;
     if (inputTextWithAttachmentContext) {
       const memoryProjects = yield* Effect.gen(function* () {
         if (Option.isNone(projectionQuery)) return [];
         const thread = yield* projectionQuery.value.getThreadShellById(parsed.threadId);
         if (Option.isNone(thread)) return [];
         threadTitle = thread.value.title;
+        if (thread.value.projectId.startsWith("j1-bot:")) {
+          standaloneBot = true;
+          return [];
+        }
         const project = yield* projectionQuery.value.getProjectShellById(thread.value.projectId);
         if (Option.isNone(project)) return [];
         return [project.value.title, pathService.basename(project.value.workspaceRoot)];
@@ -1945,7 +1950,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           );
         memoryForTurn = {
           connection: memory.connection,
-          project: memory.packet.project ?? memoryProjects[0] ?? "J1Code",
+          project: standaloneBot ? null : (memory.packet.project ?? memoryProjects[0] ?? "J1Code"),
           packet: memory.packet,
         };
         let totalBytes = attachments
@@ -2071,7 +2076,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
               livePresence.begin(input.threadId, {
                 connection: memoryForTurn.connection,
                 provider: routed.adapter.provider,
-                project: memoryForTurn.project,
+                ...(memoryForTurn.project ? { project: memoryForTurn.project } : {}),
                 ...(threadTitle ? { title: threadTitle } : {}),
                 ...(memoryForTurn.packet.taskId ? { taskId: memoryForTurn.packet.taskId } : {}),
               });

@@ -1,3 +1,4 @@
+import { isStandaloneBotProject } from "@t3tools/shared/bot-workspace";
 import { requestCustomSnooze } from "./CustomSnoozeDialog";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
@@ -2183,14 +2184,18 @@ export default function Sidebar() {
   // Home has one persistent conversation exposed by the top-level Home control.
   // It is not an ordinary project and must never be grouped with project chats.
   const sidebarProjects = useMemo(
-    () => projects.filter((project) => project.id !== "j1-home"),
+    () =>
+      projects.filter((project) => project.id !== "j1-home" && !isStandaloneBotProject(project.id)),
     [projects],
   );
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
   const threads = useRootChatShells();
   const projectThreads = useMemo(
-    () => threads.filter((thread) => thread.projectId !== "j1-home"),
+    () =>
+      threads.filter(
+        (thread) => thread.projectId !== "j1-home" && !isStandaloneBotProject(thread.projectId),
+      ),
     [threads],
   );
   const router = useRouter();

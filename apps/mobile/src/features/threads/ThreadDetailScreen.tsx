@@ -1,3 +1,6 @@
+import { BotCallControl } from "../bots/BotCallControl";
+import { BotBrowserButton } from "../bots/BotBrowserButton";
+import { BotVoiceControl } from "../bots/BotVoiceControl";
 import { MobileRouteRequests } from "./MobileRouteRequests";
 import type { WorktreeSetupCardProps } from "./worktree-setup-card";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
@@ -114,6 +117,13 @@ import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
 
 export interface ThreadDetailScreenProps {
+  readonly onSendVoiceMessage: (text: string) => Promise<MessageId | null>;
+  readonly botCallRevision: string;
+  readonly botVoice?: {
+    readonly botId: import("@t3tools/contracts").BotId;
+    readonly messageId: string | null;
+    readonly text: string;
+  } | null;
   readonly worktreeSetup?: WorktreeSetupCardProps | null;
   readonly setupWorkingStartedAt?: string | null;
   readonly selectedThread: OrchestrationThreadShell;
@@ -327,6 +337,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const feedTouchStartRef = useRef<{ pageX: number; pageY: number } | null>(null);
   const selectedThreadKeyRef = useRef(selectedThreadKey);
   const lastScrolledSubmittedMessageIdRef = useRef<MessageId | null>(null);
+  const [botCallActive, setBotCallActive] = useState(false);
   const [composerExpanded, setComposerExpanded] = useState(false);
   const [composerFocused, setComposerFocused] = useState(false);
   const handleComposerFocusChange = useCallback(
@@ -884,6 +895,38 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
 
   return (
     <View className="flex-1">
+      {props.botVoice ? (
+        <>
+          <BotBrowserButton
+            environmentId={props.environmentId}
+            threadId={props.selectedThread.id}
+            name={props.selectedThread.bot?.name ?? props.selectedThread.title}
+          />
+          <BotCallControl
+            key={`call:${props.environmentId}:${props.selectedThread.id}`}
+            environmentId={props.environmentId}
+            threadId={props.selectedThread.id}
+            botId={props.botVoice.botId}
+            revision={props.botCallRevision}
+            onSendVoice={props.onSendVoiceMessage}
+            blocked={
+              !!props.activePendingApproval ||
+              !!props.activePendingUserInput ||
+              !!props.creationState ||
+              props.connectionStateLabel !== "connected"
+            }
+            startDisabled={props.activeWorkStartedAt !== null}
+            onActiveChange={setBotCallActive}
+          />
+          {!botCallActive ? (
+            <BotVoiceControl
+              key={`voice:${props.environmentId}:${props.selectedThread.id}`}
+              environmentId={props.environmentId}
+              {...props.botVoice}
+            />
+          ) : null}
+        </>
+      ) : null}
       {showContent ? (
         <View
           style={{ flex: 1 }}

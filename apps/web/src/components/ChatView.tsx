@@ -1,3 +1,6 @@
+import { BotCallControl } from "./chat/BotCallControl";
+import { BotBrowserButton } from "./chat/BotBrowserButton";
+import { BotVoiceControl } from "./chat/BotVoiceControl";
 import { isChatGptUsageLimitError } from "@t3tools/shared/usageLimits";
 import { useLoadBalancedEnvironment } from "../hooks/useLoadBalancedEnvironment";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
@@ -1736,6 +1739,7 @@ export default function ChatView(props: ChatViewProps) {
     Record<string, LocalThreadErrorEntry>
   >({});
   const [isConnecting, _setIsConnecting] = useState(false);
+  const [botCallActive, setBotCallActive] = useState(false);
   const isRevertingCheckpoint = useComposerDraftStore((store) =>
     store.rewindingThreadKeys.has(routeThreadKey),
   );
@@ -9765,6 +9769,35 @@ export default function ChatView(props: ChatViewProps) {
     ) : null
   ) : null;
 
+  const sendBotVoice = async (text: string) => {
+    if (
+      !activeServerThread?.bot ||
+      !text.trim() ||
+      activePendingApproval ||
+      activePendingUserInput ||
+      isSendBusy ||
+      isConnecting ||
+      phase === "running" ||
+      activeEnvironmentUnavailable ||
+      threadDetailLoading ||
+      !clientSettingsHydrated
+    )
+      return null;
+    const messageId = newMessageId();
+    const result = await startThreadTurn({
+      environmentId: activeServerThread.environmentId,
+      input: {
+        threadId: activeServerThread.id,
+        message: { messageId, role: "user", text: text.trim(), attachments: [] },
+        modelSelection: activeServerThread.modelSelection,
+        runtimeMode: activeServerThread.runtimeMode,
+        interactionMode: activeServerThread.interactionMode,
+        createdAt: new Date().toISOString(),
+      },
+    });
+    return result._tag === "Success" ? messageId : null;
+  };
+
   const workspaceFileDropHandlers = makeWorkspaceFileDropHandlers({
     setDragActive: setIsWorkspaceFileDragActive,
     addFiles: (files) => composerRef.current?.addDroppedFiles(files),
@@ -10016,6 +10049,49 @@ export default function ChatView(props: ChatViewProps) {
                   />
                 )}
               </RouteRequestControl>
+
+              {activeServerThread?.bot ? (
+                <div className="flex flex-wrap justify-end px-4">
+                  <BotBrowserButton
+                    environmentId={activeServerThread.environmentId}
+                    threadId={activeServerThread.id}
+                    name={activeServerThread.bot.name}
+                  />
+                  <BotCallControl
+                    key={`call:${activeServerThread.environmentId}:${activeServerThread.id}`}
+                    environmentId={activeServerThread.environmentId}
+                    threadId={activeServerThread.id}
+                    botId={activeServerThread.bot.id}
+                    revision={`${activeServerThread.updatedAt}:${activeServerThread.latestTurn?.state ?? ""}`}
+                    blocked={
+                      !!activePendingApproval ||
+                      !!activePendingUserInput ||
+                      activeEnvironmentUnavailable ||
+                      threadDetailLoading
+                    }
+                    startDisabled={phase === "running" || isSendBusy || isConnecting}
+                    onActiveChange={setBotCallActive}
+                    onSendVoice={sendBotVoice}
+                  />
+                  {!botCallActive ? (
+                    <BotVoiceControl
+                      key={`${activeServerThread.environmentId}:${activeServerThread.id}`}
+                      messageId={
+                        activeServerThread.messages.findLast(
+                          (message) => message.role === "assistant" && !message.streaming,
+                        )?.id ?? null
+                      }
+                      environmentId={activeServerThread.environmentId}
+                      botId={activeServerThread.bot.id}
+                      text={
+                        activeServerThread.messages.findLast(
+                          (message) => message.role === "assistant" && !message.streaming,
+                        )?.text ?? ""
+                      }
+                    />
+                  ) : null}
+                </div>
+              ) : null}
 
               {/* scroll to end pill — shown when user has scrolled away from the live edge */}
               {showScrollToBottom && (

@@ -213,6 +213,9 @@ const make = Effect.gen(function* () {
     readonly projects: ReadonlyArray<{ readonly id: ProjectId; readonly workspaceRoot: string }>;
     readonly preferSessionRuntime: boolean;
   }): Effect.fn.Return<string | undefined, CheckpointStoreError> {
+    // Standalone bot storage can sit beneath a development checkout. It must
+    // never checkpoint the enclosing application's repository.
+    if (input.thread.projectId.startsWith("j1-bot:")) return undefined;
     const fromSession = yield* resolveSessionRuntimeForThread(input.threadId);
     const fromThread = resolveThreadWorkspaceCwd({
       thread: input.thread,
