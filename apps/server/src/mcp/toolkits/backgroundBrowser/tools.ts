@@ -3,12 +3,18 @@ import { Tool, Toolkit } from "effect/unstable/ai";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";
 import { ServerSettingsService } from "../../../serverSettings.ts";
 import { BackgroundBrowser } from "./runtime.ts";
+import { ProjectionSnapshotQuery } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
 
-const dependencies = [McpInvocationContext, ServerSettingsService, BackgroundBrowser];
+const dependencies = [
+  McpInvocationContext,
+  ServerSettingsService,
+  BackgroundBrowser,
+  ProjectionSnapshotQuery,
+];
 export const BackgroundBrowserToolkit = Toolkit.make(
   Tool.make("background_browser_tools", {
     description:
-      "List the native Lightpanda background browser's tools and argument schemas. Requires a configured executable in this environment's Integrations settings. Browser page state is private to this provider session. Use the collaborative preview for visual inspection, screenshots and recordings.",
+      "List the native Lightpanda background browser's tools and argument schemas. Requires a configured executable in this environment's Integrations settings. Bot conversations share their page with the bot browser window; other conversations keep provider-private pages. Use the collaborative preview for screenshots and recordings.",
     success: Schema.Struct({ tools: Schema.Unknown }),
     failure: Schema.String,
     dependencies,
@@ -30,7 +36,7 @@ export const BackgroundBrowserToolkit = Toolkit.make(
     .annotate(Tool.Destructive, true),
   Tool.make("background_browser_close", {
     description:
-      "Close this provider session's Lightpanda process and discard its temporary browser page, cookies and storage. Other provider sessions and the collaborative visual preview are unaffected. The next browser call starts a fresh isolated browser.",
+      "Close this conversation's Lightpanda process and discard its temporary page, cookies and storage. In a bot conversation this also closes the page in its browser window. Other conversations and the collaborative visual preview are unaffected. The next browser call starts a fresh browser.",
     success: Schema.Struct({ closed: Schema.Boolean }),
     failure: Schema.String,
     dependencies,

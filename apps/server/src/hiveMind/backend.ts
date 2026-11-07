@@ -264,7 +264,7 @@ export async function captureHiveEvent(
     eventId: string;
     threadId: string;
     provider: string;
-    project: string;
+    project: string | null;
     summary: string;
     taskId?: string;
     assetIds?: readonly string[];
@@ -288,8 +288,8 @@ export async function captureHiveEvent(
   return requestHive(connection, "/v1/brain/save", {
     kind: "episode",
     eventId: input.eventId,
-    scope: "project",
-    project: input.project,
+    scope: input.project === null ? "general" : "project",
+    ...(input.project === null ? {} : { project: input.project }),
     title: "J1 turn activity",
     source: { threadId: input.threadId, provider: input.provider, type: "agent" },
     data: {

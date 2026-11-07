@@ -10,6 +10,7 @@ import {
   AuthStandardClientScopes,
   AuthEnvironmentBootstrapTokenType,
   AuthTokenExchangeGrantType,
+  BotId,
   CommandId,
   DEFAULT_SERVER_SETTINGS,
   type DpopFailureReason,
@@ -7848,6 +7849,91 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(response.relativePath, "nested/created.txt");
       const persisted = yield* fs.readFileString(path.join(workspaceDir, "nested", "created.txt"));
       assert.equal(persisted, "written-by-rpc");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("serves empty routine history for a bot over the authenticated websocket", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const history = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.botRoutineHistory]({ botId: BotId.make("unknown-bot") }),
+        ),
+      );
+      assert.deepEqual(history, []);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("returns no call turn for a non-bot conversation", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        layers: { projectionSnapshotQuery: { getThreadBotIdentity: () => Effect.succeed(null) } },
+      });
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.botCallTurn]({
+            threadId: ThreadId.make("missing"),
+            messageId: MessageId.make("missing"),
+          }),
+        ),
+      );
+      assert.isNull(result);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("rejects browser viewing and actions for a non-bot conversation", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        layers: { projectionSnapshotQuery: { getThreadBotIdentity: () => Effect.succeed(null) } },
+      });
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const read = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.botBrowserPage]({ threadId: ThreadId.make("missing") }),
+        ),
+      ).pipe(Effect.flip);
+      assert.equal(read._tag, "BotBrowserError");
+      const action = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.botBrowserAction]({
+            threadId: ThreadId.make("missing"),
+            action: { type: "open" },
+          }),
+        ),
+      ).pipe(Effect.flip);
+      assert.equal(action._tag, "BotBrowserError");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("provisions a standalone bot workspace exposed by the server", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      yield* buildAppUnderTest();
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const config = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.serverGetConfig]({})),
+      );
+      assert.isDefined(config.botWorkspaceRoot);
+      const workspaceRoot = path.join(config.botWorkspaceRoot!, "bot-fixture");
+      const response = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
+            type: "project.create",
+            commandId: CommandId.make("bot-workspace-create"),
+            projectId: ProjectId.make("j1-bot:fixture"),
+            title: "Fixture bot",
+            workspaceRoot,
+            createWorkspaceRootIfMissing: true,
+            defaultModelSelection: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+          }),
+        ),
+      );
+      assert.isAtLeast(response.sequence, 0);
+      assert.equal((yield* fs.stat(workspaceRoot)).type, "Directory");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

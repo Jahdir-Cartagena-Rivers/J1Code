@@ -13,6 +13,9 @@ export class LightpandaProcess {
   private stderr = "";
   private sequence = 0;
   private closed = false;
+  get isClosed() {
+    return this.closed;
+  }
   private readonly pending = new Map<
     number,
     {
@@ -130,12 +133,21 @@ export class LightpandaProcess {
 
 /** Bounds native processes and reclaims idle browser memory without sharing storage. */
 export class LightpandaPool {
+  private readonly createProcess: (executable: string) => LightpandaProcess;
+  constructor(
+    createProcess: (executable: string) => LightpandaProcess = (executable) =>
+      new LightpandaProcess(executable),
+  ) {
+    this.createProcess = createProcess;
+  }
   private readonly sessions = new Map<
     string,
     {
       executable: string;
       process: LightpandaProcess;
       ready: Promise<void>;
+      tail: Promise<unknown>;
+      threadId?: string;
       idle: ReturnType<typeof NodeTimers.setTimeout>;
     }
   >();
@@ -150,17 +162,62 @@ export class LightpandaPool {
   closeAll() {
     for (const id of this.sessions.keys()) this.close(id);
   }
+  hasThread(threadId: string) {
+    return [...this.sessions.values()].some(
+      (session) => session.threadId === threadId && !session.process.isClosed,
+    );
+  }
+  async openThread(threadId: string, executable: string) {
+    if (this.hasThread(threadId)) return;
+    await this.request(
+      `bot-thread:${threadId}`,
+      executable,
+      "tools/call",
+      { name: "goto", arguments: { url: "about:blank", waitUntil: "domcontentloaded" } },
+      undefined,
+      threadId,
+    );
+  }
+  /** Viewer reads must attach to a live session, never silently create another page. */
+  requestExisting(id: string, method: string, params: unknown, signal?: AbortSignal) {
+    const session = this.sessions.get(id);
+    if (!session || session.process.isClosed) {
+      if (session) this.close(id);
+      return Promise.reject(new Error("The bot browser is not running."));
+    }
+    return this.request(id, session.executable, method, params, signal);
+  }
+  /** Thread identity comes from authenticated MCP scope, never from a page or tool argument. */
+  requestForThread(threadId: string, method: string, params: unknown, signal?: AbortSignal) {
+    const matches = [...this.sessions].filter(([, session]) => session.threadId === threadId);
+    if (matches.length !== 1)
+      return Promise.reject(
+        new Error(
+          matches.length === 0
+            ? "The bot browser is not running."
+            : "More than one browser session belongs to this conversation.",
+        ),
+      );
+    return this.requestExisting(matches[0]![0], method, params, signal);
+  }
   async request(
     id: string,
     executable: string,
     method: string,
     params: unknown,
     signal?: AbortSignal,
+    threadId?: string,
   ) {
     if (!executable.trim())
       throw new Error("Configure the native Lightpanda executable in Integrations settings first.");
     if (signal?.aborted) throw new Error("Background browser request cancelled.");
     let session = this.sessions.get(id);
+    if (session?.process.isClosed) {
+      this.close(id);
+      session = undefined;
+    }
+    if (session?.threadId && threadId && session.threadId !== threadId)
+      throw new Error("Browser session belongs to another conversation.");
     if (session && session.executable !== executable) {
       this.close(id);
       session = undefined;
@@ -170,24 +227,36 @@ export class LightpandaPool {
         throw new Error(
           "Eight background browser sessions are active. Close one before opening another.",
         );
-      const process = new LightpandaProcess(executable);
+      const process = this.createProcess(executable);
       const idle = NodeTimers.setTimeout(() => this.close(id), 180_000);
       idle.unref();
-      session = { executable, process, ready: process.initialize(), idle };
+      session = { executable, process, ready: process.initialize(), tail: Promise.resolve(), idle };
       this.sessions.set(id, session);
     }
+    if (threadId) session.threadId = threadId;
     NodeTimers.clearTimeout(session.idle);
-    const abort = () => this.close(id);
+    const abort = () => {
+      if (this.sessions.get(id) === session) this.close(id);
+    };
     signal?.addEventListener("abort", abort, { once: true });
+    const owner = session;
+    const operation = owner.tail
+      .catch(() => undefined)
+      .then(async () => {
+        if (this.sessions.get(id) !== owner || signal?.aborted)
+          throw new Error("Background browser session closed before the operation started.");
+        await owner.ready;
+        return owner.process.request(method, params);
+      });
+    owner.tail = operation;
     try {
-      await session.ready;
-      return await session.process.request(method, params);
+      return await operation;
     } catch (error) {
-      this.close(id);
+      if (this.sessions.get(id) === session) this.close(id);
       throw error;
     } finally {
       signal?.removeEventListener("abort", abort);
-      if (this.sessions.get(id) === session) {
+      if (this.sessions.get(id) === session && session.tail === operation) {
         session.idle = NodeTimers.setTimeout(() => this.close(id), 180_000);
         session.idle.unref();
       }

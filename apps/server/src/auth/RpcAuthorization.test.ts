@@ -1,5 +1,6 @@
 import {
   AuthOrchestrationOperateScope,
+  AuthTerminalOperateScope,
   AuthAccessWriteScope,
   AuthOrchestrationReadScope,
   AuthRelayReadScope,
@@ -25,6 +26,12 @@ describe("RPC authorization scopes", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.hiveMindSync)).toBe(AuthOrchestrationOperateScope);
     expect(requiredScopeForRpcMethod(WS_METHODS.hiveMindConfigure)).toBe(AuthAccessWriteScope);
     expect(requiredScopeForRpcMethod(WS_METHODS.hiveMindImport)).toBe(AuthAccessWriteScope);
+  });
+  it("requires read scope to view a browser and operation scope to change its page", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.botBrowserPage)).toBe(AuthOrchestrationReadScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.botBrowserAction)).toBe(
+      AuthOrchestrationOperateScope,
+    );
   });
   it("declares exactly one scope for every RPC in the server group", () => {
     expect(new Set(Object.keys(RPC_REQUIRED_SCOPES))).toEqual(new Set(WsRpcGroup.requests.keys()));

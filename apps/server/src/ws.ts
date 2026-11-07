@@ -1,3 +1,10 @@
+import { BotCallTurnError } from "@t3tools/contracts";
+import { BotBrowserError, type BotBrowserAction } from "@t3tools/contracts";
+import { BackgroundBrowser } from "./mcp/toolkits/backgroundBrowser/runtime.ts";
+import { readBotBrowserPage, actOnBotBrowserPage } from "./mcp/toolkits/backgroundBrowser/page.ts";
+import { makeBotCallTurnLookup } from "./bots/callTurnLookup.ts";
+import { BotRoutineHistoryError } from "@t3tools/contracts";
+import { makeRoutineRuns } from "./bots/routineRuns.ts";
 import * as Clock from "effect/Clock";
 import { ServerEnvironment as RoutingEnvironment } from "./environment/ServerEnvironment.ts";
 import { makeManualRouteBoundary } from "./routing/manualRouteBoundary.ts";
@@ -521,6 +528,8 @@ const makeWsRpcLayer = (
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
       const routeEnvironmentId = yield* (yield* RoutingEnvironment).getEnvironmentId;
       const routeStore = yield* makeDurableRoutingStore;
+      const routineRuns = yield* makeRoutineRuns;
+      const lookupBotCallTurn = yield* makeBotCallTurnLookup;
       const routeDrain = yield* makeEngineRouteDrain;
       const notifyRouteSource = yield* makeRouteSourceNotifier;
       const manualRouting = makeManualRouteRpc(
@@ -669,6 +678,28 @@ const makeWsRpcLayer = (
       const hiveMind = yield* HiveMindService;
       const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
       const serverSettings = yield* ServerSettings.ServerSettingsService;
+      const botBrowser = yield* BackgroundBrowser;
+      const browserForThread = (threadId: ThreadId, action?: BotBrowserAction, revision?: string) =>
+        Effect.gen(function* () {
+          const bot = yield* projectionSnapshotQuery.getThreadBotIdentity(threadId);
+          if (!bot)
+            return yield* new BotBrowserError({ message: "This bot browser is unavailable." });
+          const settings = yield* serverSettings.getSettings;
+          if (!settings.bots[bot.id] || settings.bots[bot.id]?.archived)
+            return yield* new BotBrowserError({ message: "Bot is unavailable or archived." });
+          return yield* (
+            action ? actOnBotBrowserPage(threadId, action) : readBotBrowserPage(threadId, revision)
+          ).pipe(Effect.provideService(BackgroundBrowser, botBrowser));
+        }).pipe(
+          Effect.tapError((error) => Effect.logDebug("bot browser request failed", { error })),
+          Effect.mapError(
+            () =>
+              new BotBrowserError({
+                message:
+                  "Could not access this bot's browser. It must already be running; refresh and try again.",
+              }),
+          ),
+        );
       const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
       const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
@@ -1924,6 +1955,7 @@ const makeWsRpcLayer = (
             auth,
             cwd: config.cwd,
             homeWorkspaceRoot: (yield* Path.Path).join(config.baseDir, "home-workspace"),
+            botWorkspaceRoot: (yield* Path.Path).join(config.baseDir, "bot-workspaces"),
             keybindingsConfigPath: config.keybindingsConfigPath,
             keybindings: keybindingsConfig.keybindings,
             issues: keybindingsConfig.issues,
@@ -2455,6 +2487,56 @@ const makeWsRpcLayer = (
             {
               "rpc.aggregate": "server",
             },
+          ),
+        [WS_METHODS.botRoutineHistory]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.botRoutineHistory,
+            routineRuns.listForBot(input.botId).pipe(
+              Effect.map((rows) =>
+                rows.map((row) => ({
+                  routineId: row.routine_id,
+                  occurrence: row.occurrence_ms,
+                  status: row.status,
+                  createdAt: row.created_at,
+                  updatedAt: row.updated_at,
+                  detail: row.detail,
+                })),
+              ),
+              Effect.mapError(
+                () => new BotRoutineHistoryError({ message: "Could not load routine history." }),
+              ),
+            ),
+            { "rpc.aggregate": "bots" },
+          ),
+        [WS_METHODS.botCallTurn]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.botCallTurn,
+            Effect.gen(function* () {
+              const bot = yield* projectionSnapshotQuery.getThreadBotIdentity(input.threadId);
+              if (!bot) return null;
+              return yield* lookupBotCallTurn(input.threadId, input.messageId);
+            }).pipe(
+              Effect.mapError(
+                () => new BotCallTurnError({ message: "Could not read bot call turn." }),
+              ),
+            ),
+            { "rpc.aggregate": "bots" },
+          ),
+        [WS_METHODS.botBrowserPage]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.botBrowserPage,
+            browserForThread(input.threadId, undefined, input.revision).pipe(
+              Effect.map((page) => (page.revision === input.revision ? null : page)),
+            ),
+            {
+              "rpc.aggregate": "bots",
+            },
+          ),
+        [WS_METHODS.botBrowserAction]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.botBrowserAction,
+            browserForThread(input.threadId, input.action),
+            { "rpc.aggregate": "bots" },
           ),
         [WS_METHODS.serverRefreshProviders]: (input) =>
           observeRpcEffect(
@@ -3940,6 +4022,8 @@ export const websocketRpcRouteLayer = Layer.unwrap(
     const previewAutomationBroker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
     const baseServerSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
     const hiveMindService = yield* HiveMindService;
+    // Capture the server-owned pool before the router builds each socket's RPC scope.
+    const backgroundBrowser = yield* BackgroundBrowser;
     const config = yield* ServerConfig.ServerConfig;
     const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
     const serverSelfUpdate = yield* ServerSelfUpdate.withRunningThreadContinuation({
@@ -4008,6 +4092,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               Layer.provide(Layer.succeed(HiveMindService, hiveMindService)),
+              Layer.provide(Layer.succeed(BackgroundBrowser, backgroundBrowser)),
               Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),
               Layer.provide(AgentSessionScanner.layer),
               Layer.provide(ProviderMaintenanceRunner.layer),

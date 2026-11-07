@@ -961,6 +961,23 @@ function ThreadRouteContent(
 
       <View className="flex-1 bg-screen android:overflow-hidden android:rounded-t-[28px] android:bg-thread-canvas">
         <ThreadDetailScreen
+          onSendVoiceMessage={composer.onSendVoiceMessage}
+          botCallRevision={`${selectedThreadDetail?.updatedAt ?? ""}:${selectedThreadDetail?.latestTurn?.state ?? ""}`}
+          botVoice={
+            selectedThreadDetail?.bot
+              ? {
+                  botId: selectedThreadDetail.bot.id,
+                  messageId:
+                    selectedThreadDetail.messages.findLast(
+                      (message) => message.role === "assistant" && !message.streaming,
+                    )?.id ?? null,
+                  text:
+                    selectedThreadDetail.messages.findLast(
+                      (message) => message.role === "assistant" && !message.streaming,
+                    )?.text ?? "",
+                }
+              : null
+          }
           selectedThread={selectedThreadWithDraftSettings ?? selectedThread}
           contentPresentation={contentPresentation}
           screenTone={connectionTone(routeConnectionState)}

@@ -1,3 +1,4 @@
+import { BotRoutineRuntimeLive } from "./bots/routineRuntime.ts";
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeHttp from "node:http";
 import { AgentHistoryLive } from "./project/AgentHistoryLive.ts";
@@ -75,6 +76,7 @@ import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import { ProviderInstanceRegistryHydrationLive } from "./provider/Layers/ProviderInstanceRegistryHydration.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
+import { BackgroundBrowserLive } from "./mcp/toolkits/backgroundBrowser/runtime.ts";
 import { AgentDelegationLive } from "./mcp/AgentDelegation.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
@@ -620,6 +622,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   untracedRequestsLayer,
 ).pipe(
   Layer.provide(HiveMindService.layer),
+  Layer.provide(BackgroundBrowserLive),
   // Both transports consume the same service instance, so caches single-flight across clients
   // and mutations observed on WebSocket invalidate patches subsequently read over HTTP.
   Layer.provide(PullRequestServiceLive),
@@ -975,6 +978,7 @@ const makeServerLayer = Layer.unwrap(
       routesLayer,
       httpListeningLayer,
       runtimeStateLayer.pipe(Layer.provide(launcherLayer)),
+      BotRoutineRuntimeLive,
       tailscaleServeLayer,
       cloudDesiredLinkReconcileLayer,
       HeapSnapshot.layer,

@@ -1,18 +1,25 @@
+import { BOT_ICON_CHOICES } from "@t3tools/shared/bot-icons";
+import { latestBotConversation } from "@t3tools/shared/bot-conversations";
+import { BotRoutineHistory } from "./BotRoutineHistory";
+import { BotRoutinesEditor } from "./BotRoutinesEditor";
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   type BotProfile,
+  type BotRoutine,
   type EnvironmentId,
   type ServerConfig,
   type ThreadId,
 } from "@t3tools/contracts";
+import { standaloneBotWorkspace, isStandaloneBotProject } from "@t3tools/shared/bot-workspace";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { BotIcon, PencilIcon, PinIcon, PlusIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { newBotId, newThreadId } from "../../lib/utils";
-import { useProjects, useThreadShells } from "../../state/entities";
+import { useProjects, useThreadShells, waitForProject } from "../../state/entities";
 import { useEnvironments } from "../../state/environments";
 import { environmentServerConfigsAtom, serverEnvironment } from "../../state/server";
+import { projectEnvironment } from "../../state/projects";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
@@ -34,6 +41,7 @@ export function SidebarBots() {
   const navigate = useNavigate();
   const saveSettings = useAtomCommand(serverEnvironment.updateSettings);
   const createThread = useAtomCommand(threadEnvironment.create);
+  const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
   const [editor, setEditor] = useState<BotEditorTarget | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -67,9 +75,7 @@ export function SidebarBots() {
         ),
     [configs],
   );
-  const firstProject = projects.find(
-    (project) => project.id !== "j1-home" && configs.has(project.environmentId),
-  );
+  const firstEnvironment = configs.keys().next().value;
 
   const write = async (environmentId: EnvironmentId, profile: BotProfile) => {
     const result = await saveSettings({
@@ -81,16 +87,7 @@ export function SidebarBots() {
   const openBot = async (environmentId: EnvironmentId, profile: BotProfile, fresh = false) => {
     if (busy || pending) return;
     setError(null);
-    const existing = !fresh
-      ? threads
-          .filter(
-            (thread) =>
-              thread.environmentId === environmentId &&
-              thread.bot?.id === profile.id &&
-              thread.archivedAt === null,
-          )
-          .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]
-      : undefined;
+    const existing = !fresh ? latestBotConversation(threads, environmentId, profile.id) : undefined;
     if (existing) {
       await navigate({
         to: "/$environmentId/$threadId",
@@ -98,16 +95,47 @@ export function SidebarBots() {
       });
       return;
     }
-    const project = projects.find(
-      (entry) => entry.environmentId === environmentId && entry.id === profile.projectId,
-    );
     const config = configs.get(environmentId);
-    if (!project || !config) {
-      setError("This bot's project is unavailable. Edit the bot to choose a project.");
+    if (!config) {
+      setError("This environment is unavailable.");
       return;
     }
     setBusy(true);
     try {
+      let project = projects.find(
+        (entry) => entry.environmentId === environmentId && entry.id === profile.projectId,
+      );
+      if (profile.projectId === null) {
+        if (!config.botWorkspaceRoot) {
+          setError("This environment needs an update to support standalone bots.");
+          return;
+        }
+        const workspace = standaloneBotWorkspace(config.botWorkspaceRoot, profile.id);
+        project = projects.find(
+          (entry) => entry.environmentId === environmentId && entry.id === workspace.projectId,
+        );
+        if (!project) {
+          await createProject({
+            environmentId,
+            input: {
+              ...workspace,
+              title: profile.name,
+              createWorkspaceRootIfMissing: true,
+              defaultModelSelection: null,
+              createdAt: new Date().toISOString(),
+            },
+          });
+          project = await waitForProject({ environmentId, projectId: workspace.projectId });
+        }
+        if (project.workspaceRoot !== workspace.workspaceRoot) {
+          setError("The bot workspace does not match its expected location.");
+          return;
+        }
+      }
+      if (!project) {
+        setError("This bot's project is unavailable. Edit the bot to choose a project.");
+        return;
+      }
       const threadId = newThreadId();
       const defaults = resolveProjectSettings(config.settings, project.id, project).settings;
       const result = await createThread({
@@ -127,6 +155,8 @@ export function SidebarBots() {
       });
       if (result._tag === "Success") setPending({ environmentId, threadId });
       else setError("The conversation could not be created.");
+    } catch {
+      setError("The bot workspace could not be opened. Try again.");
     } finally {
       setBusy(false);
     }
@@ -140,8 +170,8 @@ export function SidebarBots() {
           variant="ghost"
           size="icon"
           aria-label="Add bot"
-          disabled={!firstProject}
-          onClick={() => firstProject && setEditor({ environmentId: firstProject.environmentId })}
+          disabled={!firstEnvironment}
+          onClick={() => firstEnvironment && setEditor({ environmentId: firstEnvironment })}
         >
           <PlusIcon />
         </Button>
@@ -159,7 +189,7 @@ export function SidebarBots() {
                       onClick={() => void openBot(environmentId, profile)}
                       title={profile.description || profile.name}
                     >
-                      <BotIcon />
+                      {profile.icon ? <span aria-hidden="true">{profile.icon}</span> : <BotIcon />}
                       <span>{profile.name}</span>
                       {profile.pinned ? <PinIcon aria-label="Pinned" /> : null}
                     </SidebarMenuButton>
@@ -182,6 +212,41 @@ export function SidebarBots() {
                     <PencilIcon />
                   </Button>
                 </div>
+                {threads.some(
+                  (thread) =>
+                    thread.environmentId === environmentId &&
+                    thread.bot?.id === profile.id &&
+                    thread.id.startsWith("bot-routine:") &&
+                    thread.archivedAt === null,
+                ) ? (
+                  <details className="pl-6 text-xs text-muted-foreground">
+                    <summary className="cursor-pointer">Routine conversations</summary>
+                    {threads
+                      .filter(
+                        (thread) =>
+                          thread.environmentId === environmentId &&
+                          thread.bot?.id === profile.id &&
+                          thread.id.startsWith("bot-routine:") &&
+                          thread.archivedAt === null,
+                      )
+                      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+                      .map((thread) => (
+                        <button
+                          key={thread.id}
+                          type="button"
+                          className="block w-full truncate py-1 text-left"
+                          onClick={() =>
+                            void navigate({
+                              to: "/$environmentId/$threadId",
+                              params: { environmentId, threadId: thread.id },
+                            })
+                          }
+                        >
+                          {thread.title} - {thread.latestTurn?.state ?? "starting"}
+                        </button>
+                      ))}
+                  </details>
+                ) : null}
               </SidebarMenuItem>
             ))}
         </SidebarMenu>
@@ -221,20 +286,35 @@ function BotEditor({
   onSave: (environmentId: EnvironmentId, profile: BotProfile) => Promise<boolean>;
 }) {
   const projects = useProjects().filter(
-    (project) => project.id !== "j1-home" && configs.has(project.environmentId),
+    (project) =>
+      project.id !== "j1-home" &&
+      !isStandaloneBotProject(project.id) &&
+      configs.has(project.environmentId),
   );
   const { environments } = useEnvironments();
   const [environmentId, setEnvironmentId] = useState(target.environmentId);
   const config = configs.get(environmentId);
   const projectOptions = projects.filter((project) => project.environmentId === environmentId);
-  const [projectId, setProjectId] = useState(
-    target.profile?.projectId ?? projectOptions[0]?.id ?? null,
-  );
+  const [projectId, setProjectId] = useState(target.profile?.projectId ?? null);
   const [name, setName] = useState(target.profile?.name ?? "");
+  const [icon, setIcon] = useState(target.profile?.icon ?? "");
+  const [voiceURI, setVoiceURI] = useState(target.profile?.voiceURI ?? "");
+  const [voiceAutoPlay, setVoiceAutoPlay] = useState(target.profile?.voiceAutoPlay ?? false);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  useEffect(() => {
+    if (!("speechSynthesis" in window)) return;
+    const update = () => setVoices(window.speechSynthesis.getVoices());
+    update();
+    window.speechSynthesis.addEventListener("voiceschanged", update);
+    return () => window.speechSynthesis.removeEventListener("voiceschanged", update);
+  }, []);
   const [description, setDescription] = useState(target.profile?.description ?? "");
   const [instructions, setInstructions] = useState(target.profile?.instructions ?? "");
   const [pinned, setPinned] = useState(target.profile?.pinned ?? false);
   const [archived, setArchived] = useState(target.profile?.archived ?? false);
+  const [routines, setRoutines] = useState<ReadonlyArray<BotRoutine>>(
+    target.profile?.routines ?? [],
+  );
   const modelOptions =
     config?.providers.flatMap((provider) =>
       provider.models.map((model) => ({
@@ -265,7 +345,13 @@ function BotEditor({
       ? target.profile.modelSelection
       : null);
   const save = async () => {
-    if (!projectId || !model || !name.trim() || saving) return;
+    if (
+      !model ||
+      !name.trim() ||
+      saving ||
+      routines.some((routine) => !routine.name.trim() || !routine.prompt.trim())
+    )
+      return;
     setSaving(true);
     setError(null);
     try {
@@ -273,6 +359,14 @@ function BotEditor({
       const profile: BotProfile = {
         id: target.profile?.id ?? newBotId(),
         name: name.trim(),
+        routines: routines.map((routine) => ({
+          ...routine,
+          name: routine.name.trim(),
+          prompt: routine.prompt.trim(),
+        })),
+        ...(icon.trim() ? { icon: icon.trim() } : {}),
+        ...(voiceURI ? { voiceURI } : {}),
+        voiceAutoPlay,
         description: description.trim(),
         instructions: instructions.trim(),
         projectId,
@@ -303,7 +397,7 @@ function BotEditor({
         if (!open && !saving) onClose();
       }}
     >
-      <DialogPopup>
+      <DialogPopup className="overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{target.profile ? "Edit bot" : "Create bot"}</DialogTitle>
           <DialogDescription>
@@ -327,12 +421,7 @@ function BotEditor({
                   const next = environments.find((entry) => entry.environmentId === value);
                   if (!next) return;
                   setEnvironmentId(next.environmentId);
-                  setProjectId(
-                    projects.find(
-                      (project) =>
-                        project.environmentId === next.environmentId && project.id !== "j1-home",
-                    )?.id ?? null,
-                  );
+                  setProjectId(null);
                   setModelKey("");
                 }}
               >
@@ -363,6 +452,36 @@ function BotEditor({
               autoFocus
             />
           </label>
+          <div className="grid gap-2">
+            <span>Choose an icon</span>
+            <div className="flex flex-wrap gap-1" role="group" aria-label="Bot icon choices">
+              {BOT_ICON_CHOICES.map((choice) => (
+                <Button
+                  key={choice.label}
+                  type="button"
+                  size="icon"
+                  variant={icon === choice.icon ? "secondary" : "ghost"}
+                  aria-label={choice.label}
+                  aria-pressed={icon === choice.icon}
+                  onClick={() => setIcon(choice.icon)}
+                >
+                  <span aria-hidden="true">{choice.icon}</span>
+                </Button>
+              ))}
+              <Button type="button" size="sm" variant="ghost" onClick={() => setIcon("")}>
+                Clear
+              </Button>
+            </div>
+          </div>
+          <label className="grid gap-1">
+            Icon (emoji)
+            <Input
+              value={icon}
+              onChange={(event) => setIcon(event.target.value)}
+              maxLength={16}
+              placeholder="🤖"
+            />
+          </label>
           <label className="grid gap-1">
             Description
             <Input
@@ -374,17 +493,19 @@ function BotEditor({
           <label className="grid gap-1">
             Project
             <Select
-              value={projectId}
+              value={projectId ?? "standalone"}
               onValueChange={(value) =>
                 setProjectId(projectOptions.find((project) => project.id === value)?.id ?? null)
               }
             >
               <SelectTrigger>
-                <SelectValue placeholder="Choose project">
-                  {projectOptions.find((project) => project.id === projectId)?.title}
+                <SelectValue placeholder="Standalone">
+                  {projectOptions.find((project) => project.id === projectId)?.title ??
+                    "Standalone"}
                 </SelectValue>
               </SelectTrigger>
               <SelectPopup>
+                <SelectItem value="standalone">Standalone</SelectItem>
                 {projectOptions.map((project) => (
                   <SelectItem key={project.id} value={project.id}>
                     {project.title}
@@ -411,6 +532,46 @@ function BotEditor({
               </SelectPopup>
             </Select>
           </label>
+          <label className="grid gap-1">
+            Voice on this device
+            <Select
+              value={voiceURI || "system-default"}
+              onValueChange={(value) =>
+                setVoiceURI(value === "system-default" ? "" : (value ?? ""))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue>
+                  {voices.find((voice) => voice.voiceURI === voiceURI)?.name ??
+                    (voiceURI || "System default")}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup>
+                <SelectItem value="system-default">System default</SelectItem>
+                {voices.map((voice) => (
+                  <SelectItem key={voice.voiceURI} value={voice.voiceURI}>
+                    {voice.name} ({voice.lang})
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={voiceAutoPlay}
+              onChange={(event) => setVoiceAutoPlay(event.target.checked)}
+            />{" "}
+            Read new replies aloud
+          </label>
+          <BotRoutinesEditor routines={routines} onChange={setRoutines} />
+          {target.profile ? (
+            <BotRoutineHistory
+              environmentId={environmentId}
+              botId={target.profile.id}
+              routines={routines}
+            />
+          ) : null}
           <label className="grid gap-1">
             Instructions
             <Textarea
@@ -447,7 +608,15 @@ function BotEditor({
             <Button type="button" variant="outline" disabled={saving} onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={saving || !name.trim() || !projectId || !model}>
+            <Button
+              type="submit"
+              disabled={
+                saving ||
+                !name.trim() ||
+                !model ||
+                routines.some((routine) => !routine.name.trim() || !routine.prompt.trim())
+              }
+            >
               {saving ? "Saving…" : "Save bot"}
             </Button>
           </div>

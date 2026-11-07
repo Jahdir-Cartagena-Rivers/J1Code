@@ -8,9 +8,13 @@ import { ServerSettingsService } from "../../../serverSettings.ts";
 import { BackgroundBrowserToolkit } from "./tools.ts";
 import { BackgroundBrowserHandlers } from "./handlers.ts";
 import { BackgroundBrowserLive } from "./runtime.ts";
+import { ProjectionSnapshotQuery } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
 
 const registration = McpServer.toolkit(BackgroundBrowserToolkit).pipe(
   Layer.provide(BackgroundBrowserHandlers),
+  Layer.provide(
+    Layer.mock(ProjectionSnapshotQuery)({ getThreadBotIdentity: () => Effect.succeed(null) }),
+  ),
   Layer.provide(BackgroundBrowserLive),
   Layer.provide(
     ServerConfig.layerTest("/isolated-browser-test", {

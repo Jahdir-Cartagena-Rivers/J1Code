@@ -13,8 +13,15 @@ export class BackgroundBrowser extends Context.Service<
       executable: string,
       method: string,
       params: unknown,
+      threadId?: string,
+    ) => Effect.Effect<unknown, string>;
+    readonly requestForThread: (
+      threadId: string,
+      method: string,
+      params: unknown,
     ) => Effect.Effect<unknown, string>;
     readonly close: (sessionId: string) => Effect.Effect<boolean>;
+    readonly openThread: (threadId: string, executable: string) => Effect.Effect<void, string>;
   }
 >()("t3/mcp/toolkits/backgroundBrowser/runtime/BackgroundBrowser") {}
 
@@ -25,8 +32,22 @@ export const BackgroundBrowserLive = Layer.effect(
     const pool = new LightpandaPool();
     yield* Effect.addFinalizer(() => Effect.sync(() => pool.closeAll()));
     return BackgroundBrowser.of({
+      openThread: (threadId, executable) =>
+        Effect.tryPromise({
+          try: () =>
+            pool.openThread(
+              threadId,
+              resolveBrowserExecutable(executable, config.lightpandaExecutablePath),
+            ),
+          catch: (error) => (error instanceof Error ? error.message : String(error)),
+        }),
       close: (id) => Effect.sync(() => pool.close(id)),
-      request: (id, executable, method, params) =>
+      requestForThread: (threadId, method, params) =>
+        Effect.tryPromise({
+          try: (signal) => pool.requestForThread(threadId, method, params, signal),
+          catch: (error) => (error instanceof Error ? error.message : String(error)),
+        }),
+      request: (id, executable, method, params, threadId) =>
         Effect.tryPromise({
           try: (signal) =>
             pool.request(
@@ -35,6 +56,7 @@ export const BackgroundBrowserLive = Layer.effect(
               method,
               params,
               signal,
+              threadId,
             ),
           catch: (error) => (error instanceof Error ? error.message : String(error)),
         }),

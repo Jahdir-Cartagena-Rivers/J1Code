@@ -1226,7 +1226,10 @@ const memoryRouting = makeProviderServiceLayer({
     getThreadShellById: (threadId) =>
       decodeMemoryThreadShell({
         id: threadId,
-        projectId: "memory-project",
+        projectId: threadId === "thread-standalone-bot" ? "j1-bot:garden" : "memory-project",
+        ...(threadId === "thread-standalone-bot" || threadId === "thread-linked-bot"
+          ? { bot: { id: "garden", name: "Garden", instructions: "Help with plants" } }
+          : {}),
         title: "Memory test",
         modelSelection: createModelSelection(codexInstanceId, "gpt-5.4"),
         runtimeMode: "full-access",
@@ -1254,6 +1257,50 @@ const memoryRouting = makeProviderServiceLayer({
   }),
 });
 memoryRouting.layer("automatic memory uses the user request", (it) => {
+  it.effect("supplies general context to standalone bots and project context to linked bots", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const config = yield* ServerConfig.ServerConfig;
+      yield* Effect.promise(() =>
+        rememberHiveFact(`${config.stateDir}/hive-mind.json`, {
+          scope: "general",
+          project: null,
+          subject: "Terrarium care",
+          fact: "General terrarium guidance",
+          sourceThreadId: "general-fixture",
+        }),
+      );
+      yield* Effect.promise(() =>
+        rememberHiveFact(`${config.stateDir}/hive-mind.json`, {
+          scope: "project",
+          project: "J1Code",
+          subject: "Terrarium care",
+          fact: "Project terrarium guidance",
+          sourceThreadId: "project-fixture",
+        }),
+      );
+      for (const [id, includesProject] of [
+        ["thread-standalone-bot", false],
+        ["thread-linked-bot", true],
+      ] as const) {
+        const threadId = asThreadId(id);
+        yield* provider.startSession(threadId, {
+          provider: CODEX_DRIVER,
+          providerInstanceId: codexInstanceId,
+          threadId,
+          cwd: fixtureCwd("memory-request"),
+          runtimeMode: "full-access",
+        });
+        memoryRouting.codex.sendTurn.mockClear();
+        yield* provider.sendTurn({ threadId, input: "Explain terrarium care" });
+        const sent = memoryRouting.codex.sendTurn.mock.calls[0]?.[0].input ?? "";
+        assert.include(sent, "General terrarium guidance");
+        if (includesProject) assert.include(sent, "Project terrarium guidance");
+        else assert.notInclude(sent, "Project terrarium guidance");
+        yield* provider.stopSession({ threadId });
+      }
+    }),
+  );
   it.effect("ignores attachment metadata for greetings and attachment-only turns", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService.ProviderService;

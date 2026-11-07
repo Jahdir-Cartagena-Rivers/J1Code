@@ -300,6 +300,7 @@ describe("CheckpointReactor", () => {
     readonly seedFilesystemCheckpoints?: boolean;
     readonly initializeGit?: boolean;
     readonly projectWorkspaceRoot?: string;
+    readonly projectId?: ProjectId;
     readonly threadWorktreePath?: string | null;
     readonly threadBranch?: string | null;
     readonly secondThreadSharingWorktree?: boolean;
@@ -431,7 +432,7 @@ describe("CheckpointReactor", () => {
       engine.dispatch({
         type: "project.create",
         commandId: CommandId.make("cmd-project-create"),
-        projectId: asProjectId("project-1"),
+        projectId: options?.projectId ?? asProjectId("project-1"),
         title: "Test Project",
         workspaceRoot: options?.projectWorkspaceRoot ?? cwd,
         defaultModelSelection: {
@@ -447,7 +448,7 @@ describe("CheckpointReactor", () => {
           type: "thread.create",
           commandId: CommandId.make("cmd-thread-create"),
           threadId: ThreadId.make("thread-1"),
-          projectId: asProjectId("project-1"),
+          projectId: options?.projectId ?? asProjectId("project-1"),
           title: "Thread",
           modelSelection: {
             instanceId: ProviderInstanceId.make("codex"),
@@ -467,7 +468,7 @@ describe("CheckpointReactor", () => {
                   type: "thread.create",
                   commandId: CommandId.make("cmd-thread-create-2"),
                   threadId: ThreadId.make("thread-2"),
-                  projectId: asProjectId("project-1"),
+                  projectId: options?.projectId ?? asProjectId("project-1"),
                   title: "Thread 2",
                   modelSelection: {
                     instanceId: ProviderInstanceId.make("codex"),
@@ -518,6 +519,33 @@ describe("CheckpointReactor", () => {
       pullRequestRefreshes,
     };
   }
+
+  effectIt.effect("does not checkpoint an enclosing repository for standalone bots", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() =>
+        createHarness({
+          projectId: asProjectId("j1-bot:fixture"),
+          seedFilesystemCheckpoints: false,
+        }),
+      );
+      harness.provider.emit({
+        type: "turn.completed",
+        eventId: EventId.make("bot-turn-completed"),
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-01T00:00:01.000Z",
+        threadId: ThreadId.make("thread-1"),
+        turnId: asTurnId("bot-turn"),
+        payload: { state: "completed" },
+      });
+      yield* Effect.promise(harness.drain);
+      const thread = (yield* Effect.promise(harness.readModel)).threads[0];
+      expect(thread?.checkpoints).toEqual([]);
+      expect(thread?.activities.some((a) => a.kind === "checkpoint.capture.failed")).toBe(false);
+      expect(
+        gitRefExists(harness.cwd, checkpointRefForThreadTurn(ThreadId.make("thread-1"), 1)),
+      ).toBe(false);
+    }),
+  );
 
   effectIt.effect.each([
     "active",

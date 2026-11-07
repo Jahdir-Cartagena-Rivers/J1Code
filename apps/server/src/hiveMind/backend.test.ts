@@ -154,6 +154,10 @@ describe("selected Hive Mind backend", () => {
     expect((await recallSelectedHive(f.file, "Lamp")).memories[0]?.id).toBe("external-memory");
     const packet = await selectedHiveContext(f.file, "Continue", ["Studio"], "chat-b");
     expect(packet.context).toBe("External current correction");
+    await selectedHiveContext(f.file, "Garden care", [], "standalone-bot");
+    const contextRequests = received.filter((entry) => entry.route === "/v1/working-context");
+    expect(contextRequests[0]?.body).toMatchObject({ projects: ["Studio"], threadId: "chat-b" });
+    expect(contextRequests[1]?.body).toMatchObject({ projects: [], threadId: "standalone-bot" });
     if (!packet.connection) throw new Error("Missing selected connection");
     const image = await materializeHiveImage(
       packet.connection,
@@ -171,6 +175,24 @@ describe("selected Hive Mind backend", () => {
       summary: "api_key=do-not-retain",
     });
     expect(JSON.stringify(received)).not.toContain("do-not-retain");
+    await captureHiveEvent(packet.connection, {
+      eventId: "bot-event",
+      threadId: "bot-chat",
+      provider: "test",
+      project: null,
+      summary: "A standalone bot turn",
+    });
+    const botEvent = received.find(
+      (entry) =>
+        entry.route === "/v1/brain/save" &&
+        typeof entry.body === "object" &&
+        entry.body !== null &&
+        "eventId" in entry.body &&
+        entry.body.eventId === "bot-event",
+    );
+    expect(botEvent?.body).toMatchObject({ scope: "general", source: { threadId: "bot-chat" } });
+    expect(botEvent?.body).not.toHaveProperty("project");
+
     await bindHiveTask(f.file, "chat-b");
     expect(await fs.readFile(f.file, "utf8")).toBe(original);
     const runtime = new HiveMindRuntime(f.file);
