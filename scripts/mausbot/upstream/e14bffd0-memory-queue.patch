@@ -1,0 +1,123 @@
+OpenMausBot OSS / MIT, copyright its contributors.
+Source: https://github.com/milind-soni/OpenMausBot/commit/e14bffd0
+Backport of #4874; the pinned upstream LICENSE is distributed with the runtime.
+
+diff --git a/server/coordinator.ts b/server/coordinator.ts
+--- a/server/coordinator.ts
++++ b/server/coordinator.ts
+@@ -176,6 +176,8 @@ export interface Coordinator {
+   poll(owner: Owner): { items: StatusView["inbox"]; assignments: HandoffView[] };
+   /** Non-terminal work the conversation in this thread is waiting on, rooms included. */
+   outstandingFor(threadId: string): HandoffView[];
++  /** Running assignments whose turn happens in this thread; reads only that thread's rows, so it stays cheap to ask often. */
++  runningIn(threadId: string): HandoffView[];
+   beginTurn(req: BeginTurnRequest): HandoffView;
+   endTurn(id: string, result: HostTurnResult): void;
+   /** The parked node's next turn carries `text`, given by the person unless `by` says otherwise. */
+diff --git a/server/engine-memory.test.ts b/server/engine-memory.test.ts
+--- a/server/engine-memory.test.ts
++++ b/server/engine-memory.test.ts
+@@ -308,6 +308,18 @@ describe("who goes first when memory holds several", () => {
+     await finish(h, "running");
+     expect(order[0]).toBe("handoff");
+   });
++
++  it("asks who goes first once per waiter, since every waiter orders the queue on each wake", async () => {
++    const h = await full(["person"]);
++    const asked: string[] = [];
++    h.memory.useTurnOrder((threadId) => { asked.push(threadId); return threadId === "person"; });
++    for (const threadId of ["handoff-1", "handoff-2", "person"]) void waiting(h, threadId, []);
++    await settle();
++    asked.length = 0;
++    const order = (h.memory as unknown as { order(): { threadId: string }[] }).order();
++    expect(order.map((waiter) => waiter.threadId)).toEqual(["person", "handoff-1", "handoff-2"]);
++    expect(asked).toEqual(["handoff-1", "handoff-2", "person"]);
++  });
+ });
+ 
+ describe("running short", () => {
+diff --git a/server/engine-memory.ts b/server/engine-memory.ts
+--- a/server/engine-memory.ts
++++ b/server/engine-memory.ts
+@@ -458,8 +458,9 @@ export class EngineMemory {
+ 
+   private order(): Waiter[] {
+     const at = this.now();
+-    const ahead = (waiter: Waiter) => this.personsOwn(waiter.threadId) || at - waiter.since >= BOT_TURN_GIVES_WAY_MS;
+-    return [...this.queue.filter(ahead), ...this.queue.filter((waiter) => !ahead(waiter))];
++    const first: Waiter[] = [], rest: Waiter[] = [];
++    for (const waiter of this.queue) (this.personsOwn(waiter.threadId) || at - waiter.since >= BOT_TURN_GIVES_WAY_MS ? first : rest).push(waiter);
++    return [...first, ...rest];
+   }
+ 
+   private wake(): void { for (const waiter of this.queue) waiter.wake(); }
+diff --git a/server/index.ts b/server/index.ts
+--- a/server/index.ts
++++ b/server/index.ts
+@@ -2091,7 +2091,7 @@ function settleDirectFollowup(generation: string | undefined, outcome: DirectTur
+ const directTurnBots = new Map<string, BotRecord>();
+ const turnPromptBytes = new Map<string, { stable: number; volatile: number }>();
+ let providerFleetReloading = false;
+-const turnResources = new TurnResources(); engineMemory.useTurnOrder(createTurnOrder({ turn: (threadId) => directRequestOwners.get(threadId), unattended: (threadId) => isUnattended(store.botByThread(threadId)?.id, threadId), running: (threadId) => coordinator.active().filter((node) => node.threadId === threadId && node.status === "running"), roomLine: (threadId) => [...(groupTurnOperations.get(store.groupByThread(threadId)?.id ?? "") ?? [])].some((operation) => operation.threadId === threadId && operation.requestMessageId !== undefined) })); const waitWords = createWaitWords({ language: (threadId) => threadLanguage(threadId), starter: () => cloudPlanTier.starter(), held: (threadId, why) => coordinator.held(threadId, why), changed: () => broadcast({ kind: "config", ...configStatus() }) }); engineMemory.useWaits(waitWords);
++const turnResources = new TurnResources(); engineMemory.useTurnOrder(createTurnOrder({ turn: (threadId) => directRequestOwners.get(threadId), unattended: (threadId) => isUnattended(store.botByThread(threadId)?.id, threadId), running: (threadId) => coordinator.runningIn(threadId), roomLine: (threadId) => [...(groupTurnOperations.get(store.groupByThread(threadId)?.id ?? "") ?? [])].some((operation) => operation.threadId === threadId && operation.requestMessageId !== undefined) })); const waitWords = createWaitWords({ language: (threadId) => threadLanguage(threadId), starter: () => cloudPlanTier.starter(), held: (threadId, why) => coordinator.held(threadId, why), changed: () => broadcast({ kind: "config", ...configStatus() }) }); engineMemory.useWaits(waitWords);
+ const sharedComputerControl = new SharedComputerControl(turnResources, (owner) => store.botByThread(owner.threadId)?.name);
+ const turnResourceOwners = new Map<string, TurnOwner>();
+ const turnComputerResources = new Map<string, { owner: TurnOwner; resource: string }>();
+diff --git a/server/runtime-coordinator.test.ts b/server/runtime-coordinator.test.ts
+--- a/server/runtime-coordinator.test.ts
++++ b/server/runtime-coordinator.test.ts
+@@ -258,6 +258,19 @@ describe("RuntimeCoordinator: the requesting turn and its tree", () => {
+     expect(w.coordinator.active()).toEqual([]);
+   });
+ 
++  it("runningIn() is active()'s running nodes in that thread", async () => {
++    const w = world(hold);
++    const same = () => { for (const threadId of ["chief-chat", node.threadId, "nobody"]) expect(w.coordinator.runningIn(threadId)).toEqual(w.coordinator.active().filter(n => n.threadId === threadId && n.status === "running")); };
++    const { node } = send(w, chief, "gen-1", undefined, builder, "Build it");
++    same();
++    w.coordinator.tick(); await flush();
++    same(); expect(w.coordinator.runningIn(node.threadId).map(n => n.id)).toContain(node.id);
++    ended(w, "gen-1"); w.coordinator.tick(); await flush();
++    same();
++    w.coordinator.tick(); await flush();
++    same();
++  });
++
+   it("active() never reads an ended row: one that no longer parses stops all(), not active() (#2765)", async () => {
+     const dir = mkdtempSync(join(tmpdir(), "runtime-coordinator-active-"));
+     try {
+diff --git a/server/runtime-coordinator.ts b/server/runtime-coordinator.ts
+--- a/server/runtime-coordinator.ts
++++ b/server/runtime-coordinator.ts
+@@ -316,6 +316,11 @@ export class RuntimeCoordinator implements Coordinator {
+     return live.filter(a => a.parentId !== undefined && mine.has(a.parentId) && a.reply !== "none").map(a => this.project(a));
+   }
+ 
++  runningIn(threadId: string): HandoffView[] {
++    this.ready();
++    return this.store.all({ nonTerminal: true, assigneeThreadId: threadId }).map(a => this.project(a)).filter(n => n.status === "running");
++  }
++
+   beginTurn(req: BeginTurnRequest): HandoffView {
+     this.ready();
+     const existing = this.store.get(req.id);
+diff --git a/server/runtime/store.ts b/server/runtime/store.ts
+--- a/server/runtime/store.ts
++++ b/server/runtime/store.ts
+@@ -90,7 +90,7 @@ export interface RuntimeStore {
+   root(id: string): Assignment | undefined;
+   /** `openSince`: only rows not finished before that time. */
+   all(filter?: { rootId?: string; nonTerminal?: boolean; ownerThreadId?: string; assignee?: { botId: string; threadId: string };
+-    roots?: boolean; openSince?: number }): Assignment[];
++    assigneeThreadId?: string; roots?: boolean; openSince?: number }): Assignment[];
+   insert(a: Assignment, event: { kind: EventKind; detail?: string; at?: number }): void;
+   update(a: Assignment, event?: { kind: EventKind; detail?: string; at?: number }): void;
+   /** Nested calls join the outer transaction (a savepoint inside it). */
+@@ -292,6 +292,7 @@ export function openRuntimeStore(path: string): RuntimeStore {
+         where.push("assignee_bot_id = ? AND assignee_thread_id = ?");
+         params.push(filter.assignee.botId, filter.assignee.threadId);
+       }
++      if (filter.assigneeThreadId !== undefined) { where.push("assignee_thread_id = ?"); params.push(filter.assigneeThreadId); }
+       if (filter.roots) where.push("parent_id IS NULL");
+       if (filter.openSince !== undefined) { where.push("(finished_at IS NULL OR finished_at >= ?)"); params.push(filter.openSince); }
+       const sql = `SELECT id, json FROM assignments${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at, rowid`;

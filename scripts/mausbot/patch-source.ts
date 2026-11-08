@@ -1,12 +1,21 @@
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
+import * as NodeChildProcess from "node:child_process";
+import * as NodeUtil from "node:util";
 
 export const MAUSBOT_SOURCE = "d818c28aa80686dc1d7db64ebeffa2a9dc468762";
 const root = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "../..");
 
 /** Applies only to our disposable, pinned OSS assembly; never edits the reference checkout. */
 export async function patchMausbotSource(stage: string) {
+  // OpenMausBot #4874: avoid spinning while many bot turns wait for memory.
+  for (const file of ["e14bffd0-memory-queue.patch"])
+    await NodeUtil.promisify(NodeChildProcess.execFile)(
+      "git",
+      ["apply", NodePath.join(root, "scripts/mausbot/upstream", file)],
+      { cwd: stage, windowsHide: true },
+    );
   const change = async (file: string, before: string, after: string) => {
     const path = NodePath.join(stage, file);
     const source = (await NodeFSP.readFile(path, "utf8")).replaceAll("\r\n", "\n");
