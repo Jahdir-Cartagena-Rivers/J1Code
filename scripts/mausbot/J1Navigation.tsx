@@ -336,7 +336,8 @@ export function J1Footer() {
       data-j1-navigation
       data-j1-footer-slot
       className="shrink-0"
-      style={{ height: 32, width: 108 }}
+      // Four 32px J1 controls plus gaps, including the conditional update button.
+      style={{ height: 32, width: 144 }}
       aria-label="J1 utilities"
     />
   );
