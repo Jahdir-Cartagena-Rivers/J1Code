@@ -10,13 +10,14 @@ import {
   type ReactNode,
 } from "react";
 import { resolveAssetUrl } from "../assets/assetUrls";
-import { usePrimaryEnvironment, usePrimaryEnvironmentId } from "../state/environments";
+import { useEnvironment, usePrimaryEnvironmentId } from "../state/environments";
+import { useActiveEnvironmentId, setActiveEnvironmentId } from "../state/entities";
 import { usePreparedConnection } from "../state/session";
 import { openMausbot, setMausbotApprovalMode } from "../state/mausbot";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useSidebar } from "./ui/sidebar";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { MausbotApprovalModeInput } from "@t3tools/contracts";
+import { EnvironmentId, MausbotApprovalModeInput } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { localMausbotHost } from "./mausbotHost";
 import { registerMausbotSearch } from "./mausbotSearch";
@@ -94,8 +95,20 @@ export function MausbotShell({
   footer: ReactNode;
   children: ReactNode;
 }) {
-  const environmentId = usePrimaryEnvironmentId();
-  const environment = usePrimaryEnvironment();
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const searchStr = useLocation({ select: (location) => location.searchStr });
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const activeEnvironmentId = useActiveEnvironmentId();
+  const requestedEnvironment =
+    pathname === "/assistants" ? new URLSearchParams(searchStr).get("environmentId") : null;
+  const environmentId = requestedEnvironment
+    ? EnvironmentId.make(requestedEnvironment)
+    : (activeEnvironmentId ?? primaryEnvironmentId);
+  const environment = useEnvironment(environmentId);
+  useEffect(() => {
+    if (requestedEnvironment && environment && activeEnvironmentId !== environment.environmentId)
+      setActiveEnvironmentId(environment.environmentId);
+  }, [requestedEnvironment, environment, activeEnvironmentId]);
   const connection = usePreparedConnection(environmentId);
   const base = connection._tag === "Some" ? connection.value.httpBaseUrl : null;
   const enabled = environment?.serverConfig?.environment.capabilities.mausbot === true;
@@ -109,7 +122,6 @@ export function MausbotShell({
     [base, serverPlatform],
   );
   const capture = useRef<Promise<string | null> | null>(null);
-  const pathname = useLocation({ select: (location) => location.pathname });
   const navigate = useNavigate();
   const navigateToMainApp = useNavigateToMainApp();
   const settingsSearchItems = useAvailableSettingsSearchItems();
@@ -325,6 +337,14 @@ export function MausbotShell({
         source: "j1-host",
         navigation: {
           active: pathname,
+          ...(pathname === "/assistants"
+            ? {
+                conversation: {
+                  botId: new URLSearchParams(searchStr).get("botId"),
+                  threadId: new URLSearchParams(searchStr).get("conversation"),
+                },
+              }
+            : {}),
           sidebarOpen,
           mobileOpen: openMobile,
           nativeHost,
@@ -350,7 +370,17 @@ export function MausbotShell({
       },
       new URL(current.url).origin,
     );
-  }, [current, pathname, sidebarOpen, openMobile, nativeHost, slotHeights, chatWidth, frameAccess]);
+  }, [
+    current,
+    pathname,
+    searchStr,
+    sidebarOpen,
+    openMobile,
+    nativeHost,
+    slotHeights,
+    chatWidth,
+    frameAccess,
+  ]);
   useEffect(() => {
     const observer = new MutationObserver(post);
     observer.observe(document.documentElement, { attributes: true });
@@ -520,7 +550,7 @@ export function MausbotShell({
           footer: projectBounds(data.footer),
         });
       } else if (data.type === "native") {
-        void navigate({ to: "/assistants" });
+        void navigate({ to: "/assistants", search: environmentId ? { environmentId } : {} });
       } else if (data.type === "sidebar" && typeof data.open === "boolean") {
         setOpenMobile(data.open);
       } else if (data.type === "navigate" && data.path === "/") {
@@ -549,8 +579,16 @@ export function MausbotShell({
   const settingsHosted =
     ready && pathname.startsWith("/settings/") && (settingsPortal !== null || settingsOverlay);
   const workspace = useMemo(
-    () => ({ error, busy, retry: () => setAttempt((value) => value + 1), settingsHosted }),
-    [error, busy, settingsHosted],
+    () => ({
+      error:
+        requestedEnvironment && !environment
+          ? "This environment is unavailable. Reconnect it in Settings."
+          : error,
+      busy,
+      retry: () => setAttempt((value) => value + 1),
+      settingsHosted,
+    }),
+    [error, busy, settingsHosted, requestedEnvironment, environment],
   );
   const native = pathname === "/assistants" || pathname === "/";
   return (

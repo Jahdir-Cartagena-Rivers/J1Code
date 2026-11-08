@@ -1,0 +1,93 @@
+import { describe, expect, it, vi } from "vitest";
+import { createConversationQueries, historyToolAllowed } from "./conversations.ts";
+import { searchMessagesAsync } from "../message-db.ts";
+
+vi.mock("../message-db.ts", () => ({ searchMessagesAsync: vi.fn(async () => []) }));
+const j1 = { kind: "j1", environmentId: "local", threadId: "j1-source" } as const;
+const bot = { kind: "mausbot", environmentId: "local", botId: "one", threadId: "main", generation: "current" } as const;
+const endpoint = { environmentId: "local", projectId: "mausbot:one", threadId: "mausbot:one:main" };
+
+function fixture() {
+  let active = true;
+  let shown = true;
+  let reads = 0;
+  const rows = [{ botId: "one", threadId: "main", title: "Main" }];
+  const task = { threadId: "main", title: "Main" };
+  const owner = { id: "one", name: "Crown", modelSelection: { instanceId: "codex", model: "example" }, approvalMode: "full" };
+  const messages = Array.from({ length: 35 }, (_, i) => ({ id: `message-${i}`, kind: "text", role: i % 2 ? "bot" : "user", text: `text ${i}` }));
+  const run = createConversationQueries({
+    store: {
+      bot: () => owner, tasks: () => [task], taskByThread: () => task,
+      projectBotForTask: () => owner, activePath: () => { reads++; return messages; },
+    } as unknown as Parameters<typeof createConversationQueries>[0]["store"],
+    rows: () => shown ? rows : [], active: who => who.kind === "j1" || (active && who.generation === "current"),
+    generation: () => "current", waiting: () => false,
+  });
+  return { run, messages, task, reads: () => reads, revoke: () => { active = false; }, hide: () => { shown = false; } };
+}
+
+describe("private shared conversation reads", () => {
+  it("preserves native tool allow and deny choices without inferring read access from names", () => {
+    expect(historyToolAllowed(undefined, { action: "read" })).toBe(true);
+    expect(historyToolAllowed({ allow: [] }, { action: "read" })).toBe(false);
+    expect(historyToolAllowed({ deny: ["mcp:agents:read_conversation"] }, { action: "read" })).toBe(false);
+    expect(historyToolAllowed({ allow: ["mcp:agents:search_conversations"] }, { action: "search" })).toBe(true);
+    expect(historyToolAllowed({ allow: ["mcp:agents:search_conversations"] }, { action: "read" })).toBe(false);
+    expect(historyToolAllowed(undefined, { action: "unknown" })).toBe(false);
+  });
+  it("does not load transcripts for title matches without full-text hits", async () => {
+    const { run, reads } = fixture();
+    expect(await run({ action: "search", principal: j1, query: "Crown" })).toHaveLength(1);
+    expect(reads()).toBe(0);
+  });
+  it("pages real active-branch messages and preserves the exact conversation link", async () => {
+    const { run } = fixture();
+    const page = await run({ action: "read", principal: j1, endpoint }) as { messages: { id: string; role: string }[]; nextCursor: string; conversation: { url: string; activeTurnId: null; generation: string } };
+    expect(page.messages).toHaveLength(30);
+    expect(page.messages[0]).toMatchObject({ id: "message-5", role: "assistant" });
+    expect(page.conversation).toMatchObject({ url: "/assistants?environmentId=local&botId=one&conversation=main", activeTurnId: null, generation: "current" });
+    const older = await run({ action: "read", principal: j1, endpoint, cursor: page.nextCursor }) as { messages: { id: string }[]; nextCursor: null };
+    expect(older.messages.map(message => message.id)).toEqual([0, 1, 2, 3, 4].map(i => `message-${i}`));
+    expect(older.nextCursor).toBeNull();
+  });
+  it("keeps long message handles and reads their remaining text explicitly", async () => {
+    const { run, messages } = fixture();
+    messages[5]!.text = "x".repeat(20_000);
+    const page = await run({ action: "read", principal: bot, endpoint }) as { messages: { id: string; text: string }[]; textTruncated: boolean };
+    expect(page.textTruncated).toBe(true);
+    expect(page.messages).toHaveLength(30);
+    expect(page.messages[1]!.text).toBe("");
+    const tail = await run({ action: "readMessage", principal: bot, endpoint, messageId: "message-5", offset: 16_000 });
+    expect(tail).toMatchObject({ text: "x".repeat(4_000), nextOffset: null });
+  });
+  it("rejects expired generations, hidden threads, foreign projects and malformed cursors", async () => {
+    const { run, hide } = fixture();
+    await expect(run({ action: "read", principal: { ...bot, generation: "old" }, endpoint })).rejects.toThrow();
+    await expect(run({ action: "read", principal: j1, endpoint: { ...endpoint, environmentId: "other" } })).rejects.toThrow();
+    await expect(run({ action: "read", principal: j1, endpoint: { ...endpoint, projectId: "wrong" } })).rejects.toThrow();
+    await expect(run({ action: "read", principal: j1, endpoint, cursor: "invalid" })).rejects.toThrow();
+    hide();
+    await expect(run({ action: "read", principal: bot, endpoint })).rejects.toThrow();
+  });
+  it("rejects a cursor from another real thread and unrelated message ids", async () => {
+    const { run } = fixture();
+    const cursor = Buffer.from(JSON.stringify({ botId: "one", threadId: "other", before: "message-5" })).toString("base64url");
+    await expect(run({ action: "read", principal: j1, endpoint, cursor })).rejects.toThrow();
+    await expect(run({ action: "readMessage", principal: j1, endpoint, messageId: "unrelated", offset: 0 })).rejects.toThrow();
+    await expect(run({ action: "readMessage", principal: j1, endpoint, messageId: "message-5", offset: 100 })).rejects.toThrow();
+  });
+  it("does not return asynchronous search results after the source turn ends or visibility changes", async () => {
+    const first = fixture();
+    vi.mocked(searchMessagesAsync).mockImplementationOnce(async () => { first.revoke(); return []; });
+    await expect(first.run({ action: "search", principal: bot, query: "text" })).rejects.toThrow();
+    const second = fixture();
+    vi.mocked(searchMessagesAsync).mockImplementationOnce(async () => { second.hide(); return []; });
+    expect(await second.run({ action: "search", principal: bot, query: "Crown" })).toEqual([]);
+  });
+  it("reads archived history without offering it as a routing target", async () => {
+    const { run, task } = fixture();
+    Object.assign(task, { archivedAt: 123 });
+    expect(await run({ action: "inspect", endpoint })).toBeNull();
+    expect(await run({ action: "read", principal: j1, endpoint })).toHaveProperty("messages");
+  });
+});

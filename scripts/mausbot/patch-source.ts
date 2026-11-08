@@ -65,6 +65,117 @@ export async function patchMausbotSource(stage: string) {
     "      {!omitContainerDesktop && <>",
   );
   await copy("scripts/mausbot/hive-memory.ts", "server/j1/hive-memory.ts");
+  await copy("scripts/mausbot/conversations.ts", "server/j1/conversations.ts");
+  await copy("scripts/mausbot/conversations.test.ts.txt", "server/j1/conversations.test.ts");
+  await copy("scripts/mausbot/agents-conversations.ts", "server/j1/agents-conversations.ts");
+  await copy(
+    "scripts/mausbot/agents-conversations.test.ts.txt",
+    "server/j1/agents-conversations.test.ts",
+  );
+  await change(
+    "server/agent-tool-policy.ts",
+    '  "list_threads",',
+    '  "list_threads",\n  "search_conversations",\n  "read_conversation",\n  "read_conversation_message",',
+  );
+  await change(
+    "server/agent-tool-policy.test.ts",
+    '      "list_threads",',
+    '      "list_threads",\n      "search_conversations",\n      "read_conversation",\n      "read_conversation_message",',
+  );
+  await change(
+    "server/drivers/agents-catalog.ts",
+    "const TOOL_DEFINITIONS = [",
+    "const TOOL_DEFINITIONS = [\n  ...J1_CONVERSATION_TOOLS,",
+  );
+  await change(
+    "server/drivers/agents-catalog.ts",
+    'import { MAUSBOT_TOOL_DEFINITIONS } from "./agents-mausbot-tools.ts";',
+    'import { MAUSBOT_TOOL_DEFINITIONS } from "./agents-mausbot-tools.ts";\nimport { J1_CONVERSATION_TOOLS } from "../j1/agents-conversations.ts";',
+  );
+  await change(
+    "server/drivers/agents-call.ts",
+    'import { callMausBotTool, MAUSBOT_TOOL_NAMES } from "./agents-mausbot-tools.ts";',
+    'import { callMausBotTool, MAUSBOT_TOOL_NAMES } from "./agents-mausbot-tools.ts";\nimport { callJ1Conversation, J1_CONVERSATION_TOOL_NAMES } from "../j1/agents-conversations.ts";',
+  );
+  await change(
+    "server/drivers/agents-call.ts",
+    '  if (name === "vm_exec") {',
+    '  if (J1_CONVERSATION_TOOL_NAMES.has(name)) return callJ1Conversation(name, args, context);\n  if (name === "vm_exec") {',
+  );
+  // Lift the original list policy verbatim so native tools and private history reads cannot drift.
+  const threadRoutes = (
+    await NodeFSP.readFile(NodePath.join(stage, "server/routes/internal-threads.ts"), "utf8")
+  ).replaceAll("\r\n", "\n");
+  const rowsStart = threadRoutes.indexOf("      const rows: ThreadRow[] = [];");
+  const rowsEnd = threadRoutes.indexOf(
+    "      return json(res, 200, { threads: rows.slice(0, 100) });",
+    rowsStart,
+  );
+  if (rowsStart < 0 || rowsEnd < 0)
+    throw new Error("Pinned Mausbot thread visibility policy changed.");
+  const rowsBody = threadRoutes.slice(rowsStart, rowsEnd);
+  await change(
+    "server/routes/internal-threads.ts",
+    rowsBody,
+    "      const rows = internalThreadRows(deps);\n",
+  );
+  await change(
+    "server/routes/internal-threads.ts",
+    "type ThreadState =",
+    `export function internalThreadRows(deps: Parameters<typeof createInternalThreadRoutes>[0]): ThreadRow[] {\n  const { store, coordinator, from } = deps;\n${rowsBody}\n  return rows.slice(0, 100);\n}\n\ntype ThreadState =`,
+  );
+  await change(
+    "server/index.ts",
+    'import { createInternalThreadRoutes } from "./routes/internal-threads.ts";',
+    'import { createInternalThreadRoutes, internalThreadRows } from "./routes/internal-threads.ts";\nimport { createConversationQueries, installConversationQueries, requestHostConversation, historyToolAllowed, type HistoryPrincipal } from "./j1/conversations.ts";',
+  );
+  await change(
+    "server/index.ts",
+    "      const botFolders = async () =>",
+    `      if (method === "POST" && path === "/api/internal/j1-conversations") {
+        if (proactive.fence.confines(internalCapability.threadId) || botApiThread(internalCapability.threadId) || cloudLendingView(internalCapability) || CLOUD_TEAM || CLOUD_HOME) return json(res, 403, { error: "Shared J1 history is unavailable in this conversation." });
+        const call = await readInternalBody();
+        requireActiveInternalCapability();
+        if (!historyToolAllowed(toolScopeForTurn(internalSender.id), call)) return json(res, 403, { error: "This shared conversation tool is not allowed for this bot." });
+        const result = await requestHostConversation({ botId: internalSender.id, threadId: internalCapability.threadId, generation: internalCapability.generation, call });
+        requireActiveInternalCapability();
+        if (!historyToolAllowed(toolScopeForTurn(internalSender.id), call)) return json(res, 403, { error: "This shared conversation tool is no longer allowed for this bot." });
+        return json(res, 200, result);
+      }
+      const botFolders = async () =>`,
+  );
+  const threadDeps = `{
+        store, coordinator, from: internalSender, fromThreadId: internalCapability.threadId,
+        ownsThread: (botId, threadId) => Boolean(connectorThread(botId, threadId)),
+        shown: (id) => !proactive.fence.confines(id) && !botApiThread(id) && (CLOUD_TEAM ? teamHost.readableFrom(internalCapability.threadId)(id) : cloudLendingView(internalCapability) ? cloudOwnerOnlyThread(id) : true),
+        threadBusy, queuedThreadPosition, queuedReason: queuedStatus,
+      }`;
+  await change(
+    "server/index.ts",
+    `createInternalThreadRoutes(${threadDeps})`,
+    "createInternalThreadRoutes(j1HistoryThreadDeps(internalCapability, internalSender))",
+  );
+  await change(
+    "server/index.ts",
+    'for (const signal of ["SIGINT", "SIGTERM"] as const) {',
+    `function j1HistoryCapability(who: HistoryPrincipal) {
+  return who.kind === "mausbot" ? [...internalCapabilities.values()].find(cap => cap.kind === "agents" && cap.botId === who.botId && cap.threadId === who.threadId && cap.generation === who.generation && internalCapabilityIsActive(cap)) : undefined;
+}
+function j1HistoryThreadDeps(internalCapability: InternalCapability, internalSender: BotRecord): Parameters<typeof createInternalThreadRoutes>[0] { return ${threadDeps}; }
+installConversationQueries(createConversationQueries({
+  store,
+  active: who => who.kind === "j1" || Boolean(j1HistoryCapability(who)),
+  rows: who => {
+    if (!who || who.kind === "j1") return store.bots.filter(bot => !bot.hidden).flatMap(bot => store.tasks(bot.id).filter(task => !proactive.fence.confines(task.threadId) && !botApiThread(task.threadId)).map(task => ({ botId: bot.id, threadId: task.threadId, title: task.title })));
+    const cap = j1HistoryCapability(who);
+    const bot = store.bot(who.botId);
+    return cap && bot && connectorThread(bot.id, cap.threadId) ? internalThreadRows(j1HistoryThreadDeps(cap, bot)) : [];
+  },
+  generation: id => activeInternalGenerationByThread.get(id),
+  waiting: id => coordinator.awaitingAnswer(id) || Boolean(openPersonCard(id)),
+}));
+for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
+  );
   await copy(
     "scripts/mausbot/HiveMemorySection.tsx",
     "src/components/bot-settings/HiveMemorySection.tsx",

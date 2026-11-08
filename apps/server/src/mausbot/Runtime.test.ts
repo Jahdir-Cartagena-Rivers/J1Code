@@ -29,21 +29,79 @@ const server = http.createServer((req, res) => {
   if(req.url === '/api/bots/browser-path') return res.end(JSON.stringify({browser}));
   res.end(JSON.stringify({ok:true,method:req.method,trust:process.env.OMB_LOOPBACK_TRUST,dataDir:process.env.OMB_DATA_DIR}));
 });
-process.on('message', message => { if(message?.type === 'j1:shutdown') server.close(() => process.exit(0)); if(message?.type === 'j1:browser') { browser = message.executable; process.send({type:'j1:browser-applied',requestId:message.requestId}); } });
+process.on('message', message => {
+  if(message?.type === 'j1:conversation-query') {
+    if(message.input.query === 'hold') process.send({type:'j1:conversation-host-request',requestId:message.requestId,input:{receipt:'started'}});
+    else process.send({type:'j1:conversation-result',requestId:message.requestId,value:{input:message.input,private:true}});
+  }
+  if(message?.type === 'j1:shutdown') server.close(() => process.exit(0));
+  if(message?.type === 'j1:browser') { browser = message.executable; process.send({type:'j1:browser-applied',requestId:message.requestId}); }
+});
 server.listen(Number(process.env.OMB_PORT), '127.0.0.1', () => console.log('openmausbot server on http://127.0.0.1:'+process.env.OMB_PORT));
 `;
 
-async function fixture() {
+async function fixture(
+  conversationCall?: ConstructorParameters<typeof MausbotRuntime>[0]["conversationCall"],
+) {
   const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-mausbot-runtime-test-"));
   const resources = NodePath.join(root, "resources");
   const dataDir = NodePath.join(root, "state");
   await NodeFSP.mkdir(NodePath.join(resources, "server"), { recursive: true });
   await NodeFSP.writeFile(NodePath.join(resources, "server", "index.js"), fixtureSource);
-  const runtime = new MausbotRuntime({ platform: "linux", resources, dataDir });
+  const runtime = new MausbotRuntime({
+    platform: "linux",
+    resources,
+    dataDir,
+    ...(conversationCall ? { conversationCall } : {}),
+  });
   return { runtime, resources, dataDir, root };
 }
 
 describe("managed upstream runtime", () => {
+  it("reads on its private child channel and cancels an in-flight read without changing the session", async () => {
+    const started = Promise.withResolvers<void>();
+    const { runtime, root } = await fixture(async () => {
+      started.resolve();
+      return {};
+    });
+    const principal = { kind: "j1", environmentId: "local", threadId: "source" } as const;
+    try {
+      const input = { action: "search", principal, query: "real history" } as const;
+      expect(await runtime.conversation(input)).toEqual({ input, private: true });
+      const controller = new AbortController();
+      const pending = runtime.conversation({ ...input, query: "hold" }, controller.signal);
+      const rejected = expect(pending).rejects.toThrow("cancelled");
+      await started.promise;
+      controller.abort();
+      await rejected;
+      expect(await runtime.conversation(input)).toEqual({ input, private: true });
+      expect(runtime.running).toBe(true);
+    } finally {
+      await runtime.stop();
+      await NodeFSP.rm(root, { recursive: true, force: true });
+    }
+  });
+  it("rejects an outstanding private read when its owned child stops", async () => {
+    const started = Promise.withResolvers<void>();
+    const { runtime, root } = await fixture(async () => {
+      started.resolve();
+      return {};
+    });
+    try {
+      const pending = runtime.conversation({
+        action: "search",
+        principal: { kind: "j1", environmentId: "local", threadId: "source" },
+        query: "hold",
+      });
+      const rejected = expect(pending).rejects.toThrow("disconnected");
+      await started.promise;
+      await runtime.stop();
+      await rejected;
+    } finally {
+      await runtime.stop();
+      await NodeFSP.rm(root, { recursive: true, force: true });
+    }
+  });
   it("starts one isolated child, authenticates server-side, and stops its captured process", async () => {
     const { runtime, dataDir, root } = await fixture();
     try {
@@ -107,6 +165,7 @@ describe("managed upstream runtime", () => {
         "//other.invalid/",
         "/api/auth/pair",
         "/api/internal/browser/mcp",
+        "/api/internal/j1-conversations",
         "/%2e%2e/api/bots",
         "/api/bots\\auth",
       ])

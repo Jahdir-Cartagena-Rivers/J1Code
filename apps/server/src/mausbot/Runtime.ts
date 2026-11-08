@@ -9,13 +9,14 @@ import * as NodeHttp from "node:http";
 import * as NodeTimers from "node:timers";
 import * as NodeStream from "node:stream";
 import * as NodeModule from "node:module";
-import type { MausbotApprovalModeInput } from "@t3tools/contracts";
+import type { MausbotApprovalModeInput, ConversationQuery } from "@t3tools/contracts";
 import { startMausbotComputer } from "./NativeComputer.ts";
 import { mausbotChildEnvironment } from "./ChildEnvironment.ts";
 
 export interface MausbotRuntimeOptions {
   readonly platform: NodeJS.Platform;
   readonly memory?: (input: unknown, current: () => boolean) => Promise<unknown>;
+  readonly conversationCall?: (input: unknown, current: () => boolean) => Promise<unknown>;
   readonly resources: string;
   readonly dataDir: string;
   readonly executable?: string;
@@ -68,6 +69,60 @@ export class MausbotRuntime {
   get running() {
     return this.child !== undefined && this.token !== undefined;
   }
+  /** Conversation reads use owned-process IPC, never the owner-authenticated browser proxy. */
+  async conversation(input: ConversationQuery, signal?: AbortSignal): Promise<unknown> {
+    await this.start();
+    const child = this.child;
+    if (!child?.connected || signal?.aborted)
+      throw new Error("Conversation runtime is unavailable.");
+    if (this.conversationReads >= 8) throw new Error("Too many conversation reads are open.");
+    this.conversationReads++;
+    try {
+      return await new Promise<unknown>((resolve, reject) => {
+        const requestId = NodeCrypto.randomUUID();
+        const timer = NodeTimers.setTimeout(
+          () => finish(new Error("Conversation read timed out.")),
+          15_000,
+        );
+        const received = (message: unknown) => {
+          if (
+            !object(message) ||
+            message.type !== "j1:conversation-result" ||
+            message.requestId !== requestId
+          )
+            return;
+          if (this.child !== child || !child.connected)
+            return finish(new Error("Conversation runtime disconnected."));
+          finish(
+            typeof message.error === "string" ? new Error(message.error) : undefined,
+            message.value,
+          );
+        };
+        const ended = () => finish(new Error("Conversation runtime disconnected."));
+        const aborted = () => finish(new Error("Conversation read cancelled."));
+        const finish = (error?: Error, value?: unknown) => {
+          NodeTimers.clearTimeout(timer);
+          child.off("message", received);
+          child.off("exit", ended);
+          child.off("disconnect", ended);
+          signal?.removeEventListener("abort", aborted);
+          if (error) reject(error);
+          else resolve(value);
+        };
+        child.on("message", received);
+        child.once("exit", ended);
+        child.once("disconnect", ended);
+        signal?.addEventListener("abort", aborted, { once: true });
+        if (signal?.aborted) return aborted();
+        child.send({ type: "j1:conversation-query", requestId, input }, (error) => {
+          if (error) finish(error);
+        });
+      });
+    } finally {
+      this.conversationReads--;
+    }
+  }
+  private conversationReads = 0;
   async setApprovalMode(input: MausbotApprovalModeInput) {
     await this.start();
     if (!this.privatePort) throw new Error("The assistant runtime is not connected.");
@@ -193,7 +248,7 @@ export class MausbotRuntime {
       this.approvals?.receive(privatePort, message);
       if (
         object(message) &&
-        message.type === "j1:hive-cancel" &&
+        (message.type === "j1:hive-cancel" || message.type === "j1:conversation-host-cancel") &&
         typeof message.requestId === "string"
       ) {
         const request = memoryRequests.get(message.requestId);
@@ -202,17 +257,19 @@ export class MausbotRuntime {
       }
       if (
         !object(message) ||
-        message.type !== "j1:hive-request" ||
+        (message.type !== "j1:hive-request" && message.type !== "j1:conversation-host-request") ||
         typeof message.requestId !== "string" ||
         message.requestId.length > 100
       )
         return;
+      const hostConversation = message.type === "j1:conversation-host-request";
+      const replyType = hostConversation ? "j1:conversation-host-result" : "j1:hive-result";
       const operation = { cancelled: false };
       const current = () => this.child === child && child.connected && !operation.cancelled;
       if (memoryRequests.size >= 8 || memoryRequests.has(message.requestId)) {
         if (current())
           child.send({
-            type: "j1:hive-result",
+            type: replyType,
             requestId: message.requestId,
             error: "Too many memory requests are open.",
           });
@@ -221,21 +278,22 @@ export class MausbotRuntime {
       memoryRequests.set(message.requestId, operation);
       Promise.resolve()
         .then(() => {
-          if (!this.options.memory) throw new Error("Hive Mind is not connected to this runtime.");
-          return this.options.memory(message.input, current);
+          const handle = hostConversation ? this.options.conversationCall : this.options.memory;
+          if (!handle || !current()) throw new Error("The J1 host is unavailable.");
+          return handle(message.input, current);
         })
         .then(
           (value) => {
-            if (current())
-              child.send({ type: "j1:hive-result", requestId: message.requestId, value });
+            if (current()) child.send({ type: replyType, requestId: message.requestId, value });
           },
           () => {
             if (current())
               child.send({
-                type: "j1:hive-result",
+                type: replyType,
                 requestId: message.requestId,
-                error:
-                  "Hive Mind could not complete extended recall. Local notes are preserved; check the connection in J1 Settings.",
+                error: hostConversation
+                  ? "The shared conversation request could not complete."
+                  : "Hive Mind could not complete extended recall. Local notes are preserved; check the connection in J1 Settings.",
               });
           },
         )

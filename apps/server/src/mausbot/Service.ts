@@ -18,6 +18,13 @@ import type { MausbotApprovalModeInput } from "@t3tools/contracts";
 import { isMausbotDesktopSession } from "./DesktopTrust.ts";
 import { MausbotHiveMemory } from "./HiveMemory.ts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
+import { ExternalConversations } from "../conversations/ExternalConversations.ts";
+import { makeMausbotConversationSource } from "../conversations/MausbotConversationSource.ts";
+import { MausbotConversationInvocation } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
+import { conversationCall } from "../conversations/query.ts";
+const decodeConversationInvocation = Schema.decodeUnknownEffect(MausbotConversationInvocation);
 
 export class MausbotService extends Context.Service<
   MausbotService,
@@ -51,6 +58,29 @@ export class MausbotService extends Context.Service<
       const path = yield* Path.Path;
       const settings = yield* ServerSettingsService;
       const sessions = yield* SessionStore;
+      const conversations = yield* ExternalConversations;
+      const environmentId = yield* (yield* ServerEnvironment).getEnvironmentId;
+      const effectContext = yield* Effect.context<never>();
+      const handleConversation = (input: unknown, active: () => boolean) =>
+        Effect.gen(function* () {
+          const request = yield* decodeConversationInvocation(input, {
+            onExcessProperty: "error",
+          });
+          if (!active()) return yield* Effect.fail("Conversation runtime disconnected.");
+          const result = yield* conversationCall(
+            conversations,
+            {
+              kind: "mausbot",
+              environmentId,
+              botId: request.botId,
+              threadId: request.threadId,
+              generation: request.generation,
+            },
+            request.call,
+          );
+          if (!active()) return yield* Effect.fail("Conversation runtime disconnected.");
+          return result;
+        }).pipe(Effect.runPromiseWith(effectContext));
       const grants = new MausbotViewGrants();
       const hiveMemory = new MausbotHiveMemory({
         file: path.join(config.stateDir, "hive-mind.json"),
@@ -96,20 +126,11 @@ export class MausbotService extends Context.Service<
         catch: () => "Could not stop the assistant runtime.",
       });
       yield* Effect.addFinalizer(() => stop.pipe(Effect.ignore));
-      const forward = Effect.fn("Mausbot.forward")(function* (
-        url: string,
-        method: string,
-        contentType?: string,
-        body?: Uint8Array,
-        viewKey?: string,
-      ) {
-        const signal = viewKey ? grants.signal(viewKey, yield* Clock.currentTimeMillis) : undefined;
-        if (viewKey && !signal)
-          return yield* Effect.fail("This assistant window expired. Reopen it from J1.");
+      const getRuntime = Effect.fn("Mausbot.runtime")(function* () {
         const resources = config.mausbotResourcesPath;
         if (!resources)
           return yield* Effect.fail("The Mausbot runtime is not bundled in this server build.");
-        const child = yield* gate.withPermit(
+        return yield* gate.withPermit(
           Effect.gen(function* () {
             if (runtime) return runtime;
             const expanded = yield* Effect.tryPromise({
@@ -126,10 +147,36 @@ export class MausbotService extends Context.Service<
               dataDir: path.join(config.baseDir, "userdata", "mausbot"),
               lightpandaExecutablePath: browserExecutable(current.lightpandaExecutablePath),
               memory: (input, active) => hiveMemory.handle(input, active),
+              conversationCall: handleConversation,
             });
             return runtime;
           }),
         );
+      });
+      const removeSource = conversations.register(
+        makeMausbotConversationSource(environmentId, (input) =>
+          getRuntime().pipe(
+            Effect.flatMap((child) =>
+              Effect.tryPromise({
+                try: (signal) => child.conversation(input, signal),
+                catch: () => "The assistant conversation runtime is unavailable.",
+              }),
+            ),
+          ),
+        ),
+      );
+      yield* Effect.addFinalizer(() => Effect.sync(removeSource));
+      const forward = Effect.fn("Mausbot.forward")(function* (
+        url: string,
+        method: string,
+        contentType?: string,
+        body?: Uint8Array,
+        viewKey?: string,
+      ) {
+        const signal = viewKey ? grants.signal(viewKey, yield* Clock.currentTimeMillis) : undefined;
+        if (viewKey && !signal)
+          return yield* Effect.fail("This assistant window expired. Reopen it from J1.");
+        const child = yield* getRuntime();
         return yield* Effect.tryPromise({
           try: async () => {
             await child.start();

@@ -1,10 +1,11 @@
 // J1's navigation is added to the real upstream sidebar; all Mausbot features keep their original handlers.
 import { useEffect, useRef, useState } from "react";
-import { openBot, useStore } from "@/state/store";
+import { openBot, openBotThread, useStore } from "@/state/store";
 import { applyJ1Appearance, nativeSkinCatalog, nativeFontCatalog } from "./J1Appearance";
 
 type Navigation = {
   active: string;
+  conversation?: { botId?: string | null; threadId?: string | null };
   sidebarOpen: boolean;
   mobileOpen: boolean;
   appearance?: unknown;
@@ -96,6 +97,7 @@ export function J1ShellBridge() {
   const { state, dispatch } = useStore();
   const chief = state.bots.find((bot) => bot.chiefOfStaff && !bot.hidden);
   const openedChief = useRef(false);
+  const openedConversation = useRef("");
   const connected = Boolean(currentNavigation);
   useEffect(() => {
     if (connected)
@@ -111,6 +113,23 @@ export function J1ShellBridge() {
       openBot(dispatch, chief, false);
     }
   }, [currentNavigation?.active, chief, dispatch]);
+  const destination =
+    currentNavigation?.active === "/assistants" ? currentNavigation.conversation : undefined;
+  useEffect(() => {
+    if (!destination?.botId || !destination.threadId) {
+      openedConversation.current = "";
+      return;
+    }
+    const id = /^[A-Za-z0-9_-]{1,120}$/;
+    if (!id.test(destination.botId) || !id.test(destination.threadId)) return;
+    const key = `${destination.botId}:${destination.threadId}`;
+    if (openedConversation.current === key) return;
+    const owner = state.bots.find((bot) => bot.id === destination.botId && !bot.hidden);
+    if (!owner || !owner.tasks?.some((task) => task.threadId === destination.threadId)) return;
+    openedConversation.current = key;
+    // The original switchTask path loads history and enforces native access; no transcript is copied.
+    openBotThread(dispatch, owner, destination.threadId, true);
+  }, [destination?.botId, destination?.threadId, state.bots, dispatch]);
   useEffect(() => {
     if (!configuredOrigin || window.parent === window) return;
     const sidebar = document.querySelector<HTMLElement>("[data-sidebar]");

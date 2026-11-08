@@ -1,0 +1,31 @@
+import { describe, expect, it, vi } from "vitest";
+import { availableTools, catalogProfileFromEnv } from "../drivers/agents-catalog.ts";
+import { callTool, type ToolCallContext } from "../drivers/agents-call.ts";
+
+const endpoint = { environmentId: "local", projectId: "project", threadId: "real-j1-chat" };
+function fixture() {
+  const apiResponse = vi.fn(async () => ({ ok: true, status: 200, body: { messages: [{ id: "original", text: "Saved text" }] } }));
+  const context: ToolCallContext = {
+    botId: "own-bot", threadId: "own-thread", depth: 0, externalRuntime: false, sharedComputers: false,
+    client: { api: async () => ({}), apiResponse },
+  };
+  return { context, apiResponse };
+}
+describe("native shared history tools", () => {
+  it("advertises all three real shared history tools through the original catalog", () => {
+    const names = availableTools(catalogProfileFromEnv({ OMB_BOT_ID: "own-bot" })).map(tool => tool.name);
+    expect(names).toEqual(expect.arrayContaining(["search_conversations", "read_conversation", "read_conversation_message"]));
+  });
+  it("uses the existing capability-authenticated client without passing a selectable speaker", async () => {
+    const { context, apiResponse } = fixture();
+    const result = await callTool("read_conversation", { endpoint }, context);
+    expect(JSON.parse(result.text)).toMatchObject({ messages: [{ id: "original", text: "Saved text" }] });
+    expect(apiResponse).toHaveBeenCalledWith("/api/internal/j1-conversations", { method: "POST", body: JSON.stringify({ action: "read", endpoint }) });
+  });
+  it("rejects a forged speaker and invalid offset before requesting history", async () => {
+    const { context, apiResponse } = fixture();
+    expect((await callTool("search_conversations", { query: "saved", fromBotId: "other" }, context)).isError).toBe(true);
+    expect((await callTool("read_conversation_message", { endpoint, messageId: "original", offset: -1 }, context)).isError).toBe(true);
+    expect(apiResponse).not.toHaveBeenCalled();
+  });
+});

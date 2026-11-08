@@ -39,6 +39,8 @@ import { PullRequestsToolkitHandlersLive } from "./toolkits/pullRequests/handler
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
 import { AgentsToolkitHandlersLive } from "./toolkits/agents/handlers.ts";
 import { AgentsToolkit } from "./toolkits/agents/tools.ts";
+import { ConversationsToolkit } from "./toolkits/conversations/tools.ts";
+import { ConversationsToolkitHandlers } from "./toolkits/conversations/handlers.ts";
 import { HomeToolkit } from "./toolkits/home/tools.ts";
 import { HomeToolkitHandlersLive } from "./toolkits/home/handlers.ts";
 import { HiveMindToolkitHandlersLive } from "./toolkits/hiveMind/handlers.ts";
@@ -696,6 +698,7 @@ export const layer = Layer.mergeAll(
   PreviewToolkitRegistrationLive,
   PullRequestsToolkitRegistrationLive,
   AgentsToolkitRegistrationLive,
+  McpServer.toolkit(ConversationsToolkit).pipe(Layer.provide(ConversationsToolkitHandlers)),
   HiveMindToolkitRegistrationLive,
   DeviceToolkitRegistrationLive,
 ).pipe(Layer.provideMerge(McpTransportLive));
