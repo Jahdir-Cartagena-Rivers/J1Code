@@ -1702,8 +1702,28 @@ export const ThreadRouteDeliverCommand = Schema.Struct({
 });
 export type ThreadRouteDeliverCommand = typeof ThreadRouteDeliverCommand.Type;
 
+/** A foreign source stays in its own engine. Only the host adapter may dispatch this command. */
+export const ThreadExternalRouteDeliverCommand = Schema.Struct({
+  type: Schema.Literal("thread.external-route.deliver"),
+  commandId: CommandId,
+  routeId: TrimmedNonEmptyString,
+  activeTurnId: Schema.optional(TurnId),
+  sourceThreadId: ThreadId,
+  sourceProjectId: Schema.String,
+  originalProviderKey: Schema.String,
+  threadId: ThreadId,
+  messageId: MessageId,
+  originalRuntimeMode: RuntimeMode,
+  text: TrimmedNonEmptyString,
+  provenance: TrimmedNonEmptyString,
+  visitedThreadIds: Schema.Array(ThreadId),
+  createdAt: IsoDateTime,
+});
+export type ThreadExternalRouteDeliverCommand = typeof ThreadExternalRouteDeliverCommand.Type;
+
 const InternalOrchestrationCommand = Schema.Union([
   ThreadRouteDeliverCommand,
+  ThreadExternalRouteDeliverCommand,
   ThreadAutoSettleCommand,
   ThreadPullRequestSyncCommand,
   ThreadPullRequestLinkSyncCommand,

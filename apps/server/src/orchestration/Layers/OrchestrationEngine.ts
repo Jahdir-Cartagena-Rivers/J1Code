@@ -4,6 +4,7 @@ import type {
   OrchestrationReadModel,
   ProjectId,
   ThreadId,
+  ExternalRouteSourceSnapshot,
 } from "@t3tools/contracts";
 import { OrchestrationCommand } from "@t3tools/contracts";
 import { resolveAutoModelPolicy } from "@t3tools/shared/projectSettings";
@@ -53,6 +54,7 @@ import { createEmptyReadModel, projectEvent } from "../projector.ts";
 import { OrchestrationProjectionPipeline } from "../Services/ProjectionPipeline.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ThreadBackgroundLivenessService } from "../ThreadBackgroundLiveness.ts";
+import { ExternalRouteEndpoints } from "../../routing/ExternalRouteEndpoints.ts";
 import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
@@ -99,6 +101,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const projectionPipeline = yield* OrchestrationProjectionPipeline;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const threadBackgroundLiveness = yield* ThreadBackgroundLivenessService;
+  const externalRoutes = yield* Effect.serviceOption(ExternalRouteEndpoints);
   const crypto = yield* Crypto.Crypto;
 
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
@@ -273,7 +276,11 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           }
         }
         let routeAdmissionHydrated = false;
-        if (envelope.command.type === "thread.route.deliver") {
+        let externalRouteSource: ExternalRouteSourceSnapshot | undefined;
+        if (
+          envelope.command.type === "thread.route.deliver" ||
+          envelope.command.type === "thread.external-route.deliver"
+        ) {
           // Startup's command model omits message/activity details. Re-read the
           // destination while this queue owns admission, after prior writes.
           const targetShell = yield* projectionSnapshotQuery.getThreadShellById(
@@ -295,8 +302,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
             });
           }
           if (
+            envelope.command.type === "thread.external-route.deliver" ||
             targetShell.value.modelSelection.instanceId !==
-            envelope.command.originalProviderInstanceId
+              envelope.command.originalProviderInstanceId
           ) {
             const instances = Option.isSome(autoProviders)
               ? yield* autoProviders.value.getProviders
@@ -334,6 +342,28 @@ const makeOrchestrationEngine = Effect.gen(function* () {
             ),
           };
           routeAdmissionHydrated = true;
+          if (envelope.command.type === "thread.external-route.deliver") {
+            if (Option.isNone(externalRoutes))
+              return yield* new OrchestrationCommandInvariantError({
+                commandType: envelope.command.type,
+                detail: "Route held: external source admission is unavailable.",
+              });
+            const source = yield* externalRoutes.value.source(envelope.command.sourceThreadId).pipe(
+              Effect.mapError(
+                () =>
+                  new OrchestrationCommandInvariantError({
+                    commandType: envelope.command.type,
+                    detail: "Route held: external source is unavailable.",
+                  }),
+              ),
+            );
+            if (!source)
+              return yield* new OrchestrationCommandInvariantError({
+                commandType: envelope.command.type,
+                detail: "Route held: external source is unavailable.",
+              });
+            externalRouteSource = source;
+          }
         }
         let admittedCommand = envelope.command;
         let autoSelection: { reason: string; resolverDurationMs: number | null } | undefined;
@@ -479,6 +509,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
             : {}),
           ...(autoSelection ? { autoSelection } : {}),
           ...(routeAdmissionHydrated ? { routeAdmissionHydrated: true } : {}),
+          ...(externalRouteSource ? { externalRouteSource } : {}),
           ...(Option.isSome(userInputActivity)
             ? { userInputActivity: userInputActivity.value }
             : {}),

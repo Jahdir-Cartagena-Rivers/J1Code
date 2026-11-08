@@ -4,6 +4,10 @@
   "license": "SEE LICENSE IN ../../LICENSE",
   "type": "module",
   "exports": {
+    "./routeEndpointUrl": {
+      "types": "./src/routeEndpointUrl.ts",
+      "import": "./src/routeEndpointUrl.ts"
+    },
     "./legacy-bots": {
       "types": "./src/legacyBots.ts",
       "import": "./src/legacyBots.ts"

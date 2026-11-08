@@ -9,7 +9,12 @@ import * as NodeHttp from "node:http";
 import * as NodeTimers from "node:timers";
 import * as NodeStream from "node:stream";
 import * as NodeModule from "node:module";
-import type { MausbotApprovalModeInput, ConversationQuery } from "@t3tools/contracts";
+import type {
+  MausbotApprovalModeInput,
+  ConversationQuery,
+  ExternalRouteDelivery,
+  ExternalRouteReceiptKey,
+} from "@t3tools/contracts";
 import { startMausbotComputer } from "./NativeComputer.ts";
 import { mausbotChildEnvironment } from "./ChildEnvironment.ts";
 
@@ -69,8 +74,14 @@ export class MausbotRuntime {
   get running() {
     return this.child !== undefined && this.token !== undefined;
   }
-  /** Conversation reads use owned-process IPC, never the owner-authenticated browser proxy. */
-  async conversation(input: ConversationQuery, signal?: AbortSignal): Promise<unknown> {
+  /** Conversation and routing operations use owned-process IPC, never the browser proxy. */
+  async conversation(
+    input:
+      | ConversationQuery
+      | { action: "routeDeliver"; delivery: ExternalRouteDelivery }
+      | { action: "routeDeliveryStatus"; key: ExternalRouteReceiptKey },
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     await this.start();
     const child = this.child;
     if (!child?.connected || signal?.aborted)

@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import { routeEndpointUrl } from "@t3tools/shared/routeEndpointUrl";
 import type { RouteState } from "../../../routing/routeState.ts";
 import {
   listRoutes,
@@ -15,10 +16,8 @@ const summary = (state: RouteState) => ({
   requestId: state.request.requestId,
   status: state.status,
   reason: state.reason,
-  destinationUrl: state.request.destination
-    ? `/${encodeURIComponent(state.request.destination.environmentId)}/${encodeURIComponent(state.request.destination.threadId)}`
-    : null,
-  sourceUrl: `/${encodeURIComponent(state.request.source.environmentId)}/${encodeURIComponent(state.request.source.threadId)}`,
+  destinationUrl: state.request.destination ? routeEndpointUrl(state.request.destination) : null,
+  sourceUrl: routeEndpointUrl(state.request.source),
 });
 export const RoutingToolkitHandlers = RoutingToolkit.toLayer(
   Effect.succeed(

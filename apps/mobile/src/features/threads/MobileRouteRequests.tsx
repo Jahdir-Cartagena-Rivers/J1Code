@@ -7,7 +7,7 @@ import {
   ThreadId,
   manualRouteReasonLabel,
   manualRouteStatusLabel,
-  type EnvironmentId,
+  EnvironmentId,
   type ManualRouteStatus,
 } from "@t3tools/contracts";
 import { AppText as Text } from "../../components/AppText";
@@ -15,6 +15,7 @@ import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useProjects, useThreadShells } from "../../state/entities";
 import { useEnvironmentThread } from "../../state/threads";
+import { MausbotWorkspace } from "../mausbot/MausbotWorkspace";
 
 export function MobileRouteRequests({
   environmentId,
@@ -82,7 +83,9 @@ export function MobileRouteRequests({
   }, [refresh, revision]);
   const approve = async (id: string, targetId: string | null) => {
     const target = threads.find((thread) => thread.id === targetId);
-    if (!target) return;
+    const proposal = requests.find((request) => request.requestId === id)?.destination;
+    const native = proposal && /^mausbot:[\w-]{1,120}:[\w-]{1,120}$/.test(proposal.threadId);
+    if (!proposal || (!target && !native)) return;
     setNoticeRequestId(id);
     setBusy(true);
     try {
@@ -91,7 +94,7 @@ export function MobileRouteRequests({
         input: {
           requestId: id,
           source: { environmentId, projectId, threadId },
-          destination: { environmentId, projectId: target.projectId, threadId: target.id },
+          destination: proposal,
         },
       });
       if (prepared._tag === "Failure") {
@@ -102,7 +105,7 @@ export function MobileRouteRequests({
       const result = await confirm({ environmentId, input: { token: prepared.value.token } });
       setNotice(
         result._tag === "Success"
-          ? `Queued for ${target.title}. Delivery and acceptance appear separately.`
+          ? `Queued for ${target?.title ?? "the assistant conversation"}. Delivery and acceptance appear separately.`
           : "Request changed. Review it again.",
       );
       await refresh();
@@ -147,6 +150,7 @@ export function MobileRouteRequests({
           {visible.map((request) => {
             const targetId = request.destination?.threadId ?? null;
             const target = threads.find((thread) => thread.id === targetId);
+            const native = /^mausbot:([\w-]{1,120}):([\w-]{1,120})$/.exec(targetId ?? "");
             return (
               <View key={request.requestId} className="gap-2 rounded-lg border border-border p-3">
                 <Text>{request.summary ?? "Forwarded request"}</Text>
@@ -158,24 +162,32 @@ export function MobileRouteRequests({
                     {manualRouteReasonLabel(request.reason)}
                   </Text>
                 )}
-                {request.destination && (
-                  <Pressable
-                    accessibilityRole="link"
-                    onPress={() =>
-                      navigation.dispatch(
-                        CommonActions.navigate("Thread", {
-                          environmentId: request.destination!.environmentId,
-                          threadId: request.destination!.threadId,
-                        }),
-                      )
-                    }
-                  >
-                    <Text className="text-accent underline">
-                      {target
-                        ? `${projectNames.get(target.projectId) ?? "Project"} / ${target.title}`
-                        : "Open destination chat"}
-                    </Text>
-                  </Pressable>
+                {request.destination && native ? (
+                  <MausbotWorkspace
+                    environmentId={EnvironmentId.make(request.destination.environmentId)}
+                    initialConversation={{ botId: native[1]!, threadId: native[2]! }}
+                    label="Open destination assistant"
+                  />
+                ) : (
+                  request.destination && (
+                    <Pressable
+                      accessibilityRole="link"
+                      onPress={() =>
+                        navigation.dispatch(
+                          CommonActions.navigate("Thread", {
+                            environmentId: request.destination!.environmentId,
+                            threadId: request.destination!.threadId,
+                          }),
+                        )
+                      }
+                    >
+                      <Text className="text-accent underline">
+                        {target
+                          ? `${projectNames.get(target.projectId) ?? "Project"} / ${target.title}`
+                          : "Open destination chat"}
+                      </Text>
+                    </Pressable>
+                  )
                 )}
                 {request.status === "suggested" && !request.destination && (
                   <Text>
@@ -202,7 +214,7 @@ export function MobileRouteRequests({
                   <>
                     <Pressable
                       accessibilityRole="button"
-                      disabled={busy || !target || target.archivedAt !== null}
+                      disabled={busy || (!native && (!target || target.archivedAt !== null))}
                       onPress={() => void approve(request.requestId, targetId)}
                     >
                       <Text>Approve and send</Text>

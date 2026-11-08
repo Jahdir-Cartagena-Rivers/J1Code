@@ -27,6 +27,7 @@ import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import { ExternalRouteEndpoints } from "./routing/ExternalRouteEndpoints.ts";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
@@ -529,6 +530,7 @@ const makeWsRpcLayer = (
       const sql = yield* SqlClient.SqlClient;
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
       const routeEnvironmentId = yield* (yield* RoutingEnvironment).getEnvironmentId;
+      const externalRouteEndpoints = yield* Effect.serviceOption(ExternalRouteEndpoints);
       const routeStore = yield* makeDurableRoutingStore;
       const routineRuns = yield* makeRoutineRuns;
       const lookupBotCallTurn = yield* makeBotCallTurnLookup;
@@ -572,6 +574,22 @@ const makeWsRpcLayer = (
             ).map((row) => row.request_id),
           inspect: async (_session, endpoint) => {
             if (endpoint.environmentId !== routeEnvironmentId) return null;
+            if (endpoint.threadId.startsWith("mausbot:")) {
+              if (Option.isNone(externalRouteEndpoints)) return null;
+              const facts = await Effect.runPromise(
+                externalRouteEndpoints.value
+                  .source(endpoint.threadId)
+                  .pipe(Effect.orElseSucceed(() => null)),
+              );
+              return facts &&
+                !facts.archived &&
+                facts.permissionsKnown &&
+                facts.runtimeMode === "full-access" &&
+                facts.endpoint.environmentId === endpoint.environmentId &&
+                facts.endpoint.projectId === endpoint.projectId
+                ? { endpoint, permissions: ["runtime:full-access"] }
+                : null;
+            }
             const result = await Effect.runPromise(
               projectionSnapshotQuery.getThreadShellById(ThreadId.make(endpoint.threadId)),
             );

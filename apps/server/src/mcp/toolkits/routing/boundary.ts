@@ -1,4 +1,5 @@
 import * as NodeCrypto from "node:crypto";
+import { routeEndpointUrl } from "@t3tools/shared/routeEndpointUrl";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -99,94 +100,114 @@ export const currentEndpoint = Effect.gen(function* () {
 
 const encodeIdentity = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const decodeInput = Schema.decodeUnknownEffect(RouteInput);
-
-export const routeRequest = Effect.fn("RoutingBoundary.route")(function* (unknownInput: unknown) {
-  const input = yield* decodeInput(unknownInput, {
-    onExcessProperty: "error",
-  }).pipe(Effect.mapError(() => "Invalid routing input."));
-  const source = yield* currentEndpoint;
-  const ports = yield* RoutingBoundaryPorts;
-  const policy = yield* ports.policy(source, input.requestId, input.taskId);
-  const owner = yield* ports.owner(source, input.taskId, input.candidate, input.request);
-  if (owner.destination) {
-    const actual = yield* ports.current(
-      owner.destination.environmentId,
-      owner.destination.threadId,
-    );
-    if (!actual || !same(actual, owner.destination))
-      return yield* Effect.fail("Destination unavailable.");
-  }
-  const sourceUrl = `/${encodeURIComponent(source.environmentId)}/${encodeURIComponent(source.threadId)}`;
-  // Namespace caller IDs by authenticated source; bind original intent before mutable discovery.
-  const requestId = NodeCrypto.createHash("sha256")
-    .update(encodeIdentity([source, input.requestId]))
-    .digest("hex");
-  const fingerprint = NodeCrypto.createHash("sha256")
-    .update(encodeIdentity([source, input]))
-    .digest("hex");
-  return yield* ports.submit({
-    fingerprint,
-    originalRequest: input.request,
-    sourceUrl,
-    route: {
-      requestId,
-      taskId: input.taskId,
-      source,
-      destination: owner.destination,
-      content: `${input.request}\n\n[Source conversation](${sourceUrl})`,
-      mode: policy.mode,
-      initiation: policy.manual ? "manual" : "automatic",
-      ambiguous: owner.ambiguous,
-      visited: policy.visited,
-      maxHops: policy.maxHops,
-    },
+/** Host adapters supply an authenticated endpoint effect; tool arguments never select a speaker. */
+export function makeRoutingBoundary<R>(currentEndpoint: Effect.Effect<RouteEndpoint, string, R>) {
+  const routeRequest = Effect.fn("RoutingBoundary.route")(function* (unknownInput: unknown) {
+    const input = yield* decodeInput(unknownInput, {
+      onExcessProperty: "error",
+    }).pipe(Effect.mapError(() => "Invalid routing input."));
+    const source = yield* currentEndpoint;
+    const ports = yield* RoutingBoundaryPorts;
+    const policy = yield* ports.policy(source, input.requestId, input.taskId);
+    const owner = yield* ports.owner(source, input.taskId, input.candidate, input.request);
+    if (owner.destination) {
+      const actual = yield* ports.current(
+        owner.destination.environmentId,
+        owner.destination.threadId,
+      );
+      if (!actual || !same(actual, owner.destination))
+        return yield* Effect.fail("Destination unavailable.");
+    }
+    const sourceUrl = routeEndpointUrl(source);
+    // Namespace caller IDs by authenticated source; bind original intent before mutable discovery.
+    const requestId = NodeCrypto.createHash("sha256")
+      .update(encodeIdentity([source, input.requestId]))
+      .digest("hex");
+    const fingerprint = NodeCrypto.createHash("sha256")
+      .update(encodeIdentity([source, input]))
+      .digest("hex");
+    return yield* ports.submit({
+      fingerprint,
+      originalRequest: input.request,
+      sourceUrl,
+      route: {
+        requestId,
+        taskId: input.taskId,
+        source,
+        destination: owner.destination,
+        content: `${input.request}\n\n[Source conversation](${sourceUrl})`,
+        mode: policy.mode,
+        initiation: policy.manual ? "manual" : "automatic",
+        ambiguous: owner.ambiguous,
+        visited: policy.visited,
+        maxHops: policy.maxHops,
+      },
+    });
   });
-});
 
-export const routeStatus = Effect.fn("RoutingBoundary.status")(function* (requestId: string) {
-  const source = yield* currentEndpoint;
-  const ports = yield* RoutingBoundaryPorts;
-  const state = yield* ports.get(requestId);
-  if (!state || !visible(state, source)) return yield* Effect.fail("Route unavailable.");
-  return state;
-});
-export const listRoutes = Effect.gen(function* () {
-  const source = yield* currentEndpoint;
-  const ports = yield* RoutingBoundaryPorts;
-  return (yield* ports.list(source)).filter((state) => visible(state, source));
-});
+  const routeStatus = Effect.fn("RoutingBoundary.status")(function* (requestId: string) {
+    const source = yield* currentEndpoint;
+    const ports = yield* RoutingBoundaryPorts;
+    const state = yield* ports.get(requestId);
+    if (!state || !visible(state, source)) return yield* Effect.fail("Route unavailable.");
+    return state;
+  });
+  const listRoutes = Effect.gen(function* () {
+    const source = yield* currentEndpoint;
+    const ports = yield* RoutingBoundaryPorts;
+    return (yield* ports.list(source)).filter((state) => visible(state, source));
+  });
 
-export const recipientReceipt = Effect.fn("RoutingBoundary.recipientReceipt")(function* (
-  requestId: string,
-  kind: "accepted" | "completed" | "failed",
-) {
-  const endpoint = yield* currentEndpoint;
-  const ports = yield* RoutingBoundaryPorts;
-  if (!ports.receipt) return yield* Effect.fail("Recipient acknowledgment unavailable.");
-  return yield* ports.receipt(endpoint, requestId, kind);
-});
+  const recipientReceipt = Effect.fn("RoutingBoundary.recipientReceipt")(function* (
+    requestId: string,
+    kind: "accepted" | "completed" | "failed",
+  ) {
+    const endpoint = yield* currentEndpoint;
+    const ports = yield* RoutingBoundaryPorts;
+    if (!ports.receipt) return yield* Effect.fail("Recipient acknowledgment unavailable.");
+    return yield* ports.receipt(endpoint, requestId, kind);
+  });
 
-export const routingMode = Effect.gen(function* () {
-  const source = yield* currentEndpoint;
-  return { mode: (yield* (yield* RoutingBoundaryPorts).policy(source, "mode")).mode };
-});
-export const claimTask = Effect.fn("RoutingBoundary.claim")(function* (
-  taskId: string,
-  requestId: string,
-) {
-  const source = yield* currentEndpoint;
-  const ports = yield* RoutingBoundaryPorts;
-  if (!ports.claim) return yield* Effect.fail("Task ownership unavailable.");
-  yield* ports.claim(source, taskId, requestId);
-  return { taskId };
-});
-export const releaseTask = Effect.fn("RoutingBoundary.release")(function* (
-  taskId: string,
-  requestId: string,
-) {
-  const source = yield* currentEndpoint;
-  const ports = yield* RoutingBoundaryPorts;
-  if (!ports.release) return yield* Effect.fail("Task release unavailable.");
-  yield* ports.release(source, taskId, requestId);
-  return { taskId };
-});
+  const routingMode = Effect.gen(function* () {
+    const source = yield* currentEndpoint;
+    return { mode: (yield* (yield* RoutingBoundaryPorts).policy(source, "mode")).mode };
+  });
+  const claimTask = Effect.fn("RoutingBoundary.claim")(function* (
+    taskId: string,
+    requestId: string,
+  ) {
+    const source = yield* currentEndpoint;
+    const ports = yield* RoutingBoundaryPorts;
+    if (!ports.claim) return yield* Effect.fail("Task ownership unavailable.");
+    yield* ports.claim(source, taskId, requestId);
+    return { taskId };
+  });
+  const releaseTask = Effect.fn("RoutingBoundary.release")(function* (
+    taskId: string,
+    requestId: string,
+  ) {
+    const source = yield* currentEndpoint;
+    const ports = yield* RoutingBoundaryPorts;
+    if (!ports.release) return yield* Effect.fail("Task release unavailable.");
+    yield* ports.release(source, taskId, requestId);
+    return { taskId };
+  });
+  return {
+    routeRequest,
+    routeStatus,
+    listRoutes,
+    recipientReceipt,
+    routingMode,
+    claimTask,
+    releaseTask,
+  };
+}
+export const {
+  routeRequest,
+  routeStatus,
+  listRoutes,
+  recipientReceipt,
+  routingMode,
+  claimTask,
+  releaseTask,
+} = makeRoutingBoundary(currentEndpoint);

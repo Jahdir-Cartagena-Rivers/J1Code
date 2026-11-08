@@ -5,6 +5,7 @@ import { searchMessagesAsync } from "../message-db.ts";
 import type { Store, BotRecord, TaskRecord } from "../store.ts";
 import { approvalModeFor } from "../../shared/approval-mode.ts";
 import { allowsTool } from "../../shared/tool-scope.ts";
+import { routeDelivery, unrestrictedRouteProfile } from "./route-receiver.ts";
 
 const historyAction = z.object({ action: z.enum(["search", "read", "readMessage"]) });
 const historyNames = {
@@ -37,6 +38,31 @@ const endpoint = z
   .object({ environmentId: z.string(), projectId: z.string(), threadId: z.string() })
   .strict();
 const query = z.discriminatedUnion("action", [
+  z
+    .object({
+      action: z.literal("routeDeliveryStatus"),
+      key: z
+        .object({
+          requestId: z.string(),
+          fingerprint: z.string(),
+          attemptId: z.string(),
+          destination: endpoint,
+        })
+        .strict(),
+    })
+    .strict(),
+  z.object({ action: z.literal("routeDeliver"), delivery: routeDelivery }).strict(),
+  z
+    .object({
+      action: z.literal("routeNotice"),
+      endpoint,
+      requestId: z.string().regex(/^[a-f0-9]{64}$/),
+      revision: z.number().int().nonnegative(),
+      status: z.string().max(40),
+      summary: z.string().max(200),
+    })
+    .strict(),
+  z.object({ action: z.literal("routingSource"), endpoint }).strict(),
   z.object({ action: z.literal("inspect"), endpoint }).strict(),
   z.object({ action: z.literal("search"), principal, query: z.string().max(200) }).strict(),
   z
@@ -59,11 +85,25 @@ const query = z.discriminatedUnion("action", [
 ]);
 type Row = { botId: string; threadId: string; title: string };
 type Deps = {
-  store: Pick<Store, "bot" | "tasks" | "taskByThread" | "projectBotForTask" | "activePath">;
+  store: Pick<
+    Store,
+    | "bot"
+    | "tasks"
+    | "taskByThread"
+    | "projectBotForTask"
+    | "activePath"
+    | "messagesFor"
+    | "patchMessage"
+    | "insertMessageAfter"
+  >;
   rows(principal: HistoryPrincipal | null): Row[];
   active(principal: HistoryPrincipal): boolean;
   generation(threadId: string): string | undefined;
   waiting(threadId: string): boolean;
+  routingTarget?(
+    value: z.infer<typeof endpoint>,
+  ): { allowed: boolean; blocked: boolean; generation: string | null; canSteer: boolean } | null;
+  deliver?(input: z.infer<typeof routeDelivery>): Promise<string>;
 };
 
 export function createConversationQueries(deps: Deps) {
@@ -126,6 +166,79 @@ export function createConversationQueries(deps: Deps) {
       }));
   return async (input: unknown) => {
     const request = query.parse(input);
+    if (request.action === "routeDeliveryStatus") {
+      const { row } = resolve(request.key.destination, null);
+      const proof = deps.store
+        .messagesFor(row.threadId)
+        .find(
+          (message) => message.j1IncomingRoute?.requestId === request.key.requestId,
+        )?.j1IncomingRoute;
+      return proof?.state === "applied" &&
+        proof.fingerprint === request.key.fingerprint &&
+        proof.attemptId === request.key.attemptId &&
+        proof.environmentId === request.key.destination.environmentId &&
+        proof.generation &&
+        proof.providerTurnId
+        ? { generation: proof.generation, providerTurnId: proof.providerTurnId }
+        : null;
+    }
+    if (request.action === "routeDeliver") {
+      resolve(request.delivery.destination, null);
+      if (!deps.deliver) throw failure();
+      return deps.deliver(request.delivery);
+    }
+    if (request.action === "routeNotice") {
+      const { row } = resolve(request.endpoint, null);
+      const existing = deps.store
+        .messagesFor(row.threadId)
+        .find((message) => message.j1RouteId === request.requestId);
+      if (existing && (existing.j1RouteRevision ?? 0) >= request.revision) return true;
+      const text = `Routing request: ${request.status}. ${request.summary}`;
+      if (existing)
+        deps.store.patchMessage(row.threadId, existing.id, {
+          kind: "options",
+          text,
+          tool: { name: text, ok: true },
+          j1RouteRevision: request.revision,
+        });
+      else {
+        const anchor = deps.store
+          .activePath(row.threadId)
+          .findLast(
+            (message) =>
+              (message.role === "user" && message.kind === "text") ||
+              message.j1IncomingRoute !== undefined,
+          );
+        deps.store.insertMessageAfter(row.threadId, anchor?.id, {
+          role: "bot",
+          kind: "options",
+          text,
+          tool: { name: text, ok: true },
+          j1RouteId: request.requestId,
+          j1RouteRevision: request.revision,
+        });
+      }
+      return true;
+    }
+    if (request.action === "routingSource") {
+      try {
+        const { row, bot, task } = resolve(request.endpoint, null);
+        const target = deps.routingTarget?.(request.endpoint);
+        return {
+          endpoint: request.endpoint,
+          url: metadata(request.endpoint.environmentId, row, bot, task).url,
+          runtimeMode: metadata(request.endpoint.environmentId, row, bot, task).runtimeMode,
+          providerKey: bot.modelSelection.instanceId,
+          permissionsKnown: unrestrictedRouteProfile(bot),
+          archived: task.archivedAt !== undefined || bot.hidden === true,
+          activeGeneration: target?.generation ?? null,
+          canSteer: target?.canSteer ?? false,
+          blocked: target?.blocked ?? true,
+        };
+      } catch {
+        return null;
+      }
+    }
     if (request.action === "inspect") {
       try {
         const { row, bot, task } = resolve(request.endpoint, null);

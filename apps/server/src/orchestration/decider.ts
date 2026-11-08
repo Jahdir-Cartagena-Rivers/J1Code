@@ -220,6 +220,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   userInputActivity,
   workerDescendantIds = [],
   routeAdmissionHydrated = false,
+  externalRouteSource,
   autoSelection,
 }: {
   readonly command: OrchestrationCommand;
@@ -228,6 +229,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   readonly workerDescendantIds?: ReadonlyArray<ThreadId>;
   /** Server-only assertion: both detailed threads loaded inside the serialized queue. */
   readonly routeAdmissionHydrated?: boolean;
+  readonly externalRouteSource?: import("@t3tools/contracts").ExternalRouteSourceSnapshot;
   readonly autoSelection?: { readonly reason: string; readonly resolverDurationMs: number | null };
 }): Effect.fn.Return<
   DecideOrchestrationCommandResult,
@@ -1438,30 +1440,55 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "thread.route.deliver": {
+    case "thread.route.deliver":
+    case "thread.external-route.deliver": {
       if (!routeAdmissionHydrated) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
           detail: "Route held: serialized detailed thread hydration is not wired.",
         });
       }
-      const source = yield* requireThread({ readModel, command, threadId: command.sourceThreadId });
+      const source =
+        command.type === "thread.route.deliver"
+          ? yield* requireThread({ readModel, command, threadId: command.sourceThreadId })
+          : null;
       const destination = yield* requireThread({ readModel, command, threadId: command.threadId });
       const reject = (detail: string) =>
         new OrchestrationCommandInvariantError({
           commandType: command.type,
           detail: `Route held: ${detail}`,
         });
-      if (source.id === destination.id || command.visitedThreadIds.includes(destination.id)) {
+      if (command.type === "thread.external-route.deliver") {
+        if (
+          !externalRouteSource ||
+          externalRouteSource.endpoint.threadId !== command.sourceThreadId ||
+          externalRouteSource.endpoint.projectId !== command.sourceProjectId ||
+          externalRouteSource.providerKey !== command.originalProviderKey ||
+          externalRouteSource.archived ||
+          !externalRouteSource.permissionsKnown ||
+          externalRouteSource.runtimeMode !== command.originalRuntimeMode ||
+          command.originalRuntimeMode !== "full-access" ||
+          readModel.threads.some((thread) => thread.id === command.sourceThreadId)
+        ) {
+          return yield* reject(
+            "external source identity or verified permissions changed or unavailable",
+          );
+        }
+      }
+      if (
+        command.sourceThreadId === destination.id ||
+        command.visitedThreadIds.includes(destination.id)
+      ) {
         return yield* reject("self delivery or routing loop");
       }
-      for (const thread of [source, destination]) {
+      for (const thread of source ? [source, destination] : [destination]) {
         if (thread.deletedAt !== null || thread.archivedAt !== null) {
           return yield* reject("source or destination is deleted or archived");
         }
         if (
           thread.runtimeMode !== command.originalRuntimeMode ||
-          (thread.id === source.id &&
+          (command.type === "thread.route.deliver" &&
+            thread.id === source?.id &&
             thread.modelSelection.instanceId !== command.originalProviderInstanceId) ||
           (thread.session !== null &&
             (thread.session.runtimeMode !== command.originalRuntimeMode ||
@@ -1517,9 +1544,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...event.metadata,
           routeId: command.routeId,
           ...(command.activeTurnId ? { routeSteerTurnId: command.activeTurnId } : {}),
-          sourceThreadId: source.id,
+          sourceThreadId: command.sourceThreadId,
           provenance: command.provenance,
-          visitedThreadIds: [...command.visitedThreadIds, source.id],
+          visitedThreadIds: [...command.visitedThreadIds, command.sourceThreadId],
         },
       }));
     }

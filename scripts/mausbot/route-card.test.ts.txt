@@ -1,0 +1,27 @@
+import { describe, expect, it, vi } from "vitest";
+import { j1Request } from "../j1-native-client";
+import { readReceipt } from "./J1RouteCard";
+vi.mock("../j1-native-client", () => ({ j1Request: vi.fn() }));
+describe("routing card reads", () => {
+  it("loads a long transcript in one source request without exceeding the native bridge bound", async () => {
+    let reply!: (value: unknown) => void;
+    const response = new Promise(resolve => { reply = resolve; });
+    vi.mocked(j1Request).mockReturnValue(response);
+    const rows = Array.from({ length: 100 }, (_, i) => ({ requestId: i.toString(16).padStart(64, "0"), revision: 0, status: "suggested", label: "Needs your approval", reasonText: null, destinationLabel: "Existing chat", destinationUrl: "/env/original" }));
+    const reads = rows.map(row => readReceipt("crown", "main", row.requestId));
+    expect(j1Request).toHaveBeenCalledTimes(1);
+    reply(rows);
+    expect((await Promise.all(reads)).map(row => row.requestId)).toEqual(rows.map(row => row.requestId));
+  });
+  it("does not retain a rejected source read after reconnect", async () => {
+    vi.mocked(j1Request).mockRejectedValueOnce(new Error("disconnected"));
+    await expect(readReceipt("other", "main", "request")).rejects.toThrow("disconnected");
+    vi.mocked(j1Request).mockResolvedValueOnce([{ requestId: "request", revision: 1, status: "delivered", label: "Delivered", reasonText: null, destinationLabel: "Existing chat", destinationUrl: "/env/original" }]);
+    expect(await readReceipt("other", "main", "request")).toMatchObject({ status: "delivered" });
+  });
+  it("reconciles a revision notice that overtakes a shared response", async () => {
+    const row = { requestId: "overtaken", revision: 1, status: "suggested", label: "Needs your approval", reasonText: null, destinationLabel: "Existing chat", destinationUrl: "/env/original" };
+    vi.mocked(j1Request).mockResolvedValueOnce([row]).mockResolvedValueOnce([{ ...row, revision: 2, status: "delivered", label: "Delivered" }]);
+    expect(await readReceipt("revision-race", "main", "overtaken", 2)).toMatchObject({ revision: 2, status: "delivered" });
+  });
+});

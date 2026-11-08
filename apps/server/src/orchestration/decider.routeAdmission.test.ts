@@ -9,6 +9,7 @@ import {
   ThreadId,
   TurnId,
   ThreadRouteDeliverCommand,
+  ThreadExternalRouteDeliverCommand,
   ClientOrchestrationCommand,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -88,6 +89,122 @@ const model = Effect.map(readModelWithThread, (state) => ({
   ...state,
   threads: [...state.threads, { ...state.threads[0]!, id: ThreadId.make("source") }],
 }));
+const nativeCommand = Schema.decodeUnknownSync(ThreadExternalRouteDeliverCommand)({
+  ...command,
+  type: "thread.external-route.deliver",
+  sourceThreadId: "mausbot:crown:main",
+  sourceProjectId: "mausbot:crown",
+  originalProviderKey: "native-codex",
+});
+const nativeSource = {
+  endpoint: {
+    environmentId: "environment",
+    projectId: "mausbot:crown",
+    threadId: "mausbot:crown:main",
+  },
+  url: "/assistants?environmentId=environment&botId=crown&conversation=main",
+  runtimeMode: "full-access" as const,
+  providerKey: "native-codex",
+  permissionsKnown: true,
+  archived: false,
+};
+it("does not expose external-source admission to client commands", () => {
+  expect(Schema.is(ClientOrchestrationCommand)(nativeCommand)).toBe(false);
+});
+it.layer(NodeServices.layer)("foreign source admission", (it) => {
+  it.effect("admits real foreign identity without a projected source thread", () =>
+    Effect.gen(function* () {
+      const readModel = yield* readModelWithThread;
+      const result = yield* decideOrchestrationCommand({
+        readModel,
+        command: nativeCommand,
+        routeAdmissionHydrated: true,
+        externalRouteSource: nativeSource,
+      });
+      const events = Array.isArray(result) ? result : [result];
+      expect(events.find((event) => event.type === "thread.message-sent")?.metadata).toMatchObject({
+        sourceThreadId: nativeCommand.sourceThreadId,
+        routeId: nativeCommand.routeId,
+      });
+      expect(readModel.threads).toHaveLength(1);
+      expect(readModel.threads.some((thread) => thread.id === nativeCommand.sourceThreadId)).toBe(
+        false,
+      );
+    }),
+  );
+  it.effect("holds unavailable, revoked, changed and unverified source facts", () =>
+    Effect.gen(function* () {
+      const readModel = yield* readModelWithThread;
+      const variants = [
+        undefined,
+        { ...nativeSource, permissionsKnown: false },
+        { ...nativeSource, archived: true },
+        { ...nativeSource, providerKey: "changed-provider" },
+        { ...nativeSource, runtimeMode: "auto" as const },
+        { ...nativeSource, endpoint: { ...nativeSource.endpoint, projectId: "other" } },
+        { ...nativeSource, endpoint: { ...nativeSource.endpoint, threadId: "other" } },
+      ];
+      for (const source of variants) {
+        const error = yield* Effect.flip(
+          decideOrchestrationCommand({
+            readModel,
+            command: nativeCommand,
+            routeAdmissionHydrated: true,
+            ...(source ? { externalRouteSource: source } : {}),
+          }),
+        );
+        expect(error._tag).toBe("OrchestrationCommandInvariantError");
+      }
+      const collision = {
+        ...readModel,
+        threads: [
+          ...readModel.threads,
+          { ...readModel.threads[0]!, id: nativeCommand.sourceThreadId },
+        ],
+      };
+      expect(
+        (yield* Effect.flip(
+          decideOrchestrationCommand({
+            readModel: collision,
+            command: nativeCommand,
+            routeAdmissionHydrated: true,
+            externalRouteSource: nativeSource,
+          }),
+        ))._tag,
+      ).toBe("OrchestrationCommandInvariantError");
+    }),
+  );
+  it.effect("keeps destination permission, busy and loop gates", () =>
+    Effect.gen(function* () {
+      const base = yield* readModelWithThread;
+      for (const thread of [
+        { ...base.threads[0]!, runtimeMode: "auto" as const },
+        { ...base.threads[0]!, archivedAt: createdAt },
+      ]) {
+        expect(
+          (yield* Effect.flip(
+            decideOrchestrationCommand({
+              readModel: { ...base, threads: [thread] },
+              command: nativeCommand,
+              routeAdmissionHydrated: true,
+              externalRouteSource: nativeSource,
+            }),
+          ))._tag,
+        ).toBe("OrchestrationCommandInvariantError");
+      }
+      expect(
+        (yield* Effect.flip(
+          decideOrchestrationCommand({
+            readModel: base,
+            command: { ...nativeCommand, visitedThreadIds: [threadId] },
+            routeAdmissionHydrated: true,
+            externalRouteSource: nativeSource,
+          }),
+        ))._tag,
+      ).toBe("OrchestrationCommandInvariantError");
+    }),
+  );
+});
 it("validates trusted payload and excludes it from client dispatch", () => {
   expect(Schema.is(ClientOrchestrationCommand)(command)).toBe(false);
   for (const field of [

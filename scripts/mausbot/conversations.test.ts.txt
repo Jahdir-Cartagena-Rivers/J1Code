@@ -11,6 +11,8 @@ function fixture() {
   let active = true;
   let shown = true;
   let reads = 0;
+  const notices: Array<{ id: string; j1RouteId?: string; j1RouteRevision?: number; text?: string; j1IncomingRoute?: import("../store.ts").Message["j1IncomingRoute"] }> = [];
+  let anchor: string | undefined;
   const rows = [{ botId: "one", threadId: "main", title: "Main" }];
   const task = { threadId: "main", title: "Main" };
   const owner = { id: "one", name: "Crown", modelSelection: { instanceId: "codex", model: "example" }, approvalMode: "full" };
@@ -19,14 +21,51 @@ function fixture() {
     store: {
       bot: () => owner, tasks: () => [task], taskByThread: () => task,
       projectBotForTask: () => owner, activePath: () => { reads++; return messages; },
+      messagesFor: () => [...messages, ...notices],
+      patchMessage: (_thread: string, id: string, patch: object) => Object.assign(notices.find(row => row.id === id)!, patch),
+      insertMessageAfter: (_thread: string, after: string | undefined, value: { j1RouteId?: string; j1RouteRevision?: number; text?: string }) => { anchor = after; const row = { id: `notice-${notices.length}`, ...value }; notices.push(row); return row; },
     } as unknown as Parameters<typeof createConversationQueries>[0]["store"],
     rows: () => shown ? rows : [], active: who => who.kind === "j1" || (active && who.generation === "current"),
     generation: () => "current", waiting: () => false,
   });
-  return { run, messages, task, reads: () => reads, revoke: () => { active = false; }, hide: () => { shown = false; } };
+  return { run, messages, task, owner, notices, anchor: () => anchor, reads: () => reads, revoke: () => { active = false; }, hide: () => { shown = false; } };
 }
 
 describe("private shared conversation reads", () => {
+  it("reconciles a persisted native transport proof without re-executing the request", async () => {
+    const { run, notices } = fixture();
+    const requestId = "b".repeat(64);
+    notices.push({ id: "original-incoming", j1IncomingRoute: { requestId, fingerprint: "immutable", attemptId: "attempt", environmentId: "local", state: "applied", generation: "original-generation", providerTurnId: "original-provider-turn" } });
+    const key = { requestId, fingerprint: "immutable", attemptId: "attempt", destination: endpoint };
+    expect(await run({ action: "routeDeliveryStatus", key })).toEqual({ generation: "original-generation", providerTurnId: "original-provider-turn" });
+    expect(await run({ action: "routeDeliveryStatus", key: { ...key, attemptId: "different" } })).toBeNull();
+    expect(await run({ action: "routeDeliveryStatus", key: { ...key, destination: { ...endpoint, environmentId: "foreign" } } })).toBeNull();
+    notices[0]!.j1IncomingRoute!.state = "sending";
+    expect(await run({ action: "routeDeliveryStatus", key })).toBeNull();
+  });
+  it("anchors one durable route notice in the transcript and ignores stale updates", async () => {
+    const { run, notices, anchor } = fixture();
+    const notice = { action: "routeNotice", endpoint, requestId: "a".repeat(64), revision: 1, status: "suggested", summary: "Follow up the original request" };
+    await run(notice);
+    expect(anchor()).toBe("message-34");
+    expect(notices).toHaveLength(1);
+    await run({ ...notice, revision: 2, status: "admitted" });
+    await run(notice);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({ j1RouteRevision: 2, text: "Routing request: admitted. Follow up the original request" });
+  });
+  it("does not translate narrowed or custom native execution profiles into Full access", async () => {
+    const { run, owner, task } = fixture();
+    expect(await run({ action: "routingSource", endpoint })).toMatchObject({ permissionsKnown: true, runtimeMode: "full-access", archived: false, providerKey: "codex" });
+    Object.assign(owner, { toolScope: { deny: ["native:bash"] } });
+    expect(await run({ action: "routingSource", endpoint })).toMatchObject({ permissionsKnown: false });
+    Object.assign(owner, { toolScope: undefined, approvalMode: "custom" });
+    expect(await run({ action: "routingSource", endpoint })).toMatchObject({ permissionsKnown: false, runtimeMode: "approval-required" });
+    Object.assign(owner, { approvalMode: "ask" });
+    expect(await run({ action: "routingSource", endpoint })).toMatchObject({ permissionsKnown: false, runtimeMode: "approval-required" });
+    Object.assign(task, { archivedAt: 123 });
+    expect(await run({ action: "routingSource", endpoint })).toMatchObject({ archived: true });
+  });
   it("preserves native tool allow and deny choices without inferring read access from names", () => {
     expect(historyToolAllowed(undefined, { action: "read" })).toBe(true);
     expect(historyToolAllowed({ allow: [] }, { action: "read" })).toBe(false);

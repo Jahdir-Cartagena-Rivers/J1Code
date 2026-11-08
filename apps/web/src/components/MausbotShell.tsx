@@ -11,13 +11,19 @@ import {
 } from "react";
 import { resolveAssetUrl } from "../assets/assetUrls";
 import { useEnvironment, usePrimaryEnvironmentId } from "../state/environments";
-import { useActiveEnvironmentId, setActiveEnvironmentId } from "../state/entities";
+import { useActiveEnvironmentId, setActiveEnvironmentId, readThreadShell } from "../state/entities";
 import { usePreparedConnection } from "../state/session";
 import { openMausbot, setMausbotApprovalMode } from "../state/mausbot";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useSidebar } from "./ui/sidebar";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { EnvironmentId, MausbotApprovalModeInput } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId, MausbotApprovalModeInput } from "@t3tools/contracts";
+import { routeEndpointUrl } from "@t3tools/shared/routeEndpointUrl";
+import {
+  callMausbotRouting,
+  isMausbotRoutingMethod,
+} from "@t3tools/client-runtime/mausbot-routing";
+import { serverEnvironment } from "../state/server";
 import * as Schema from "effect/Schema";
 import { localMausbotHost } from "./mausbotHost";
 import { registerMausbotSearch } from "./mausbotSearch";
@@ -115,6 +121,9 @@ export function MausbotShell({
   const connected = environment?.connection.phase === "connected";
   const open = useAtomCommand(openMausbot, { reportFailure: false });
   const setApprovalMode = useAtomCommand(setMausbotApprovalMode, { reportFailure: false });
+  const routingList = useAtomCommand(serverEnvironment.routingList, { reportFailure: false });
+  const routingPrepare = useAtomCommand(serverEnvironment.routingPrepare, { reportFailure: false });
+  const routingConfirm = useAtomCommand(serverEnvironment.routingConfirm, { reportFailure: false });
   const serverOs = environment?.serverConfig?.environment.platform?.os;
   const serverPlatform = serverOs === "windows" ? "win32" : serverOs;
   const nativeHost = useMemo(
@@ -431,6 +440,34 @@ export function MausbotShell({
     const hostCall = async (method: string, args: unknown) => {
       const input =
         typeof args === "object" && args !== null ? (args as Record<string, unknown>) : {};
+      if (isMausbotRoutingMethod(method)) {
+        if (!environmentId) throw new Error("Routing unavailable.");
+        return callMausbotRouting(method, args, {
+          environmentId,
+          list: async (source) => {
+            const result = await routingList({ environmentId, input: { source } });
+            if (result._tag !== "Success") throw new Error("Routing unavailable.");
+            return result.value;
+          },
+          prepare: async (input) => {
+            const result = await routingPrepare({ environmentId, input });
+            if (result._tag !== "Success") throw new Error("Review the changed request.");
+            return result.value;
+          },
+          confirm: async (token) => {
+            const result = await routingConfirm({ environmentId, input: { token } });
+            if (result._tag !== "Success") throw new Error("Could not approve this request.");
+          },
+          open: async (endpoint) => {
+            await navigate({ href: routeEndpointUrl(endpoint) });
+          },
+          label: (endpoint) =>
+            readThreadShell({
+              environmentId: EnvironmentId.make(endpoint.environmentId),
+              threadId: ThreadId.make(endpoint.threadId),
+            })?.title || "Open destination conversation",
+        });
+      }
       if (
         method === "settingsSearch" &&
         typeof input.query === "string" &&
@@ -570,6 +607,9 @@ export function MausbotShell({
     nativeHost,
     environmentId,
     setApprovalMode,
+    routingList,
+    routingPrepare,
+    routingConfirm,
     navigateToMainApp,
     pathname,
     settingsSearchItems,

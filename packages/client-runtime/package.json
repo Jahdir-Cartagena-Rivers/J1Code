@@ -4,6 +4,10 @@
   "license": "SEE LICENSE IN ../../LICENSE",
   "type": "module",
   "exports": {
+    "./mausbot-routing": {
+      "types": "./src/mausbotRouting.ts",
+      "default": "./src/mausbotRouting.ts"
+    },
     "./bots/browser-document": {
       "types": "./src/bots/browserDocument.ts",
       "default": "./src/bots/browserDocument.ts"

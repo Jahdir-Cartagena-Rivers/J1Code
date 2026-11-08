@@ -18,6 +18,18 @@ type Navigation = {
 let navigation: Navigation | undefined;
 let parentOrigin: string | undefined;
 let nativeSettingsSelected = false;
+if (typeof window !== "undefined")
+  window.addEventListener("j1-mobile-host", (event) => {
+    const value = (event as CustomEvent).detail?.navigation;
+    if (
+      !(window as Window & { ReactNativeWebView?: unknown }).ReactNativeWebView ||
+      !value ||
+      typeof value.active !== "string"
+    )
+      return;
+    navigation = value;
+    for (const listener of listeners) listener();
+  });
 const listeners = new Set<() => void>();
 const configuredOrigin =
   typeof location === "undefined"

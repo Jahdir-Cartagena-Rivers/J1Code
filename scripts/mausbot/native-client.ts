@@ -8,6 +8,22 @@ const capabilityListeners = new Set<(value: DesktopCapabilities) => void>();
 let origin: string | undefined;
 let nextId = 0;
 let nativeHost: Host | undefined;
+const mobileHost = () =>
+  (window as Window & { ReactNativeWebView?: { postMessage(value: string): void } })
+    .ReactNativeWebView;
+function hostResult(value: { requestId?: unknown; error?: unknown; value?: unknown }) {
+  if (typeof value.requestId !== "string") return;
+  const request = pending.get(value.requestId);
+  if (!request) return;
+  pending.delete(value.requestId);
+  clearTimeout(request.timer);
+  if (typeof value.error === "string") request.reject(new Error(value.error));
+  else request.resolve(value.value);
+}
+if (typeof window !== "undefined")
+  window.addEventListener("j1-mobile-host", (event) => {
+    if (mobileHost()) hostResult((event as CustomEvent).detail ?? {});
+  });
 export function subscribeNativeCapabilities(listener: (value: DesktopCapabilities) => void) {
   capabilityListeners.add(listener);
   return () => {
@@ -28,7 +44,8 @@ function capabilities(value: unknown): DesktopCapabilities {
 }
 
 function invoke(method: string, args?: unknown): Promise<unknown> {
-  if (!origin) return Promise.reject(new Error("The J1 desktop connection is unavailable."));
+  if (!origin && !mobileHost())
+    return Promise.reject(new Error("The J1 connection is unavailable."));
   if (pending.size >= 32) return Promise.reject(new Error("Too many desktop requests are open."));
   const requestId = `desktop-${++nextId}`;
   return new Promise((resolve, reject) => {
@@ -37,13 +54,13 @@ function invoke(method: string, args?: unknown): Promise<unknown> {
         pending.delete(requestId);
         reject(new Error("The desktop request expired."));
       },
-      method === "settingsSearch" ? 10_000 : 30 * 60_000,
+      method === "settingsSearch" || method.startsWith("routing") ? 10_000 : 30 * 60_000,
     );
     pending.set(requestId, { resolve, reject, timer });
-    window.parent.postMessage(
-      { source: "j1-mausbot", type: "host-call", requestId, method, args },
-      origin!,
-    );
+    const message = { source: "j1-mausbot", type: "host-call", requestId, method, args };
+    // oxlint-disable-next-line unicorn/require-post-message-target-origin -- React Native's bridge takes only the serialized message.
+    if (mobileHost()) mobileHost()!.postMessage(JSON.stringify(message));
+    else window.parent.postMessage(message, origin!);
   });
 }
 export const j1Request = invoke;

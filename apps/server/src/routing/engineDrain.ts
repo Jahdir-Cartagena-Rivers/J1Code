@@ -4,6 +4,9 @@ import { OrchestrationEngineService } from "../orchestration/Services/Orchestrat
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProviderService } from "../provider/Services/ProviderService.ts";
 import { makeDurableRoutingStore } from "./durableRoutingStore.ts";
+import { ExternalRouteEndpoints } from "./ExternalRouteEndpoints.ts";
+import { routeEndpointUrl } from "@t3tools/shared/routeEndpointUrl";
+import { makeRouteSourceNotifier } from "./sourceActivity.ts";
 
 /** Only events that can release or change admission eligibility wake the queue. */
 export function shouldWakeRouteDrain(event: OrchestrationEvent): boolean {
@@ -29,9 +32,48 @@ export const makeEngineRouteDrain = Effect.gen(function* () {
   const engine = yield* OrchestrationEngineService;
   const snapshots = yield* ProjectionSnapshotQuery;
   const providers = yield* Effect.serviceOption(ProviderService);
+  const external = yield* Effect.serviceOption(ExternalRouteEndpoints);
   const store = yield* makeDurableRoutingStore;
+  const notify = yield* makeRouteSourceNotifier;
   const mutex = yield* Semaphore.make(1);
   const sweep = Effect.fn("EngineRouteDrain.drain")(function* () {
+    if (Option.isSome(external))
+      for (const id of yield* store.unconfirmedNative()) {
+        const row = yield* store.get(id);
+        const destination = row?.state.request.destination;
+        if (!row || !destination || !row.state.attemptId) continue;
+        const proof = yield* external.value
+          .proof({
+            requestId: id,
+            fingerprint: row.state.fingerprint,
+            attemptId: row.state.attemptId,
+            destination,
+          })
+          .pipe(Effect.orElseSucceed(() => null));
+        if (!proof?.generation || !proof.providerTurnId) continue;
+        const latest = yield* store.get(id);
+        if (
+          !latest ||
+          latest.state.attemptId !== row.state.attemptId ||
+          !["admitted", "uncertain"].includes(latest.state.status)
+        )
+          continue;
+        const saved = yield* store
+          .transition(id, latest.revision, {
+            type: "receipt",
+            receipt: {
+              receiptId: `native:${id}:${row.state.attemptId}:delivered`,
+              requestId: id,
+              fingerprint: row.state.fingerprint,
+              attemptId: row.state.attemptId,
+              destination,
+              kind: "delivered",
+            },
+          })
+          .pipe(Effect.result);
+        if (saved._tag === "Success") yield* notify(saved.success);
+        // The live transport callback may have won this CAS; never resend the instruction.
+      }
     for (const id of yield* store.queued()) {
       const row = yield* store.get(id);
       if (!row || row.state.status !== "queued") continue;
@@ -45,17 +87,107 @@ export const makeEngineRouteDrain = Effect.gen(function* () {
       const destination = yield* snapshots.getThreadShellById(
         ThreadId.make(request.destination.threadId),
       );
-      if (Option.isNone(source) || Option.isNone(destination)) continue;
-      const s = source.value;
+      const native =
+        request.source.threadId.startsWith("mausbot:") && Option.isSome(external)
+          ? yield* external.value
+              .source(request.source.threadId)
+              .pipe(Effect.orElseSucceed(() => null))
+          : null;
+      if (request.destination.threadId.startsWith("mausbot:") && Option.isSome(external)) {
+        if (
+          Option.isSome(destination) ||
+          (request.source.threadId.startsWith("mausbot:") && Option.isSome(source))
+        )
+          continue;
+        const target = yield* external.value
+          .source(request.destination.threadId)
+          .pipe(Effect.orElseSucceed(() => null));
+        const sourceMode = Option.isSome(source) ? source.value.runtimeMode : native?.runtimeMode;
+        if (
+          !target ||
+          target.archived ||
+          target.blocked ||
+          !target.permissionsKnown ||
+          target.runtimeMode !== "full-access" ||
+          target.endpoint.environmentId !== request.destination.environmentId ||
+          target.endpoint.projectId !== request.destination.projectId ||
+          sourceMode !== "full-access" ||
+          !request.permissionCeiling.includes("runtime:full-access") ||
+          (Option.isSome(source)
+            ? source.value.projectId !== request.source.projectId
+            : !native ||
+              native.archived ||
+              !native.permissionsKnown ||
+              native.endpoint.projectId !== request.source.projectId) ||
+          (target.activeGeneration && !target.canSteer)
+        )
+          continue;
+        const claimed = yield* store.transition(id, row.revision, {
+          type: "begin-send",
+          attemptId: `route:${id}:${row.revision}`,
+        });
+        const outcome = yield* external.value
+          .deliver({
+            requestId: id,
+            fingerprint: claimed.state.fingerprint,
+            attemptId: claimed.state.attemptId!,
+            source: request.source,
+            destination: request.destination,
+            content: request.content,
+            permissionCeiling: request.permissionCeiling,
+            visited: request.visited,
+            expectedGeneration: target.activeGeneration ?? null,
+          })
+          .pipe(Effect.orElseSucceed(() => "uncertain" as const));
+        const latest = yield* store.get(id);
+        if (
+          latest?.state.attemptId === claimed.state.attemptId &&
+          latest.state.status === "sending"
+        ) {
+          if (outcome === "delivered")
+            yield* store.transition(id, latest.revision, {
+              type: "receipt",
+              receipt: {
+                receiptId: `native:${id}:${claimed.state.attemptId}:delivered`,
+                requestId: id,
+                fingerprint: claimed.state.fingerprint,
+                attemptId: claimed.state.attemptId!,
+                destination: request.destination,
+                kind: "delivered",
+              },
+            });
+          else
+            yield* store.transition(id, latest.revision, {
+              type:
+                outcome === "rejected"
+                  ? "admission-rejected"
+                  : outcome === "admitted"
+                    ? "admitted"
+                    : "send-interrupted",
+            });
+        }
+        continue;
+      }
+      if (Option.isNone(destination) || (Option.isNone(source) && !native)) continue;
+      const s = Option.getOrNull(source);
       const d = destination.value;
       if (
-        s.projectId !== request.source.projectId ||
+        native &&
+        (native.archived ||
+          !native.permissionsKnown ||
+          native.endpoint.environmentId !== request.source.environmentId ||
+          native.endpoint.projectId !== request.source.projectId)
+      )
+        continue;
+      const sourceMode = s?.runtimeMode ?? native!.runtimeMode;
+      if (
+        (s?.projectId ?? native!.endpoint.projectId) !== request.source.projectId ||
         d.projectId !== request.destination.projectId ||
         d.hasPendingApprovals ||
         d.hasPendingUserInput ||
         d.session?.status === "starting" ||
-        s.runtimeMode !== d.runtimeMode ||
-        !request.permissionCeiling.includes(`runtime:${s.runtimeMode}`)
+        sourceMode !== d.runtimeMode ||
+        !request.permissionCeiling.includes(`runtime:${sourceMode}`)
       )
         continue;
       const activeTurnId = d.session?.activeTurnId;
@@ -73,17 +205,25 @@ export const makeEngineRouteDrain = Effect.gen(function* () {
       });
       const result = yield* engine
         .dispatch({
-          type: "thread.route.deliver",
+          ...(s
+            ? {
+                type: "thread.route.deliver" as const,
+                originalProviderInstanceId: s.modelSelection.instanceId,
+              }
+            : {
+                type: "thread.external-route.deliver" as const,
+                sourceProjectId: native!.endpoint.projectId,
+                originalProviderKey: native!.providerKey,
+              }),
           commandId: CommandId.make(claimed.state.attemptId!),
           routeId: id,
           ...(activeTurnId ? { activeTurnId } : {}),
-          sourceThreadId: s.id,
+          sourceThreadId: ThreadId.make(request.source.threadId),
           threadId: d.id,
           messageId: MessageId.make(`route:${id}`),
-          originalRuntimeMode: s.runtimeMode,
-          originalProviderInstanceId: s.modelSelection.instanceId,
+          originalRuntimeMode: sourceMode,
           text: request.content,
-          provenance: `/${encodeURIComponent(request.source.environmentId)}/${encodeURIComponent(s.id)}`,
+          provenance: routeEndpointUrl(request.source),
           visitedThreadIds: request.visited.map((endpoint) => ThreadId.make(endpoint.threadId)),
           createdAt: DateTime.formatIso(yield* DateTime.now),
         })

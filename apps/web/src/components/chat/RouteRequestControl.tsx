@@ -14,6 +14,7 @@ import { useProjects, useThreadShells } from "../../state/entities";
 import { Button } from "../ui/button";
 import { Link } from "@tanstack/react-router";
 import { buildThreadRouteParams } from "../../threadRoutes";
+import { routeEndpointUrl } from "@t3tools/shared/routeEndpointUrl";
 
 const EMPTY_MESSAGES: Parameters<typeof routeRequestAnchors>[1] = [];
 const EMPTY_ACTIVITIES: Parameters<typeof routeRequestAnchors>[2] = [];
@@ -95,7 +96,8 @@ export function RouteRequestControl({
     const target = threads.find(
       (thread) => thread.id === proposal?.threadId && thread.archivedAt === null,
     );
-    if (!target) return;
+    const native = proposal && /^mausbot:[\w-]{1,120}:[\w-]{1,120}$/.test(proposal.threadId);
+    if (!proposal || (!target && !native)) return;
     setNoticeRequestId(requestId);
     setBusy(true);
     try {
@@ -104,7 +106,7 @@ export function RouteRequestControl({
         input: {
           requestId,
           source: { environmentId, projectId, threadId },
-          destination: { environmentId, projectId: target.projectId, threadId: target.id },
+          destination: proposal,
         },
       });
       if (prepared._tag === "Failure") {
@@ -115,7 +117,7 @@ export function RouteRequestControl({
       const result = await confirm({ environmentId, input: { token: prepared.value.token } });
       setNotice(
         result._tag === "Success"
-          ? `Queued for ${target.title}. Delivery and acceptance will appear below.`
+          ? `Queued for ${target?.title ?? "the assistant conversation"}. Delivery and acceptance will appear below.`
           : "Could not approve this request. It may have changed; review it again.",
       );
       if (result._tag === "Success") {
@@ -176,19 +178,25 @@ export function RouteRequestControl({
               <p className="text-xs text-muted-foreground">
                 {manualRouteStatusLabel(request.status)}
               </p>
-              {request.destination && (
-                <Link
-                  to="/$environmentId/$threadId"
-                  params={buildThreadRouteParams({
-                    environmentId: EnvironmentId.make(request.destination.environmentId),
-                    threadId: ThreadId.make(request.destination.threadId),
-                  })}
-                  className="text-primary underline"
-                >
-                  {projectNames.get(ProjectId.make(request.destination.projectId)) ?? "Project"} /{" "}
-                  {threads.find((thread) => thread.id === request.destination?.threadId)?.title ??
-                    "Open destination chat"}
-                </Link>
+              {request.destination?.threadId.startsWith("mausbot:") ? (
+                <a href={routeEndpointUrl(request.destination)} className="text-primary underline">
+                  Open destination assistant
+                </a>
+              ) : (
+                request.destination && (
+                  <Link
+                    to="/$environmentId/$threadId"
+                    params={buildThreadRouteParams({
+                      environmentId: EnvironmentId.make(request.destination.environmentId),
+                      threadId: ThreadId.make(request.destination.threadId),
+                    })}
+                    className="text-primary underline"
+                  >
+                    {projectNames.get(ProjectId.make(request.destination.projectId)) ?? "Project"} /{" "}
+                    {threads.find((thread) => thread.id === request.destination?.threadId)?.title ??
+                      "Open destination chat"}
+                  </Link>
+                )
               )}
               {request.status === "suggested" && !request.destination && (
                 <p>
@@ -222,11 +230,14 @@ export function RouteRequestControl({
                       disabled={
                         busy ||
                         !request.destination ||
-                        !threads.some(
-                          (thread) =>
-                            thread.id === request.destination?.threadId &&
-                            thread.archivedAt === null,
-                        )
+                        (!/^mausbot:[\w-]{1,120}:[\w-]{1,120}$/.test(
+                          request.destination.threadId,
+                        ) &&
+                          !threads.some(
+                            (thread) =>
+                              thread.id === request.destination?.threadId &&
+                              thread.archivedAt === null,
+                          ))
                       }
                       onClick={() => void approve(request.requestId)}
                     >

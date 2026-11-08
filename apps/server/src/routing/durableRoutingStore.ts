@@ -229,6 +229,16 @@ export const makeDurableRoutingStoreWithResolution = (verifier?: RouteResolution
             return rows.map((row) => row.request_id);
           }),
         ),
+      unconfirmedNative: () =>
+        wrap(
+          "unconfirmedNative",
+          Effect.gen(function* () {
+            const rows = yield* sql<{
+              request_id: string;
+            }>`SELECT request_id FROM durable_routes WHERE status IN ('admitted', 'uncertain') AND json_extract(state_json, '$.request.destination.threadId') LIKE 'mausbot:%' ORDER BY request_id LIMIT 128`;
+            return rows.map((row) => row.request_id);
+          }),
+        ),
       get: (id: string) => wrap("get", get(id)),
       create: (request: RouteRequest) => wrap("create", create(request)),
       transition: (id: string, revision: number, event: RouteEvent) =>

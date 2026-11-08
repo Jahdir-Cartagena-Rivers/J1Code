@@ -66,8 +66,195 @@ export async function patchMausbotSource(stage: string) {
   );
   await copy("scripts/mausbot/hive-memory.ts", "server/j1/hive-memory.ts");
   await copy("scripts/mausbot/conversations.ts", "server/j1/conversations.ts");
+  await copy("scripts/mausbot/route-receiver.ts", "server/j1/route-receiver.ts");
+  await copy("scripts/mausbot/route-receiver.test.ts.txt", "server/j1/route-receiver.test.ts");
+  await copy("scripts/mausbot/agents-routing.test.ts.txt", "server/j1/agents-routing.test.ts");
+  await copy("scripts/mausbot/TranscriptApproval.tsx", "src/components/TranscriptApproval.tsx");
+  await copy("scripts/mausbot/J1RouteCard.tsx", "src/components/J1RouteCard.tsx");
+  await copy("scripts/mausbot/route-card.test.ts.txt", "src/components/j1-route-card.test.ts");
+  await change(
+    "src/state/store.tsx",
+    '"widget" | "app" | "fromApp"',
+    '"j1RouteId" | "j1RouteRevision" | "widget" | "app" | "fromApp"',
+  );
+  await change("src/components/AskCard.tsx", "ELEVATED_CARD, ELEVATED_FLOAT", "ELEVATED_CARD");
+  await change("src/components/AskCard.tsx", "  stays = false,\n", "");
+  await change(
+    "src/components/AskCard.tsx",
+    "/** Work rests on this card and the person's answer alone moves it: it stays in view however far the chat scrolls. */",
+    "/** Kept for source compatibility; J1 requests scroll with their transcript. */",
+  );
+  await change(
+    "src/components/AskCard.tsx",
+    "stays ? `sticky top-[60px] bottom-[72px] z-10 ${ELEVATED_FLOAT}` : ELEVATED_CARD",
+    "ELEVATED_CARD",
+  );
+  await change(
+    "src/components/Composer.tsx",
+    'import { PendingApprovalActions, PendingApprovalPanel, pendingApprovals } from "./PendingApproval";',
+    'import { pendingApprovals } from "./PendingApproval";',
+  );
+  await change("src/components/Composer.tsx", "ELEVATED_CARD, ELEVATED_FLOAT", "ELEVATED_FLOAT");
+  await change(
+    "src/components/Composer.tsx",
+    "  const approvalBot = group\n    ? members?.find((member) => member.id === approval?.message.from?.botId) ??\n      members?.find((member) => member.id === groupBusyBotId)\n    : state.bots.find((one) => one.id === approval?.message.inbox?.from.botId) ?? bot;\n",
+    "",
+  );
+  await change(
+    "src/components/Composer.tsx",
+    `        {approval && (
+          <div className={cn("mb-2 overflow-hidden rounded-[24px]", ELEVATED_CARD)}>
+            <PendingApprovalPanel
+              key={approval.requestId}
+              pending={approval}
+              botName={approvalBot?.name} asker={approvalBot}
+              count={approvals.length}
+              index={0}
+              locale={activeLocale()}
+              actions={<PendingApprovalActions part="primary" pending={approval} threadId={threadId} bot={approvalBot} onCancelTurn={interruptTurn} />}
+              more={approval.message.inbox ? undefined : <PendingApprovalActions part="more" pending={approval} threadId={threadId} bot={approvalBot} onCancelTurn={interruptTurn} />}
+            />
+          </div>
+        )}
+`,
+    "",
+  );
+  await change(
+    "src/components/OptionsCardRow.tsx",
+    'import { ApprovalCard } from "./ApprovalCard";',
+    'import { ApprovalCard } from "./ApprovalCard";\nimport { TranscriptApproval } from "./TranscriptApproval";\nimport { pendingApprovals } from "./PendingApproval";',
+  );
+  await change(
+    "src/components/OptionsCardRow.tsx",
+    "<ApprovalCard bot={{ name: botName }} message={m} threadId={threadId} />",
+    "pendingApprovals([m]).length ? <TranscriptApproval message={m} botId={botId} threadId={threadId} /> : <ApprovalCard bot={{ name: botName }} message={m} threadId={threadId} />",
+  );
+  await change(
+    "src/components/OptionsCardRow.tsx",
+    "import { HelperIntro }",
+    'import { J1RouteCard } from "./J1RouteCard";\nimport { HelperIntro }',
+  );
+  await change(
+    "src/components/OptionsCardRow.tsx",
+    "  if (m.helperFollowup) return null;",
+    "  if (m.j1RouteId) return <J1RouteCard botId={botId} threadId={threadId} requestId={m.j1RouteId} revision={m.j1RouteRevision} text={m.text} />;\n  if (m.helperFollowup) return null;",
+  );
+  await change(
+    "src/components/GroupView.tsx",
+    'import { ApprovalCard } from "./ApprovalCard";',
+    'import { ApprovalCard } from "./ApprovalCard";\nimport { TranscriptApproval } from "./TranscriptApproval";',
+  );
+  await change(
+    "src/components/GroupView.tsx",
+    "<ApprovalCard bot={memberOf(m.from?.botId)} message={m} threadId={group.threadId} />",
+    '{pendingApprovals([m]).length ? <TranscriptApproval message={m} botId={m.from?.botId ?? group.busyBotId ?? ""} threadId={group.threadId} groupId={group.id} /> : <ApprovalCard bot={memberOf(m.from?.botId)} message={m} threadId={group.threadId} />}',
+  );
+  await change(
+    "shared/wire.ts",
+    "export interface WireMessage extends ServerTextLine, HelperIntroField, SetupCardFields, WaitLineField, BugReportField {",
+    "export interface WireMessage extends ServerTextLine, HelperIntroField, SetupCardFields, WaitLineField, BugReportField {\n  j1RouteId?: string;\n  j1RouteRevision?: number;\n  j1IncomingRoute?: { requestId: string; fingerprint: string; attemptId: string; state: 'sending' | 'rejected' | 'admitted' | 'applied' | 'uncertain'; generation?: string; providerTurnId?: string; environmentId?: string };",
+  );
   await copy("scripts/mausbot/conversations.test.ts.txt", "server/j1/conversations.test.ts");
   await copy("scripts/mausbot/agents-conversations.ts", "server/j1/agents-conversations.ts");
+  await copy("scripts/mausbot/agents-routing.ts", "server/j1/agents-routing.ts");
+  await change(
+    "server/index.ts",
+    "    onDispatchError?: (message: string) => void;\n    compactOnly?: boolean;",
+    "    onDispatchError?: (message: string) => void;\n    onTransport?: (generation: string, providerTurnId: string) => void;\n    compactOnly?: boolean;",
+  );
+  await change(
+    "server/contracts.ts",
+    "  startupRecovery?: boolean;",
+    "  startupRecovery?: boolean;\n  /** Positive transport proof; returning a logical turn id alone is admission. */\n  onInputSent?: (turnId: string) => void;",
+  );
+  await change(
+    "server/drivers/codex.ts",
+    "        // Only after turn/start accepted the input may the receipt claim delivery.",
+    "        turn.onInputSent?.(turnId);\n        // Only after turn/start accepted the input may the receipt claim delivery.",
+  );
+  await change(
+    "server/drivers/claude.ts",
+    '        if (!(await writeUser(live, threadId, message)) && !running?.stopRequested) closeSession(threadId, "stdin write failed");',
+    '        if (await writeUser(live, threadId, message)) turn.onInputSent?.(turnId);\n        else if (!running?.stopRequested) closeSession(threadId, "stdin write failed");',
+  );
+  await change(
+    "server/drivers/claude.ts",
+    '        closeSession(threadId, "stdin write failed");\n      }\n\n      return { turnId };',
+    '        closeSession(threadId, "stdin write failed");\n      } else turn.onInputSent?.(turnId);\n\n      return { turnId };',
+  );
+  await change(
+    "server/index.ts",
+    "const directTurnGenerationByThread = new Map<string, string>();",
+    `const directTurnGenerationByThread = new Map<string, string>();
+const j1InputReady = new Map<string, { generation: string; turnId: string }>();
+const j1InputHooks = new Map<string, { delivered: (generation: string, turnId: string) => void; failed: () => void }>();
+function j1InputSent(threadId: string, generation: string, turnId: string) {
+  if (directTurnGenerationByThread.get(threadId) !== generation) return;
+  j1InputReady.set(threadId, { generation, turnId });
+  const hook = j1InputHooks.get(generation); j1InputHooks.delete(generation);
+  try { hook?.delivered(generation, turnId); } catch { console.error("Could not persist native routing transport proof."); }
+  void requestHostConversation({ kind: "routingWake" }).catch(() => {});
+}`,
+  );
+  await change(
+    "server/index.ts",
+    "  const resourceOwner: TurnOwner = { threadId, generation: dispatchClaimId };",
+    '  if (opts?.onTransport) j1InputHooks.set(dispatchClaimId, { delivered: opts.onTransport, failed: () => opts?.onDispatchError?.("The provider did not receive the routed request.") });\n  const resourceOwner: TurnOwner = { threadId, generation: dispatchClaimId };',
+  );
+  await change(
+    "server/index.ts",
+    "  directTurnGenerationByThread.set(threadId, dispatchClaimId);",
+    "  const j1PreviousGeneration = directTurnGenerationByThread.get(threadId);\n  if (j1PreviousGeneration) j1InputHooks.delete(j1PreviousGeneration);\n  j1InputReady.delete(threadId);\n  directTurnGenerationByThread.set(threadId, dispatchClaimId);",
+  );
+  await change(
+    "server/index.ts",
+    "      opts?.onDispatchError?.(message);\n      // A dispatch failure emits no turn.completed",
+    "      opts?.onDispatchError?.(message);\n      j1InputHooks.delete(dispatchClaimId);\n      // A dispatch failure emits no turn.completed",
+  );
+  await change(
+    "server/index.ts",
+    "        startupRecovery,\n        text: withTurnClock",
+    "        startupRecovery,\n        onInputSent: turnId => j1InputSent(threadId, dispatchClaimId, turnId),\n        text: withTurnClock",
+  );
+  await change(
+    "server/index.ts",
+    "  switch (event.type) {",
+    `  if (requestOwner && event.turnId && (
+    (event.type === "content.delta" && event.streamKind === "assistant_text" && event.delta) ||
+    (event.type === "item.completed" && event.itemType === "assistant_text") ||
+    (event.type === "turn.completed" && event.ok)
+  ) && j1InputReady.get(event.threadId)?.generation !== requestOwner.generation)
+    j1InputSent(event.threadId, requestOwner.generation, event.turnId);
+  if (event.type === "turn.completed" && requestOwner) {
+    const hook = j1InputHooks.get(requestOwner.generation); j1InputHooks.delete(requestOwner.generation);
+    if (!event.ok) hook?.failed();
+    j1InputReady.delete(event.threadId);
+  }
+  switch (event.type) {`,
+  );
+  await change(
+    "server/drivers/codex.test.ts",
+    '  it("reports an explicitly refused steer as refused so the caller queues, and keeps the child alive",',
+    `  it("reports input transport only after the actual native start acknowledgement", async () => {
+    await create({ mode: "approval" });
+    let received!: (turnId: string) => void;
+    const proof = new Promise<string>(resolve => { received = resolve; });
+    const sent = await instance.adapter.sendTurn({ threadId: "j1-native-receipt", text: "one", onInputSent: received });
+    expect(await proof).toBe(sent.turnId);
+    await expect(instance.adapter.steer?.("j1-native-receipt", "same-turn update")).resolves.toBe("steered");
+    await instance.adapter.interruptTurn("j1-native-receipt");
+    await recorder.until(event => event.type === "turn.completed");
+  }, 20_000);
+  it("does not report transport for a refused native thread start", async () => {
+    process.env.FAKE_CODEX_START_ERROR = JSON.stringify({ code: -32000, message: "not allowed" });
+    await create({ mode: "approval" });
+    const receipt = vi.fn();
+    await instance.adapter.sendTurn({ threadId: "j1-native-rejected-receipt", text: "one", onInputSent: receipt });
+    await recorder.until(event => event.type === "turn.completed");
+    expect(receipt).not.toHaveBeenCalled();
+  }, 20_000);
+  it("reports an explicitly refused steer as refused so the caller queues, and keeps the child alive",`,
+  );
   await copy(
     "scripts/mausbot/agents-conversations.test.ts.txt",
     "server/j1/agents-conversations.test.ts",
@@ -75,32 +262,32 @@ export async function patchMausbotSource(stage: string) {
   await change(
     "server/agent-tool-policy.ts",
     '  "list_threads",',
-    '  "list_threads",\n  "search_conversations",\n  "read_conversation",\n  "read_conversation_message",',
+    '  "list_threads",\n  "search_conversations",\n  "read_conversation",\n  "read_conversation_message",\n  "routing_mode",\n  "routing_status",\n  "list_routes",',
   );
   await change(
     "server/agent-tool-policy.test.ts",
     '      "list_threads",',
-    '      "list_threads",\n      "search_conversations",\n      "read_conversation",\n      "read_conversation_message",',
+    '      "list_threads",\n      "search_conversations",\n      "read_conversation",\n      "read_conversation_message",\n      "routing_mode",\n      "routing_status",\n      "list_routes",',
   );
   await change(
     "server/drivers/agents-catalog.ts",
     "const TOOL_DEFINITIONS = [",
-    "const TOOL_DEFINITIONS = [\n  ...J1_CONVERSATION_TOOLS,",
+    "const TOOL_DEFINITIONS = [\n  ...J1_CONVERSATION_TOOLS,\n  ...J1_ROUTING_TOOLS,",
   );
   await change(
     "server/drivers/agents-catalog.ts",
     'import { MAUSBOT_TOOL_DEFINITIONS } from "./agents-mausbot-tools.ts";',
-    'import { MAUSBOT_TOOL_DEFINITIONS } from "./agents-mausbot-tools.ts";\nimport { J1_CONVERSATION_TOOLS } from "../j1/agents-conversations.ts";',
+    'import { MAUSBOT_TOOL_DEFINITIONS } from "./agents-mausbot-tools.ts";\nimport { J1_CONVERSATION_TOOLS } from "../j1/agents-conversations.ts";\nimport { J1_ROUTING_TOOLS } from "../j1/agents-routing.ts";',
   );
   await change(
     "server/drivers/agents-call.ts",
     'import { callMausBotTool, MAUSBOT_TOOL_NAMES } from "./agents-mausbot-tools.ts";',
-    'import { callMausBotTool, MAUSBOT_TOOL_NAMES } from "./agents-mausbot-tools.ts";\nimport { callJ1Conversation, J1_CONVERSATION_TOOL_NAMES } from "../j1/agents-conversations.ts";',
+    'import { callMausBotTool, MAUSBOT_TOOL_NAMES } from "./agents-mausbot-tools.ts";\nimport { callJ1Conversation, J1_CONVERSATION_TOOL_NAMES } from "../j1/agents-conversations.ts";\nimport { callJ1Routing, J1_ROUTING_TOOL_NAMES } from "../j1/agents-routing.ts";',
   );
   await change(
     "server/drivers/agents-call.ts",
     '  if (name === "vm_exec") {',
-    '  if (J1_CONVERSATION_TOOL_NAMES.has(name)) return callJ1Conversation(name, args, context);\n  if (name === "vm_exec") {',
+    '  if (J1_CONVERSATION_TOOL_NAMES.has(name)) return callJ1Conversation(name, args, context);\n  if (J1_ROUTING_TOOL_NAMES.has(name)) return callJ1Routing(name, args, context);\n  if (name === "vm_exec") {',
   );
   // Lift the original list policy verbatim so native tools and private history reads cannot drift.
   const threadRoutes = (
@@ -127,12 +314,23 @@ export async function patchMausbotSource(stage: string) {
   await change(
     "server/index.ts",
     'import { createInternalThreadRoutes } from "./routes/internal-threads.ts";',
-    'import { createInternalThreadRoutes, internalThreadRows } from "./routes/internal-threads.ts";\nimport { createConversationQueries, installConversationQueries, requestHostConversation, historyToolAllowed, type HistoryPrincipal } from "./j1/conversations.ts";',
+    'import { createInternalThreadRoutes, internalThreadRows } from "./routes/internal-threads.ts";\nimport { createConversationQueries, installConversationQueries, requestHostConversation, historyToolAllowed, type HistoryPrincipal } from "./j1/conversations.ts";\nimport { routingToolAllowed } from "./j1/agents-routing.ts";\nimport { createNativeRouteReceiver, unrestrictedRouteProfile } from "./j1/route-receiver.ts";',
   );
   await change(
     "server/index.ts",
     "      const botFolders = async () =>",
-    `      if (method === "POST" && path === "/api/internal/j1-conversations") {
+    `      if (method === "POST" && path === "/api/internal/j1-routing") {
+        if (proactive.fence.confines(internalCapability.threadId) || botApiThread(internalCapability.threadId) || cloudLendingView(internalCapability) || CLOUD_TEAM || CLOUD_HOME) return json(res, 403, { error: "Shared J1 routing is unavailable in this conversation." });
+        const body = z.object({ operation: z.string(), arguments: z.unknown() }).strict().parse(await readInternalBody());
+        requireActiveInternalCapability();
+        if (body.operation === "route_task" && internalCapability.depth >= MAX_COMMS_DEPTH) return json(res, 403, { error: "This delegated turn cannot forward work further." });
+        if (!routingToolAllowed(toolScopeForTurn(internalSender.id), body.operation)) return json(res, 403, { error: "This routing tool is not allowed for this bot." });
+        const result = await requestHostConversation({ kind: "routing", botId: internalSender.id, threadId: internalCapability.threadId, generation: internalCapability.generation, ...body });
+        requireActiveInternalCapability();
+        if (!routingToolAllowed(toolScopeForTurn(internalSender.id), body.operation)) return json(res, 403, { error: "This routing tool is no longer allowed for this bot." });
+        return json(res, 200, result);
+      }
+      if (method === "POST" && path === "/api/internal/j1-conversations") {
         if (proactive.fence.confines(internalCapability.threadId) || botApiThread(internalCapability.threadId) || cloudLendingView(internalCapability) || CLOUD_TEAM || CLOUD_HOME) return json(res, 403, { error: "Shared J1 history is unavailable in this conversation." });
         const call = await readInternalBody();
         requireActiveInternalCapability();
@@ -162,8 +360,47 @@ export async function patchMausbotSource(stage: string) {
   return who.kind === "mausbot" ? [...internalCapabilities.values()].find(cap => cap.kind === "agents" && cap.botId === who.botId && cap.threadId === who.threadId && cap.generation === who.generation && internalCapabilityIsActive(cap)) : undefined;
 }
 function j1HistoryThreadDeps(internalCapability: InternalCapability, internalSender: BotRecord): Parameters<typeof createInternalThreadRoutes>[0] { return ${threadDeps}; }
+function j1RoutingTarget(endpoint: { threadId: string }) {
+  const match = /^mausbot:([\\w-]{1,120}):([\\w-]{1,120})$/.exec(endpoint.threadId);
+  if (!match) return null;
+  const threadId = match[2]!, bot = store.projectBotForTask(match[1]!, threadId), task = bot && store.taskByThread(bot.id, threadId);
+  if (!bot || !task || bot.hidden || task.archivedAt !== undefined || proactive.fence.confines(threadId) || botApiThread(threadId)) return null;
+  const busy = threadBusy(bot.id, threadId);
+  const generation = busy ? directTurnGenerationByThread.get(threadId) ?? null : null;
+  const instance = runningTurnEngines.get(threadId);
+  return { allowed: unrestrictedRouteProfile(bot), blocked: Boolean(openPersonCard(threadId) || coordinator.awaitingAnswer(threadId) || computerSelectionTurns.get(threadId)?.selected || bot.approvalGrant || (busy && !generation)),
+    generation, providerTurnId: generation ? directRequestOwners.get(threadId)?.turnId ?? null : null,
+    canSteer: Boolean(instance && j1InputReady.get(threadId)?.generation === generation && ["codex", "claudeAgent"].includes(instance.driverKind) && instance.adapter.capabilities.queueing && instance.adapter.steer && canSteerThread(threadId)) };
+}
+const j1RouteReceiver = createNativeRouteReceiver({
+  store, target: j1RoutingTarget,
+  sourceCurrent: async delivery => await requestHostConversation({ kind: "routeSourceCheck", delivery }) === true,
+  notify: requestHostConversation,
+  steer: (endpoint, text) => steerThread(endpoint.threadId.split(":")[2]!, text),
+  start: (endpoint, text, message, applied, failed) => startTurn(endpoint.threadId.split(":")[1]!, text, {
+    threadId: endpoint.threadId.split(":")[2]!, userMessage: message, cardContinuation: true,
+    requestMessageId: message.id, origin: OUTSIDE, commsDepth: 1, onTransport: applied, onDispatchError: failed,
+  }),
+});
+const j1RoutingPhases = new Map<string, string>();
+let j1WakePending = false;
+store.onChange(change => {
+  if (change.type !== "bot" && change.type !== "thread" && change.type !== "thread.deleted" && change.type !== "bot.deleted" && change.type !== "message" && change.type !== "message.patch") return;
+  // Streamed text cannot release an approval or change turn admission.
+  if ((change.type === "message" || change.type === "message.patch") && change.message.kind !== "options" && !change.message.card && !change.message.j1IncomingRoute) return;
+  const threadIds = "threadId" in change ? [change.threadId] : store.tasks(change.botId).map(task => task.threadId);
+  let changed = false;
+  for (const threadId of threadIds) {
+    const bot = store.botByThread(threadId) ?? store.bots.find(bot => store.taskByThread(bot.id, threadId));
+    const endpoint = bot ? { threadId: "mausbot:" + bot.id + ":" + threadId } : null;
+    const state = JSON.stringify(endpoint ? j1RoutingTarget(endpoint) : null);
+    if (j1RoutingPhases.get(threadId) !== state) { j1RoutingPhases.set(threadId, state); changed = true; }
+  }
+  if (changed && !j1WakePending) { j1WakePending = true; queueMicrotask(() => { j1WakePending = false; void requestHostConversation({ kind: "routingWake" }).catch(() => {}); }); }
+});
 installConversationQueries(createConversationQueries({
   store,
+  routingTarget: j1RoutingTarget, deliver: j1RouteReceiver,
   active: who => who.kind === "j1" || Boolean(j1HistoryCapability(who)),
   rows: who => {
     if (!who || who.kind === "j1") return store.bots.filter(bot => !bot.hidden).flatMap(bot => store.tasks(bot.id).filter(task => !proactive.fence.confines(task.threadId) && !botApiThread(task.threadId)).map(task => ({ botId: bot.id, threadId: task.threadId, title: task.title })));

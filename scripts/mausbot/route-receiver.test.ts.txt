@@ -1,0 +1,101 @@
+import { describe, expect, it, vi } from "vitest";
+import { createNativeRouteReceiver } from "./route-receiver.ts";
+import type { Message } from "../store.ts";
+
+const source = { environmentId: "local", projectId: "project", threadId: "real-j1" };
+const destination = { environmentId: "local", projectId: "mausbot:crown", threadId: "mausbot:crown:main" };
+const delivery = { requestId: "a".repeat(64), fingerprint: "immutable", attemptId: "attempt-one", source, destination, content: "Use the updated requirements before building", permissionCeiling: ["runtime:full-access"], visited: [source], expectedGeneration: "native-generation" };
+function fixture() {
+  const messages: Message[] = [];
+  const target = { allowed: true, blocked: false, generation: "native-generation" as string | null, providerTurnId: "native-provider-turn" as string | null, canSteer: true };
+  const notify = vi.fn(async (_event: unknown) => true);
+  const steer = vi.fn(async () => "steered" as "steered" | "refused" | "indeterminate");
+  let applied: ((generation: string, turnId: string) => void) | undefined;
+  let failed: (() => void) | undefined;
+  const start = vi.fn<Parameters<typeof createNativeRouteReceiver>[0]["start"]>(async (_endpoint, _text, _message, onApplied, onFailed) => { applied = onApplied; failed = onFailed; });
+  const sourceCurrent = vi.fn(async () => true);
+  const run = createNativeRouteReceiver({
+    store: {
+      messagesFor: () => messages,
+      appendMessage: (_threadId, message) => { const row = { id: `m-${messages.length}`, at: Date.now(), ...message }; messages.push(row); return row; },
+      patchMessage: (_threadId, id, patch) => { const row = messages.find(row => row.id === id)!; Object.assign(row, patch); return row; },
+    } as Parameters<typeof createNativeRouteReceiver>[0]["store"],
+    target: () => target, sourceCurrent, steer, start, notify,
+  });
+  return { run, messages, target, notify, steer, start, sourceCurrent, applied: () => applied!, failed: () => failed! };
+}
+describe("native cross-engine route receiver", () => {
+  it("steers the exact running generation once and records transport without claiming acceptance", async () => {
+    const f = fixture();
+    expect(await f.run(delivery)).toBe("delivered");
+    expect(await f.run(delivery)).toBe("delivered");
+    expect(f.steer).toHaveBeenCalledTimes(1);
+    expect(f.start).not.toHaveBeenCalled();
+    expect(f.messages).toHaveLength(1);
+    expect(f.messages[0]).toMatchObject({ role: "bot", relayed: true, j1IncomingRoute: { state: "applied" } });
+    expect(f.notify).toHaveBeenCalledWith({ kind: "routeTransport", delivery, generation: "native-generation", providerTurnId: "native-provider-turn" });
+  });
+  it.each(["blocked", "allowed", "canSteer"] as const)("holds the original permission/input/capability gate %s", async key => {
+    const f = fixture(); f.target[key] = key === "blocked";
+    expect(await f.run(delivery)).toBe("rejected");
+    expect(f.messages).toHaveLength(0);
+    expect(f.steer).not.toHaveBeenCalled(); expect(f.start).not.toHaveBeenCalled();
+  });
+  it("rejects a stale exact generation and a source revoked during the host check", async () => {
+    const f = fixture(); f.target.generation = "next-generation";
+    expect(await f.run(delivery)).toBe("rejected");
+    f.target.generation = delivery.expectedGeneration;
+    f.sourceCurrent.mockImplementation(async () => { f.target.allowed = false; return true; });
+    expect(await f.run(delivery)).toBe("rejected");
+    expect(f.messages).toHaveLength(0);
+  });
+  it("does not retry uncertain transport or a generation that changes during the native write", async () => {
+    const f = fixture();
+    f.steer.mockImplementation(async () => { f.target.generation = "new-generation"; return "steered"; });
+    expect(await f.run(delivery)).toBe("uncertain");
+    expect(await f.run(delivery)).toBe("uncertain");
+    expect(f.steer).toHaveBeenCalledTimes(1);
+    expect(f.notify).not.toHaveBeenCalled();
+  });
+  it("starts an idle task without a human-authored message and waits for actual provider transport", async () => {
+    const f = fixture(); f.target.generation = null; f.target.providerTurnId = null;
+    expect(await f.run({ ...delivery, expectedGeneration: null })).toBe("admitted");
+    expect(f.notify).not.toHaveBeenCalled();
+    expect(f.start.mock.calls[0]?.[2]).toMatchObject({ role: "bot", relayed: true });
+    f.applied()("new-generation", "real-provider-turn");
+    expect(f.messages[0]?.j1IncomingRoute?.state).toBe("applied");
+    expect(f.notify.mock.calls[0]?.[0]).toMatchObject({ kind: "routeTransport", generation: "new-generation", providerTurnId: "real-provider-turn" });
+  });
+  it("reports a real startup failure separately from delivery", async () => {
+    const f = fixture(); f.target.generation = null;
+    expect(await f.run({ ...delivery, expectedGeneration: null })).toBe("admitted");
+    f.failed()();
+    expect(f.notify.mock.calls[0]?.[0]).toMatchObject({ kind: "routeFailed" });
+    expect(await f.run({ ...delivery, expectedGeneration: null })).toBe("uncertain");
+  });
+  it.each(["before-input", "after-input", "after-failure"] as const)("does not resend a startup exception %s", async phase => {
+    const f = fixture(); f.target.generation = null; f.target.providerTurnId = null;
+    f.start.mockImplementation(async (_endpoint, _text, _message, applied, failed) => {
+      if (phase === "after-input") applied("new-generation", "real-provider-turn");
+      if (phase === "after-failure") failed();
+      throw new Error("startup path failed");
+    });
+    const input = { ...delivery, expectedGeneration: null };
+    const status = phase === "after-input" ? "delivered" : "uncertain";
+    expect(await f.run(input)).toBe(status);
+    expect(await f.run(input)).toBe(status);
+    expect(f.start).toHaveBeenCalledTimes(1);
+    expect(f.messages[0]?.j1IncomingRoute?.state).toBe(phase === "after-input" ? "applied" : "uncertain");
+    expect(f.notify).toHaveBeenCalledTimes(1);
+    expect(f.notify.mock.calls[0]?.[0]).toMatchObject({ kind: phase === "after-input" ? "routeTransport" : "routeFailed" });
+  });
+  it("rejects foreign environments, loops, insufficient ceilings and conflicting retries", async () => {
+    const f = fixture();
+    expect(await f.run({ ...delivery, source: { ...source, environmentId: "foreign" } })).toBe("rejected");
+    expect(await f.run({ ...delivery, visited: [destination] })).toBe("rejected");
+    expect(await f.run({ ...delivery, permissionCeiling: [] })).toBe("rejected");
+    expect(await f.run(delivery)).toBe("delivered");
+    expect(await f.run({ ...delivery, fingerprint: "conflict" })).toBe("rejected");
+    expect(f.steer).toHaveBeenCalledTimes(1);
+  });
+});

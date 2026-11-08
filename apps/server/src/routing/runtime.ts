@@ -1,12 +1,16 @@
 import * as NodeCrypto from "node:crypto";
 import { makeTaskOwnerStore } from "./taskOwnerStore.ts";
 import { ThreadId } from "@t3tools/contracts";
-import { Clock, Effect, Layer, Option, Schema } from "effect";
+import { Clock, Effect, Layer, Option, Schema, Stream } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
-import { RoutingBoundaryPorts } from "../mcp/toolkits/routing/boundary.ts";
+import { RoutingBoundaryPorts, makeRoutingBoundary } from "../mcp/toolkits/routing/boundary.ts";
+import { ExternalRouteEndpoints } from "./ExternalRouteEndpoints.ts";
+import { DeliveryDispatchError } from "./deliveryDispatcher.ts";
+import { routeEndpointUrl } from "@t3tools/shared/routeEndpointUrl";
+import type { RouteEndpoint, RouteState } from "./routeState.ts";
 import { makeDurableRoutingStore } from "./durableRoutingStore.ts";
 import { makeSnapshotRoutingAdapter } from "./snapshotRoutingAdapter.ts";
 import { makeEngineRouteDrain } from "./engineDrain.ts";
@@ -15,6 +19,24 @@ import { isBuildIntegrationRequest, PROJECT_BUILD_OWNER_TASK } from "./integrati
 import { makeRouteSourceNotifier } from "./sourceActivity.ts";
 import { suggestWorkingChat } from "./workingChatSuggestion.ts";
 const encodeIdentity = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
+const decodeTaskIdentity = Schema.decodeUnknownEffect(
+  Schema.Struct({ taskId: Schema.String, requestId: Schema.String }),
+);
+const decodeRouteIdentity = Schema.decodeUnknownEffect(Schema.Struct({ requestId: Schema.String }));
+const decodeReceipt = Schema.decodeUnknownEffect(
+  Schema.Struct({
+    requestId: Schema.String,
+    kind: Schema.Literals(["accepted", "completed", "failed"]),
+  }),
+);
+const decodeEmpty = Schema.decodeUnknownEffect(Schema.Struct({}));
+const routeSummary = (state: RouteState) => ({
+  requestId: state.request.requestId,
+  status: state.status,
+  reason: state.reason,
+  destinationUrl: state.request.destination ? routeEndpointUrl(state.request.destination) : null,
+  sourceUrl: routeEndpointUrl(state.request.source),
+});
 
 /** Runtime registration shares the persisted store with admission and receipt consumers. */
 export const RoutingRuntimeLive = Layer.effect(
@@ -23,6 +45,7 @@ export const RoutingRuntimeLive = Layer.effect(
     const snapshots = yield* ProjectionSnapshotQuery;
     const environmentId = yield* (yield* ServerEnvironment).getEnvironmentId;
     const settings = yield* ServerSettingsService;
+    const external = yield* Effect.serviceOption(ExternalRouteEndpoints);
     const sql = yield* SqlClient.SqlClient;
     const store = yield* makeDurableRoutingStore;
     const notify = yield* makeRouteSourceNotifier;
@@ -35,7 +58,7 @@ export const RoutingRuntimeLive = Layer.effect(
       snapshots
         .getThreadShellById(ThreadId.make(id))
         .pipe(Effect.map(Option.getOrNull), Effect.mapError(error));
-    const adapter = makeSnapshotRoutingAdapter({
+    const localAdapter = makeSnapshotRoutingAdapter({
       environmentId,
       thread: shell,
       settings: () => settings.getSettings.pipe(Effect.mapError(error)),
@@ -48,6 +71,61 @@ export const RoutingRuntimeLive = Layer.effect(
           ),
         ),
     });
+    const nativeSource = (id: string) =>
+      shell(id).pipe(
+        Effect.flatMap((existing) =>
+          !existing && Option.isSome(external) ? external.value.source(id) : Effect.succeed(null),
+        ),
+      );
+    const current: RoutingBoundaryPorts["Service"]["current"] = (env, id) =>
+      id.startsWith("mausbot:")
+        ? nativeSource(id).pipe(
+            Effect.map((source) =>
+              source &&
+              !source.archived &&
+              source.endpoint.environmentId === env &&
+              env === environmentId
+                ? source.endpoint
+                : null,
+            ),
+          )
+        : localAdapter.current(env, id);
+    const adapter = {
+      ...localAdapter,
+      current,
+      policy: (source: RouteEndpoint, _requestId?: string) =>
+        source.threadId.startsWith("mausbot:")
+          ? Effect.gen(function* () {
+              if (!(yield* current(source.environmentId, source.threadId)))
+                return yield* Effect.fail("Source unavailable.");
+              return {
+                mode: (yield* settings.getSettings).chatRoutingMode,
+                manual: false,
+                visited: [],
+                maxHops: 1,
+              };
+            }).pipe(Effect.mapError(error))
+          : localAdapter.policy(source, "mode"),
+      inspect: (endpoint: RouteEndpoint) =>
+        endpoint.threadId.startsWith("mausbot:")
+          ? Effect.gen(function* () {
+              const source = yield* nativeSource(endpoint.threadId);
+              if (
+                !source ||
+                source.archived ||
+                source.endpoint.environmentId !== endpoint.environmentId ||
+                source.endpoint.projectId !== endpoint.projectId ||
+                source.endpoint.environmentId !== environmentId
+              )
+                return yield* Effect.fail("Endpoint unavailable.");
+              if (!source.permissionsKnown || source.runtimeMode !== "full-access")
+                return yield* Effect.fail(
+                  "This native execution profile has no verified cross-engine permission mapping.",
+                );
+              return { permissions: [`runtime:${source.runtimeMode}`], status: "ready" as const };
+            }).pipe(Effect.mapError((message) => new DeliveryDispatchError({ message })))
+          : localAdapter.inspect(endpoint),
+    };
     const owner: RoutingBoundaryPorts["Service"]["owner"] = (source, taskId, candidate, request) =>
       Effect.gen(function* () {
         const exact = yield* sql<{
@@ -85,7 +163,10 @@ export const RoutingRuntimeLive = Layer.effect(
       }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.mapError(error));
     const reconsider = Effect.gen(function* () {
       const settingsNow = yield* settings.getSettings;
-      if (settingsNow.chatRoutingMode !== "auto") return;
+      if (settingsNow.chatRoutingMode !== "auto") {
+        yield* drain.drain();
+        return;
+      }
       const rows = yield* sql<{
         request_id: string;
       }>`SELECT request_id FROM durable_routes WHERE status = 'suggested'
@@ -126,7 +207,7 @@ export const RoutingRuntimeLive = Layer.effect(
       ),
     );
     yield* reconsider;
-    return RoutingBoundaryPorts.of({
+    const ports = RoutingBoundaryPorts.of({
       ...adapter,
       release: (endpoint, taskId, requestId) =>
         Effect.gen(function* () {
@@ -259,5 +340,111 @@ export const RoutingRuntimeLive = Layer.effect(
           return routes.flatMap((r) => (r ? [r.state] : []));
         }).pipe(Effect.mapError(error)),
     });
+    if (Option.isSome(external)) {
+      const removeReceiver = external.value.registerReceiver((event) =>
+        Effect.gen(function* () {
+          if (event.kind === "routingWake") {
+            yield* external.value.wake;
+            return true;
+          }
+          const input = event.delivery;
+          const row = yield* store.get(input.requestId);
+          const request = row?.state.request;
+          if (
+            !row ||
+            !request?.destination ||
+            row.state.fingerprint !== input.fingerprint ||
+            row.state.attemptId !== input.attemptId ||
+            request.source.environmentId !== environmentId ||
+            request.destination.environmentId !== environmentId ||
+            request.destination.threadId !== input.destination.threadId ||
+            request.destination.projectId !== input.destination.projectId ||
+            request.source.threadId !== input.source.threadId ||
+            request.source.projectId !== input.source.projectId ||
+            request.content !== input.content
+          )
+            return yield* Effect.fail("Route identity changed.");
+          if (event.kind === "routeSourceCheck") {
+            if (row.state.status !== "sending") return false;
+            const source = yield* adapter.inspect(request.source).pipe(Effect.option);
+            return (
+              Option.isSome(source) &&
+              source.value.permissions.includes("runtime:full-access") &&
+              request.permissionCeiling.includes("runtime:full-access")
+            );
+          }
+          if (event.kind === "routeTransport" && (!event.generation || !event.providerTurnId))
+            return yield* Effect.fail("Transport proof missing.");
+          const kind = event.kind === "routeFailed" ? "failed" : "delivered";
+          const receiptId = `native:${input.requestId}:${input.attemptId}:${kind}`;
+          if (row.state.receipts.some((receipt) => receipt.receiptId === receiptId)) return true;
+          const next = yield* store.transition(input.requestId, row.revision, {
+            type: "receipt",
+            receipt: {
+              receiptId,
+              requestId: input.requestId,
+              fingerprint: input.fingerprint,
+              attemptId: input.attemptId,
+              destination: request.destination,
+              kind,
+            },
+          });
+          yield* notify(next);
+          return true;
+        }).pipe(Effect.mapError(error)),
+      );
+      yield* Effect.addFinalizer(() => Effect.sync(removeReceiver));
+      const remove = external.value.registerRouter((actor, operation, input) => {
+        if (actor.kind !== "mausbot" || actor.environmentId !== environmentId)
+          return Effect.fail("Routing source unavailable.");
+        const boundary = makeRoutingBoundary(
+          Effect.gen(function* () {
+            const endpoint = yield* current(
+              environmentId,
+              `mausbot:${actor.botId}:${actor.threadId}`,
+            );
+            if (!endpoint) return yield* Effect.fail("Routing source unavailable.");
+            return endpoint;
+          }),
+        );
+        return Effect.gen(function* () {
+          switch (operation) {
+            case "route_task":
+              return routeSummary(yield* boundary.routeRequest(input));
+            case "routing_mode":
+              yield* decodeEmpty(input, { onExcessProperty: "error" });
+              return yield* boundary.routingMode;
+            case "list_routes":
+              yield* decodeEmpty(input, { onExcessProperty: "error" });
+              return (yield* boundary.listRoutes).map(routeSummary);
+            case "claim_task": {
+              const args = yield* decodeTaskIdentity(input, { onExcessProperty: "error" });
+              return yield* boundary.claimTask(args.taskId, args.requestId);
+            }
+            case "release_task": {
+              const args = yield* decodeTaskIdentity(input, { onExcessProperty: "error" });
+              return yield* boundary.releaseTask(args.taskId, args.requestId);
+            }
+            case "routing_status": {
+              const args = yield* decodeRouteIdentity(input, { onExcessProperty: "error" });
+              return routeSummary(yield* boundary.routeStatus(args.requestId));
+            }
+            case "acknowledge_route": {
+              const args = yield* decodeReceipt(input, { onExcessProperty: "error" });
+              return routeSummary(yield* boundary.recipientReceipt(args.requestId, args.kind));
+            }
+            default:
+              return yield* Effect.fail("Unsupported routing operation.");
+          }
+        }).pipe(Effect.provideService(RoutingBoundaryPorts, ports), Effect.mapError(error));
+      });
+      yield* Effect.addFinalizer(() => Effect.sync(remove));
+      const changes = yield* external.value.subscribe;
+      yield* changes.pipe(
+        Stream.runForEach(() => reconsider),
+        Effect.forkScoped,
+      );
+    }
+    return ports;
   }),
 );

@@ -82,6 +82,160 @@ import { RoutingRuntimeLive } from "./runtime.ts";
 import { RoutingBoundaryPorts } from "../mcp/toolkits/routing/boundary.ts";
 import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
+import { ExternalRouteEndpoints } from "./ExternalRouteEndpoints.ts";
+import type { ExternalRouteDelivery } from "@t3tools/contracts";
+
+effectIt.effect(
+  "joins native transport receipts, acknowledgement and ancestry through the real registered runtime",
+  () =>
+    Effect.gen(function* () {
+      const engine = yield* OrchestrationEngineService;
+      const registry = yield* ExternalRouteEndpoints;
+      const createdAt = "2026-11-08T00:00:00.000Z";
+      yield* engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.make("merged-p"),
+        projectId: ProjectId.make("merged-p"),
+        title: "Original project",
+        workspaceRoot: process.cwd(),
+        defaultModelSelection: null,
+        createdAt,
+      });
+      yield* engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("merged-source"),
+        threadId: ThreadId.make("merged-source"),
+        projectId: ProjectId.make("merged-p"),
+        title: "Original chat",
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "default" },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      });
+      const source = { environmentId: "env", projectId: "merged-p", threadId: "merged-source" };
+      const destination = {
+        environmentId: "env",
+        projectId: "mausbot:crown",
+        threadId: "mausbot:crown:main",
+      };
+      let pending: ExternalRouteDelivery | undefined;
+      registry.register({
+        kind: "mausbot",
+        accepts: (id) => id === destination.threadId,
+        source: () =>
+          Effect.succeed({
+            endpoint: destination,
+            url: "/assistants",
+            runtimeMode: "full-access",
+            providerKey: "native-codex",
+            permissionsKnown: true,
+            archived: false,
+            blocked: false,
+            activeGeneration: "generation",
+            canSteer: true,
+          }),
+        deliver: (input) =>
+          Effect.gen(function* () {
+            pending = input;
+            expect(yield* registry.receive({ kind: "routeSourceCheck", delivery: input })).toBe(
+              true,
+            );
+            return "admitted" as const;
+          }),
+        notice: () => Effect.void,
+      });
+      yield* Effect.gen(function* () {
+        const ports = yield* RoutingBoundaryPorts;
+        const requestId = "a".repeat(64);
+        const result = yield* ports.submit({
+          route: {
+            requestId,
+            taskId: "merged-task",
+            source,
+            destination,
+            content: "Current user instruction",
+            mode: "auto",
+            initiation: "automatic",
+            ambiguous: false,
+            visited: [],
+            maxHops: 8,
+          },
+          fingerprint: "intent",
+          originalRequest: "Current user instruction",
+          sourceUrl: "/env/merged-source",
+        });
+        expect(result.status).toBe("admitted");
+        expect(result.receipts).toEqual([]);
+        expect(pending).toBeDefined();
+        const delivery = pending!;
+        expect(
+          yield* registry
+            .receive({
+              kind: "routeTransport",
+              delivery: { ...delivery, fingerprint: "forged" },
+              generation: "generation",
+              providerTurnId: "native-turn",
+            })
+            .pipe(Effect.result),
+        ).toMatchObject({ _tag: "Failure" });
+        expect((yield* ports.get(requestId))?.status).toBe("admitted");
+        yield* registry.receive({
+          kind: "routeTransport",
+          delivery,
+          generation: "generation",
+          providerTurnId: "native-turn",
+        });
+        yield* registry.receive({
+          kind: "routeTransport",
+          delivery,
+          generation: "generation",
+          providerTurnId: "native-turn",
+        });
+        expect((yield* ports.get(requestId))?.status).toBe("delivered");
+        expect((yield* ports.policy(destination, "next", "merged-task")).visited).toContainEqual(
+          source,
+        );
+        expect(
+          yield* registry.call(
+            {
+              kind: "mausbot",
+              environmentId: "env",
+              botId: "crown",
+              threadId: "main",
+              generation: "generation",
+            },
+            "route_task",
+            {
+              taskId: "merged-task",
+              requestId: "return-to-origin",
+              request: "Return this work",
+              candidate: source,
+            },
+          ),
+        ).toMatchObject({ status: "blocked", reason: "routing-loop" });
+        expect((yield* ports.receipt!(destination, requestId, "accepted")).status).toBe("accepted");
+        expect((yield* ports.receipt!(destination, requestId, "completed")).status).toBe(
+          "completed",
+        );
+      }).pipe(Effect.provide(RoutingRuntimeLive));
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          makeOrchestrationLayer(),
+          ExternalRouteEndpoints.layer,
+          Layer.succeed(ServerEnvironment, {
+            getEnvironmentId: Effect.succeed(EnvironmentId.make("env")),
+            getDescriptor: Effect.die("unused"),
+          }),
+          Layer.succeed(ServerSettingsService, {
+            getSettings: Effect.succeed({ ...DEFAULT_SERVER_SETTINGS, chatRoutingMode: "auto" }),
+          } as unknown as ServerSettingsService["Service"]),
+        ),
+      ),
+    ),
+);
 
 effectIt.effect(
   "registered runtime persists suggestions, discovers owners and admits auto routes",

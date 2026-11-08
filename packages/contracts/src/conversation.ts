@@ -84,6 +84,15 @@ export const MausbotConversationInvocation = Schema.Struct({
 
 /** Private host requests carry a principal fixed by the invocation boundary, never tool arguments. */
 export const ConversationQuery = Schema.Union([
+  Schema.Struct({
+    action: Schema.Literal("routeNotice"),
+    endpoint: ConversationEndpoint,
+    requestId: Schema.String,
+    revision: Schema.Int,
+    status: Schema.String,
+    summary: Schema.String,
+  }),
+  Schema.Struct({ action: Schema.Literal("routingSource"), endpoint: ConversationEndpoint }),
   Schema.Struct({ action: Schema.Literal("inspect"), endpoint: ConversationEndpoint }),
   Schema.Struct({
     action: Schema.Literal("search"),

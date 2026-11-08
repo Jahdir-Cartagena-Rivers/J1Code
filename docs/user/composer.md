@@ -137,9 +137,9 @@ Stashes containing uploaded files must be restored in their original environment
 Those files are retained for 24 hours. After an upload expires, restore the prompt
 and use **Attach again** or remove the missing file before sending.
 
-## Home chat
+## General conversation
 
-Open **Home chat** in the sidebar for an ongoing general conversation. Project requests can be handed to a saved chat in the matching project; Home keeps the original conversation and gives you a link to continue there. If the destination is unclear, specify the project. Each environment has its own Home workspace. Once started, Home is also available in the mobile thread list.
+Use the crowned bot in the shared sidebar for general requests. It can hand project work to an existing conversation and give you a link to continue there. Previous Home conversations remain saved.
 
 ## Voice input
 
@@ -249,9 +249,8 @@ Switching an existing session to another provider requires manual selection.
 
 ## Routing requests between conversations
 
-Each environment has one persistent **Home** conversation above the project list.
-Project chats can route requests too. Set routing to **Off**, **Suggest**, or **Auto**
-in Providers settings on web or desktop, or Agent behavior on mobile. Auto sends
+Bots and project chats can route requests to each other. Set routing to **Off**, **Suggest**, or **Auto**
+in Engines settings on web or desktop, or Agent behavior on mobile. Auto sends
 directly only when there is a clear task owner. Otherwise, approve the proposed
 destination in the card beside the request in conversation history. Cards scroll
 with the conversation, and their status updates in place. Select **Approve and send**
@@ -261,8 +260,9 @@ remains available after delivery.
 The source conversation stays available. Follow the destination link to continue
 the work, and check the request card for progress. Queued, delivered,
 accepted, and completed are separate states: delivery does not mean the receiving
-agent has incorporated the request. A busy chat receives the request at a safe
-boundary; routing never interrupts its current turn or grants broader permissions.
+agent has incorporated the request. Supported providers can receive updates during
+their active turn. Other providers wait until idle. Routing preserves pending approval
+and input gates and never interrupts the current turn or grants broader permissions.
 
 When a chat is coordinating a project's combined build, integration requests can
 reach that coordinator even when they use a different feature task name. A specific

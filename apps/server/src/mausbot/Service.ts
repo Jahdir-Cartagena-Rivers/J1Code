@@ -23,8 +23,24 @@ import { ExternalConversations } from "../conversations/ExternalConversations.ts
 import { makeMausbotConversationSource } from "../conversations/MausbotConversationSource.ts";
 import { MausbotConversationInvocation } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
+import * as Option from "effect/Option";
 import { conversationCall } from "../conversations/query.ts";
-const decodeConversationInvocation = Schema.decodeUnknownEffect(MausbotConversationInvocation);
+import {
+  MausbotRoutingInvocation,
+  ExternalRouteSourceSnapshot,
+  ExternalRouteDeliveryResult,
+  ExternalRouteHostEvent,
+  ExternalRouteTransportProof,
+  type ConversationQuery,
+} from "@t3tools/contracts";
+import { ExternalRouteEndpoints } from "../routing/ExternalRouteEndpoints.ts";
+const decodeHostInvocation = Schema.decodeUnknownEffect(
+  Schema.Union([MausbotConversationInvocation, MausbotRoutingInvocation, ExternalRouteHostEvent]),
+);
+const decodeRoutingSource = Schema.decodeUnknownEffect(Schema.NullOr(ExternalRouteSourceSnapshot));
+const decodeRoutingEvent = Schema.decodeUnknownEffect(ExternalRouteHostEvent);
+const decodeTransportProof = Schema.decodeUnknownEffect(Schema.NullOr(ExternalRouteTransportProof));
+const decodeRoutingDeliveryResult = Schema.decodeUnknownEffect(ExternalRouteDeliveryResult);
 
 export class MausbotService extends Context.Service<
   MausbotService,
@@ -61,12 +77,44 @@ export class MausbotService extends Context.Service<
       const conversations = yield* ExternalConversations;
       const environmentId = yield* (yield* ServerEnvironment).getEnvironmentId;
       const effectContext = yield* Effect.context<never>();
+      const externalRoutes = yield* Effect.serviceOption(ExternalRouteEndpoints);
       const handleConversation = (input: unknown, active: () => boolean) =>
         Effect.gen(function* () {
-          const request = yield* decodeConversationInvocation(input, {
+          const request = yield* decodeHostInvocation(input, {
             onExcessProperty: "error",
           });
           if (!active()) return yield* Effect.fail("Conversation runtime disconnected.");
+          if (
+            "kind" in request &&
+            ["routingWake", "routeSourceCheck", "routeTransport", "routeFailed"].includes(
+              request.kind,
+            )
+          ) {
+            if (Option.isNone(externalRoutes)) return yield* Effect.fail("Routing unavailable.");
+            const event = yield* decodeRoutingEvent(request);
+            return event.kind === "routingWake"
+              ? yield* externalRoutes.value.wake
+              : yield* externalRoutes.value.receive(event);
+          }
+          if ("operation" in request) {
+            if (Option.isNone(externalRoutes))
+              return yield* Effect.fail("The routing adapter is unavailable.");
+            const result = yield* externalRoutes.value.call(
+              {
+                kind: "mausbot",
+                environmentId,
+                botId: request.botId,
+                threadId: request.threadId,
+                generation: request.generation,
+              },
+              request.operation,
+              request.arguments,
+            );
+            if (!active()) return yield* Effect.fail("Conversation runtime disconnected.");
+            return result;
+          }
+          if (!("call" in request))
+            return yield* Effect.fail("Unsupported conversation operation.");
           const result = yield* conversationCall(
             conversations,
             {
@@ -166,6 +214,66 @@ export class MausbotService extends Context.Service<
         ),
       );
       yield* Effect.addFinalizer(() => Effect.sync(removeSource));
+      if (Option.isSome(externalRoutes)) {
+        const remove = externalRoutes.value.register({
+          kind: "mausbot",
+          accepts: (id) => id.startsWith("mausbot:"),
+          proof: (key) =>
+            getRuntime().pipe(
+              Effect.flatMap((child) =>
+                Effect.tryPromise({
+                  try: (signal) =>
+                    child.conversation({ action: "routeDeliveryStatus", key }, signal),
+                  catch: () => "Native transport proof unavailable.",
+                }),
+              ),
+              Effect.flatMap(decodeTransportProof),
+              Effect.mapError(() => "Native transport proof unavailable."),
+            ),
+          deliver: (input) =>
+            getRuntime().pipe(
+              Effect.flatMap((child) =>
+                Effect.tryPromise({
+                  try: (signal) =>
+                    child.conversation({ action: "routeDeliver", delivery: input }, signal),
+                  catch: () => "Native route delivery was not confirmed.",
+                }),
+              ),
+              Effect.flatMap(decodeRoutingDeliveryResult),
+              Effect.mapError(() => "Native route delivery was not confirmed."),
+            ),
+          notice: (notice) =>
+            getRuntime().pipe(
+              Effect.flatMap((child) =>
+                Effect.tryPromise({
+                  try: (signal) => child.conversation({ action: "routeNotice", ...notice }, signal),
+                  catch: () => "Could not publish the native routing notice.",
+                }),
+              ),
+              Effect.asVoid,
+            ),
+          source: (id) => {
+            const match = /^mausbot:([\w-]{1,120}):([\w-]{1,120})$/.exec(id);
+            if (!match) return Effect.succeed(null);
+            const input: ConversationQuery = {
+              action: "routingSource",
+              endpoint: { environmentId, projectId: `mausbot:${match[1]}`, threadId: id },
+            };
+            return getRuntime().pipe(
+              Effect.flatMap((child) =>
+                Effect.tryPromise({
+                  try: (signal) => child.conversation(input, signal),
+                  catch: () => "Native routing source is unavailable.",
+                }),
+              ),
+              Effect.flatMap(decodeRoutingSource),
+              Effect.mapError(() => "Native routing source is unavailable."),
+            );
+          },
+        });
+        yield* Effect.addFinalizer(() => Effect.sync(remove));
+        yield* externalRoutes.value.wake;
+      }
       const forward = Effect.fn("Mausbot.forward")(function* (
         url: string,
         method: string,
