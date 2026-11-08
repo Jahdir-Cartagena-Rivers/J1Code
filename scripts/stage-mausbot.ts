@@ -20,7 +20,11 @@ export async function stageMausbot(
   sourceCheckout?: string,
   platform = hostPlatform,
 ) {
-  const scratch = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-mausbot-assembly-"));
+  // Windows CI may expose TEMP through an 8.3 alias. Vite resolves config inputs
+  // to long paths, so its working root must use that same canonical spelling.
+  const scratch = await NodeFSP.realpath(
+    await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-mausbot-assembly-")),
+  );
   const source = sourceCheckout ?? NodePath.join(scratch, "upstream");
   const stage = NodePath.join(scratch, "build");
   const execute = async (command: string, args: string[], cwd: string) => {
