@@ -24,6 +24,30 @@ See the [mobile README](../../apps/mobile/README.md) for native builds and Metro
 Flags go directly after the task name, for example `vp run dev --home-dir /tmp/t3code-dev`.
 Add `--browser` to open a browser automatically.
 
+### Iterating on the merged assistant UI
+
+Use one prepared, patched Maus source assembly and an existing verified runtime archive directory.
+In the assembly, run `vite build --watch --base=./`. From the J1 worktree, run:
+
+```sh
+node scripts/mausbot-qa.ts --resources /absolute/runtime-directory --ui-dir /absolute/assembly/dist
+```
+
+The launcher uses `.t3/mausbot-qa` for isolated state. Seed it with a consistent database
+snapshot using the [test data rules](../../AGENTS.md#test-data). J1 web retains its usual HMR.
+The embedded UI serves the assembly's watch output through the authenticated J1 runtime and
+needs a reload after a rebuild. UI edits do not require another archive, extraction or
+runtime restart. Copy changed adaptation files into their prepared assembly destinations
+before rebuilding; changes to `patch-source.ts` require a newly prepared assembly. This
+workflow does not replace final packaged verification or update the installed application.
+`J1_MAUSBOT_DEV_UI_DIR` is rejected outside development mode. Stop the launcher before
+changing the server/native runtime archive; do not edit the verified extraction cache.
+
+For repeated checks, `vp run qa:web:typecheck`, `vp run qa:server:typecheck` and
+`vp run qa:web:build` reuse successful results when their tracked inputs match. The build
+task fingerprints build environment overrides. Use `--no-cache` for a fresh execution.
+Tests remain uncached; run focused tests for the changed behavior separately.
+
 ### State and ports
 
 Linked worktrees default to their own `.t3/userdata`, even when `T3CODE_HOME` is set.

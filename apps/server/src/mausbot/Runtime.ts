@@ -23,6 +23,7 @@ export interface MausbotRuntimeOptions {
   readonly memory?: (input: unknown, current: () => boolean) => Promise<unknown>;
   readonly conversationCall?: (input: unknown, current: () => boolean) => Promise<unknown>;
   readonly resources: string;
+  readonly uiDir?: string | undefined;
   readonly dataDir: string;
   readonly executable?: string;
   readonly lightpandaExecutablePath?: string;
@@ -206,6 +207,7 @@ export class MausbotRuntime {
   private async launch() {
     const entry = NodePath.join(this.options.resources, "server", "index.js");
     await NodeFSP.access(entry);
+    if (this.options.uiDir) await NodeFSP.access(NodePath.join(this.options.uiDir, "index.html"));
     try {
       await NodeFSP.access(NodePath.join(this.options.resources, "server", "enterprise"));
       throw new Error("The J1 runtime must not contain enterprise code.");
@@ -229,7 +231,7 @@ export class MausbotRuntime {
         OMB_PORT: String(port),
         OMB_WEBHOOK_PORT: String(webhookPort),
         OMB_DATA_DIR: this.options.dataDir,
-        OMB_STATIC_DIR: NodePath.join(this.options.resources, "ui"),
+        OMB_STATIC_DIR: this.options.uiDir ?? NodePath.join(this.options.resources, "ui"),
         OMB_LOOPBACK_TRUST: "service",
         OMB_CLI_OWNER_STDIN: "1",
         OMB_DESKTOP_PARENT: "0",

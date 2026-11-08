@@ -54,6 +54,48 @@ const RESTRICTED_PULL_REQUEST_GLYPH_IMPORTS = {
 };
 
 export default defineConfig({
+  run: {
+    tasks: {
+      "qa:web:build": {
+        command: "vp build",
+        cwd: "apps/web",
+        // Generated routes are an output. Treating them as both input and
+        // output prevents a successful first build from ever entering cache.
+        input: [
+          { auto: true },
+          "!**/*.tsbuildinfo",
+          "!apps/web/src/routeTree.gen.ts",
+          "!apps/web/.tanstack/**",
+          "!apps/web/dist/**",
+          "!apps/web/node_modules/.vite*/**",
+        ],
+        output: ["apps/web/dist/**", "apps/web/src/routeTree.gen.ts"],
+        env: [
+          "NODE_ENV",
+          "NODE_OPTIONS",
+          "VITE_*",
+          "T3CODE_*",
+          "J1_*",
+          "VERCEL_*",
+          "HOST",
+          "PORT",
+          "SOURCE_DATE_EPOCH",
+        ],
+      },
+      "qa:web:typecheck": {
+        command: "tsc --noEmit",
+        cwd: "apps/web",
+        input: [{ auto: true }, "!**/*.tsbuildinfo"],
+        output: [],
+      },
+      "qa:server:typecheck": {
+        command: "tsc --noEmit",
+        cwd: "apps/server",
+        input: [{ auto: true }, "!**/*.tsbuildinfo"],
+        output: [],
+      },
+    },
+  },
   resolve: {
     alias: {
       "~": NodeURL.fileURLToPath(new URL("./apps/web/src", import.meta.url)),

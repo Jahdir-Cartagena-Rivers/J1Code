@@ -27,6 +27,7 @@ const server = http.createServer((req, res) => {
   if(req.url === '/api/bots/redirect') { res.statusCode = 302; res.setHeader('location','https://example.invalid'); return res.end('{}'); }
   if(req.url === '/api/bots/large') return res.end(JSON.stringify('x'.repeat(4*1024*1024)));
   if(req.url === '/api/bots/browser-path') return res.end(JSON.stringify({browser}));
+  if(req.url === '/fixture-ui') return res.end(JSON.stringify({html:fs.readFileSync(path.join(process.env.OMB_STATIC_DIR,'index.html'),'utf8')}));
   res.end(JSON.stringify({ok:true,method:req.method,trust:process.env.OMB_LOOPBACK_TRUST,dataDir:process.env.OMB_DATA_DIR}));
 });
 process.on('message', message => {
@@ -37,7 +38,8 @@ process.on('message', message => {
   if(message?.type === 'j1:shutdown') server.close(() => process.exit(0));
   if(message?.type === 'j1:browser') { browser = message.executable; process.send({type:'j1:browser-applied',requestId:message.requestId}); }
 });
-server.listen(Number(process.env.OMB_PORT), '127.0.0.1', () => console.log('openmausbot server on http://127.0.0.1:'+process.env.OMB_PORT));
+// Announce readiness only after the owner credential has arrived on stdin.
+process.stdin.on('end', () => server.listen(Number(process.env.OMB_PORT), '127.0.0.1', () => console.log('openmausbot server on http://127.0.0.1:'+process.env.OMB_PORT)));
 `;
 
 async function fixture(
@@ -47,6 +49,8 @@ async function fixture(
   const resources = NodePath.join(root, "resources");
   const dataDir = NodePath.join(root, "state");
   await NodeFSP.mkdir(NodePath.join(resources, "server"), { recursive: true });
+  await NodeFSP.mkdir(NodePath.join(resources, "ui"), { recursive: true });
+  await NodeFSP.writeFile(NodePath.join(resources, "ui", "index.html"), "packaged ui");
   await NodeFSP.writeFile(NodePath.join(resources, "server", "index.js"), fixtureSource);
   const runtime = new MausbotRuntime({
     platform: "linux",
@@ -58,6 +62,47 @@ async function fixture(
 }
 
 describe("managed upstream runtime", () => {
+  it("serves successive development UI edits without another archive or child restart", async () => {
+    const { root, resources, dataDir } = await fixture();
+    const uiDir = NodePath.join(root, "watch-output");
+    await NodeFSP.mkdir(uiDir);
+    await NodeFSP.writeFile(NodePath.join(uiDir, "index.html"), "first build");
+    const runtime = new MausbotRuntime({ platform: "linux", resources, dataDir, uiDir });
+    try {
+      await runtime.start();
+      const pid = await NodeFSP.readFile(NodePath.join(dataDir, "fixture-pid"), "utf8");
+      expect(await (await runtime.forward("/fixture-ui", "GET")).json()).toEqual({
+        html: "first build",
+      });
+      await NodeFSP.writeFile(NodePath.join(uiDir, "index.html"), "incremental update");
+      expect(await (await runtime.forward("/fixture-ui", "GET")).json()).toEqual({
+        html: "incremental update",
+      });
+      expect(await NodeFSP.readFile(NodePath.join(dataDir, "fixture-pid"), "utf8")).toBe(pid);
+      await expect(runtime.forward("/api/internal/j1-conversations", "GET")).rejects.toThrow(
+        "private",
+      );
+    } finally {
+      await runtime.stop();
+      await NodeFSP.rm(root, { recursive: true, force: true });
+    }
+  });
+  it("fails a missing development build before starting a child", async () => {
+    const { root, resources, dataDir } = await fixture();
+    const runtime = new MausbotRuntime({
+      platform: "linux",
+      resources,
+      dataDir,
+      uiDir: NodePath.join(root, "missing"),
+    });
+    try {
+      await expect(runtime.start()).rejects.toThrow();
+      expect(runtime.running).toBe(false);
+    } finally {
+      await runtime.stop();
+      await NodeFSP.rm(root, { recursive: true, force: true });
+    }
+  });
   it("reads on its private child channel and cancels an in-flight read without changing the session", async () => {
     const started = Promise.withResolvers<void>();
     const { runtime, root } = await fixture(async () => {
@@ -149,6 +194,9 @@ describe("managed upstream runtime", () => {
       const response = await runtime.forward("/api/bots?view=all", "GET");
       expect(response.status).toBe(200);
       expect(await response.json()).toMatchObject({ ok: true, method: "GET" });
+      expect(await (await runtime.forward("/fixture-ui", "GET")).json()).toEqual({
+        html: "packaged ui",
+      });
       expect([...response.headers.keys()]).not.toContain("authorization");
       const embedded = await runtime.forward(
         "/",

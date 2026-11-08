@@ -192,6 +192,7 @@ export class MausbotService extends Context.Service<
             runtime = new MausbotRuntime({
               platform,
               resources: expanded,
+              ...(config.devUrl && config.mausbotDevUiDir ? { uiDir: config.mausbotDevUiDir } : {}),
               dataDir: path.join(config.baseDir, "userdata", "mausbot"),
               lightpandaExecutablePath: browserExecutable(current.lightpandaExecutablePath),
               memory: (input, active) => hiveMemory.handle(input, active),

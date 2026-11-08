@@ -76,6 +76,8 @@ The most common defect in this repo is a change that works on the path you teste
 
 ## Dev servers
 
+- For merged Maus UI corrections, reuse one prepared assembly and verified runtime archive with `node scripts/mausbot-qa.ts --resources <archive-dir> --ui-dir <assembly-dist>`. Run `vite build --watch --base=./` in the assembly and reload after updates. This serves watch output through J1 without generating a new runtime ZIP or Temp candidate for each correction. Final packaged-runtime verification is still required for shipping.
+
 - `vp i` installs. Worktrees get this from the t3.json setup script; if module resolution looks broken, it probably did not run.
 - `vp run dev` starts server and web. In a worktree, state defaults to that worktree's gitignored `.t3`, which deliberately outranks an ambient `T3CODE_HOME` so you cannot land on shared state by accident. An explicit `--home-dir` still wins.
 - Ports derive from the worktree path and are stable across restarts, but read the real ones from the `[dev-runner]` line since occupied ports shift.
@@ -102,6 +104,11 @@ An empty database is a bad test. Seed your worktree's `.t3` with a copy of real 
 - Copy in, never symlink. Data flows one way: into your sandbox, never back out.
 
 ## Verifying
+
+- Repeated web/server typechecks can use `vp run qa:web:typecheck` / `vp run qa:server:typecheck`; `vp run qa:web:build` caches the web build. These tasks track inputs and reuse successful results; use `--no-cache` when investigating cache behavior. Do not cache runtime tests or interpret a cache hit as a new runtime reproduction.
+- Before reading a large TypeScript file, use `node scripts/agent-inspect.ts <file> --query <symbol>` for declaration line ranges, then read only the needed range. Use `rg` for text and reference discovery.
+- To diagnose a slow run, `node scripts/agent-run-report.ts --db <state.sqlite> --thread <id> [--turn <id>]` reads only activity metadata from the explicit database in read-only mode. Background process lifetimes and concurrent tool durations are not model inference time.
+- Batch independent inspection and checks. Complete the related correction pass before packaging; do not repeatedly rebuild unchanged surfaces. After two failed browser recoveries, diagnose the transport and report remaining verification instead of repeatedly generating candidates. Keep a concise checkpoint at task boundaries; use provider-native compaction for continuing work and preserve saved history.
 
 - Smallest proof that the change works. `vp test run <files>` for the tests you touched, targeted lint and typecheck for the scope you changed.
 - Test meaningful logic or observable behavior. Do not render components to static markup to assert props or attributes, or add tests that merely assert callback wiring or mirror the implementation.
