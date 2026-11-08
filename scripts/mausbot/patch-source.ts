@@ -485,6 +485,16 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
   await copy("packages/shared/src/mausbotAppearance.ts", "shared/j1-appearance.ts");
   await copy("scripts/mausbot/J1Settings.tsx", "src/components/J1Settings.tsx");
   await change(
+    "src/components/AppNotices.tsx",
+    "import { useSimpleModePromptSeen }",
+    'import { useJ1Navigation } from "./J1Navigation";\nimport { useSimpleModePromptSeen }',
+  );
+  await change(
+    "src/components/AppNotices.tsx",
+    "  const simpleDue = !useSimpleModePromptSeen();",
+    "  const simpleSeen = useSimpleModePromptSeen();\n  const merged = useJ1Navigation();\n  const simpleDue = !merged && !simpleSeen;",
+  );
+  await change(
     "src/components/SidebarProfileMenu.tsx",
     "        onConnect: connectTo,\n        onGetApp: () => setPhoneAppOpen(true),",
     '        onConnect: (destination) => j1Navigation ? j1Post({ type: "settings-navigate", path: "/settings/connections" }) : connectTo(destination),\n        onGetApp: () => j1Navigation ? j1Post({ type: "settings-navigate", path: "/settings/connections" }) : setPhoneAppOpen(true),',
@@ -608,6 +618,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
   for (const row of [
     "ThemeRow",
     "ChatWidthRow",
+    "AdvancedModeRow",
     "OpenAtLoginRow",
     "UpdatesConsentRow",
     "UpdatesRow",
@@ -628,6 +639,11 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
     "src/components/SettingsModal.tsx",
     "                    {entries.map(({ id, labelKey }) => (\n                      <option key={id} value={id}>{t(labelKey)}</option>\n                    ))}",
     "                    {entries.map(({ id, labelKey }) => (\n                      <option key={id} value={id}>{j1Navigation ? j1SettingsLabel(id, t(labelKey)) : t(labelKey)}</option>\n                    ))}\n                    {j1ExtraPages(j1Navigation?.settingsPages, group.id).map((page) => <option key={page.path} value={`j1:${page.path}`}>{page.label}</option>)}",
+  );
+  await change(
+    "src/components/SettingsModal.tsx",
+    "{remoteActive && <AdvancedModeRow />}",
+    "{remoteActive && !j1Navigation && <AdvancedModeRow />}",
   );
   await change(
     "src/components/SettingsModal.tsx",
@@ -681,9 +697,40 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
   );
   await change("src/lib/interface-mode.ts", "    return hasPriorRun(store);", "    return true;");
   await change(
+    "src/lib/interface-mode.ts",
+    "let sessionChoice: boolean | undefined;",
+    "let sessionChoice: boolean | undefined;\nlet hostAdvanced = false;\n/** The merged J1 interface exposes the complete sidebar without overwriting the saved standalone choice. */\nexport function setHostAdvancedMode(enabled: boolean) {\n  if (hostAdvanced === enabled) return;\n  hostAdvanced = enabled;\n  notify();\n}",
+  );
+  await change(
+    "src/lib/interface-mode.ts",
+    "export function readAdvancedMode(): boolean {",
+    "export function readAdvancedMode(): boolean {\n  if (hostAdvanced) return true;",
+  );
+  await copy("scripts/mausbot/host-interface.test.ts.txt", "src/lib/j1-host-interface.test.ts");
+  await change(
     "src/components/Sidebar.tsx",
     "export function Sidebar({",
     'import { J1Navigation, useJ1Navigation, j1Post } from "./J1Navigation";\nexport function Sidebar({',
+  );
+  await change(
+    "src/components/DesktopWorkspaceSwitcher.tsx",
+    "import { track }",
+    'import { J1WorkspaceSwitcher, useJ1Navigation } from "./J1Navigation";\nimport { track }',
+  );
+  await change(
+    "src/components/DesktopWorkspaceSwitcher.tsx",
+    "  const places = usePlaces();",
+    "  const places = usePlaces();\n  const j1Navigation = useJ1Navigation();\n  if (j1Navigation) return <J1WorkspaceSwitcher compact={props.compact} rail={props.rail} pill={props.pill} />;",
+  );
+  await change(
+    "src/components/ChromeRailToggle.tsx",
+    "import { cn }",
+    'import { j1Post, useJ1Navigation } from "./J1Navigation";\nimport { cn }',
+  );
+  await change(
+    "src/components/ChromeRailToggle.tsx",
+    "  if (!rail?.available) return null;\n  const label",
+    '  const j1 = useJ1Navigation();\n  if (j1) return <button type="button" data-rail-toggle aria-label="Toggle main sidebar" title="Toggle main sidebar" aria-expanded={j1.sidebarOpen} onClick={() => j1Post({ type: "sidebar-toggle" })} className={bar ?? SIMPLE_TOP_TOGGLE} style={style}><RailStripIcon size={bar ? 15 : 18} /></button>;\n  if (!rail?.available) return null;\n  const label',
   );
   await change(
     "src/components/Sidebar.tsx",

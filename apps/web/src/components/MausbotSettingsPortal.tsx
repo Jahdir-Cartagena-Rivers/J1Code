@@ -5,6 +5,16 @@ export function useMausbotSettingsPortal(
   frame: RefObject<HTMLIFrameElement | null>,
   enabled: boolean,
 ) {
+  return useMausbotSlotPortal(frame, enabled, "[data-j1-settings-slot]", "settings");
+}
+
+/** Keep integrated navigation in the native document's scrolling and overlay stack. */
+export function useMausbotSlotPortal(
+  frame: RefObject<HTMLIFrameElement | null>,
+  enabled: boolean,
+  selector: string,
+  kind: "settings" | "navigation" | "footer",
+) {
   const [target, setTarget] = useState<HTMLElement | null>(null);
   useEffect(() => {
     if (!enabled) return;
@@ -19,7 +29,7 @@ export function useMausbotSettingsPortal(
       let mirrorStyles = () => {};
       let mirrorTheme = () => {};
       const sync = () => {
-        const next = source.querySelector<HTMLElement>("[data-j1-settings-slot]");
+        const next = source.querySelector<HTMLElement>(selector);
         if (next === slot) return;
         slot = next;
         if (!slot) {
@@ -32,8 +42,11 @@ export function useMausbotSettingsPortal(
         const styles = source.createElement("div");
         styles.dataset.j1SettingsStyles = "";
         const root = source.createElement("div");
-        root.dataset.mergedSettings = "";
-        root.className = "text-foreground";
+        if (kind === "settings") root.dataset.mergedSettings = "";
+        root.className =
+          kind === "navigation"
+            ? "merged-j1-navigation bg-sidebar text-sidebar-foreground"
+            : "text-foreground";
         shadow.replaceChildren(styles, root);
         mirrorStyles = () => {
           styles.replaceChildren(
@@ -76,6 +89,6 @@ export function useMausbotSettingsPortal(
       iframe.removeEventListener("load", connect);
       detach();
     };
-  }, [frame, enabled]);
+  }, [frame, enabled, selector, kind]);
   return enabled ? target : null;
 }

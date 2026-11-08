@@ -3763,7 +3763,6 @@ export default function LegacySidebar({ embedded = false }: { embedded?: boolean
         <SidebarThreadDetailPrewarmer key={scopedThreadKey(threadRef)} threadRef={threadRef} />
       ))}
       {!embedded && <SidebarChromeHeader isElectron={isElectron} />}
-      {embedded && <div className="px-3 py-1 text-xs text-sidebar-muted-foreground">Chats</div>}
       {LEGACY_BOTS_ENABLED ? <SidebarBots /> : null}
 
       <SidebarProjectsContent

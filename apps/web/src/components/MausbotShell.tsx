@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { resolveAssetUrl } from "../assets/assetUrls";
-import { useEnvironment, usePrimaryEnvironmentId } from "../state/environments";
+import { useEnvironment, useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import { useActiveEnvironmentId, setActiveEnvironmentId, readThreadShell } from "../state/entities";
 import { usePreparedConnection } from "../state/session";
 import { openMausbot, setMausbotApprovalMode } from "../state/mausbot";
@@ -33,7 +33,7 @@ import { SETTINGS_SECTION_LABELS, searchSettings } from "./settings/settingsSear
 import { useAvailableSettingsSearchItems } from "./settings/useAvailableSettingsSearchItems";
 import { useNavigateToMainApp } from "./sidebar/mainAppLocation";
 import { createPortal } from "react-dom";
-import { useMausbotSettingsPortal } from "./MausbotSettingsPortal";
+import { useMausbotSettingsPortal, useMausbotSlotPortal } from "./MausbotSettingsPortal";
 import { PortalContainer } from "./ui/portal-container";
 import { MAUSBOT_THEME_ROLES } from "@t3tools/shared/mausbotAppearance";
 import { getThemeColorVariable, setWorkspaceThemes } from "../themePalette";
@@ -61,6 +61,7 @@ type ProjectBounds = {
   clipBottom: number;
 };
 type ShellBounds = {
+  overlays: { left: number; top: number; width: number; height: number }[];
   left: number;
   top: number;
   projects: ProjectBounds | null;
@@ -70,6 +71,22 @@ type ShellBounds = {
   settingsCovered: boolean;
   main: { left: number; top: number; width: number; height: number } | null;
 };
+/** Leave native popovers unobstructed where their iframe overlaps a host-rendered pane. */
+function nativeOverlayClip(
+  box: { left: number; top: number; width: number; height: number },
+  overlays: ShellBounds["overlays"],
+) {
+  const holes = overlays.flatMap((rect) => {
+    const left = Math.max(0, rect.left - box.left - 8);
+    const right = Math.min(box.width, rect.left + rect.width - box.left + 8);
+    const top = Math.max(0, rect.top - box.top - 8);
+    const bottom = Math.min(box.height, rect.top + rect.height - box.top + 8);
+    return right > left && bottom > top ? [`M${left} ${top}H${right}V${bottom}H${left}Z`] : [];
+  });
+  return holes.length
+    ? `path(evenodd, "M0 0H${box.width}V${box.height}H0Z${holes.join("")}")`
+    : undefined;
+}
 const WorkspaceState = createContext({
   error: "",
   busy: false,
@@ -104,6 +121,7 @@ export function MausbotShell({
   const pathname = useLocation({ select: (location) => location.pathname });
   const searchStr = useLocation({ select: (location) => location.searchStr });
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const { environments } = useEnvironments();
   const activeEnvironmentId = useActiveEnvironmentId();
   const requestedEnvironment =
     pathname === "/assistants" ? new URLSearchParams(searchStr).get("environmentId") : null;
@@ -136,8 +154,9 @@ export function MausbotShell({
   const settingsSearchItems = useAvailableSettingsSearchItems();
   const { refreshTheme } = useTheme();
   const chatWidth = useClientSettings((settings) => settings.chatWidth);
-  const { open: sidebarOpen, openMobile, setOpenMobile } = useSidebar();
+  const { open: sidebarOpen, openMobile, setOpenMobile, toggleSidebar } = useSidebar();
   const frame = useRef<HTMLIFrameElement>(null);
+  const shell = useRef<HTMLDivElement>(null);
   const projectContent = useRef<HTMLDivElement>(null);
   const footerContent = useRef<HTMLDivElement>(null);
   const settingsContent = useRef<HTMLDivElement>(null);
@@ -162,7 +181,40 @@ export function MausbotShell({
   const key = environmentId && base ? `${environmentId}:${base}` : "";
   const current = view?.key === key ? view : null;
   const ready = enabled && current !== null && bounds !== null;
+  const initializing = !error && (!environment?.serverConfig || (enabled && !ready));
   const settingsPortal = useMausbotSettingsPortal(frame, ready && frameAccess);
+  const projectPortal = useMausbotSlotPortal(
+    frame,
+    ready && frameAccess,
+    "[data-j1-project-slot]",
+    "navigation",
+  );
+  const footerPortal = useMausbotSlotPortal(
+    frame,
+    ready && frameAccess,
+    "[data-j1-footer-slot]",
+    "footer",
+  );
+  useEffect(() => {
+    if (!ready) return;
+    const root = document.documentElement;
+    const previous = root.style.getPropertyValue("--workspace-controls-top");
+    const measure = () =>
+      root.style.setProperty(
+        "--workspace-controls-top",
+        `${(shell.current?.getBoundingClientRect().top ?? 0) + (bounds?.main?.top ?? bounds?.top ?? 0)}px`,
+      );
+    measure();
+    const observer = new ResizeObserver(measure);
+    if (shell.current) observer.observe(shell.current);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+      if (previous) root.style.setProperty("--workspace-controls-top", previous);
+      else root.style.removeProperty("--workspace-controls-top");
+    };
+  }, [ready, bounds?.top, bounds?.main?.top]);
   const settingsOverlay = Boolean(
     ready && !frameAccess && pathname.startsWith("/settings/") && bounds?.settings,
   );
@@ -199,7 +251,7 @@ export function MausbotShell({
     if (settingsOverlay && settingsContent.current) observer.observe(settingsContent.current);
     measure();
     return () => observer.disconnect();
-  }, [projectsMounted, footerMounted, settingsOverlay]);
+  }, [projectsMounted, footerMounted, settingsOverlay, projectPortal, footerPortal]);
   const scrollSettings = useCallback(
     (delta: number) => {
       if (current)
@@ -225,7 +277,7 @@ export function MausbotShell({
     const contents = [projectContent.current].filter(
       (node): node is HTMLDivElement => node !== null,
     );
-    if (!projectsMounted) return;
+    if (!projectsMounted || projectPortal) return;
     const wheel = (event: WheelEvent) => {
       if (event.ctrlKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
       event.preventDefault();
@@ -260,7 +312,7 @@ export function MausbotShell({
         content.removeEventListener("touchmove", touchMove);
       }
     };
-  }, [projectsMounted, scrollNavigation]);
+  }, [projectsMounted, scrollNavigation, projectPortal]);
   const searches = useRef(
     new Map<
       string,
@@ -355,6 +407,12 @@ export function MausbotShell({
               }
             : {}),
           sidebarOpen,
+          places: environments.map((item) => ({
+            id: item.environmentId,
+            label: item.environmentId === primaryEnvironmentId ? "This computer" : item.label,
+            connected: item.connection.phase === "connected",
+          })),
+          placeId: environmentId,
           mobileOpen: openMobile,
           nativeHost,
           appearance: {
@@ -389,6 +447,9 @@ export function MausbotShell({
     slotHeights,
     chatWidth,
     frameAccess,
+    environments,
+    environmentId,
+    primaryEnvironmentId,
   ]);
   useEffect(() => {
     const observer = new MutationObserver(post);
@@ -574,6 +635,19 @@ export function MausbotShell({
         handshake.current = null;
         setError("");
         setBounds({
+          overlays: Array.isArray(data.overlays)
+            ? data.overlays
+                .slice(0, 16)
+                .filter((rect: unknown): rect is ShellBounds["overlays"][number] =>
+                  Boolean(
+                    rect &&
+                    typeof rect === "object" &&
+                    ["left", "top", "width", "height"].every((key) =>
+                      finite((rect as Record<string, unknown>)[key]),
+                    ),
+                  ),
+                )
+            : [],
           left: Math.max(0, data.left),
           top: Math.max(0, data.top),
           modal: data.modal === true,
@@ -588,6 +662,14 @@ export function MausbotShell({
         });
       } else if (data.type === "native") {
         void navigate({ to: "/assistants", search: environmentId ? { environmentId } : {} });
+      } else if (data.type === "sidebar-toggle") {
+        toggleSidebar();
+      } else if (data.type === "place" && typeof data.id === "string") {
+        const selected = environments.find((item) => item.environmentId === data.id);
+        if (selected) {
+          setActiveEnvironmentId(selected.environmentId);
+          void navigate({ to: "/assistants", search: { environmentId: selected.environmentId } });
+        }
       } else if (data.type === "sidebar" && typeof data.open === "boolean") {
         setOpenMobile(data.open);
       } else if (data.type === "navigate" && data.path === "/") {
@@ -615,6 +697,8 @@ export function MausbotShell({
     settingsSearchItems,
     refreshTheme,
     settingsOverlay,
+    environments,
+    toggleSidebar,
   ]);
   const settingsHosted =
     ready && pathname.startsWith("/settings/") && (settingsPortal !== null || settingsOverlay);
@@ -634,9 +718,18 @@ export function MausbotShell({
   return (
     <WorkspaceState value={workspace}>
       <div
+        ref={shell}
         className="relative flex h-full min-h-0 min-w-0 flex-1 overflow-clip"
         data-mausbot-shell={
-          !enabled ? "unsupported" : error ? "failed" : ready ? "ready" : "loading"
+          initializing
+            ? "loading"
+            : !enabled
+              ? "unsupported"
+              : error
+                ? "failed"
+                : ready
+                  ? "ready"
+                  : "loading"
         }
       >
         {current && (
@@ -670,8 +763,40 @@ export function MausbotShell({
             style={{ visibility: ready ? "visible" : "hidden" }}
           />
         )}
-        {!ready && sidebar}
-        {ready && bounds.projects && sidebarOpen && (
+        {!ready && !initializing && sidebar}
+        {initializing && (
+          <div
+            role="status"
+            className="absolute inset-0 z-30 flex items-center justify-center bg-background text-sm text-muted-foreground"
+          >
+            Opening workspace…
+          </div>
+        )}
+        {projectPortal &&
+          sidebarOpen &&
+          createPortal(
+            <PortalContainer value={projectPortal}>
+              <div
+                ref={projectContent}
+                data-merged-project-navigation
+                className="flex shrink-0 flex-col"
+              >
+                {navigation}
+              </div>
+            </PortalContainer>,
+            projectPortal,
+          )}
+        {footerPortal &&
+          sidebarOpen &&
+          createPortal(
+            <PortalContainer value={footerPortal}>
+              <div ref={footerContent} data-merged-j1-utilities>
+                {footer}
+              </div>
+            </PortalContainer>,
+            footerPortal,
+          )}
+        {ready && !projectPortal && bounds.projects && sidebarOpen && (
           <div
             data-merged-project-navigation
             className="merged-j1-navigation absolute z-20 flex min-h-0 flex-col overflow-clip bg-sidebar text-sidebar-foreground"
@@ -711,7 +836,7 @@ export function MausbotShell({
             </div>
           </div>
         )}
-        {ready && bounds.footer && sidebarOpen && (
+        {ready && !footerPortal && bounds.footer && sidebarOpen && (
           <div
             data-merged-j1-utilities
             className="absolute z-20 bg-sidebar text-sidebar-foreground"
@@ -751,6 +876,7 @@ export function MausbotShell({
                           top: bounds.main.top,
                           width: bounds.main.width,
                           height: bounds.main.height,
+                          clipPath: nativeOverlayClip(bounds.main, bounds.overlays),
                         }
                       : { inset: `${bounds.top}px 0 0 ${bounds.left}px` }),
                   visibility: pathname.startsWith("/settings/")
@@ -761,7 +887,9 @@ export function MausbotShell({
                       ? "hidden"
                       : "visible",
                 }
-              : undefined
+              : initializing
+                ? { visibility: "hidden" }
+                : undefined
           }
         >
           {settingsPortal && settingsHosted ? (

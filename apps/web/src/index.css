@@ -1,6 +1,12 @@
 @import "tailwindcss";
 @import "./vendor/mausbot/foundation.css";
 
+/* The native frame supplies the merged workspace's own sidebar control. */
+[data-mausbot-shell]:not([data-mausbot-shell="unsupported"]):not([data-mausbot-shell="failed"])
+  ~ [data-sidebar-control] {
+  display: none;
+}
+
 @custom-variant dark (&:is(.dark, .dark *));
 @custom-variant light (&:not(.dark, .dark *));
 /* Window Controls Overlay: active when Electron exposes native titlebar control geometry. */

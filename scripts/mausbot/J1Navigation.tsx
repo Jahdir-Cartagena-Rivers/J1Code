@@ -2,12 +2,17 @@
 import { useEffect, useRef, useState } from "react";
 import { openBot, openBotThread, useStore } from "@/state/store";
 import { applyJ1Appearance, nativeSkinCatalog, nativeFontCatalog } from "./J1Appearance";
+import { setHostAdvancedMode } from "@/lib/interface-mode";
+import { ChevronDown, Laptop } from "lucide-react";
+import { SidebarPopoverMenu } from "./SidebarPopoverMenu";
 
 type Navigation = {
   active: string;
   conversation?: { botId?: string | null; threadId?: string | null };
   sidebarOpen: boolean;
   mobileOpen: boolean;
+  places?: { id: string; label: string; connected: boolean }[];
+  placeId?: string;
   appearance?: unknown;
   settingsHeight?: number;
   settingsPresentation?: "portal" | "overlay";
@@ -27,6 +32,7 @@ if (typeof window !== "undefined")
       typeof value.active !== "string"
     )
       return;
+    setHostAdvancedMode(true);
     navigation = value;
     for (const listener of listeners) listener();
   });
@@ -93,6 +99,7 @@ if (typeof window !== "undefined" && window.parent !== window && configuredOrigi
     if (!value || typeof value.active !== "string" || typeof value.sidebarOpen !== "boolean")
       return;
     parentOrigin = event.origin;
+    setHostAdvancedMode(true);
     navigation = value;
     applyJ1Appearance(value.appearance);
     document.documentElement.dataset.j1View = ["/", "/assistants"].includes(value.active)
@@ -111,6 +118,11 @@ export function J1ShellBridge() {
   const openedChief = useRef(false);
   const openedConversation = useRef("");
   const connected = Boolean(currentNavigation);
+  const previousView = useRef(state.activeView);
+  useEffect(() => {
+    if (previousView.current !== state.activeView && currentNavigation) j1Post({ type: "native" });
+    previousView.current = state.activeView;
+  }, [state.activeView, currentNavigation]);
   useEffect(() => {
     if (connected)
       j1Post({ type: "skin-catalog", skins: nativeSkinCatalog(), fonts: nativeFontCatalog() });
@@ -176,6 +188,13 @@ export function J1ShellBridge() {
         modal: [...document.querySelectorAll('[aria-modal="true"]')].some(
           (node) => node.getClientRects().length > 0,
         ),
+        overlays: [
+          ...document.querySelectorAll('[role="menu"], [role="listbox"], [data-thread-overlay]'),
+        ]
+          .map((node) => node.getBoundingClientRect())
+          .filter((rect) => rect.width > 0 && rect.height > 0)
+          .slice(0, 16)
+          .map(({ left, top, width, height }) => ({ left, top, width, height })),
         settings: settingsRect
           ? {
               left: settingsRect.left,
@@ -247,6 +266,10 @@ export function J1ShellBridge() {
       if (settings) resize.observe(settings);
       const footer = document.querySelector("[data-j1-footer-slot]");
       if (footer) resize.observe(footer);
+      for (const popup of document.querySelectorAll(
+        '[role="menu"], [role="listbox"], [data-thread-overlay]',
+      ))
+        resize.observe(popup);
       // MutationObserver already batches DOM commits. Critical slot geometry must
       // also arrive when Chromium suspends animation frames in a hidden view.
       report();
@@ -262,13 +285,18 @@ export function J1ShellBridge() {
       const target = event.target instanceof Element ? event.target : null;
       if (target?.closest("[data-j1-navigation], [data-j1-shared-search]")) return;
       // Original sidebar, command palette and overlays retain upstream navigation behavior.
-      if (target?.closest("[data-sidebar], [data-sidebar-rail], [data-window-frame-bar]")) {
+      if (
+        target?.closest(
+          "[data-sidebar-bot-row], [data-sidebar-group-row], [data-sidebar-hero], [data-bot-actions], [data-sidebar-thread-row], [data-sidebar-nav], [data-sidebar-top-buttons]",
+        )
+      ) {
         if (navigation) navigation = { ...navigation, active: "/assistants" };
         for (const listener of listeners) listener();
         j1Post({ type: "native" });
       }
     };
     document.addEventListener("click", activate, true);
+    document.addEventListener("contextmenu", activate, true);
     report();
     return () => {
       resize.disconnect();
@@ -278,6 +306,7 @@ export function J1ShellBridge() {
       window.removeEventListener("j1-navigation", acknowledge);
       sidebar?.removeEventListener("transitionend", report);
       document.removeEventListener("click", activate, true);
+      document.removeEventListener("contextmenu", activate, true);
     };
   }, []);
   return null;
@@ -309,6 +338,63 @@ export function J1Footer() {
       className="shrink-0"
       style={{ height: 32, width: 108 }}
       aria-label="J1 utilities"
+    />
+  );
+}
+
+/** Uses the original native menu with J1's existing environment catalog and connection controls. */
+export function J1WorkspaceSwitcher({
+  compact = false,
+  rail = false,
+  pill = false,
+}: {
+  compact?: boolean;
+  rail?: boolean;
+  pill?: boolean;
+}) {
+  const value = useJ1Navigation();
+  if (!value?.places) return null;
+  const places = value.places ?? [];
+  const selected = places.find((place) => place.id === value.placeId);
+  return (
+    <SidebarPopoverMenu
+      ariaLabel="Choose workspace"
+      triggerTitle={selected?.label ?? "Workspace"}
+      placement="above"
+      align="end"
+      items={[
+        ...places.map((place) => ({
+          key: place.id,
+          label: place.label,
+          checked: place.id === value.placeId,
+          subtitle: place.connected ? undefined : "Disconnected",
+          onSelect: () => j1Post({ type: "place", id: place.id }),
+        })),
+        {
+          key: "connect",
+          label: "Connect to a server…",
+          separatorBefore: true,
+          onSelect: () => j1Post({ type: "settings-navigate", path: "/settings/connections" }),
+        },
+      ]}
+      triggerClassName="pointer-events-auto min-w-0"
+      renderTrigger={() => (
+        <span
+          className={
+            compact || rail
+              ? "flex size-9 items-center justify-center rounded-xl text-ink-secondary hover:bg-raised/60 hover:text-ink"
+              : `flex h-8 min-w-0 items-center gap-1.5 text-[13px] text-ink ${pill ? "rounded-full bg-raised/50 px-3" : "px-1.5"}`
+          }
+        >
+          <Laptop size={compact || rail ? 18 : 14} className="shrink-0" />
+          {!compact && !rail && (
+            <>
+              <span className="truncate">{selected?.label ?? "Workspace"}</span>
+              <ChevronDown size={11} className="shrink-0" />
+            </>
+          )}
+        </span>
+      )}
     />
   );
 }

@@ -5,3 +5,5 @@
 *.bat text eol=crlf
 # Preserve whitespace in upstream license notices.
 third_party/mausbot/cua-driver-windows/*.txt -whitespace
+# Unified diffs preserve the space prefix on empty context lines.
+scripts/mausbot/upstream/*.patch whitespace=-blank-at-eol

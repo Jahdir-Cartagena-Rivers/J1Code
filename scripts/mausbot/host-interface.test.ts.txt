@@ -1,0 +1,16 @@
+import { afterEach, expect, it, vi } from "vitest";
+import { readAdvancedMode, setHostAdvancedMode } from "./interface-mode";
+
+afterEach(() => { setHostAdvancedMode(false); vi.unstubAllGlobals(); });
+
+it("exposes merged controls even if standalone onboarding saved simple mode, without replacing that choice", () => {
+  const getItem = vi.fn(() => "0");
+  const setItem = vi.fn();
+  vi.stubGlobal("localStorage", { getItem, setItem });
+  expect(readAdvancedMode()).toBe(false);
+  setHostAdvancedMode(true);
+  expect(readAdvancedMode()).toBe(true);
+  expect(setItem).not.toHaveBeenCalled();
+  setHostAdvancedMode(false);
+  expect(readAdvancedMode()).toBe(false);
+});
