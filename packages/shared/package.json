@@ -52,6 +52,10 @@
       "types": "./src/themePalettes.ts",
       "import": "./src/themePalettes.ts"
     },
+    "./mausbotAppearance": {
+      "types": "./src/mausbotAppearance.ts",
+      "import": "./src/mausbotAppearance.ts"
+    },
     "./themePreview": {
       "types": "./src/themePreview.ts",
       "import": "./src/themePreview.ts"

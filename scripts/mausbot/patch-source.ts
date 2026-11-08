@@ -124,6 +124,8 @@ export async function patchMausbotSource(stage: string) {
   );
   await copy("scripts/mausbot/J1Navigation.tsx", "src/components/J1Navigation.tsx");
   await copy("scripts/mausbot/J1SearchBridge.tsx", "src/components/J1SearchBridge.tsx");
+  await copy("scripts/mausbot/J1Appearance.ts", "src/components/J1Appearance.ts");
+  await copy("packages/shared/src/mausbotAppearance.ts", "shared/j1-appearance.ts");
   await copy("scripts/mausbot/J1Settings.tsx", "src/components/J1Settings.tsx");
   await change(
     "src/components/SidebarProfileMenu.tsx",
@@ -164,7 +166,7 @@ export async function patchMausbotSource(stage: string) {
   await change(
     "src/components/SettingsModal.tsx",
     'import { t } from "@/lib/i18n";',
-    'import { t } from "@/lib/i18n";\nimport { J1SettingsLinks, J1SettingsSlot } from "./J1Settings";\nimport { useJ1Navigation, j1Post, j1SettingsClosed, j1NativeSettings } from "./J1Navigation";',
+    'import { t } from "@/lib/i18n";\nimport { J1SettingsLinks, J1SettingsSlot, j1SettingsSection, j1SettingsPath, j1SettingsLabel, j1OpenSettings, j1ExtraPages, j1Focusable, j1ActiveElement, j1SettingsPopupOpen } from "./J1Settings";\nimport { useJ1Navigation, j1Post, j1SettingsClosed } from "./J1Navigation";',
   );
   await change(
     "src/components/SettingsModal.tsx",
@@ -184,17 +186,17 @@ export async function patchMausbotSource(stage: string) {
   await change(
     "src/components/SettingsModal.tsx",
     '  const openSection = (id: AppSettingsSection) => dispatch({ type: "toggleAppSettings", open: true, section: id });',
-    '  const openSection = (id: AppSettingsSection) => { j1NativeSettings(); dispatch({ type: "toggleAppSettings", open: true, section: id }); };',
+    '  const openSection = (id: AppSettingsSection) => { if (j1Navigation) j1OpenSettings(id); dispatch({ type: "toggleAppSettings", open: true, section: id }); };',
   );
   await change(
     "src/components/SettingsModal.tsx",
     '          {keyResultButtons("cursor-pointer flex min-h-9',
-    '          <J1SettingsLinks query={query} />\n          {keyResultButtons("cursor-pointer flex min-h-9',
+    '          {keyResultButtons("cursor-pointer flex min-h-9',
   );
   await change(
     "src/components/SettingsModal.tsx",
     "              value={section}",
-    "              value={j1Path ? `j1:${j1Path}` : section}",
+    "              value={j1Path && !j1SettingsSection(j1Path) ? `j1:${j1Path}` : section}",
   );
   await change(
     "src/components/SettingsModal.tsx",
@@ -203,18 +205,117 @@ export async function patchMausbotSource(stage: string) {
   );
   await change(
     "src/components/SettingsModal.tsx",
-    '            </Select>\n            <span className="hidden text-[15px]',
-    '              {j1Navigation && <optgroup label="Chats and projects">{j1Navigation.settingsPages?.map((page) => <option key={page.path} value={`j1:${page.path}`}>{page.label}</option>)}</optgroup>}\n            </Select>\n            <span className="hidden text-[15px]',
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
     "              {sectionLabelKey ? t(sectionLabelKey) : null}",
-    "              {j1Label ?? (sectionLabelKey ? t(sectionLabelKey) : null)}",
+    "              {j1Path && !j1SettingsSection(j1Path) ? j1Label : sectionLabelKey ? j1Navigation ? j1SettingsLabel(section, t(sectionLabelKey)) : t(sectionLabelKey) : null}",
   );
   await change(
     "src/components/SettingsModal.tsx",
     "            <LicenseExpiryBanner config={state.config} />\n            {renderSection(section)}",
-    "            {j1Path ? <J1SettingsSlot /> : <><LicenseExpiryBanner config={state.config} />{renderSection(section)}</>}",
+    '            {j1Path === "/settings/appearance" && <J1SettingsSlot />}\n            {(!j1Path || Boolean(j1SettingsSection(j1Path))) && !(j1Navigation && section === "companion") && <><LicenseExpiryBanner config={state.config} />{renderSection(section)}</>}\n            {j1Path === "/settings/keybindings" && <><TalkShortcutRow /><SendKeyRow /></>}\n            {j1Path && j1Path !== "/settings/appearance" && <J1SettingsSlot />}',
+  );
+  await change(
+    "src/components/SettingsModal.tsx",
+    "            if (entries.length === 0) return null;",
+    "            if (entries.length === 0 && !j1ExtraPages(j1Navigation?.settingsPages, group.id).length) return null;",
+  );
+  await change(
+    "src/components/SettingsModal.tsx",
+    "                ))}\n              </div>",
+    "                ))}\n                <J1SettingsLinks query={query} group={group.id} />\n              </div>",
+  );
+  await change(
+    "src/components/SettingsModal.tsx",
+    "      const focusable = Array.from(\n        dialog.querySelectorAll<HTMLElement>(\n          'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex=\"-1\"])',\n        ),\n      ).filter((element) => element.checkVisibility());",
+    "      const focusable = j1Focusable(dialog);",
+  );
+  await change(
+    "src/components/SettingsModal.tsx",
+    "      const active = document.activeElement;",
+    "      const active = j1ActiveElement();",
+  );
+  await change(
+    "src/components/SettingsModal.tsx",
+    "!dialog.contains(active)",
+    "!dialog.contains(active?.getRootNode() instanceof ShadowRoot ? (active.getRootNode() as ShadowRoot).host : active)",
+  );
+  await change(
+    "src/components/SettingsModal.tsx",
+    '      if (event.key === "Escape") {',
+    '      if (event.key === "Escape" && j1SettingsPopupOpen(dialog)) return;\n      if (event.key === "Escape") {',
+  );
+  await change(
+    "src/components/SettingsModal.tsx",
+    "  const q = query.trim().toLowerCase();",
+    "  useEffect(() => { if (j1Navigation && !j1Path && j1SettingsPath(section)) j1OpenSettings(section); }, [j1Navigation, j1Path, section]);\n  const q = query.trim().toLowerCase();",
+  );
+  for (const row of [
+    "ThemeRow",
+    "ChatWidthRow",
+    "OpenAtLoginRow",
+    "UpdatesConsentRow",
+    "UpdatesRow",
+    "DiagnosticsRow",
+    "AutomaticRecoverySettings",
+    "ThreadCleanupSettings",
+    "AttachmentStorageSettings",
+    "TalkShortcutRow",
+    "SendKeyRow",
+  ]) {
+    await change(
+      "src/components/SettingsModal.tsx",
+      `            <${row} />`,
+      `            {!j1Navigation && <${row} />}`,
+    );
+  }
+  await change(
+    "src/components/SettingsModal.tsx",
+    "                    {entries.map(({ id, labelKey }) => (\n                      <option key={id} value={id}>{t(labelKey)}</option>\n                    ))}",
+    "                    {entries.map(({ id, labelKey }) => (\n                      <option key={id} value={id}>{j1Navigation ? j1SettingsLabel(id, t(labelKey)) : t(labelKey)}</option>\n                    ))}\n                    {j1ExtraPages(j1Navigation?.settingsPages, group.id).map((page) => <option key={page.path} value={`j1:${page.path}`}>{page.label}</option>)}",
+  );
+  await change(
+    "src/components/SettingsModal.tsx",
+    "                    {t(labelKey)}",
+    "                    {j1Navigation ? j1SettingsLabel(id, t(labelKey)) : t(labelKey)}",
+  );
+  await change(
+    "src/components/SettingsModal.tsx",
+    '      case "backups": return <AdminOnly><WorkspaceBackupSettings /><CompanyBackupSettings /></AdminOnly>;',
+    '      case "backups": return <AdminOnly>{j1Navigation && <><AutomaticRecoverySettings /><ThreadCleanupSettings /><AttachmentStorageSettings /></>}<WorkspaceBackupSettings /><CompanyBackupSettings /></AdminOnly>;',
+  );
+  await change(
+    "src/components/SettingsModal.tsx",
+    "        return <><BuiltInBrowserRow /><ServerSitesRow /><BrowserProfilesRow /><AdminOnly><LocalComputerSection /></AdminOnly></>;",
+    "        return <>{!j1Navigation && <><BuiltInBrowserRow /><ServerSitesRow /><BrowserProfilesRow /></>}<AdminOnly><LocalComputerSection /></AdminOnly></>;",
+  );
+  await change(
+    "src/components/SettingsModal.tsx",
+    '    if (nextVisibleSection) dispatch({ type: "toggleAppSettings", open: true, section: nextVisibleSection });',
+    '    if (nextVisibleSection && !j1Path) dispatch({ type: "toggleAppSettings", open: true, section: nextVisibleSection });',
+  );
+  await change(
+    "src/components/SettingsModal.tsx",
+    "  }, [dispatch, nextVisibleSection]);",
+    "  }, [dispatch, nextVisibleSection, j1Path]);",
+  );
+  await change(
+    "src/components/SkinPicker.tsx",
+    'import { Check } from "lucide-react";',
+    'import { Check } from "lucide-react";\nimport { useJ1Navigation } from "./J1Navigation";',
+  );
+  await change(
+    "src/components/SkinPicker.tsx",
+    "  const active = resolveSkin(useSkinChoice());",
+    '  const active = resolveSkin(useSkinChoice());\n  const merged = Boolean(useJ1Navigation());\n  if (merged) return active === "halloween" ? <DressUpRow /> : null;',
+  );
+  await change(
+    "src/components/SettingsModal.tsx",
+    '            <Card title={t("settings.skin.title")} subtitle={t("settings.skin.subtitle")}>\n              <SkinPicker />\n            </Card>',
+    '            {j1Navigation ? <SkinPicker /> : <Card title={t("settings.skin.title")} subtitle={t("settings.skin.subtitle")}>\n              <SkinPicker />\n            </Card>}',
+  );
+  await change(
+    "src/components/SettingsModal.tsx",
+    "            <FontRow />",
+    "            {!j1Navigation && <FontRow />}",
   );
   await change(
     "src/lib/interface-mode.ts",
@@ -225,7 +326,7 @@ export async function patchMausbotSource(stage: string) {
   await change(
     "src/components/Sidebar.tsx",
     "export function Sidebar({",
-    'import { J1Navigation, J1Footer, useJ1Navigation, j1Post } from "./J1Navigation";\nexport function Sidebar({',
+    'import { J1Navigation, useJ1Navigation, j1Post } from "./J1Navigation";\nexport function Sidebar({',
   );
   await change(
     "src/components/Sidebar.tsx",
@@ -273,9 +374,29 @@ export async function patchMausbotSource(stage: string) {
     "data-j1-shared-search onClick={railSearch}",
   );
   await change(
+    "src/components/SidebarFooterNav.tsx",
+    "import { SidebarSectionHeader }",
+    'import { J1Footer } from "./J1Navigation";\nimport { SidebarSectionHeader }',
+  );
+  await change(
+    "src/components/SidebarFooterNav.tsx",
+    "      <SidebarAppsButton />",
+    "      <J1Footer />\n      <SidebarAppsButton />",
+  );
+  await change(
     "src/components/Sidebar.tsx",
-    "      {rail ? <SimpleRailFooter",
-    "      <J1Footer />\n      {rail ? <SimpleRailFooter",
+    "  const avatarSize = iconOnly",
+    "  const merged = Boolean(useJ1Navigation());\n  const avatarSize = merged && !iconOnly ? 32 : iconOnly",
+  );
+  await change(
+    "src/components/Sidebar.tsx",
+    '    !iconOnly && "max-md:rounded-2xl max-md:py-2.5",',
+    '    !iconOnly && "max-md:rounded-2xl max-md:py-2.5",\n    merged && !iconOnly && "gap-2 py-1.5 max-md:py-1.5",',
+  );
+  await change(
+    "src/components/Sidebar.tsx",
+    'simpleRow ? "text-[14px] font-medium leading-5" : "text-[15px] font-semibold leading-5"',
+    'merged ? "text-[13px] font-medium leading-5" : simpleRow ? "text-[14px] font-medium leading-5" : "text-[15px] font-semibold leading-5"',
   );
   await change(
     "src/components/SettingsModal.tsx",
@@ -285,12 +406,12 @@ export async function patchMausbotSource(stage: string) {
   await change(
     "src/components/SettingsModal.tsx",
     'aria-current={section === id ? "page" : undefined}',
-    'aria-current={!j1Path && section === id ? "page" : undefined}',
+    'aria-current={(!j1Path || j1SettingsSection(j1Path) === id) && section === id ? "page" : undefined}',
   );
   await change(
     "src/components/SettingsModal.tsx",
     'section === id ? "bg-ink/[0.08]"',
-    '!j1Path && section === id ? "bg-ink/[0.08]"',
+    '(!j1Path || j1SettingsSection(j1Path) === id) && section === id ? "bg-ink/[0.08]"',
   );
   await change(
     "src/components/CommandPalette.tsx",
@@ -321,7 +442,7 @@ export async function patchMausbotSource(stage: string) {
   await change(
     "src/App.tsx",
     "  const { state, dispatch } = useStore();",
-    '  const { state, dispatch } = useStore();\n  const j1Navigation = useJ1Navigation();\n  const j1ShowingProject = Boolean(j1Navigation && j1Navigation.active !== "/assistants");',
+    '  const { state, dispatch } = useStore();\n  const j1Navigation = useJ1Navigation();\n  const j1ShowingProject = Boolean(j1Navigation && !["/", "/assistants"].includes(j1Navigation.active));',
   );
   await change(
     "src/App.tsx",
@@ -336,7 +457,7 @@ export async function patchMausbotSource(stage: string) {
   await change(
     "src/App.tsx",
     "  const [drawerOpen, setDrawerOpen] = useState(false);",
-    '  const [drawerOpen, setDrawerOpen] = useState(false);\n  useEffect(() => { if (j1Navigation && matchMedia("(max-width: 767px)").matches) setDrawerOpen(j1Navigation.mobileOpen); }, [j1Navigation?.mobileOpen]);\n  useEffect(() => { if (j1Navigation && j1Navigation.active !== "/assistants") setDrawerOpen(false); }, [j1Navigation?.active]);\n  useEffect(() => { j1Post({ type: "sidebar", open: drawerOpen }); }, [drawerOpen]);',
+    '  const [drawerOpen, setDrawerOpen] = useState(false);\n  useEffect(() => { if (j1Navigation && matchMedia("(max-width: 767px)").matches) setDrawerOpen(j1Navigation.mobileOpen); }, [j1Navigation?.mobileOpen]);\n  useEffect(() => { if (j1Navigation && !["/", "/assistants"].includes(j1Navigation.active)) setDrawerOpen(false); }, [j1Navigation?.active]);\n  useEffect(() => { j1Post({ type: "sidebar", open: drawerOpen }); }, [drawerOpen]);',
   );
   await change(
     "src/App.tsx",
@@ -361,7 +482,7 @@ export async function patchMausbotSource(stage: string) {
   await change(
     "src/App.tsx",
     "  const viewer = useWelcomeViewer();",
-    '  const viewer = useWelcomeViewer();\n  const j1Navigation = useJ1Navigation();\n  const showWelcome = !j1Navigation || j1Navigation.active === "/assistants";',
+    '  const viewer = useWelcomeViewer();\n  const j1Navigation = useJ1Navigation();\n  const showWelcome = !j1Navigation || ["/", "/assistants"].includes(j1Navigation.active);',
   );
   await change(
     "src/App.tsx",

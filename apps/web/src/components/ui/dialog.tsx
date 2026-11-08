@@ -1,5 +1,6 @@
 "use client";
 
+import { usePortalContainer } from "./portal-container";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { XIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
@@ -15,7 +16,10 @@ import { ScrollArea } from "~/components/ui/scroll-area";
 
 const Dialog = DialogPrimitive.Root;
 
-const DialogPortal = DialogPrimitive.Portal;
+function DialogPortal({ container, ...props }: DialogPrimitive.Portal.Props) {
+  const hosted = usePortalContainer();
+  return <DialogPrimitive.Portal container={container ?? hosted} {...props} />;
+}
 
 function DialogTrigger(props: DialogPrimitive.Trigger.Props) {
   return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />;

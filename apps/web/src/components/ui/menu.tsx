@@ -1,5 +1,6 @@
 "use client";
 
+import { usePortalContainer } from "./portal-container";
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { CheckIcon, ChevronRightIcon } from "lucide-react";
 import type * as React from "react";
@@ -36,7 +37,7 @@ function MenuPopup({
   keepMounted?: boolean;
 }) {
   return (
-    <MenuPrimitive.Portal keepMounted={keepMounted}>
+    <MenuPrimitive.Portal container={usePortalContainer()} keepMounted={keepMounted}>
       <MenuPrimitive.Positioner
         align={align}
         alignOffset={alignOffset}

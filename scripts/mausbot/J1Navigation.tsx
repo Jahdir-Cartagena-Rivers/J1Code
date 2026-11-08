@@ -1,10 +1,15 @@
 // J1's navigation is added to the real upstream sidebar; all Mausbot features keep their original handlers.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { openBot, useStore } from "@/state/store";
+import { applyJ1Appearance, nativeSkinCatalog, nativeFontCatalog } from "./J1Appearance";
 
 type Navigation = {
   active: string;
   sidebarOpen: boolean;
   mobileOpen: boolean;
+  appearance?: unknown;
+  settingsHeight?: number;
+  settingsPresentation?: "portal" | "overlay";
   settingsPages?: { path: string; label: string }[];
   projectsHeight?: number;
   footerHeight?: number;
@@ -60,6 +65,15 @@ if (typeof window !== "undefined" && window.parent !== window && configuredOrigi
         top: Math.max(-100_000, Math.min(100_000, event.data.delta)),
         behavior: "instant",
       });
+      window.dispatchEvent(new Event("j1-navigation"));
+      return;
+    }
+    if (event.data.type === "settings-scroll" && Number.isFinite(event.data.delta)) {
+      document.querySelector("[data-j1-settings-slot]")?.parentElement?.scrollBy({
+        top: Math.max(-100_000, Math.min(100_000, event.data.delta)),
+        behavior: "instant",
+      });
+      window.dispatchEvent(new Event("j1-navigation"));
       return;
     }
     const value = event.data.navigation;
@@ -67,7 +81,10 @@ if (typeof window !== "undefined" && window.parent !== window && configuredOrigi
       return;
     parentOrigin = event.origin;
     navigation = value;
-    document.documentElement.dataset.j1View = value.active === "/assistants" ? "native" : "project";
+    applyJ1Appearance(value.appearance);
+    document.documentElement.dataset.j1View = ["/", "/assistants"].includes(value.active)
+      ? "native"
+      : "project";
     for (const listener of listeners) listener();
     window.dispatchEvent(new Event("j1-navigation"));
   });
@@ -75,6 +92,25 @@ if (typeof window !== "undefined" && window.parent !== window && configuredOrigi
 
 /** Reports the actual upstream sidebar bounds, including its native resize/collapse behavior. */
 export function J1ShellBridge() {
+  const currentNavigation = useJ1Navigation();
+  const { state, dispatch } = useStore();
+  const chief = state.bots.find((bot) => bot.chiefOfStaff && !bot.hidden);
+  const openedChief = useRef(false);
+  const connected = Boolean(currentNavigation);
+  useEffect(() => {
+    if (connected)
+      j1Post({ type: "skin-catalog", skins: nativeSkinCatalog(), fonts: nativeFontCatalog() });
+  }, [connected]);
+  useEffect(() => {
+    if (currentNavigation?.active !== "/") {
+      openedChief.current = false;
+      return;
+    }
+    if (chief && !openedChief.current) {
+      openedChief.current = true;
+      openBot(dispatch, chief, false);
+    }
+  }, [currentNavigation?.active, chief, dispatch]);
   useEffect(() => {
     if (!configuredOrigin || window.parent === window) return;
     const sidebar = document.querySelector<HTMLElement>("[data-sidebar]");
@@ -90,6 +126,7 @@ export function J1ShellBridge() {
       const settings = document.querySelector<HTMLElement>("[data-j1-settings-slot]");
       const settingsRect = settings?.getBoundingClientRect();
       const settingsDialog = settings?.closest('[role="dialog"]');
+      const settingsViewport = settings?.parentElement?.getBoundingClientRect();
       const scrollRect = slot?.closest("[data-j1-sidebar-scroll]")?.getBoundingClientRect() ?? rect;
       const message = {
         source: "j1-mausbot",
@@ -114,18 +151,26 @@ export function J1ShellBridge() {
               top: settingsRect.top,
               width: settingsRect.width,
               height: settingsRect.height,
-              clipTop: 0,
-              clipBottom: 0,
+              clipTop: Math.max(0, (settingsViewport?.top ?? 0) - settingsRect.top),
+              clipBottom: Math.max(
+                0,
+                settingsRect.bottom - (settingsViewport?.bottom ?? innerHeight),
+              ),
             }
           : null,
         settingsCovered: Boolean(
           settingsRect &&
           [
-            [settingsRect.left + 2, settingsRect.top + 2],
-            [settingsRect.right - 2, settingsRect.bottom - 2],
+            [settingsRect.left + 2, Math.max(settingsRect.top, settingsViewport?.top ?? 0) + 2],
+            [
+              settingsRect.right - 2,
+              Math.min(settingsRect.bottom, settingsViewport?.bottom ?? innerHeight) - 2,
+            ],
             [
               settingsRect.left + settingsRect.width / 2,
-              settingsRect.top + settingsRect.height / 2,
+              (Math.max(settingsRect.top, settingsViewport?.top ?? 0) +
+                Math.min(settingsRect.bottom, settingsViewport?.bottom ?? innerHeight)) /
+                2,
             ],
           ].some(
             ([x, y]) =>
@@ -159,14 +204,9 @@ export function J1ShellBridge() {
     };
     const resize = new ResizeObserver(report);
     if (sidebar) resize.observe(sidebar);
-    let frame = 0;
-    const scroll = () => {
-      if (!frame)
-        frame = requestAnimationFrame(() => {
-          frame = 0;
-          report();
-        });
-    };
+    // Scroll events are already coalesced by the browser. An extra animation frame
+    // can be suspended in an embedded view while the host's form keeps receiving input.
+    const scroll = report;
     const mutation = new MutationObserver(() => {
       const slot = document.querySelector("[data-j1-project-slot]");
       if (slot) resize.observe(slot);
@@ -202,7 +242,6 @@ export function J1ShellBridge() {
     return () => {
       resize.disconnect();
       mutation.disconnect();
-      cancelAnimationFrame(frame);
       document.removeEventListener("scroll", scroll, true);
       window.removeEventListener("resize", report);
       window.removeEventListener("j1-navigation", acknowledge);
@@ -217,7 +256,7 @@ export function J1Navigation() {
   const value = useJ1Navigation();
   if (!value) return null;
   return (
-    <section data-j1-navigation className="px-3 pb-2" aria-label="J1 projects">
+    <section data-j1-navigation className="pb-2" aria-label="J1 projects">
       {value.sidebarOpen && (
         <div
           data-j1-project-slot
@@ -236,7 +275,8 @@ export function J1Footer() {
     <div
       data-j1-navigation
       data-j1-footer-slot
-      style={{ height: navigation.footerHeight ?? 40 }}
+      className="shrink-0"
+      style={{ height: 32, width: 108 }}
       aria-label="J1 utilities"
     />
   );

@@ -1,5 +1,6 @@
 "use client";
 
+import { usePortalContainer } from "./portal-container";
 import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox";
 import { ChevronsUpDownIcon, SearchIcon, XIcon } from "lucide-react";
 import * as React from "react";
@@ -154,7 +155,7 @@ function ComboboxPopup({
   const anchor = anchorProp ?? (multiple ? chipsRef : undefined);
 
   return (
-    <ComboboxPrimitive.Portal>
+    <ComboboxPrimitive.Portal container={usePortalContainer()}>
       <ComboboxPrimitive.Positioner
         align={align}
         alignOffset={alignOffset}

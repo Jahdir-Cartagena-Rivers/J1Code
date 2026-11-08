@@ -35,7 +35,7 @@ import LegacyThreadSidebar from "./LegacySidebar";
 import ThreadSidebar from "./Sidebar";
 import { MausbotShell } from "./MausbotShell";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
-import { SidebarChromeFooter, SidebarChromeHeader, SidebarHomeLink } from "./sidebar/SidebarChrome";
+import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { MainAppLocationTracker } from "./sidebar/mainAppLocation";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
 import { useProjects } from "../state/entities";
@@ -327,7 +327,6 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
               {isOnSettings ? (
                 <>
                   <SidebarChromeHeader isElectron={isElectron} />
-                  <SidebarHomeLink />
                   <SettingsSidebarNav pathname={pathname} />
                 </>
               ) : legacySidebarEnabled ? (

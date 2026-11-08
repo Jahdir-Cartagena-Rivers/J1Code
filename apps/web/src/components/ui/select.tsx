@@ -1,4 +1,5 @@
 "use client";
+import { usePortalContainer } from "./portal-container";
 import { mergeProps } from "@base-ui/react/merge-props";
 import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { useRender } from "@base-ui/react/use-render";
@@ -121,7 +122,7 @@ function SelectPopup({
   anchor?: SelectPrimitive.Positioner.Props["anchor"];
 }) {
   return (
-    <SelectPrimitive.Portal>
+    <SelectPrimitive.Portal container={usePortalContainer()}>
       <SelectPrimitive.Positioner
         align={align}
         alignItemWithTrigger={alignItemWithTrigger}

@@ -25,6 +25,16 @@ import { randomUUID } from "../lib/utils";
 import { SETTINGS_SECTION_LABELS, searchSettings } from "./settings/settingsSearch";
 import { useAvailableSettingsSearchItems } from "./settings/useAvailableSettingsSearchItems";
 import { useNavigateToMainApp } from "./sidebar/mainAppLocation";
+import { createPortal } from "react-dom";
+import { useMausbotSettingsPortal } from "./MausbotSettingsPortal";
+import { PortalContainer } from "./ui/portal-container";
+import { MAUSBOT_THEME_ROLES } from "@t3tools/shared/mausbotAppearance";
+import { getThemeColorVariable, setWorkspaceThemes } from "../themePalette";
+import { decodeMausbotThemes } from "./mausbotAppearance";
+import { useTheme } from "../hooks/useTheme";
+import { useClientSettings } from "../hooks/useSettings";
+import { installMausbotFonts } from "./mausbotFonts";
+import { useMausbotFrameScroll } from "./useMausbotFrameScroll";
 const decodeApprovalMode = Schema.decodeUnknownSync(MausbotApprovalModeInput);
 const settingsLabels = {
   ...SETTINGS_SECTION_LABELS,
@@ -34,12 +44,6 @@ const settingsLabels = {
 const settingsPages = Object.entries(settingsLabels).map(([path, label]) => ({ path, label }));
 const isSettingsPath = (value: unknown): value is keyof typeof settingsLabels =>
   typeof value === "string" && Object.hasOwn(settingsLabels, value);
-const settingsFocusSelector = ["button", "a[href]", "input", "select", "textarea", "[tabindex]"]
-  .map(
-    (tag) =>
-      `${tag}:not([disabled]):not([tabindex="-1"]):not([aria-hidden="true"]):not([type="hidden"])`,
-  )
-  .join(", ");
 
 type ProjectBounds = {
   left: number;
@@ -109,11 +113,19 @@ export function MausbotShell({
   const navigate = useNavigate();
   const navigateToMainApp = useNavigateToMainApp();
   const settingsSearchItems = useAvailableSettingsSearchItems();
+  const { refreshTheme } = useTheme();
+  const chatWidth = useClientSettings((settings) => settings.chatWidth);
   const { open: sidebarOpen, openMobile, setOpenMobile } = useSidebar();
   const frame = useRef<HTMLIFrameElement>(null);
   const projectContent = useRef<HTMLDivElement>(null);
   const footerContent = useRef<HTMLDivElement>(null);
-  const [slotHeights, setSlotHeights] = useState({ projectsHeight: 1, footerHeight: 40 });
+  const settingsContent = useRef<HTMLDivElement>(null);
+  const [frameAccess, setFrameAccess] = useState(false);
+  const [slotHeights, setSlotHeights] = useState({
+    projectsHeight: 1,
+    footerHeight: 32,
+    settingsHeight: 1,
+  });
   const handshake = useRef<number | null>(null);
   const [view, setView] = useState<{ key: string; url: string } | null>(null);
   const [bounds, setBounds] = useState<ShellBounds | null>(null);
@@ -129,10 +141,14 @@ export function MausbotShell({
   const key = environmentId && base ? `${environmentId}:${base}` : "";
   const current = view?.key === key ? view : null;
   const ready = enabled && current !== null && bounds !== null;
+  const settingsPortal = useMausbotSettingsPortal(frame, ready && frameAccess);
+  const settingsOverlay = Boolean(
+    ready && !frameAccess && pathname.startsWith("/settings/") && bounds?.settings,
+  );
   const projectsMounted = Boolean(ready && bounds?.projects && sidebarOpen);
   const footerMounted = Boolean(ready && bounds?.footer && sidebarOpen);
   useEffect(() => {
-    if (!projectsMounted && !footerMounted) return;
+    if (!projectsMounted && !footerMounted && !settingsOverlay) return;
     const measure = () => {
       const next = {
         projectsHeight: Math.max(
@@ -143,10 +159,15 @@ export function MausbotShell({
           1,
           Math.ceil(footerContent.current?.getBoundingClientRect().height ?? 40),
         ),
+        settingsHeight: Math.max(
+          1,
+          Math.ceil(settingsContent.current?.getBoundingClientRect().height ?? 1),
+        ),
       };
       setSlotHeights((previous) =>
         previous.projectsHeight === next.projectsHeight &&
-        previous.footerHeight === next.footerHeight
+        previous.footerHeight === next.footerHeight &&
+        previous.settingsHeight === next.settingsHeight
           ? previous
           : next,
       );
@@ -154,9 +175,21 @@ export function MausbotShell({
     const observer = new ResizeObserver(measure);
     if (projectContent.current) observer.observe(projectContent.current);
     if (footerContent.current) observer.observe(footerContent.current);
+    if (settingsOverlay && settingsContent.current) observer.observe(settingsContent.current);
     measure();
     return () => observer.disconnect();
-  }, [projectsMounted, footerMounted]);
+  }, [projectsMounted, footerMounted, settingsOverlay]);
+  const scrollSettings = useCallback(
+    (delta: number) => {
+      if (current)
+        frame.current?.contentWindow?.postMessage(
+          { source: "j1-host", type: "settings-scroll", delta },
+          new URL(current.url).origin,
+        );
+    },
+    [current],
+  );
+  useMausbotFrameScroll(settingsContent, settingsOverlay, scrollSettings);
   const scrollNavigation = useCallback(
     (delta: number) => {
       if (!current) return;
@@ -168,8 +201,10 @@ export function MausbotShell({
     [current],
   );
   useEffect(() => {
-    const content = projectContent.current;
-    if (!projectsMounted || !content) return;
+    const contents = [projectContent.current].filter(
+      (node): node is HTMLDivElement => node !== null,
+    );
+    if (!projectsMounted) return;
     const wheel = (event: WheelEvent) => {
       if (event.ctrlKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
       event.preventDefault();
@@ -192,13 +227,17 @@ export function MausbotShell({
       }
       touch = { x: point.clientX, y: point.clientY };
     };
-    content.addEventListener("wheel", wheel, { passive: false });
-    content.addEventListener("touchstart", touchStart, { passive: true });
-    content.addEventListener("touchmove", touchMove, { passive: false });
+    for (const content of contents) {
+      content.addEventListener("wheel", wheel, { passive: false });
+      content.addEventListener("touchstart", touchStart, { passive: true });
+      content.addEventListener("touchmove", touchMove, { passive: false });
+    }
     return () => {
-      content.removeEventListener("wheel", wheel);
-      content.removeEventListener("touchstart", touchStart);
-      content.removeEventListener("touchmove", touchMove);
+      for (const content of contents) {
+        content.removeEventListener("wheel", wheel);
+        content.removeEventListener("touchstart", touchStart);
+        content.removeEventListener("touchmove", touchMove);
+      }
     };
   }, [projectsMounted, scrollNavigation]);
   const searches = useRef(
@@ -279,6 +318,8 @@ export function MausbotShell({
   }, [ready, connected, searchCall]);
   const post = useCallback(() => {
     if (!current || !frame.current?.contentWindow) return;
+    const root = document.documentElement;
+    const colors = getComputedStyle(root);
     frame.current.contentWindow.postMessage(
       {
         source: "j1-host",
@@ -287,13 +328,34 @@ export function MausbotShell({
           sidebarOpen,
           mobileOpen: openMobile,
           nativeHost,
+          appearance: {
+            skin: root.dataset.themeId,
+            dark: root.classList.contains("dark"),
+            font: getComputedStyle(document.body).fontFamily,
+            mono: colors.getPropertyValue("--font-mono"),
+            chatWidth,
+            colors: Object.fromEntries(
+              Object.entries(MAUSBOT_THEME_ROLES).map(([role, token]) => [
+                token,
+                colors
+                  .getPropertyValue(getThemeColorVariable(role as keyof typeof MAUSBOT_THEME_ROLES))
+                  .trim() || colors.getPropertyValue(`--maus-${token}`).trim(),
+              ]),
+            ),
+          },
           settingsPages,
+          settingsPresentation: frameAccess ? "portal" : "overlay",
           ...slotHeights,
         },
       },
       new URL(current.url).origin,
     );
-  }, [current, pathname, sidebarOpen, openMobile, nativeHost, slotHeights]);
+  }, [current, pathname, sidebarOpen, openMobile, nativeHost, slotHeights, chatWidth, frameAccess]);
+  useEffect(() => {
+    const observer = new MutationObserver(post);
+    observer.observe(document.documentElement, { attributes: true });
+    return () => observer.disconnect();
+  }, [post]);
   useEffect(() => {
     if (!enabled || !connected || !environmentId || !base) return;
     let live = true;
@@ -391,6 +453,10 @@ export function MausbotShell({
       const data = event.data;
       if (data.type === "bootstrap") {
         post();
+      } else if (data.type === "skin-catalog") {
+        installMausbotFonts(data.fonts, current.url);
+        const themes = decodeMausbotThemes(data.skins);
+        if (themes.length && setWorkspaceThemes(themes)) refreshTheme({ preservePreview: true });
       } else if (data.type === "search-open") {
         openCommandPalette();
       } else if (data.type === "settings-navigate" && isSettingsPath(data.path)) {
@@ -403,10 +469,11 @@ export function MausbotShell({
         void navigate({ to: "/assistants" });
       } else if (data.type === "settings-close" && pathname.startsWith("/settings/")) {
         void navigateToMainApp();
-      } else if (data.type === "settings-focus" && pathname.startsWith("/settings/")) {
-        const content = document.querySelector("[data-merged-j1-content]");
+      } else if (data.type === "settings-focus" && settingsOverlay) {
         const controls = [
-          ...(content?.querySelectorAll<HTMLElement>(settingsFocusSelector) ?? []),
+          ...(settingsContent.current?.querySelectorAll<HTMLElement>(
+            "button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])",
+          ) ?? []),
         ].filter((node) => node.checkVisibility());
         (data.edge === "end" ? controls.at(-1) : controls[0])?.focus();
       } else if (
@@ -476,17 +543,16 @@ export function MausbotShell({
     navigateToMainApp,
     pathname,
     settingsSearchItems,
+    refreshTheme,
+    settingsOverlay,
   ]);
   const settingsHosted =
-    ready &&
-    pathname.startsWith("/settings/") &&
-    bounds?.settings !== null &&
-    bounds?.settings !== undefined;
+    ready && pathname.startsWith("/settings/") && (settingsPortal !== null || settingsOverlay);
   const workspace = useMemo(
     () => ({ error, busy, retry: () => setAttempt((value) => value + 1), settingsHosted }),
     [error, busy, settingsHosted],
   );
-  const native = pathname === "/assistants";
+  const native = pathname === "/assistants" || pathname === "/";
   return (
     <WorkspaceState value={workspace}>
       <div
@@ -504,6 +570,16 @@ export function MausbotShell({
             sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals allow-popups allow-popups-to-escape-sandbox"
             referrerPolicy="no-referrer"
             onLoad={() => {
+              try {
+                setFrameAccess(
+                  Boolean(
+                    frame.current?.contentDocument &&
+                    frame.current.contentDocument.URL !== "about:blank",
+                  ),
+                );
+              } catch {
+                setFrameAccess(false);
+              }
               setBounds(null);
               if (handshake.current !== null) window.clearTimeout(handshake.current);
               handshake.current = window.setTimeout(() => {
@@ -520,7 +596,7 @@ export function MausbotShell({
         {ready && bounds.projects && sidebarOpen && (
           <div
             data-merged-project-navigation
-            className="absolute z-20 flex min-h-0 flex-col overflow-clip bg-sidebar text-sidebar-foreground"
+            className="merged-j1-navigation absolute z-20 flex min-h-0 flex-col overflow-clip bg-sidebar text-sidebar-foreground"
             style={{
               left: bounds.projects.left,
               top: bounds.projects.top + bounds.projects.clipTop,
@@ -574,36 +650,22 @@ export function MausbotShell({
         <div
           data-merged-j1-content
           className="relative z-10 flex min-h-0 min-w-0 flex-1"
-          onKeyDownCapture={(event) => {
-            if (!settingsHosted || event.key !== "Tab" || !current) return;
-            const controls = [
-              ...event.currentTarget.querySelectorAll<HTMLElement>(settingsFocusSelector),
-            ].filter((node) => node.checkVisibility());
-            if (
-              (!event.shiftKey && event.target === controls.at(-1)) ||
-              (event.shiftKey && event.target === controls[0])
-            ) {
-              event.preventDefault();
-              frame.current?.contentWindow?.postMessage(
-                {
-                  source: "j1-host",
-                  type: "settings-focus-source",
-                  edge: event.shiftKey ? "end" : "start",
-                },
-                new URL(current.url).origin,
-              );
-            }
-          }}
           style={
             ready
               ? {
                   position: "absolute",
-                  ...(settingsHosted && bounds.settings
+                  ...(settingsOverlay && bounds.settings
                     ? {
                         left: bounds.settings.left,
-                        top: bounds.settings.top,
+                        top: bounds.settings.top + bounds.settings.clipTop,
                         width: bounds.settings.width,
-                        height: bounds.settings.height,
+                        height: Math.max(
+                          0,
+                          bounds.settings.height -
+                            bounds.settings.clipTop -
+                            bounds.settings.clipBottom,
+                        ),
+                        overflow: "clip",
                       }
                     : bounds.main
                       ? {
@@ -614,7 +676,7 @@ export function MausbotShell({
                         }
                       : { inset: `${bounds.top}px 0 0 ${bounds.left}px` }),
                   visibility: pathname.startsWith("/settings/")
-                    ? settingsHosted && !bounds.settingsCovered
+                    ? settingsOverlay && !bounds.settingsCovered
                       ? "visible"
                       : "hidden"
                     : native || bounds.modal
@@ -624,7 +686,72 @@ export function MausbotShell({
               : undefined
           }
         >
-          {children}
+          {settingsPortal && settingsHosted ? (
+            createPortal(
+              <PortalContainer value={settingsPortal ?? undefined}>{children}</PortalContainer>,
+              settingsPortal,
+            )
+          ) : (
+            <div
+              ref={settingsContent}
+              className="flex min-w-0 flex-1 flex-col"
+              style={
+                settingsOverlay && bounds?.settings
+                  ? {
+                      flex: "none",
+                      alignSelf: "flex-start",
+                      display: "block",
+                      width: "100%",
+                      transform: `translateY(-${bounds.settings.clipTop}px)`,
+                    }
+                  : undefined
+              }
+              onFocusCapture={(event) => {
+                if (!settingsOverlay || !bounds?.settings) return;
+                const rect = event.target.getBoundingClientRect(),
+                  top = bounds.settings.top + bounds.settings.clipTop,
+                  bottom =
+                    bounds.settings.top + bounds.settings.height - bounds.settings.clipBottom;
+                if (rect.top < top) scrollSettings(rect.top - top);
+                else if (rect.bottom > bottom) scrollSettings(rect.bottom - bottom);
+              }}
+              onKeyDown={(event) => {
+                if (!settingsOverlay || event.defaultPrevented || !current) return;
+                if (event.key === "Tab") {
+                  const controls = [
+                    ...event.currentTarget.querySelectorAll<HTMLElement>(
+                      "button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])",
+                    ),
+                  ].filter((node) => node.checkVisibility());
+                  if (
+                    (!event.shiftKey && event.target === controls.at(-1)) ||
+                    (event.shiftKey && event.target === controls[0])
+                  ) {
+                    event.preventDefault();
+                    frame.current?.contentWindow?.postMessage(
+                      {
+                        source: "j1-host",
+                        type: "settings-focus-source",
+                        edge: event.shiftKey ? "before" : "after",
+                      },
+                      new URL(current.url).origin,
+                    );
+                  }
+                } else if (
+                  (event.key === "PageDown" || event.key === "PageUp") &&
+                  !(
+                    event.target instanceof Element &&
+                    event.target.closest("input,textarea,[contenteditable=true]")
+                  )
+                ) {
+                  event.preventDefault();
+                  scrollSettings((event.key === "PageDown" ? 1 : -1) * innerHeight * 0.7);
+                }
+              }}
+            >
+              {children}
+            </div>
+          )}
         </div>
       </div>
     </WorkspaceState>

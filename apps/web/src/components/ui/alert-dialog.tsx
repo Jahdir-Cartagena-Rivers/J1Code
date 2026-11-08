@@ -1,5 +1,6 @@
 "use client";
 
+import { usePortalContainer } from "./portal-container";
 import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog";
 
 import { cn } from "~/lib/utils";
@@ -11,7 +12,10 @@ import {
 
 const AlertDialog = AlertDialogPrimitive.Root;
 
-const AlertDialogPortal = AlertDialogPrimitive.Portal;
+function AlertDialogPortal({ container, ...props }: AlertDialogPrimitive.Portal.Props) {
+  const hosted = usePortalContainer();
+  return <AlertDialogPrimitive.Portal container={container ?? hosted} {...props} />;
+}
 
 function AlertDialogBackdrop({ className, ...props }: AlertDialogPrimitive.Backdrop.Props) {
   return (

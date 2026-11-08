@@ -1,6 +1,6 @@
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { LinkIcon, PlusIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -8,21 +8,15 @@ import { isLocalEnvironmentDisabled } from "../localEnvironment";
 import { isElectron } from "../env";
 import { NoProjectsHero } from "../components/NoProjectsHero";
 import { sortScopedProjectsForSidebar } from "../components/Sidebar.logic";
-import { ProjectId } from "@t3tools/contracts";
-import { projectEnvironment } from "../state/projects";
-import { threadEnvironment } from "../state/threads";
-import { useAtomCommand } from "../state/use-atom-command";
 import { Button } from "../components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../components/ui/empty";
 import { SidebarInset } from "../components/ui/sidebar";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
-import { useArchivedThreadSnapshots } from "../lib/archivedThreadsState";
 import {
   useAllEnvironmentShellsBootstrapped,
   useProjects,
   useThreadShells,
-  waitForProject,
 } from "../state/entities";
 import { usePrimaryEnvironment } from "../state/environments";
 import { useEnvironments } from "../state/environments";
@@ -30,6 +24,7 @@ import { APP_DISPLAY_NAME } from "~/branding";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 
 function ChatIndexRouteView() {
+  const environment = usePrimaryEnvironment();
   const { authGateState } = Route.useRouteContext();
   const { environments, isReady } = useEnvironments();
 
@@ -38,138 +33,49 @@ function ChatIndexRouteView() {
     if (environments.length === 0) return <HostedStaticOnboardingState />;
   }
 
+  // The unified workspace owns the landing view; retained Home data is never recreated or deleted.
+  // Wait for capabilities before mounting the legacy landing, which can create a thread.
+  if (!environment?.serverConfig) return null;
+  if (environment?.serverConfig?.environment.capabilities.mausbot) return null;
   return <IndexDraftLanding />;
 }
 
-/** Home is a persistent conversation in an isolated environment-local workspace. */
+/** A server without the bundled workspace can still open an existing project's draft. */
 function IndexDraftLanding() {
   const projects = useProjects();
   const threads = useThreadShells();
   const bootstrapped = useAllEnvironmentShellsBootstrapped();
-  const environment = usePrimaryEnvironment();
   const handleNewThread = useNewThreadHandler();
-  const createProject = useAtomCommand(projectEnvironment.create);
-  const unarchiveThread = useAtomCommand(threadEnvironment.unarchive);
-  const navigate = useNavigate();
   const startingRef = useRef(false);
   const [startState, setStartState] = useState({ failed: false, retryRequest: 0 });
-  const root = environment?.serverConfig?.homeWorkspaceRoot;
-  const environmentId = environment?.environmentId;
-  const {
-    snapshots: archivedSnapshots,
-    error: archivedHomeError,
-    isLoading: archivedHomeLoading,
-    refresh: refreshArchivedHome,
-  } = useArchivedThreadSnapshots(environmentId === undefined ? [] : [environmentId]);
-  const projectId = ProjectId.make("j1-home");
-  const legacyProject = useMemo(
+  const project = useMemo(
     () =>
-      root ? null : (sortScopedProjectsForSidebar(projects, threads, "updated_at")[0] ?? null),
-    [root, projects, threads],
+      sortScopedProjectsForSidebar(
+        projects.filter((item) => item.id !== "j1-home"),
+        threads,
+        "updated_at",
+      )[0] ?? null,
+    [projects, threads],
   );
-
   useEffect(() => {
-    if (
-      !bootstrapped ||
-      (root !== undefined && archivedHomeLoading) ||
-      (!root && !legacyProject) ||
-      !environmentId ||
-      startingRef.current
-    )
-      return;
+    if (!bootstrapped || !project || startingRef.current) return;
     startingRef.current = true;
-    void (async () => {
-      if (root !== undefined && archivedHomeError !== null) throw new Error(archivedHomeError);
-      if (!root) {
-        if (legacyProject)
-          await handleNewThread(scopeProjectRef(legacyProject.environmentId, legacyProject.id), {
-            replace: true,
-          });
-        return;
-      }
-      const project = projects.find(
-        (item) => item.id === projectId && item.environmentId === environmentId,
-      );
-      if (project && project.workspaceRoot !== root)
-        throw new Error("Home workspace does not match this environment.");
-      if (!project) {
-        await createProject({
-          environmentId,
-          input: {
-            projectId,
-            title: "Home",
-            workspaceRoot: root,
-            createWorkspaceRootIfMissing: true,
-            defaultModelSelection: null,
-          },
-        });
-        // Another window may have created the singleton before its event reached us.
-        const created = await waitForProject(scopeProjectRef(environmentId, projectId));
-        if (created.workspaceRoot !== root)
-          throw new Error("Home workspace does not match this environment.");
-      }
-      // Home is a singleton. Prefer the original conversation even if it was
-      // archived, so visiting Home never silently starts another general chat.
-      const existing = [
-        ...threads,
-        ...archivedSnapshots.flatMap((entry) =>
-          entry.snapshot.threads.map((thread) => ({
-            ...thread,
-            environmentId: entry.environmentId,
-          })),
-        ),
-      ]
-        .filter((item) => item.environmentId === environmentId && item.projectId === projectId)
-        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0];
-      if (existing) {
-        if (existing.archivedAt) {
-          const result = await unarchiveThread({
-            environmentId,
-            input: { threadId: existing.id },
-          });
-          if (result._tag === "Failure") throw new Error("Could not reopen Home.");
-        }
-        await navigate({
-          to: "/$environmentId/$threadId",
-          params: { environmentId, threadId: existing.id },
-          replace: true,
-        });
-      } else {
-        await handleNewThread(scopeProjectRef(environmentId, projectId), { replace: true });
-      }
-    })().catch(() => {
+    void handleNewThread(scopeProjectRef(project.environmentId, project.id), {
+      replace: true,
+    }).catch(() => {
       startingRef.current = false;
       setStartState((state) => ({ ...state, failed: true }));
     });
-  }, [
-    bootstrapped,
-    root,
-    legacyProject,
-    environmentId,
-    projectId,
-    projects,
-    threads,
-    archivedSnapshots,
-    archivedHomeError,
-    archivedHomeLoading,
-    createProject,
-    unarchiveThread,
-    handleNewThread,
-    navigate,
-    startState.retryRequest,
-  ]);
-
+  }, [bootstrapped, project, handleNewThread, startState.retryRequest]);
   if (startState.failed)
     return (
       <DraftStartError
-        onRetry={() => {
-          refreshArchivedHome();
-          setStartState((state) => ({ failed: false, retryRequest: state.retryRequest + 1 }));
-        }}
+        onRetry={() =>
+          setStartState((state) => ({ failed: false, retryRequest: state.retryRequest + 1 }))
+        }
       />
     );
-  if (!root && !legacyProject && bootstrapped) return <NoProjectsHero />;
-  return null;
+  return bootstrapped && !project ? <NoProjectsHero /> : null;
 }
 
 function DraftStartError({ onRetry }: { readonly onRetry: () => void }) {

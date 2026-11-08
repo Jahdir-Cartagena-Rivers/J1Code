@@ -1,5 +1,6 @@
 "use client";
 
+import { usePortalContainer } from "./portal-container";
 import { Dialog as CommandDialogPrimitive } from "@base-ui/react/dialog";
 import { SearchIcon } from "lucide-react";
 import type * as React from "react";
@@ -18,7 +19,10 @@ import { Button } from "~/components/ui/button";
 
 const CommandDialog = CommandDialogPrimitive.Root;
 
-const CommandDialogPortal = CommandDialogPrimitive.Portal;
+function CommandDialogPortal({ container, ...props }: CommandDialogPrimitive.Portal.Props) {
+  const hosted = usePortalContainer();
+  return <CommandDialogPrimitive.Portal container={container ?? hosted} {...props} />;
+}
 
 function CommandDialogTrigger(props: CommandDialogPrimitive.Trigger.Props) {
   return <CommandDialogPrimitive.Trigger data-slot="command-dialog-trigger" {...props} />;

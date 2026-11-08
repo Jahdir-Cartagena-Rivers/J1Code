@@ -1,5 +1,6 @@
 "use client";
 
+import { usePortalContainer } from "./portal-container";
 import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
 import { XIcon } from "lucide-react";
 import type { CSSProperties } from "react";
@@ -8,7 +9,10 @@ import { Button } from "~/components/ui/button";
 
 const Sheet = SheetPrimitive.Root;
 
-const SheetPortal = SheetPrimitive.Portal;
+function SheetPortal({ container, ...props }: SheetPrimitive.Portal.Props) {
+  const hosted = usePortalContainer();
+  return <SheetPrimitive.Portal container={container ?? hosted} {...props} />;
+}
 
 // Sheets are docked panels, not dialogs: their layer (--z-sheet) sits under dialogs that open
 // from inside them and under anything the app floats above panels.

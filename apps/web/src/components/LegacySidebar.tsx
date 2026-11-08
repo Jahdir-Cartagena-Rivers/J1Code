@@ -194,7 +194,7 @@ import {
   ThreadStatusPill,
 } from "./Sidebar.logic";
 import { sortThreads } from "../lib/threadSort";
-import { SidebarChromeFooter, SidebarChromeHeader, SidebarHomeLink } from "./sidebar/SidebarChrome";
+import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarBots } from "./sidebar/SidebarBots";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useIsMobile } from "~/hooks/useMediaQuery";
@@ -3763,7 +3763,6 @@ export default function LegacySidebar({ embedded = false }: { embedded?: boolean
         <SidebarThreadDetailPrewarmer key={scopedThreadKey(threadRef)} threadRef={threadRef} />
       ))}
       {!embedded && <SidebarChromeHeader isElectron={isElectron} />}
-      <SidebarHomeLink assistants={!embedded} />
       {embedded && <div className="px-3 py-1 text-xs text-sidebar-muted-foreground">Chats</div>}
       {LEGACY_BOTS_ENABLED ? <SidebarBots /> : null}
 

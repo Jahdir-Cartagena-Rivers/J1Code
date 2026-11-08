@@ -1,5 +1,6 @@
 "use client";
 
+import { usePortalContainer } from "./portal-container";
 import { Autocomplete as AutocompletePrimitive } from "@base-ui/react/autocomplete";
 import { ChevronsUpDownIcon, XIcon } from "lucide-react";
 
@@ -92,7 +93,7 @@ function AutocompletePopup({
   anchor?: AutocompletePrimitive.Positioner.Props["anchor"];
 }) {
   return (
-    <AutocompletePrimitive.Portal>
+    <AutocompletePrimitive.Portal container={usePortalContainer()}>
       <AutocompletePrimitive.Positioner
         align={align}
         alignOffset={alignOffset}

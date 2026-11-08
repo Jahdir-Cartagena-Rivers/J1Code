@@ -11,10 +11,15 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { useEnvironmentThemeDefinitions } from "../../hooks/useEnvironmentTheme";
+import { useWorkspaceThemes } from "../../hooks/useCustomThemes";
+import { useMergedSettingsAppearance } from "./settingsAppearance";
+import { ThemeMiniature } from "../../vendor/mausbot/ThemeMiniature";
 import { readThemeHalvesRaw } from "../../hooks/useTheme";
 import { cn } from "../../lib/utils";
 import {
   getThemeDefinition,
+  getThemeColorsForMode,
+  getStandardThemeColors,
   singleAppearanceOf,
   getThemeModes,
   removeCustomThemes,
@@ -129,6 +134,7 @@ function ThemeLibraryCard({
     onSelectAndUse: (themeIndex: number, mode: ThemeAppearance) => void;
   };
 }) {
+  const merged = useMergedSettingsAppearance();
   // A one-appearance theme can only take its own side of the mix, so the card
   // tooltip promises exactly what clicking it does.
   const cardModes = theme.previews.map((preview) => preview.mode);
@@ -155,6 +161,7 @@ function ThemeLibraryCard({
           <div
             className={cn(
               "cursor-pointer overflow-hidden rounded-xl border border-border/70 bg-card/60 transition-colors hover:bg-accent/10",
+              merged && "bg-card hover:bg-muted",
               isActive && "bg-accent/30",
             )}
             data-theme-library-card={theme.id}
@@ -162,7 +169,36 @@ function ThemeLibraryCard({
             style={isActive ? { boxShadow: "inset 0 0 0 1px var(--ring)" } : undefined}
           >
             <div className="relative">
-              {variantNavigation ? (
+              {merged && !variantNavigation ? (
+                <div className="grid auto-cols-fr grid-flow-col gap-2 p-2">
+                  {theme.previews.map((preview) => {
+                    const definition = getThemeDefinition(theme.id);
+                    const colors =
+                      (definition && getThemeColorsForMode(definition, preview.mode)) ??
+                      getStandardThemeColors(preview.mode);
+                    return (
+                      <button
+                        key={preview.mode}
+                        type="button"
+                        aria-label={`Use ${theme.label} ${preview.mode} mode`}
+                        aria-pressed={activeModes.includes(preview.mode)}
+                        className="min-w-0 cursor-pointer rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        style={
+                          activeModes.includes(preview.mode)
+                            ? { boxShadow: "0 0 0 2px var(--ring)" }
+                            : undefined
+                        }
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onUseMode(preview.mode);
+                        }}
+                      >
+                        <ThemeMiniature colors={colors} />
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : variantNavigation ? (
                 <div
                   aria-label="Light and dark theme variants"
                   className="relative h-20"
@@ -526,7 +562,9 @@ export function ThemeLibrary({
   setThemeHalf: (appearance: ThemeAppearance, themeId: string | null) => boolean;
 }) {
   const openThemeEditor = useThemeEditorStore((store) => store.openThemeEditor);
+  const merged = useMergedSettingsAppearance();
   const environmentThemes = useEnvironmentThemeDefinitions();
+  const workspaceThemes = useWorkspaceThemes();
   const [themeRemovalTarget, setThemeRemovalTarget] = useState<{
     theme: ThemeDefinition;
     collectionThemes: ReadonlyArray<ThemeDefinition>;
@@ -773,7 +811,9 @@ export function ThemeLibrary({
     <TooltipProvider>
       <div
         className="grid w-full gap-2"
-        style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 16rem), 1fr))" }}
+        style={{
+          gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, ${merged ? "11rem" : "16rem"}), 1fr))`,
+        }}
       >
         {STANDARD_THEME_CARDS.map((standardTheme) => (
           <ThemeLibraryCard
@@ -814,7 +854,12 @@ export function ThemeLibrary({
             />
           );
         })}
-        {environmentThemes
+        {[
+          ...environmentThemes,
+          ...workspaceThemes.filter(
+            (theme) => !environmentThemes.some((published) => published.id === theme.id),
+          ),
+        ]
           .filter(
             // A saved theme with the same id wins resolution, so its card is
             // the one that must show; rendering both would also collide keys.

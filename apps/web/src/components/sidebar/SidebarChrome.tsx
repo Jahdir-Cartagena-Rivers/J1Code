@@ -1,20 +1,11 @@
-import {
-  HouseIcon,
-  SparklesIcon,
-  ArrowLeftIcon,
-  ChartNoAxesColumnIcon,
-  SettingsIcon,
-} from "lucide-react";
+import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import { memo, useCallback, useMemo } from "react";
+import { memo, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { useEnvironments } from "../../state/environments";
-import { usePrimaryEnvironment } from "../../state/environments";
-import { useThreadShells } from "../../state/entities";
-import { WorkerChatTree } from "../WorkerChats";
 import { J1Wordmark } from "../J1Wordmark";
 import {
   resolveEnvironmentIdentificationPillLabel,
@@ -81,46 +72,6 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
           {pillLabel}
         </Badge>
       ) : null}
-    </div>
-  );
-});
-
-export const SidebarHomeLink = memo(function SidebarHomeLink({
-  assistants = true,
-}: { assistants?: boolean } = {}) {
-  const environment = usePrimaryEnvironment();
-  const threads = useThreadShells();
-  const home = useMemo(
-    () =>
-      threads
-        .filter(
-          (thread) =>
-            thread.environmentId === environment?.environmentId && thread.projectId === "j1-home",
-        )
-        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0],
-    [environment?.environmentId, threads],
-  );
-  return (
-    <div className="px-2">
-      <SidebarMenu>
-        <SidebarMenuItem>
-          <SidebarMenuButton render={<Link to="/" aria-label="Home chat" />}>
-            <HouseIcon />
-            <span>Home</span>
-          </SidebarMenuButton>
-          {home ? (
-            <WorkerChatTree parent={{ environmentId: home.environmentId, threadId: home.id }} />
-          ) : null}
-        </SidebarMenuItem>
-        {assistants && environment?.serverConfig?.environment.capabilities.mausbot ? (
-          <SidebarMenuItem>
-            <SidebarMenuButton render={<Link to="/assistants" />}>
-              <SparklesIcon />
-              <span>Bots</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        ) : null}
-      </SidebarMenu>
     </div>
   );
 });
@@ -261,6 +212,17 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu({
 export const SidebarChromeFooter = memo(function SidebarChromeFooter({
   embedded = false,
 }: { embedded?: boolean } = {}) {
+  if (embedded)
+    return (
+      <div className="relative">
+        <div className="absolute bottom-full right-0 w-64">
+          <SidebarThreadUndoNotice />
+          <SidebarProviderUpdatePill />
+          <SidebarUpdateArchitectureWarning />
+        </div>
+        <SidebarUtilityMenu embedded />
+      </div>
+    );
   return (
     <SidebarFooter>
       <SidebarThreadUndoNotice />

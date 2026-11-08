@@ -65,6 +65,7 @@ export type ThemeFile = Readonly<{
  * already re-reads when they change.
  */
 let environmentThemeDefinitions: ReadonlyArray<ThemeDefinition> = [];
+let workspaceThemeDefinitions: ReadonlyArray<ThemeDefinition> = [];
 
 const customThemeListeners = new Set<() => void>();
 type CustomThemeLibrarySnapshot =
@@ -249,6 +250,18 @@ export function getCustomThemes(): ReadonlyArray<ThemeDefinition> {
 
 export function getEnvironmentThemes(): ReadonlyArray<ThemeDefinition> {
   return environmentThemeDefinitions;
+}
+
+export function getWorkspaceThemes(): ReadonlyArray<ThemeDefinition> {
+  return workspaceThemeDefinitions;
+}
+
+/** Bundled runtime palettes are available offline without modifying saved custom themes. */
+export function setWorkspaceThemes(themes: ReadonlyArray<ThemeDefinition>): boolean {
+  if (Equal.equals(workspaceThemeDefinitions, themes)) return false;
+  workspaceThemeDefinitions = themes;
+  notifyCustomThemeListeners();
+  return true;
 }
 
 /**
@@ -1077,6 +1090,7 @@ export function getThemeDefinition(theme: ThemePreference): ThemeDefinition | nu
     // Resolved last so a theme the user saved always wins over one the
     // machine happens to publish under the same id.
     environmentThemeDefinitions.find((definition) => definition.id === themeId) ??
+    workspaceThemeDefinitions.find((definition) => definition.id === themeId) ??
     null
   );
 }

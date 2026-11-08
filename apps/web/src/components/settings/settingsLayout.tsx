@@ -1,4 +1,5 @@
 import { SettingsGroup } from "./SettingsGroup";
+import { useMergedSettingsAppearance } from "./settingsAppearance";
 import { InfoIcon, Undo2Icon } from "lucide-react";
 import { DEFAULT_SERVER_SETTINGS, type ServerSettings } from "@t3tools/contracts";
 import * as Equal from "effect/Equal";
@@ -206,6 +207,7 @@ export function SettingsSection({
   variant?: "grouped" | "plain";
   children: ReactNode;
 }) {
+  const merged = useMergedSettingsAppearance();
   const targetRef = useSettingsSearchTarget<HTMLElement>(sectionProps.id);
 
   return (
@@ -220,10 +222,20 @@ export function SettingsSection({
       ) : (
         <div
           data-settings-scroll-target
-          className="flex min-h-7 items-start justify-between gap-4 px-3 sm:px-4"
+          className={cn(
+            "flex min-h-7 items-start justify-between gap-4",
+            !merged && "px-3 sm:px-4",
+          )}
         >
           <div className="min-w-0">
-            <h2 className="flex min-h-7 items-center gap-2 text-sm font-normal text-foreground/70">
+            <h2
+              className={cn(
+                "flex min-h-7 items-center gap-2",
+                merged
+                  ? "text-base font-semibold text-foreground"
+                  : "text-sm font-normal text-foreground/70",
+              )}
+            >
               {icon}
               {title}
             </h2>
@@ -299,6 +311,7 @@ export function SettingsRow({
   mixed?: boolean;
   children?: ReactNode;
 }) {
+  const merged = useMergedSettingsAppearance();
   const targetRef = useSettingsSearchTarget<HTMLDivElement>(rowProps.id);
   const primarySettingsAvailable = usePrimarySettingsAvailable();
   const context = useOptionalSettingsScope();
@@ -467,7 +480,12 @@ export function SettingsRow({
             </span>
           </div>
           {description ? (
-            <p className="max-w-xl text-xs leading-normal text-muted-foreground/80">
+            <p
+              className={cn(
+                "max-w-xl leading-relaxed",
+                merged ? "text-xs text-muted-foreground" : "text-xs text-muted-foreground/80",
+              )}
+            >
               {description}
             </p>
           ) : null}
@@ -540,6 +558,7 @@ export function SettingsPageContainer({
   const highlightTarget = useLocation({
     select: (location) => location.state.settingsTargetHighlight !== false,
   });
+  const merged = useMergedSettingsAppearance();
   const targetId = hash.replace(/^#/, "") || null;
   const clearTargetHash = useCallback(() => {
     void navigate({
@@ -558,10 +577,17 @@ export function SettingsPageContainer({
       onTargetHandled={clearTargetHash}
     >
       <div
-        className="topbar-scroll-fade scrollbar-gutter-both flex-1 overflow-y-auto"
+        className={
+          merged
+            ? "flex flex-col"
+            : "topbar-scroll-fade scrollbar-gutter-both flex-1 overflow-y-auto"
+        }
         data-settings-page-scroll
       >
-        <WorkspacePageContainer width={width} className={cn("gap-8", className)}>
+        <WorkspacePageContainer
+          width={width}
+          className={cn(merged ? "max-w-none! gap-4 px-0! pt-0 pb-4" : "gap-8", className)}
+        >
           <SettingsScopeSentence />
           {children}
         </WorkspacePageContainer>

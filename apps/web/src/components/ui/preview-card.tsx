@@ -1,3 +1,4 @@
+import { usePortalContainer } from "./portal-container";
 import { PreviewCard as PreviewCardPrimitive } from "@base-ui/react/preview-card";
 
 import { cn } from "~/lib/utils";
@@ -20,7 +21,7 @@ function PreviewCardPopup({
   sideOffset?: PreviewCardPrimitive.Positioner.Props["sideOffset"];
 }) {
   return (
-    <PreviewCardPrimitive.Portal>
+    <PreviewCardPrimitive.Portal container={usePortalContainer()}>
       <PreviewCardPrimitive.Positioner
         align={align}
         className="z-[140] max-w-(--available-width)"

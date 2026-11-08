@@ -241,7 +241,7 @@ import {
   useComboboxFilter,
 } from "./ui/combobox";
 import { SidebarContent, SidebarGroup, SidebarMenu, useSidebar } from "./ui/sidebar";
-import { SidebarChromeFooter, SidebarChromeHeader, SidebarHomeLink } from "./sidebar/SidebarChrome";
+import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarBots } from "./sidebar/SidebarBots";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
@@ -4483,7 +4483,6 @@ export default function Sidebar({ embedded = false }: { embedded?: boolean } = {
   return (
     <>
       {!embedded && <SidebarChromeHeader isElectron={isElectron} />}
-      <SidebarHomeLink assistants={!embedded} />
       {LEGACY_BOTS_ENABLED ? <SidebarBots /> : null}
       <SidebarContent
         scrollable={!embedded}
