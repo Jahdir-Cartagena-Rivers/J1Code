@@ -799,6 +799,7 @@ export function MausbotShell({
         {ready && !projectPortal && bounds.projects && sidebarOpen && (
           <div
             data-merged-project-navigation
+            inert={bounds.modal}
             className="merged-j1-navigation absolute z-20 flex min-h-0 flex-col overflow-clip bg-sidebar text-sidebar-foreground"
             style={{
               left: bounds.projects.left,
@@ -808,7 +809,9 @@ export function MausbotShell({
                 0,
                 bounds.projects.height - bounds.projects.clipTop - bounds.projects.clipBottom,
               ),
-              visibility: bounds.modal ? "hidden" : "visible",
+              // These overlays sit above the iframe backdrop; retain and dim them with it.
+              filter: bounds.modal ? "brightness(0.35)" : undefined,
+              pointerEvents: bounds.modal ? "none" : undefined,
             }}
           >
             <div
@@ -839,12 +842,15 @@ export function MausbotShell({
         {ready && !footerPortal && bounds.footer && sidebarOpen && (
           <div
             data-merged-j1-utilities
+            inert={bounds.modal}
             className="absolute z-20 bg-sidebar text-sidebar-foreground"
             style={{
               left: bounds.footer.left,
               top: bounds.footer.top,
               width: bounds.footer.width,
-              visibility: bounds.modal ? "hidden" : "visible",
+              // These overlays sit above the iframe backdrop; retain and dim them with it.
+              filter: bounds.modal ? "brightness(0.35)" : undefined,
+              pointerEvents: bounds.modal ? "none" : undefined,
             }}
           >
             <div ref={footerContent}>{footer}</div>
