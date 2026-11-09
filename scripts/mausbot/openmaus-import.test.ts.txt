@@ -1,0 +1,45 @@
+// @vitest-environment happy-dom
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+const f = vi.hoisted(() => ({ api: vi.fn() }));
+vi.mock("@/state/store", () => ({ api: f.api }));
+import { OpenMausImportDialog } from "./OpenMausImportDialog";
+import { setLocale } from "@/lib/i18n";
+let root: Root;
+let host: HTMLElement;
+const close = vi.fn();
+beforeEach(async () => {
+  setLocale("en"); f.api.mockReset(); close.mockReset();
+  f.api.mockResolvedValue({ busy: false });
+  host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+  await act(async () => root.render(createElement(OpenMausImportDialog, { onClose: close })));
+});
+afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
+it("offers only restore, uploads the selected backup and reports validation errors without restoring", async () => {
+  expect(host.querySelectorAll('input[type="file"]')).toHaveLength(1);
+  expect(host.querySelectorAll('input[type="password"]')).toHaveLength(1);
+  expect(f.api).toHaveBeenCalledWith("/api/workspace-backup/status");
+  const file = new File(["fixture"], "OpenMaus.ombbackup");
+  const picker = host.querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(picker, "files", { value: [file], configurable: true });
+  await act(async () => picker.dispatchEvent(new Event("change", { bubbles: true })));
+  const password = host.querySelector<HTMLInputElement>('input[type="password"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(password, "correct horse battery");
+    password.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  f.api.mockResolvedValueOnce({ id: "upload-id" }).mockRejectedValueOnce(new Error("Incorrect backup password"));
+  await act(async () => host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+  expect(f.api).toHaveBeenCalledWith("/api/workspace-backup/upload", expect.objectContaining({ body: file }));
+  expect(f.api).toHaveBeenCalledWith("/api/workspace-backup/preview", expect.objectContaining({ body: JSON.stringify({ id: "upload-id", password: "correct horse battery" }) }));
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain("Incorrect backup password");
+  expect(f.api.mock.calls.some(([path]) => path.endsWith("/restore"))).toBe(false);
+});
+it("keeps keyboard focus inside the import dialog and permits dismissal", async () => {
+  const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+  await act(async () => dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })));
+  expect(document.activeElement).toBe(host.querySelector('button[aria-label="Close"]'));
+  await act(async () => dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+  expect(close).toHaveBeenCalledOnce();
+});
