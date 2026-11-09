@@ -1,0 +1,24 @@
+
+describe("J1 partially visible bot drop targets", () => {
+  const clipped = (top: number, bottom: number, pointer: number) => ({
+    ...at(pointer),
+    currentTarget: {
+      getBoundingClientRect: () => ({ top, bottom, height: bottom - top }),
+      closest: () => ({ getBoundingClientRect: () => ({ top: 144, bottom: 622 }) }),
+    },
+  });
+  it("moves a bot after the visible bottom of a clipped row, with the section end off-screen", () => {
+    drag("dodo");
+    row("echo").botDrag!.row("echo").onDragOver(clipped(610, 660, 619) as never);
+    expect(row("echo").botDrop).toBe("after");
+    row("echo").botDrag!.row("echo").onDrop(clipped(610, 660, 619) as never);
+    expect(actions()).toEqual([{ type: "botsOrdered", botIds: ["echo", "dodo"] }]);
+    expect(fixture.requests).toEqual([{ path: "/api/bots/order", method: "PUT", body: { botIds: ["echo", "dodo"] } }]);
+  });
+  it("rejects an entirely clipped target without persisting a reorder", () => {
+    drag("dodo");
+    row("echo").botDrag!.row("echo").onDrop(clipped(622, 672, 621) as never);
+    expect(actions()).toEqual([]);
+    expect(fixture.requests).toEqual([]);
+  });
+});

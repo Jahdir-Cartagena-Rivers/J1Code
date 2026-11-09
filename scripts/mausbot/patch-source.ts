@@ -714,6 +714,34 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
     "export function Sidebar({",
     'import { J1Navigation, useJ1Navigation, j1Post } from "./J1Navigation";\nexport function Sidebar({',
   );
+  await copy("scripts/mausbot/bot-drop-box.ts", "src/lib/j1-bot-drop-box.ts");
+  await change(
+    "src/components/SidebarBotDrag.tsx",
+    "import { cn }",
+    'import { botDropBox } from "@/lib/j1-bot-drop-box";\nimport { cn }',
+  );
+  await change(
+    "src/components/SidebarBotDrag.tsx",
+    "const rowDrop = (event: DragEvent<HTMLElement>, botId: string): BotDrop => {",
+    "const rowDrop = (event: DragEvent<HTMLElement>, botId: string): BotDrop | null => {",
+  );
+  await change(
+    "src/components/SidebarBotDrag.tsx",
+    "    const box = event.currentTarget.getBoundingClientRect();",
+    "    const box = botDropBox(event.currentTarget);\n    if (!box) return null;",
+  );
+  await change(
+    "src/components/Sidebar.departments.test.ts",
+    "currentTarget: { getBoundingClientRect: () => ({ top: 0, height: 54 }), querySelectorAll:",
+    "currentTarget: { closest: () => null, getBoundingClientRect: () => ({ top: 0, bottom: 54, height: 54 }), querySelectorAll:",
+  );
+  await NodeFSP.appendFile(
+    NodePath.join(stage, "src/components/Sidebar.departments.test.ts"),
+    await NodeFSP.readFile(
+      NodePath.join(root, "scripts/mausbot/bot-drop-clipping.test.ts.txt"),
+      "utf8",
+    ),
+  );
   // A manually arranged merged roster must not jump when a bot starts working.
   // Group chiefs participate in their group's saved order just like other bots.
   await change(
