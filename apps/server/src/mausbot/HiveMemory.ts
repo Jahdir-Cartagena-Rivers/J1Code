@@ -6,12 +6,31 @@ import * as Schema from "effect/Schema";
 import { HiveMindMemory, HiveMindSearchResult } from "@t3tools/contracts";
 import {
   externalHiveConnection,
+  selectedHiveConnection,
   requestHive,
   type HiveConnection,
 } from "../hiveMind/connection.ts";
 
 const Document = Schema.Struct({ path: Schema.String, text: Schema.String });
+const ProviderSearch = Schema.Struct({
+  action: Schema.Literal("providerSearch"),
+  botId: Schema.String,
+  threadId: Schema.String,
+  query: Schema.String,
+  project: Schema.optionalKey(Schema.String),
+});
+const ProviderRemember = Schema.Struct({
+  action: Schema.Literal("providerRemember"),
+  botId: Schema.String,
+  threadId: Schema.String,
+  scope: Schema.Literals(["general", "project"]),
+  project: Schema.optionalKey(Schema.String),
+  subject: Schema.String,
+  fact: Schema.String,
+});
 const Request = Schema.Union([
+  ProviderSearch,
+  ProviderRemember,
   Schema.Struct({ action: Schema.Literal("status") }),
   Schema.Struct({
     action: Schema.Literal("recall"),
@@ -69,6 +88,11 @@ export class MausbotHiveMemory {
         };
       }
     }
+    if (input.action === "providerSearch" || input.action === "providerRemember") {
+      if (!safeId.test(input.botId) || !safeId.test(input.threadId) || !current())
+        throw new Error("Invalid or ended assistant memory request.");
+      return this.provider(input, current);
+    }
     if (
       !safeId.test(input.botId) ||
       !safeId.test(input.threadId) ||
@@ -99,6 +123,70 @@ export class MausbotHiveMemory {
     } finally {
       if (this.queues.get(input.botId) === task) this.queues.delete(input.botId);
     }
+  }
+
+  private async provider(
+    input: typeof ProviderSearch.Type | typeof ProviderRemember.Type,
+    current: () => boolean,
+  ) {
+    if (input.project !== undefined && (!input.project.trim() || input.project.length > 200))
+      throw new Error("Invalid memory project.");
+    if (
+      input.action === "providerSearch"
+        ? !input.query.trim() || input.query.length > 16_000
+        : !input.subject.trim() ||
+          input.subject.length > 200 ||
+          !input.fact.trim() ||
+          input.fact.length > 16_000 ||
+          (input.scope === "project" && !input.project?.trim()) ||
+          (input.scope === "general" && input.project !== undefined)
+    )
+      throw new Error("Invalid provider memory arguments.");
+    // Explicit tools follow J1's selected authority; never fall back to the old global descriptor.
+    const connection = this.options.connection
+      ? await this.options.connection()
+      : await selectedHiveConnection(this.options.file);
+    if (!connection)
+      throw new Error("Select the external Hive Mind connection in J1 settings first.");
+    if (!current()) throw new Error("The assistant memory request stopped.");
+    if (input.action === "providerSearch") {
+      const result = decodeSearch(
+        await this.request(connection, "/v1/search", {
+          query: input.query,
+          ...(input.project ? { project: input.project } : {}),
+        }),
+      );
+      if (!current()) throw new Error("The assistant memory request stopped.");
+      return {
+        ...result,
+        memories: result.memories
+          .slice(0, 8)
+          .map((memory) => ({ ...memory, fact: memory.fact.slice(0, 4000) })),
+      };
+    }
+    const sourceThreadId = `mausbot:${input.botId}:${input.threadId}`;
+    const source =
+      sourceThreadId.length <= 128 ? sourceThreadId : `mausbot:${digest(sourceThreadId)}`;
+    const { memory } = decodeMemory(
+      await this.request(connection, "/v1/remember", {
+        scope: input.scope,
+        ...(input.project ? { project: input.project } : {}),
+        subject: input.subject,
+        fact: input.fact,
+        sourceThreadId: source,
+        kind: "memory",
+      }),
+    );
+    if (!current()) throw new Error("The assistant memory request stopped.");
+    if (
+      memory.scope !== input.scope ||
+      memory.project !== (input.project ?? null) ||
+      memory.subject !== input.subject ||
+      memory.fact !== input.fact ||
+      memory.sourceThreadId !== source
+    )
+      throw new Error("Hive Mind did not confirm the saved fact.");
+    return { memory };
   }
 
   private connection() {

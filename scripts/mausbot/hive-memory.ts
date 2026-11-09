@@ -163,3 +163,8 @@ export async function sync(botId: string, threadId: string) {
   const result = await recall(botId, threadId, "");
   return result.startsWith("[Memory status:") ? { hiveWarning: result } : {};
 }
+
+/** Explicit provider tools use the host-selected shared authority, independently of local-note indexing. */
+export function providerCall(input: unknown) {
+  return request(input);
+}

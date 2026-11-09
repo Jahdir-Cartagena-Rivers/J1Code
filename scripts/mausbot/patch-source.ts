@@ -76,6 +76,11 @@ export async function patchMausbotSource(stage: string) {
     "      {!omitContainerDesktop && <>",
   );
   await copy("scripts/mausbot/hive-memory.ts", "server/j1/hive-memory.ts");
+  await copy("scripts/mausbot/agents-hive-memory.ts", "server/j1/agents-hive-memory.ts");
+  await copy(
+    "scripts/mausbot/agents-hive-memory.test.ts.txt",
+    "server/j1/agents-hive-memory.test.ts",
+  );
   await copy("scripts/mausbot/conversations.ts", "server/j1/conversations.ts");
   await copy("scripts/mausbot/route-receiver.ts", "server/j1/route-receiver.ts");
   await copy("scripts/mausbot/route-receiver.test.ts.txt", "server/j1/route-receiver.test.ts");
@@ -273,32 +278,61 @@ function j1InputSent(threadId: string, generation: string, turnId: string) {
   await change(
     "server/agent-tool-policy.ts",
     '  "list_threads",',
-    '  "list_threads",\n  "search_conversations",\n  "read_conversation",\n  "read_conversation_message",\n  "routing_mode",\n  "routing_status",\n  "list_routes",',
+    '  "list_threads",\n  "hive_mind_recall",\n  "search_conversations",\n  "read_conversation",\n  "read_conversation_message",\n  "routing_mode",\n  "routing_status",\n  "list_routes",',
   );
   await change(
     "server/agent-tool-policy.test.ts",
     '      "list_threads",',
-    '      "list_threads",\n      "search_conversations",\n      "read_conversation",\n      "read_conversation_message",\n      "routing_mode",\n      "routing_status",\n      "list_routes",',
+    '      "list_threads",\n      "hive_mind_recall",\n      "search_conversations",\n      "read_conversation",\n      "read_conversation_message",\n      "routing_mode",\n      "routing_status",\n      "list_routes",',
   );
   await change(
     "server/drivers/agents-catalog.ts",
     "const TOOL_DEFINITIONS = [",
-    "const TOOL_DEFINITIONS = [\n  ...J1_CONVERSATION_TOOLS,\n  ...J1_ROUTING_TOOLS,",
+    "const TOOL_DEFINITIONS = [\n  ...J1_HIVE_TOOLS,\n  ...J1_CONVERSATION_TOOLS,\n  ...J1_ROUTING_TOOLS,",
   );
   await change(
     "server/drivers/agents-catalog.ts",
     'import { MAUSBOT_TOOL_DEFINITIONS } from "./agents-mausbot-tools.ts";',
-    'import { MAUSBOT_TOOL_DEFINITIONS } from "./agents-mausbot-tools.ts";\nimport { J1_CONVERSATION_TOOLS } from "../j1/agents-conversations.ts";\nimport { J1_ROUTING_TOOLS } from "../j1/agents-routing.ts";',
+    'import { MAUSBOT_TOOL_DEFINITIONS } from "./agents-mausbot-tools.ts";\nimport { J1_CONVERSATION_TOOLS } from "../j1/agents-conversations.ts";\nimport { J1_HIVE_TOOLS, J1_HIVE_TOOL_NAMES } from "../j1/agents-hive-memory.ts";\nimport { J1_ROUTING_TOOLS } from "../j1/agents-routing.ts";',
   );
   await change(
     "server/drivers/agents-call.ts",
     'import { callMausBotTool, MAUSBOT_TOOL_NAMES } from "./agents-mausbot-tools.ts";',
-    'import { callMausBotTool, MAUSBOT_TOOL_NAMES } from "./agents-mausbot-tools.ts";\nimport { callJ1Conversation, J1_CONVERSATION_TOOL_NAMES } from "../j1/agents-conversations.ts";\nimport { callJ1Routing, J1_ROUTING_TOOL_NAMES } from "../j1/agents-routing.ts";',
+    'import { callMausBotTool, MAUSBOT_TOOL_NAMES } from "./agents-mausbot-tools.ts";\nimport { callJ1Conversation, J1_CONVERSATION_TOOL_NAMES } from "../j1/agents-conversations.ts";\nimport { callJ1Hive, J1_HIVE_TOOL_NAMES } from "../j1/agents-hive-memory.ts";\nimport { callJ1Routing, J1_ROUTING_TOOL_NAMES } from "../j1/agents-routing.ts";',
   );
   await change(
     "server/drivers/agents-call.ts",
     '  if (name === "vm_exec") {',
-    '  if (J1_CONVERSATION_TOOL_NAMES.has(name)) return callJ1Conversation(name, args, context);\n  if (J1_ROUTING_TOOL_NAMES.has(name)) return callJ1Routing(name, args, context);\n  if (name === "vm_exec") {',
+    '  if (J1_HIVE_TOOL_NAMES.has(name)) return callJ1Hive(name, args, context);\n  if (J1_CONVERSATION_TOOL_NAMES.has(name)) return callJ1Conversation(name, args, context);\n  if (J1_ROUTING_TOOL_NAMES.has(name)) return callJ1Routing(name, args, context);\n  if (name === "vm_exec") {',
+  );
+  await change(
+    "server/drivers/agents-catalog.ts",
+    '(tool.name !== "memory_update" && tool.name !== "memory_log")',
+    '(tool.name !== "memory_update" && tool.name !== "memory_log" && !J1_HIVE_TOOL_NAMES.has(tool.name))',
+  );
+  await change(
+    "server/index.ts",
+    "text: memorySystemPrompt(bot.id, { managedWrites: agentsMounted,",
+    'text: (agentsMounted ? hiveProviderPrompt(toolScopeForTurn(bot.id), bot.memoryEnabled !== false) : "") + memorySystemPrompt(bot.id, { managedWrites: agentsMounted,',
+  );
+  await change(
+    "server/index.ts",
+    "text: memorySystemPrompt(teamHost.layer(bot.id, threadId),",
+    'text: (integrations.agents ? hiveProviderPrompt(toolScopeForTurn(bot.id), bot.memoryEnabled !== false) : "") + memorySystemPrompt(teamHost.layer(bot.id, threadId),',
+  );
+  await change(
+    "server/index.ts",
+    "const roomMemory = memorySystemPrompt(",
+    'const roomMemory = (integrations.agents ? hiveProviderPrompt(toolScopeForTurn(bot.id), bot.memoryEnabled !== false) : "") + memorySystemPrompt(',
+  );
+  const codexMountTest = await NodeFSP.readFile(
+    NodePath.join(root, "scripts/mausbot/codex-hive-mount.test.ts.txt"),
+    "utf8",
+  );
+  await change(
+    "server/drivers/codex.test.ts",
+    "  const startupMounts = {",
+    codexMountTest + "  const startupMounts = {",
   );
   // Lift the original list policy verbatim so native tools and private history reads cannot drift.
   const threadRoutes = (
@@ -325,12 +359,27 @@ function j1InputSent(threadId: string, generation: string, turnId: string) {
   await change(
     "server/index.ts",
     'import { createInternalThreadRoutes } from "./routes/internal-threads.ts";',
-    'import { createInternalThreadRoutes, internalThreadRows } from "./routes/internal-threads.ts";\nimport { createConversationQueries, installConversationQueries, requestHostConversation, historyToolAllowed, type HistoryPrincipal } from "./j1/conversations.ts";\nimport { routingToolAllowed } from "./j1/agents-routing.ts";\nimport { createNativeRouteReceiver, unrestrictedRouteProfile } from "./j1/route-receiver.ts";',
+    'import { createInternalThreadRoutes, internalThreadRows } from "./routes/internal-threads.ts";\nimport { createConversationQueries, installConversationQueries, requestHostConversation, historyToolAllowed, type HistoryPrincipal } from "./j1/conversations.ts";\nimport { routingToolAllowed } from "./j1/agents-routing.ts";\nimport { hiveToolAllowed, parseHiveTool, hiveProviderPrompt } from "./j1/agents-hive-memory.ts";\nimport { createNativeRouteReceiver, unrestrictedRouteProfile } from "./j1/route-receiver.ts";',
   );
   await change(
     "server/index.ts",
     "      const botFolders = async () =>",
-    `      if (method === "POST" && path === "/api/internal/j1-routing") {
+    `      if (method === "POST" && path === "/api/internal/j1-hive-memory") {
+        if (proactive.fence.confines(internalCapability.threadId) || botApiThread(internalCapability.threadId) || cloudLendingView(internalCapability) || CLOUD_TEAM || CLOUD_HOME) return json(res, 403, { error: "Shared J1 memory is unavailable in this conversation." });
+        if (cloudGuestDriven(internalCapability.threadId)) return json(res, 403, { error: "Shared Hive Mind is unavailable to an outside-driven conversation." });
+        const room = store.groupByThread(internalCapability.threadId);
+        if (room && !roomFeedsBot(room, internalSender)) return json(res, 403, { error: "Shared memory cannot cross this room's audience boundary." });
+        const body = z.object({ name: z.string(), arguments: z.unknown() }).strict().parse(await readInternalBody());
+        const allowed = () => hiveToolAllowed(toolScopeForTurn(internalSender.id), body.name, store.bot(internalSender.id)?.memoryEnabled !== false);
+        requireActiveInternalCapability();
+        if (!allowed()) return json(res, 403, { error: "This Hive Mind tool is not allowed for this bot." });
+        const input = parseHiveTool(body.name, body.arguments);
+        const result = await J1Memory.providerCall({ ...input, botId: internalSender.id, threadId: internalCapability.threadId });
+        requireActiveInternalCapability();
+        if (!allowed()) return json(res, 403, { error: "This Hive Mind tool is no longer allowed for this bot." });
+        return json(res, 200, result);
+      }
+      if (method === "POST" && path === "/api/internal/j1-routing") {
         if (proactive.fence.confines(internalCapability.threadId) || botApiThread(internalCapability.threadId) || cloudLendingView(internalCapability) || CLOUD_TEAM || CLOUD_HOME) return json(res, 403, { error: "Shared J1 routing is unavailable in this conversation." });
         const body = z.object({ operation: z.string(), arguments: z.unknown() }).strict().parse(await readInternalBody());
         requireActiveInternalCapability();

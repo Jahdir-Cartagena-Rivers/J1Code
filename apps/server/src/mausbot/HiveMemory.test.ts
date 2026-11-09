@@ -211,3 +211,94 @@ describe("assistant Hive Mind extension", () => {
     }
   });
 });
+
+describe("native provider shared Hive tools", () => {
+  it("writes and recalls a shared-project fact with host-owned bot provenance, independently of local note indexing", async () => {
+    const f = await fixture();
+    try {
+      const input = {
+        action: "providerRemember",
+        botId: "synthetic-bot",
+        threadId: "synthetic-thread",
+        scope: "project",
+        project: "Synthetic project",
+        subject: "Synthetic wiring fixture",
+        fact: "SYNTHETIC_HIVE_PROVIDER_OK",
+      };
+      const saved = (await f.memory.handle(input)) as { memory: HiveMindMemory };
+      expect(saved.memory.sourceThreadId).toBe("mausbot:synthetic-bot:synthetic-thread");
+      const found = await f.memory.handle({
+        action: "providerSearch",
+        botId: input.botId,
+        threadId: input.threadId,
+        query: input.fact,
+        project: input.project,
+      });
+      expect(JSON.stringify(found)).toContain(saved.memory.id);
+      expect(f.calls).toEqual(["/v1/remember", "/v1/search"]);
+      expect(await NodeFSP.readdir(f.root)).toEqual([]);
+    } finally {
+      await NodeFSP.rm(f.root, { recursive: true, force: true });
+    }
+  });
+  it("refuses malformed writes, ended turns and disconnected selected authority without a fallback write", async () => {
+    const f = await fixture();
+    try {
+      const input = {
+        action: "providerRemember",
+        botId: "bot",
+        threadId: "thread",
+        scope: "project",
+        subject: "fixture",
+        fact: "fixture",
+      };
+      await expect(f.memory.handle(input)).rejects.toThrow("Invalid provider");
+      await expect(f.memory.handle({ ...input, project: "fixture" }, () => false)).rejects.toThrow(
+        "ended",
+      );
+      f.offline();
+      await expect(f.memory.handle({ ...input, project: "fixture" })).rejects.toThrow(
+        "Select the external",
+      );
+      expect(f.calls).toEqual([]);
+    } finally {
+      await NodeFSP.rm(f.root, { recursive: true, force: true });
+    }
+  });
+});
+
+it("never falls back to a global descriptor when J1's selected provider descriptor is missing", async () => {
+  const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-selected-hive-"));
+  const calls: string[] = [];
+  try {
+    await NodeFSP.writeFile(
+      NodePath.join(root, "hive-mind.config.json"),
+      JSON.stringify({
+        version: 1,
+        backend: {
+          mode: "external",
+          connectionFile: NodePath.join(root, "missing-selected-descriptor.json"),
+        },
+      }),
+    );
+    const memory = new MausbotHiveMemory({
+      file: NodePath.join(root, "hive-mind.json"),
+      indexDir: root,
+      request: async (_connection, route) => {
+        calls.push(route);
+        throw new Error("Must not reach a fallback authority");
+      },
+    });
+    await expect(
+      memory.handle({
+        action: "providerSearch",
+        botId: "fixture",
+        threadId: "fixture-thread",
+        query: "synthetic",
+      }),
+    ).rejects.toThrow("connection is unavailable");
+    expect(calls).toEqual([]);
+  } finally {
+    await NodeFSP.rm(root, { recursive: true, force: true });
+  }
+});

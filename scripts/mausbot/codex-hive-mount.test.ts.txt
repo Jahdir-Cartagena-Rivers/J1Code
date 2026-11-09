@@ -1,0 +1,17 @@
+  it("mounts the native J1 Hive catalogue for fresh and resumed Codex provider sessions", async () => {
+    const dump = join(scratch, "j1-hive-mount.json");
+    await create({ mode: "resume", environment: { HOME: scratch, CODEX_HOME: join(scratch, ".codex"), FAKE_CODEX_MCP_START: "1", FAKE_CODEX_DUMP: dump } });
+    const integrations = { agents: { command: process.execPath, args: [join(import.meta.dirname, "agents-proxy.ts")], env: { OMB_MEMORY_ENABLED: "1", OMB_BOT_ID: "synthetic-bot", OMB_THREAD_ID: "synthetic-thread" } } };
+    await instance.adapter.sendTurn({ threadId: "synthetic-thread", text: "Synthetic transport fixture", integrations });
+    await recorder.until(event => event.type === "turn.completed");
+    const started = JSON.parse(readFileSync(dump, "utf8"));
+    expect(started.mcpStartup.agents.tools).toEqual(expect.arrayContaining(["hive_mind_recall", "hive_mind_remember"]));
+    expect(started.calls.some((call: { method: string }) => call.method === "thread/start")).toBe(true);
+    recorder.events.length = 0;
+    await instance.adapter.sendTurn({ threadId: "synthetic-thread", text: "Synthetic resume fixture", resumeCursor: "synthetic-native-thread", integrations });
+    await recorder.until(event => event.type === "turn.completed");
+    const resumed = JSON.parse(readFileSync(dump, "utf8"));
+    expect(resumed.calls.some((call: { method: string }) => call.method === "thread/resume")).toBe(true);
+    for (const record of [started, resumed]) expect(record.argv.some((arg: string) => arg.startsWith("mcp_servers.agents.command="))).toBe(true);
+  });
+

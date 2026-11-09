@@ -1,0 +1,29 @@
+import { describe, expect, it, vi } from "vitest";
+import { availableTools, catalogProfileFromEnv } from "../drivers/agents-catalog.ts";
+import { callJ1Hive, hiveToolAllowed, parseHiveTool } from "./agents-hive-memory.ts";
+import type { ToolCallContext } from "../drivers/agents-call.ts";
+
+describe("J1 native provider memory catalogue and selection", () => {
+  it("advertises both shared tools on memory-enabled provider sessions and removes them when memory is off", () => {
+    const names = (enabled: string) => availableTools(catalogProfileFromEnv({ OMB_MEMORY_ENABLED: enabled })).map(t => t.name);
+    expect(names("1")).toContain("hive_mind_recall");
+    expect(names("1")).toContain("hive_mind_remember");
+    expect(names("0")).not.toContain("hive_mind_recall");
+    expect(names("0")).not.toContain("hive_mind_remember");
+  });
+  it("honors read-only selections, explicit denial and malformed scopes", () => {
+    const scope = { allow: ["mcp:agents:hive_mind_recall"] };
+    expect(hiveToolAllowed(scope, "hive_mind_recall", true)).toBe(true);
+    expect(hiveToolAllowed(scope, "hive_mind_remember", true)).toBe(false);
+    expect(hiveToolAllowed({ deny: ["mcp:agents:*"] }, "hive_mind_recall", true)).toBe(false);
+    expect(hiveToolAllowed(null, "hive_mind_recall", true)).toBe(false);
+    expect(hiveToolAllowed(undefined, "hive_mind_recall", false)).toBe(false);
+  });
+  it("rejects forged identity and missing project before reaching the bridge", async () => {
+    const apiResponse = vi.fn();
+    const context = { client: { apiResponse } } as unknown as ToolCallContext;
+    await expect(callJ1Hive("hive_mind_recall", { query: "fixture", botId: "other" }, context)).rejects.toThrow("Invalid");
+    expect(() => parseHiveTool("hive_mind_remember", { scope: "project", subject: "fixture", fact: "fixture" })).toThrow("Invalid");
+    expect(apiResponse).not.toHaveBeenCalled();
+  });
+});
