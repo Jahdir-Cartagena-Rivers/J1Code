@@ -10,6 +10,25 @@ export async function patchOpenMausImport(stage: string) {
     if (source.split(before).length !== 2) throw new Error(`Pinned import source changed: ${file}`);
     await NodeFSP.writeFile(path, source.replace(before, after));
   };
+  await NodeFSP.mkdir(NodePath.join(stage, "server/j1"), { recursive: true });
+  for (const [from, to] of [
+    ["backup-compatibility.ts", "backup-compatibility.ts"],
+    ["backup-compatibility.test.ts.txt", "backup-compatibility.test.ts"],
+  ])
+    await NodeFSP.copyFile(
+      NodeURL.fileURLToPath(new URL(from, import.meta.url)),
+      NodePath.join(stage, "server/j1", to),
+    );
+  await change(
+    "server/workspace-backup-http.ts",
+    "import { randomUUID }",
+    'import { OPENMAUS_BACKUP_COMPATIBILITY_VERSION } from "./j1/backup-compatibility.ts";\nimport { randomUUID }',
+  );
+  await change(
+    "server/workspace-backup-http.ts",
+    "currentAppVersion: options.appVersion",
+    "currentAppVersion: OPENMAUS_BACKUP_COMPATIBILITY_VERSION",
+  );
   await NodeFSP.copyFile(
     NodeURL.fileURLToPath(new URL("./OpenMausImportDialog.tsx", import.meta.url)),
     NodePath.join(stage, "src/components/OpenMausImportDialog.tsx"),

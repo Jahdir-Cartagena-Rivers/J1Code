@@ -1,0 +1,24 @@
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect, it } from "vitest";
+import { createWorkspaceBackup, stageWorkspaceBackup } from "../workspace-backup.ts";
+import { OPENMAUS_BACKUP_COMPATIBILITY_VERSION } from "./backup-compatibility.ts";
+
+it("accepts the verified OpenMaus release and neighboring older backup, but refuses an unverified newer release", async () => {
+  const root = mkdtempSync(join(tmpdir(), "j1-backup-compatibility-"));
+  const password = "fixture backup password only";
+  try {
+    for (const appVersion of ["0.1.147", "0.1.148", "0.1.149"]) {
+      const source = join(root, `source-${appVersion}`);
+      mkdirSync(source);
+      mkdirSync(join(root, `target-${appVersion}`));
+      const archive = await createWorkspaceBackup(source, { password, appVersion });
+      const stage = stageWorkspaceBackup(join(root, `target-${appVersion}`), archive.path, {
+        password, currentAppVersion: OPENMAUS_BACKUP_COMPATIBILITY_VERSION,
+      });
+      if (appVersion === "0.1.149") await expect(stage).rejects.toThrow(/newer OpenMausBot/);
+      else expect((await stage).summary.appVersion).toBe(appVersion);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
