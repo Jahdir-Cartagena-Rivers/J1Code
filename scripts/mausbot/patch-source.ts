@@ -714,6 +714,23 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
     "export function Sidebar({",
     'import { J1Navigation, useJ1Navigation, j1Post } from "./J1Navigation";\nexport function Sidebar({',
   );
+  // A manually arranged merged roster must not jump when a bot starts working.
+  // Group chiefs participate in their group's saved order just like other bots.
+  await change(
+    "src/components/Sidebar.tsx",
+    "  const { primary, unsectionedChief, pinnedBots, sectionChiefs, sectionedBots, unsectionedBots } = { ...saved, ...activeBotsFirst(saved, (bot) => {",
+    "  const mergedSaved = j1Navigation ? { ...saved, sectionChiefs: [], sectionedBots: [...saved.sectionedBots, ...saved.sectionChiefs].sort((a, b) => state.bots.findIndex((bot) => bot.id === a.id) - state.bots.findIndex((bot) => bot.id === b.id)) } : saved;\n  const { primary, unsectionedChief, pinnedBots, sectionChiefs, sectionedBots, unsectionedBots } = { ...mergedSaved, ...activeBotsFirst(mergedSaved, (bot) => {",
+  );
+  await change(
+    "src/components/Sidebar.tsx",
+    "    return waiting || working;",
+    "    return !j1Navigation && (waiting || working);",
+  );
+  await change(
+    "src/components/Sidebar.tsx",
+    "sectioned: saved.sectionedBots, departments: sectionNames",
+    "sectioned: mergedSaved.sectionedBots, departments: sectionNames",
+  );
   await change(
     "src/components/DesktopWorkspaceSwitcher.tsx",
     "import { track }",

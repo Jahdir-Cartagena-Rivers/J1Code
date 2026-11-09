@@ -189,7 +189,9 @@ export function J1ShellBridge() {
           (node) => node.getClientRects().length > 0,
         ),
         overlays: [
-          ...document.querySelectorAll('[role="menu"], [role="listbox"], [data-thread-overlay]'),
+          ...document.querySelectorAll(
+            '[role="menu"], [role="listbox"], [data-thread-overlay], [data-bot-menu]',
+          ),
         ]
           .map((node) => node.getBoundingClientRect())
           .filter((rect) => rect.width > 0 && rect.height > 0)
@@ -267,7 +269,7 @@ export function J1ShellBridge() {
       const footer = document.querySelector("[data-j1-footer-slot]");
       if (footer) resize.observe(footer);
       for (const popup of document.querySelectorAll(
-        '[role="menu"], [role="listbox"], [data-thread-overlay]',
+        '[role="menu"], [role="listbox"], [data-thread-overlay], [data-bot-menu]',
       ))
         resize.observe(popup);
       // MutationObserver already batches DOM commits. Critical slot geometry must

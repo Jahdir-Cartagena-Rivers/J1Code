@@ -809,6 +809,17 @@ export function MausbotShell({
                 0,
                 bounds.projects.height - bounds.projects.clipTop - bounds.projects.clipBottom,
               ),
+              clipPath: nativeOverlayClip(
+                {
+                  ...bounds.projects,
+                  top: bounds.projects.top + bounds.projects.clipTop,
+                  height: Math.max(
+                    0,
+                    bounds.projects.height - bounds.projects.clipTop - bounds.projects.clipBottom,
+                  ),
+                },
+                bounds.overlays,
+              ),
               // These overlays sit above the iframe backdrop; retain and dim them with it.
               filter: bounds.modal ? "brightness(0.35)" : undefined,
               pointerEvents: bounds.modal ? "none" : undefined,
@@ -848,6 +859,7 @@ export function MausbotShell({
               left: bounds.footer.left,
               top: bounds.footer.top,
               width: bounds.footer.width,
+              clipPath: nativeOverlayClip(bounds.footer, bounds.overlays),
               // These overlays sit above the iframe backdrop; retain and dim them with it.
               filter: bounds.modal ? "brightness(0.35)" : undefined,
               pointerEvents: bounds.modal ? "none" : undefined,
