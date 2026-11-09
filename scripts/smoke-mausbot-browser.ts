@@ -1,7 +1,7 @@
 import * as NodeAssert from "node:assert/strict";
 import * as NodeHttp from "node:http";
 import * as NodePath from "node:path";
-import { pathToFileURL } from "node:url";
+import * as NodeURL from "node:url";
 
 const [stage, executable] = process.argv.slice(2);
 if (!stage || !executable)
@@ -9,10 +9,10 @@ if (!stage || !executable)
 process.env.J1_MAUSBOT_MANAGED = "1";
 process.env.J1_MAUSBOT_LIGHTPANDA_PATH = executable;
 const native = await import(
-  pathToFileURL(NodePath.join(stage, "server/j1/native-browser.ts")).href
+  NodeURL.pathToFileURL(NodePath.join(stage, "server/j1/native-browser.ts")).href
 );
 const { RuntimeRouter } = await import(
-  pathToFileURL(NodePath.join(stage, "server/browser/engines.ts")).href
+  NodeURL.pathToFileURL(NodePath.join(stage, "server/browser/engines.ts")).href
 );
 const fixture = NodeHttp.createServer((_request, response) => {
   response.setHeader("content-type", "text/html");
@@ -42,6 +42,15 @@ const call = (name: string, args: unknown) =>
     claimed++;
   });
 try {
+  for (const command of ["agent-browser", "omb-cdp"]) {
+    for (const method of ["tools/list", "tools/call"] as const) {
+      const denied = (await router.agentRpc("fixture", { command, args: [], env: {} }, method, {
+        name: "agent_browser_open",
+        arguments: { url: "https://must-not-open.invalid" },
+      })) as { isError?: boolean };
+      NodeAssert.equal(denied.isError, true, "Managed sessions must reject legacy browser specs.");
+    }
+  }
   const catalog = await router.agentRpc("fixture", spec, "tools/list", {});
   NodeAssert.ok(catalog.tools.some((tool: { name: string }) => tool.name === "agent_browser_open"));
   NodeAssert.ok(!catalog.tools.some((tool: { name: string }) => tool.name === "getEnv"));

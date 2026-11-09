@@ -939,6 +939,11 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
   );
   await change(
     "server/browser/engines.ts",
+    '    const refusal = method === "tools/call" ? this.#refusal?.(session, spec, params) : null;',
+    '    // A stale upstream spec must not launch Chrome in a J1-owned runtime.\n    if (J1Browser.managed && spec.command !== J1Browser.command) return { isError: true, content: [{ type: "text", text: "This browser specification is no longer available. Reopen the J1 lightweight browser." }] };\n    const refusal = method === "tools/call" ? this.#refusal?.(session, spec, params) : null;',
+  );
+  await change(
+    "server/browser/engines.ts",
     "return this.#chrome.service.working(session) || this.#old.working(session);",
     "return J1Browser.working(session) || this.#chrome.service.working(session) || this.#old.working(session);",
   );
