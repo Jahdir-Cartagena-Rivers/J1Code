@@ -1,12 +1,6 @@
-import {
-  createAgentSession,
-  createMcpExtension,
-  DefaultResourceLoader,
-  ModelRuntime,
-  SessionManager,
-  SettingsManager,
-  type AgentSessionEvent,
-} from "@earendil-works/pi-coding-agent";
+import * as NodeModule from "node:module";
+import * as NodePath from "node:path";
+import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { DeepAIModel } from "./DeepAIClient.ts";
 
 /** J1 owns admission and approvals; Pi owns the model/tool loop and transcript. */
@@ -23,6 +17,23 @@ export async function createDeepAIAgent(input: {
   readonly onEvent: (event: AgentSessionEvent) => void;
   readonly mcp?: { readonly endpoint: string; readonly authorizationHeader: string };
 }) {
+  // SEA can load file-backed ESM through require, but not package imports.
+  // Pi exports only an import condition, so resolve its package location first.
+  const packageFile = NodeModule.findPackageJSON(
+    "@earendil-works/pi-coding-agent",
+    import.meta.url,
+  );
+  if (!packageFile) throw new Error("The bundled Pi runtime is missing.");
+  const {
+    createAgentSession,
+    createMcpExtension,
+    DefaultResourceLoader,
+    ModelRuntime,
+    SessionManager,
+    SettingsManager,
+  } = NodeModule.createRequire(import.meta.url)(
+    NodePath.join(NodePath.dirname(packageFile), "dist", "index.js"),
+  ) as typeof import("@earendil-works/pi-coding-agent");
   const runtime = await ModelRuntime.create({
     credentials: {
       read: async () => undefined,
