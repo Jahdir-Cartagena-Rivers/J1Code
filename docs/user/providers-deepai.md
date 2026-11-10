@@ -32,8 +32,17 @@ For models whose image backend is unavailable, the provider can use a local
 Ollama vision interpreter. Set both `visionEndpoint` (for example,
 `http://127.0.0.1:11434`) and `visionModel` in the DeepAI provider configuration.
 The interpreter must already be running with a vision-capable model installed.
-J1 sends it the images and your question, then gives DeepAI a labeled visual
+After DeepAI rejects image support, J1 sends the interpreter the images and your question, then gives DeepAI a labeled visual
 report instead of unsupported image content. This supports visual observations
 and text; report accuracy depends on the selected vision model. Remove both
 settings to return to native DeepAI image delivery. Interpreter failures stop
 the turn rather than silently omitting the images.
+
+
+Enable **Codex vision fallback** in the DeepAI provider's **Images** settings to
+use the server's signed-in Codex CLI instead. DeepAI always receives the image
+first. Only an image-support rejection invokes Codex; authentication, allowance,
+and connection errors stop the turn. The chat labels fallback use, which counts
+against your Codex subscription allowance. Switch it off to stop using Codex for
+image interpretation. The interpreter receives the current question and attached
+images; DeepAI keeps the coding conversation and tool permissions.

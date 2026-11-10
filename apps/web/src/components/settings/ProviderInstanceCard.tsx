@@ -925,6 +925,31 @@ export function ProviderInstanceCard({
       </SettingsSection>
 
       {setup ? <SettingsSection title="Setup">{setup}</SettingsSection> : null}
+      {instance.driver === "deepai" ? (
+        <SettingsSection title="Images">
+          <SettingsRow
+            title="Codex vision fallback"
+            description="Try DeepAI first. If it rejects image support, use the server?s signed-in Codex CLI to interpret the image. Uses Codex subscription allowance and labels the fallback in chat."
+            control={
+              <Switch
+                aria-label="Codex vision fallback"
+                disabled={readOnly}
+                checked={
+                  instance.config !== null &&
+                  typeof instance.config === "object" &&
+                  "codexVisionFallback" in instance.config &&
+                  instance.config.codexVisionFallback === true
+                }
+                onCheckedChange={(value) =>
+                  updateConfig(
+                    nextConfigBlobWithValue(instance.config, "codexVisionFallback", value),
+                  )
+                }
+              />
+            }
+          />
+        </SettingsSection>
+      ) : null}
 
       {instance.driver === "codex" && readCodexSetupMode(instance.config) === "managed" ? (
         <div

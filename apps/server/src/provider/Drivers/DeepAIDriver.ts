@@ -2,6 +2,9 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import { ProviderDriverKind, ProviderSetupError } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Path from "effect/Path";
+import { ChildProcessSpawner } from "effect/unstable/process";
+import { describeWithCodex } from "../deepai/DeepAICodexVision.ts";
 import * as Crypto from "effect/Crypto";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
@@ -27,6 +30,7 @@ import { deepAIModelCapabilities } from "../deepai/DeepAIModelCapabilities.ts";
 
 const DRIVER = ProviderDriverKind.make("deepai");
 const Config = Schema.Struct({
+  codexVisionFallback: Schema.optionalKey(Schema.Boolean),
   visionEndpoint: Schema.optionalKey(Schema.String),
   visionModel: Schema.optionalKey(Schema.NonEmptyString),
 }).check(
@@ -42,7 +46,9 @@ export type DeepAIDriverEnv =
   | ServerConfig
   | ServerSecretStore
   | FileSystem.FileSystem
-  | Crypto.Crypto;
+  | Crypto.Crypto
+  | Path.Path
+  | ChildProcessSpawner.ChildProcessSpawner;
 
 export const DeepAIDriver: ProviderDriver<typeof Config.Type, DeepAIDriverEnv> = {
   driverKind: DRIVER,
@@ -54,7 +60,7 @@ export const DeepAIDriver: ProviderDriver<typeof Config.Type, DeepAIDriverEnv> =
       const config = yield* ServerConfig;
       const fs = yield* FileSystem.FileSystem;
       const store = yield* ProviderCredentialStore.make("deepai", instanceId);
-      const context = yield* Effect.context<never>();
+      const context = yield* Effect.context<DeepAIDriverEnv>();
       const run = Effect.runPromiseWith(context);
       const platform = yield* HostProcessPlatform;
       const machineDigest = yield* Effect.promise(() => deepAIMachineDigest(platform));
@@ -71,14 +77,23 @@ export const DeepAIDriver: ProviderDriver<typeof Config.Type, DeepAIDriverEnv> =
         credentials,
         catalog,
         attachmentsDir: config.attachmentsDir,
-        ...(providerConfig.visionEndpoint && providerConfig.visionModel
+        ...(providerConfig.codexVisionFallback
           ? {
-              describeImages: makeDeepAIVision({
-                endpoint: providerConfig.visionEndpoint,
-                model: providerConfig.visionModel,
-              }),
+              visionLabel: "Codex vision (uses Codex subscription allowance)",
+              describeImages: (
+                question: string,
+                images: ReadonlyArray<{ data: string; mimeType: string }>,
+                signal?: AbortSignal,
+              ) => Effect.runPromiseWith(context)(describeWithCodex(question, images), { signal }),
             }
-          : {}),
+          : providerConfig.visionEndpoint && providerConfig.visionModel
+            ? {
+                describeImages: makeDeepAIVision({
+                  endpoint: providerConfig.visionEndpoint,
+                  model: providerConfig.visionModel,
+                }),
+              }
+            : {}),
         directory: NodePath.join(config.stateDir, "providers", "deepai", instanceId),
       });
       const setupError = (cause?: unknown) =>

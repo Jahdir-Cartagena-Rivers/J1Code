@@ -37,6 +37,7 @@ type Session = {
   view: ProviderSession;
   agent: Agent;
   active?: TurnId;
+  controller?: AbortController;
   cancelled: boolean;
 };
 
@@ -44,9 +45,11 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
   instanceId: ProviderInstanceId;
   directory: string;
   attachmentsDir?: string;
+  visionLabel?: string;
   describeImages?: (
     question: string,
     images: ReadonlyArray<{ data: string; mimeType: string }>,
+    signal?: AbortSignal,
   ) => Promise<string>;
   credentials: () => Promise<string>;
   client?: ReturnType<typeof makeDeepAIClient>;
@@ -90,6 +93,7 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
     const state = sessions.get(id);
     if (!state) return;
     state.cancelled = true;
+    state.controller?.abort();
     for (const [key, request] of pending)
       if (request.thread === id) {
         pending.delete(key);
@@ -258,7 +262,7 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
               failure("send turn", "The attachment is unavailable. Remove it and attach it again."),
             );
           if (attachment.type === "image") {
-            if (!options.describeImages && !model?.input.includes("image"))
+            if (!model.input.includes("image"))
               return yield* Effect.fail(
                 failure(
                   "send turn",
@@ -284,18 +288,6 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
               failure("send turn", "This attachment type is not supported by DeepAI."),
             );
           }
-        }
-        if (images.length && options.describeImages) {
-          const report = yield* Effect.tryPromise({
-            try: () => options.describeImages!(input.input ?? "Describe the images.", images),
-            catch: () =>
-              failure(
-                "image analysis",
-                "The configured vision interpreter could not analyze the images. Check that its server and vision model are available. The DeepAI turn was not sent.",
-              ),
-          });
-          fileReferences.push(report);
-          images.length = 0;
         }
         // Attachment reads yield; another request may have started or stopped the session.
         if (sessions.get(input.threadId) !== state || state.active || state.cancelled)
@@ -323,6 +315,7 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
         const prompt = [input.input ?? "Continue.", ...fileReferences].join("\n\n");
         const turnId = TurnId.make(NodeCrypto.randomUUID());
         state.active = turnId;
+        state.controller = new AbortController();
         state.cancelled = false;
         state.view = { ...state.view, status: "running", activeTurnId: turnId };
         yield* Effect.promise(() =>
@@ -346,12 +339,59 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
           const classifyError = (message: string) => {
             if (/multimodal processing is not enabled/i.test(message))
               return "DeepAI advertised image support, but its server has image processing disabled for this model. Try another image-capable model or send text only.";
+            if (/Codex/i.test(message))
+              return "Codex vision could not complete. Check Codex sign-in and allowance on the server.";
             if (/too many restarts|daily reset/i.test(message))
               return "DeepAI's daily connection restart limit was reached. Wait for its daily reset; signing in again will not clear the limit.";
             return errorMessage;
           };
           try {
-            await state.agent.session.prompt(prompt, { images });
+            const restore = state.agent.checkpoint();
+            const originalMessageCount = state.agent.session.messages.length;
+            let nativeError: string | undefined;
+            try {
+              await state.agent.session.prompt(prompt, { images });
+              const response = state.agent.session.messages.at(-1);
+              if (response?.role === "assistant" && response.stopReason === "error")
+                nativeError = response.errorMessage;
+            } catch (error) {
+              if (!(error instanceof Error)) throw error;
+              nativeError = error.message;
+            }
+            const imageRejected =
+              nativeError &&
+              /multimodal processing is not enabled|(?:image|vision|multimodal).{0,60}(?:not supported|unsupported|not enabled)/i.test(
+                nativeError,
+              );
+            if (
+              images.length &&
+              imageRejected &&
+              options.describeImages &&
+              !state.cancelled &&
+              !state.agent.session.messages
+                .slice(originalMessageCount)
+                .some((message) => message.role === "toolResult")
+            ) {
+              restore();
+              await emit({
+                ...stamp(input.threadId, turnId),
+                itemId: RuntimeItemId.make(`${turnId}:assistant`),
+                type: "content.delta",
+                payload: {
+                  streamKind: "assistant_text",
+                  delta: `DeepAI rejected the image; using ${options.visionLabel ?? "the configured vision interpreter"}.\n\n`,
+                },
+              });
+              const report = await options.describeImages(
+                input.input ?? "Describe the images.",
+                images,
+                state.controller?.signal,
+              );
+              if (state.cancelled) return;
+              await state.agent.session.prompt(prompt + "\n\n" + report);
+            } else if (nativeError) {
+              throw new Error(nativeError);
+            }
             const last = state.agent.session.messages.at(-1);
             failed = last?.role === "assistant" && last.stopReason === "error";
             if (last?.role === "assistant" && last.errorMessage)
@@ -378,6 +418,7 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
               payload: { state: state.cancelled ? "interrupted" : failed ? "failed" : "completed" },
             });
             delete state.active;
+            delete state.controller;
             const { activeTurnId: _active, ...rest } = state.view;
             state.view = { ...rest, status: "ready" };
           }
@@ -388,6 +429,7 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
       task("interrupt", async () => {
         const state = requireSession(threadId);
         state.cancelled = true;
+        state.controller?.abort();
         for (const [id, request] of pending)
           if (request.thread === threadId) {
             pending.delete(id);

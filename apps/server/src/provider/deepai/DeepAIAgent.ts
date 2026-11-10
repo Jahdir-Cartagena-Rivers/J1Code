@@ -143,6 +143,15 @@ export async function createDeepAIAgent(input: {
   return {
     session,
     sessionFile: manager.getSessionFile(),
+    checkpoint() {
+      const messages = [...session.messages];
+      const leaf = manager.getLeafId();
+      return () => {
+        if (leaf) manager.branch(leaf);
+        else manager.resetLeaf();
+        session.agent.state.messages = messages;
+      };
+    },
     async stop() {
       controller.abort();
       await session.abort();
