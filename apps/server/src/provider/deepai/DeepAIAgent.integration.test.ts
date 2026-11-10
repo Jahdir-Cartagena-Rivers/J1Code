@@ -21,11 +21,11 @@ it.each([true, false])(
     vi.stubGlobal("fetch", async (url: string | Request | URL, init?: RequestInit) => {
       const request = url instanceof Request ? url : new Request(url, init);
       if (request.url.endsWith("/theos")) return Response.json({ enabled: true });
-      const body = await request.json();
+      const body = (await request.json()) as (typeof bodies)[number];
       bodies.push(body);
       const name = body.tools?.find((x: { function?: { name: string } }) =>
         /desktop_inspect/.test(x.function?.name ?? ""),
-      )?.function.name;
+      )?.function?.name;
       const call = name && !toolRan;
       if (call) toolRan = true;
       const delta = call
