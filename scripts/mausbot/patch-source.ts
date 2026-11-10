@@ -629,7 +629,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
   await change(
     "src/components/SettingsModal.tsx",
     "            <LicenseExpiryBanner config={state.config} />\n            {renderSection(section)}",
-    '            {j1Path === "/settings/appearance" && <J1SettingsSlot />}\n            {(!j1Path || Boolean(j1SettingsSection(j1Path))) && !(j1Navigation && section === "companion") && <><LicenseExpiryBanner config={state.config} />{renderSection(section)}</>}\n            {j1Path === "/settings/keybindings" && <><TalkShortcutRow /><SendKeyRow /></>}\n            {j1Path && j1Path !== "/settings/appearance" && j1Path !== "/settings/providers" && <J1SettingsSlot />}',
+    '            {j1Path === "/settings/appearance" && <J1SettingsSlot />}\n            {(!j1Path || Boolean(j1SettingsSection(j1Path))) && !(j1Navigation && section === "companion") && <><LicenseExpiryBanner config={state.config} />{renderSection(section)}</>}\n            {j1Path === "/settings/keybindings" && <><TalkShortcutRow /><SendKeyRow /></>}\n            {j1Path && j1Path !== "/settings/appearance" && !(j1Path === "/settings/providers" && j1Navigation?.providers) && <J1SettingsSlot />}',
   );
   await change(
     "src/components/SettingsModal.tsx",
@@ -1038,7 +1038,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
   await change(
     "src/components/EnginesSettings.tsx",
     "  if (simple && more) return <>",
-    "  if (j1Navigation) return <J1Providers instances={rows} renderEngine={renderEngine} refresh={<RefreshEngines />} extra={<>{orphanEndpoints && <ClaudeEndpoints />}<HiddenEngines /><CacheKeepWarmSettings /></>} />;\n  if (simple && more) return <>",
+    "  if (j1Navigation?.providers) return <J1Providers instances={rows} renderEngine={renderEngine} refresh={<RefreshEngines />} extra={<>{orphanEndpoints && <ClaudeEndpoints />}<HiddenEngines /><CacheKeepWarmSettings /></>} />;\n  if (simple && more) return <>",
   );
   await copy("scripts/mausbot/native-browser.ts", "server/j1/native-browser.ts");
   await copy("scripts/mausbot/native-login-input.ts", "server/j1/native-login-input.ts");
