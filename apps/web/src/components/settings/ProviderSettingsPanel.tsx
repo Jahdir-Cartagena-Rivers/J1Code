@@ -84,6 +84,7 @@ import { ExpandableText } from "./ExpandableText";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
 import { UsageProviderSettings } from "./UsageProviderSettings";
 import { ProviderSetupSection, readAntigravityAuthMethod } from "./ProviderSetupSection";
+import { DeepAISetupSection } from "./DeepAISetupSection";
 import { CodexSetupSection, CodexManagedRuntimeFields } from "./CodexSetupSection";
 import { readCodexSetupMode } from "./CodexSetupSection.logic";
 import { DRIVER_OPTIONS, getDriverOption } from "./providerDriverMeta";
@@ -951,7 +952,14 @@ export function EnvironmentProviderSettings({
           ) : undefined
         }
         setup={
-          mode === "editor" && row.driver === "antigravity" ? (
+          mode === "editor" && row.driver === "deepai" ? (
+            <DeepAISetupSection
+              environmentId={environmentId}
+              instanceId={row.instanceId}
+              authenticated={liveProvider?.auth.status === "authenticated"}
+              disabled={readOnly || !resolveProviderInstanceEnabled(row.instance)}
+            />
+          ) : mode === "editor" && row.driver === "antigravity" ? (
             <ProviderSetupSection
               environmentId={environmentId}
               environmentLabel={environmentLabel}
