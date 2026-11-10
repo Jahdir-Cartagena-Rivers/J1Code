@@ -842,10 +842,17 @@ export function EnvironmentProviderSettings({
       if (typeof detail === "string" && rows.some((row) => String(row.instanceId) === detail)) {
         setSelectedInstanceId(rows.find((row) => String(row.instanceId) === detail)!.instanceId);
       } else if (detail === null && !readOnly) setIsAddInstanceDialogOpen(true);
+      else if (
+        detail &&
+        typeof detail === "object" &&
+        "action" in detail &&
+        detail.action === "refresh"
+      )
+        void refreshProviders();
     };
     window.addEventListener("j1-provider-select", receive);
     return () => window.removeEventListener("j1-provider-select", receive);
-  }, [mergedProviders, rows, readOnly]);
+  }, [mergedProviders, rows, readOnly, refreshProviders]);
 
   const updateProviderInstance = (
     row: InstanceRow,
@@ -1100,7 +1107,10 @@ export function EnvironmentProviderSettings({
         title={mergedProviders ? "" : searchableSetting("providers").title}
         variant="plain"
         headerAction={
-          <div className="flex min-w-0 items-center gap-2">
+          <div
+            style={mergedProviders ? { display: "none" } : undefined}
+            className="flex min-w-0 items-center gap-2"
+          >
             {readOnly ? (
               <span className="min-w-0 truncate text-xs text-muted-foreground">
                 <ProviderLastChecked lastCheckedAt={lastCheckedAt} />

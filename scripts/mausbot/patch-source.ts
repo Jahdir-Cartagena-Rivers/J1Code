@@ -1038,7 +1038,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
   await change(
     "src/components/EnginesSettings.tsx",
     "  if (simple && more) return <>",
-    "  if (j1Navigation) return <J1Providers instances={rows} renderEngine={renderEngine} extra={<>{orphanEndpoints && <ClaudeEndpoints />}<HiddenEngines /><CacheKeepWarmSettings /></>} />;\n  if (simple && more) return <>",
+    "  if (j1Navigation) return <J1Providers instances={rows} renderEngine={renderEngine} refresh={<RefreshEngines />} extra={<>{orphanEndpoints && <ClaudeEndpoints />}<HiddenEngines /><CacheKeepWarmSettings /></>} />;\n  if (simple && more) return <>",
   );
   await copy("scripts/mausbot/native-browser.ts", "server/j1/native-browser.ts");
   await copy("scripts/mausbot/native-login-input.ts", "server/j1/native-login-input.ts");

@@ -613,16 +613,24 @@ export function MausbotShell({
         });
       } else if (
         pathname === "/settings/providers" &&
-        (data.type === "provider-select" || data.type === "provider-add")
+        (data.type === "provider-select" ||
+          data.type === "provider-add" ||
+          data.type === "provider-refresh")
       ) {
         if (
           data.type === "provider-add" ||
+          data.type === "provider-refresh" ||
           (typeof data.instanceId === "string" &&
             providerCatalog.some((row) => row.id === data.instanceId))
         ) {
           window.dispatchEvent(
             new CustomEvent("j1-provider-select", {
-              detail: data.type === "provider-add" ? null : data.instanceId,
+              detail:
+                data.type === "provider-add"
+                  ? null
+                  : data.type === "provider-refresh"
+                    ? { action: "refresh" }
+                    : data.instanceId,
             }),
           );
         }

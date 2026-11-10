@@ -8,10 +8,12 @@ export function J1Providers({
   instances,
   renderEngine,
   extra,
+  refresh,
 }: {
   instances: InstanceInfo[];
   renderEngine: (instance: InstanceInfo, bare?: boolean) => ReactNode;
   extra: ReactNode;
+  refresh?: ReactNode;
 }) {
   const navigation = useJ1Navigation();
   const [selection, setSelection] = useState("");
@@ -36,6 +38,9 @@ export function J1Providers({
     <div className="flex min-w-0 flex-col gap-5">
       <div className="flex flex-wrap items-center gap-3 px-4">
         <h1 className="text-[22px] font-semibold tracking-tight text-ink">Model providers</h1>
+        <div className="ml-auto" onClick={() => j1Post({ type: "provider-refresh" })}>
+          {refresh}
+        </div>
         <button
           className="ml-auto rounded-lg border border-edge px-3 py-2 text-sm text-ink"
           onClick={() => {
