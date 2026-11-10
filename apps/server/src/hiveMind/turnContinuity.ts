@@ -9,6 +9,12 @@ export class TurnContinuity<Memory, Outcome extends { readonly type: string }> {
   private key(thread: string, instance: string, turn: string) {
     return this.prefix(thread, instance) + encodeURIComponent(turn);
   }
+  tracks(thread: string, instance: string, turn: string) {
+    return (
+      this.active.has(this.key(thread, instance, turn)) ||
+      this.pending.has(this.prefix(thread, instance))
+    );
+  }
   begin(thread: string, instance: string) {
     const prefix = this.prefix(thread, instance);
     const tokens = this.pending.get(prefix) ?? new Set<symbol>();

@@ -1379,6 +1379,9 @@ externalMemoryRouting.layer("external memory provider boundary", (it) => {
         const configPath = NodePath.join(config.stateDir, "hive-mind.config.json");
         const connectionFile = NodePath.join(config.stateDir, "test-connection.json");
         const originalFetch = globalThis.fetch;
+        const workflowSaved = Promise.withResolvers<void>();
+        let workflowAttempts = 0;
+        let rejectWorkflow = false;
         const received: Array<{ path: string; body: Readonly<Record<string, unknown>> }> = [];
         const pixel = Buffer.from(
           "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a0XcAAAAASUVORK5CYII=",
@@ -1407,6 +1410,22 @@ externalMemoryRouting.layer("external memory provider boundary", (it) => {
               assets: [{ id: "reference", mime: "image/png", caption: "Lamp reference" }],
             });
           if (url.pathname === "/v1/brain") return Response.json({ records: [] });
+          if (url.pathname === "/v1/brain/save") {
+            const summary = (body.data as { summary?: string } | undefined)?.summary;
+            if (summary?.includes("Verified transparent layers")) {
+              workflowAttempts++;
+              if (rejectWorkflow || workflowAttempts < 3)
+                return new Response("unavailable", { status: 503 });
+              workflowSaved.resolve();
+            }
+            return Response.json({
+              id: "recorded",
+              revision: "revision",
+              scope: body.scope,
+              project: body.project,
+              data: body.data,
+            });
+          }
           return Response.json({ id: "recorded" });
         };
         yield* Effect.sync(() => {
@@ -1429,7 +1448,10 @@ externalMemoryRouting.layer("external memory provider boundary", (it) => {
             cwd: fixtureCwd("external-reference"),
             runtimeMode: "full-access",
           });
-          yield* provider.sendTurn({ threadId, input: "Continue modeling the lamp" });
+          const acceptedTurn = yield* provider.sendTurn({
+            threadId,
+            input: "Continue modeling the lamp",
+          });
           const sent = externalMemoryRouting.codex.sendTurn.mock.calls[0]?.[0];
           assert.include(sent?.input ?? "", "External correction: use the wide base");
           assert.equal(sent?.attachments?.[0]?.type, "image");
@@ -1458,7 +1480,22 @@ externalMemoryRouting.layer("external memory provider boundary", (it) => {
             status: "working",
           });
           // The provider ending the turn is what flips the chat to idle for everyone else.
-          const turnId = externalMemoryRouting.codex.sendTurn.mock.results[0]?.value?.turnId;
+          const turnId = acceptedTurn.turnId;
+          yield* Effect.sync(() =>
+            externalMemoryRouting.codex.emit({
+              type: "item.completed",
+              eventId: asEventId("evt-workflow-result"),
+              provider: CODEX_DRIVER,
+              createdAt: "2026-01-01T00:00:00.000Z",
+              threadId,
+              turnId,
+              payload: {
+                itemType: "assistant_message",
+                detail:
+                  "Verified transparent layers. Keep the original photo. Next: inspect close-ups.",
+              },
+            }),
+          );
           yield* Effect.sync(() =>
             externalMemoryRouting.codex.emit({
               type: "turn.completed",
@@ -1474,7 +1511,50 @@ externalMemoryRouting.layer("external memory provider boundary", (it) => {
             // Presence is sent by real fetch promises, which the test clock cannot advance.
             // @effect-diagnostics-next-line globalTimers:off
             yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
+          yield* Effect.promise(() => workflowSaved.promise);
+          assert.equal(workflowAttempts, 3);
+          const updates = received.filter(
+            (r) =>
+              r.path === "/v1/brain/save" &&
+              encodeJson(r.body).includes("Verified transparent layers"),
+          );
+          assert.equal(new Set(updates.map((r) => r.body.eventId)).size, 1);
+          assert.include(encodeJson(updates[0]?.body), "Continue modeling the lamp");
           assert.equal(presence().at(-1)?.status, "idle");
+          rejectWorkflow = true;
+          yield* provider.sendTurn({ threadId, input: "Continue the workflow" });
+          const warning = yield* provider.streamEvents.pipe(
+            Stream.filter(
+              (event) =>
+                event.type === "runtime.warning" &&
+                event.eventId === "evt-workflow-rejected:hive-capture-warning",
+            ),
+            Stream.runHead,
+            Effect.forkChild({ startImmediately: true }),
+          );
+          yield* Effect.sync(() => {
+            externalMemoryRouting.codex.emit({
+              type: "item.completed",
+              eventId: asEventId("evt-failed-output"),
+              provider: CODEX_DRIVER,
+              createdAt: "2026-01-01T00:00:00.000Z",
+              threadId,
+              turnId,
+              payload: { itemType: "assistant_message", detail: "Verified transparent layers" },
+            });
+            externalMemoryRouting.codex.emit({
+              type: "turn.completed",
+              eventId: asEventId("evt-workflow-rejected"),
+              provider: CODEX_DRIVER,
+              createdAt: "2026-01-01T00:00:00.000Z",
+              threadId,
+              turnId,
+              payload: { state: "completed" },
+            });
+          });
+          assert.isTrue(Option.isSome(yield* Fiber.join(warning)));
+          assert.equal(workflowAttempts, 6);
+          assert.isFalse(NodeFS.existsSync(NodePath.join(config.stateDir, "hive-mind.json")));
           yield* provider.stopSession({ threadId });
         }).pipe(
           Effect.ensuring(

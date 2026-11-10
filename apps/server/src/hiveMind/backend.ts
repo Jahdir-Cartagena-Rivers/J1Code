@@ -59,6 +59,8 @@ const RecordResult = Schema.Struct({
   data: Schema.Record(Schema.String, Schema.Unknown),
 });
 
+const decodeCaptureReceipt = Schema.decodeUnknownSync(RecordResult);
+
 export async function recallSelectedHive(file: string, query: string, project?: string) {
   const result = await recallHiveMind(file, query, project);
   return {
@@ -285,7 +287,7 @@ export async function captureHiveEvent(
         /\b(?:password|api[_ -]?key|access[_ -]?token|secret)\s*(?::|=|is\b)\s*\S+/giu,
         "[redacted credential]",
       );
-  return requestHive(connection, "/v1/brain/save", {
+  const result = await requestHive(connection, "/v1/brain/save", {
     kind: "episode",
     eventId: input.eventId,
     scope: input.project === null ? "general" : "project",
@@ -294,7 +296,7 @@ export async function captureHiveEvent(
     source: { threadId: input.threadId, provider: input.provider, type: "agent" },
     data: {
       eventId: input.eventId,
-      summary: redact(input.summary).slice(0, 1500),
+      summary: redact(input.summary).slice(0, 4000),
       ...(input.taskId ? { taskId: input.taskId } : {}),
       ...(input.assetIds?.length ? { assetIds: input.assetIds } : {}),
       ...(input.contextSequence !== undefined ? { contextSequence: input.contextSequence } : {}),
@@ -302,6 +304,10 @@ export async function captureHiveEvent(
       ...(input.deliveredIds ? { deliveredIds: input.deliveredIds } : {}),
     },
   });
+  const receipt = decodeCaptureReceipt(result);
+  if (!receipt.id || !receipt.revision)
+    throw new Error("Hive Mind did not confirm the captured turn.");
+  return receipt;
 }
 export async function materializeHiveAsset(
   connection: HiveConnection,

@@ -68,6 +68,7 @@ import {
   type HiveConnection,
   type HivePacket,
 } from "../../hiveMind/backend.ts";
+import { WorkflowCapture, workflowSummary } from "../../hiveMind/workflowCapture.ts";
 import { TurnContinuity } from "../../hiveMind/turnContinuity.ts";
 import { LivePresence } from "../../hiveMind/livePresence.ts";
 import * as DeviceService from "../../device/DeviceService.ts";
@@ -494,14 +495,21 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   const analytics = yield* Effect.service(AnalyticsService.AnalyticsService);
   const serverConfig = yield* ServerConfig.ServerConfig;
   const hiveFile = `${serverConfig.stateDir}/hive-mind.json`;
-  type TurnMemory = { connection: HiveConnection; project: string | null; packet: HivePacket };
+  type TurnMemory = {
+    connection: HiveConnection;
+    project: string | null;
+    packet: HivePacket;
+    request: string;
+  };
   type MemoryOutcome = {
     eventId: string;
     provider: string;
     instanceId: string;
     turnId: string;
     type: string;
+    output: string;
   };
+  const workflowCapture = new WorkflowCapture();
   const hiveTurns = new TurnContinuity<TurnMemory, MemoryOutcome>();
   // Best-effort live status for other chats; a failure never affects the turn.
   let presenceFailing = false;
@@ -544,7 +552,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           threadId,
           provider: entry.outcome.provider,
           project: entry.memory.project,
-          summary: `Provider reported ${entry.outcome.type}. Source turn: ${entry.outcome.turnId}. Detailed output remains in the source chat.`,
+          summary: workflowSummary(
+            entry.memory.request,
+            entry.outcome.output,
+            entry.outcome.type,
+            entry.outcome.turnId,
+          ),
           contextSequence: entry.memory.packet.sequence,
           ...(entry.memory.packet.streamId
             ? { contextStreamId: entry.memory.packet.streamId }
@@ -554,7 +567,23 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         }),
       catch: () => "Hive Mind could not retain the turn outcome.",
     }).pipe(
-      Effect.catch((message) => Effect.logWarning(message)),
+      Effect.retry({ times: 2 }),
+      Effect.catch((message) =>
+        Effect.gen(function* () {
+          yield* Effect.logWarning(message);
+          yield* publishRuntimeEvent({
+            eventId: EventId.make(`${entry.outcome.eventId}:hive-capture-warning`),
+            type: "runtime.warning",
+            threadId: ThreadId.make(threadId),
+            provider: entry.outcome.provider as ProviderDriverKind,
+            createdAt: DateTime.formatIso(yield* DateTime.now),
+            payload: {
+              message:
+                "Hive Mind could not save this turn after three attempts. Its workflow may be missing from shared memory; the source chat is preserved.",
+            },
+          });
+        }),
+      ),
       Effect.asVoid,
     );
   const eventLoggers = yield* ProviderEventLoggers.ProviderEventLoggers;
@@ -1241,6 +1270,37 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         correlateRuntimeEventWithInstance(source, event),
       );
       livePresence.observe(canonicalEvent.threadId, canonicalEvent);
+      if (
+        canonicalEvent.turnId !== undefined &&
+        hiveTurns.tracks(canonicalEvent.threadId, source.instanceId, canonicalEvent.turnId)
+      ) {
+        if (
+          canonicalEvent.type === "content.delta" &&
+          canonicalEvent.payload.streamKind === "assistant_text"
+        ) {
+          workflowCapture.append(
+            canonicalEvent.threadId,
+            source.instanceId,
+            canonicalEvent.turnId,
+            canonicalEvent.payload.delta,
+            canonicalEvent.itemId,
+          );
+        } else if (
+          canonicalEvent.type === "item.completed" &&
+          canonicalEvent.payload.itemType === "assistant_message" &&
+          !canonicalEvent.payload.agentId &&
+          canonicalEvent.payload.detail
+        ) {
+          workflowCapture.append(
+            canonicalEvent.threadId,
+            source.instanceId,
+            canonicalEvent.turnId,
+            canonicalEvent.payload.detail,
+            canonicalEvent.itemId,
+            true,
+          );
+        }
+      }
       if (canonicalEvent.type === "turn.completed" || canonicalEvent.type === "turn.aborted")
         livePresence.finish(canonicalEvent.threadId);
       if (
@@ -1257,6 +1317,14 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
             instanceId: source.instanceId,
             turnId: canonicalEvent.turnId,
             type: canonicalEvent.type,
+            output:
+              canonicalEvent.type === "runtime.error"
+                ? ""
+                : workflowCapture.take(
+                    canonicalEvent.threadId,
+                    source.instanceId,
+                    canonicalEvent.turnId,
+                  ),
           },
         );
         yield* Effect.forEach(
@@ -1310,6 +1378,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       } else if (canonicalEvent.type === "session.exited") {
         livePresence.end(canonicalEvent.threadId);
         hiveTurns.forget(canonicalEvent.threadId, source.instanceId);
+        workflowCapture.forget(canonicalEvent.threadId, source.instanceId);
         yield* clearTurnAnalyticsSession(source.instanceId, canonicalEvent.threadId);
       }
       if (
@@ -1952,6 +2021,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           connection: memory.connection,
           project: standaloneBot ? null : (memory.packet.project ?? memoryProjects[0] ?? "J1Code"),
           packet: memory.packet,
+          request: parsed.input ?? "Attachment-only turn",
         };
         let totalBytes = attachments
           .filter((a) => a.type === "image")

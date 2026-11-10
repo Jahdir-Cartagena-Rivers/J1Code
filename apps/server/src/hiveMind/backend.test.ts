@@ -75,6 +75,27 @@ describe("selected Hive Mind backend", () => {
     await expect(externalHiveConnection(f.file)).rejects.toThrow("Invalid Hive Mind connection");
     expect(await selectedHiveConnection(f.file)).toBeNull();
   });
+  it("rejects a successful HTTP response without a committed record receipt", async () => {
+    const original = globalThis.fetch;
+    try {
+      globalThis.fetch = async () => Response.json({ ok: true });
+      await expect(
+        captureHiveEvent(
+          { origin: "http://127.0.0.1:8788", token: "x".repeat(32) },
+          {
+            eventId: "invalid-receipt",
+            threadId: "chat",
+            provider: "test",
+            project: "Studio",
+            summary: "Workflow result",
+          },
+        ),
+      ).rejects.toThrow();
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it("keeps built-in as default without requiring a standalone app", async () => {
     const f = await fixture();
     expect(await selectedHiveConnection(f.file)).toBeNull();
@@ -194,7 +215,7 @@ describe("selected Hive Mind backend", () => {
       threadId: "chat-b",
       provider: "test",
       project: "Studio",
-      summary: "api_key=do-not-retain",
+      summary: "api_key=do-not-retain " + "workflow detail ".repeat(140),
     });
     expect(JSON.stringify(received)).not.toContain("do-not-retain");
     await captureHiveEvent(packet.connection, {
@@ -215,6 +236,7 @@ describe("selected Hive Mind backend", () => {
     expect(botEvent?.body).toMatchObject({ scope: "general", source: { threadId: "bot-chat" } });
     expect(botEvent?.body).not.toHaveProperty("project");
 
+    expect(JSON.stringify(received)).toContain("workflow detail ".repeat(110));
     await bindHiveTask(f.file, "chat-b");
     expect(await fs.readFile(f.file, "utf8")).toBe(original);
     const runtime = new HiveMindRuntime(f.file);
