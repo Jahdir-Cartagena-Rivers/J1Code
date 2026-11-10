@@ -1001,6 +1001,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
     "        {showWelcome && <FirstConversationTour quiet={spotlightsQuiet(viewer)} />}",
   );
   await copy("scripts/mausbot/native-browser.ts", "server/j1/native-browser.ts");
+  await copy("scripts/mausbot/native-login-input.ts", "server/j1/native-login-input.ts");
   await copy("apps/server/src/mcp/LightpandaProcess.ts", "server/j1/LightpandaProcess.ts");
   const adapter = await NodeFSP.readFile(
     NodePath.join(root, "apps/server/src/mausbot/LightpandaAdapter.ts"),
@@ -1043,6 +1044,11 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
   );
   await change(
     "server/browser/engines.ts",
+    "  withSecretInput<T extends { ok: boolean; text: string; held?: { url: string; ms: number } }>(session: string, spec: Spec, fn: () => Promise<T>, ctx?: StepContext): Promise<T> {",
+    "  withSecretInput<T extends { ok: boolean; text: string; held?: { url: string; ms: number } }>(session: string, spec: Spec, fn: () => Promise<T>, ctx?: StepContext): Promise<T> {\n    if (J1Browser.managed) return J1Browser.withSecretInput(session, fn);",
+  );
+  await change(
+    "server/browser/engines.ts",
     "await Promise.all([this.#chrome.service.close(session), this.#old.close(session)]);",
     "J1Browser.close(session);\n    await Promise.all([this.#chrome.service.close(session), this.#old.close(session)]);",
   );
@@ -1061,6 +1067,11 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
     "server/host/browser.ts",
     "function onChrome(profile: string | undefined): boolean {",
     "function onChrome(profile: string | undefined): boolean {\n    if (J1Browser.managed) return false;",
+  );
+  await change(
+    "server/host/browser.ts",
+    '  function loginInput(session: string, spec: Spec, env: NodeJS.ProcessEnv): Pick<FillLoginDeps, "engine" | "insertText" | "press" | "click"> {',
+    '  function loginInput(session: string, spec: Spec, env: NodeJS.ProcessEnv): Pick<FillLoginDeps, "engine" | "insertText" | "press" | "click"> {\n    if (J1Browser.managed) return J1Browser.loginInput(session);',
   );
   await change(
     "server/host/browser.ts",
