@@ -42,6 +42,8 @@ import { useTheme } from "../hooks/useTheme";
 import { useClientSettings } from "../hooks/useSettings";
 import { installMausbotFonts } from "./mausbotFonts";
 import { useMausbotFrameScroll } from "./useMausbotFrameScroll";
+import { isElectron } from "../env";
+import { WorkspacePageHeader } from "./WorkspacePageHeader";
 const decodeApprovalMode = Schema.decodeUnknownSync(MausbotApprovalModeInput);
 const settingsLabels = {
   ...SETTINGS_SECTION_LABELS,
@@ -759,265 +761,275 @@ export function MausbotShell({
   const native = pathname === "/assistants" || pathname === "/";
   return (
     <WorkspaceState value={workspace}>
-      <div
-        ref={shell}
-        className="relative flex h-full min-h-0 min-w-0 flex-1 overflow-clip"
-        data-mausbot-shell={
-          initializing
-            ? "loading"
-            : !enabled
-              ? "unsupported"
-              : error
-                ? "failed"
-                : ready
-                  ? "ready"
-                  : "loading"
-        }
-      >
-        {current && (
-          <iframe
-            ref={frame}
-            src={current.url}
-            title="J1 workspace"
-            allow="microphone"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals allow-popups allow-popups-to-escape-sandbox"
-            referrerPolicy="no-referrer"
-            onLoad={() => {
-              try {
-                setFrameAccess(
-                  Boolean(
-                    frame.current?.contentDocument &&
-                    frame.current.contentDocument.URL !== "about:blank",
-                  ),
-                );
-              } catch {
-                setFrameAccess(false);
-              }
-              setBounds(null);
-              if (handshake.current !== null) window.clearTimeout(handshake.current);
-              handshake.current = window.setTimeout(() => {
-                handshake.current = null;
-                setError("The bot window could not reconnect. Reopen it to continue.");
-              }, 15_000);
-              post();
-            }}
-            className="absolute inset-0 h-full w-full border-0"
-            style={{ visibility: ready ? "visible" : "hidden" }}
-          />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {isElectron && (
+          <WorkspacePageHeader electron aria-label="Window title bar">
+            <span className="text-sm text-muted-foreground">J1 Code</span>
+          </WorkspacePageHeader>
         )}
-        {!ready && !initializing && sidebar}
-        {initializing && (
-          <div
-            role="status"
-            className="absolute inset-0 z-30 flex items-center justify-center bg-background text-sm text-muted-foreground"
-          >
-            Opening workspace…
-          </div>
-        )}
-        {projectPortal &&
-          sidebarOpen &&
-          createPortal(
-            <PortalContainer value={projectPortal}>
+        <div
+          ref={shell}
+          className="relative flex h-full min-h-0 min-w-0 flex-1 overflow-clip"
+          data-mausbot-shell={
+            initializing
+              ? "loading"
+              : !enabled
+                ? "unsupported"
+                : error
+                  ? "failed"
+                  : ready
+                    ? "ready"
+                    : "loading"
+          }
+        >
+          {current && (
+            <iframe
+              ref={frame}
+              src={current.url}
+              title="J1 workspace"
+              allow="microphone"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals allow-popups allow-popups-to-escape-sandbox"
+              referrerPolicy="no-referrer"
+              onLoad={() => {
+                try {
+                  setFrameAccess(
+                    Boolean(
+                      frame.current?.contentDocument &&
+                      frame.current.contentDocument.URL !== "about:blank",
+                    ),
+                  );
+                } catch {
+                  setFrameAccess(false);
+                }
+                setBounds(null);
+                if (handshake.current !== null) window.clearTimeout(handshake.current);
+                handshake.current = window.setTimeout(() => {
+                  handshake.current = null;
+                  setError("The bot window could not reconnect. Reopen it to continue.");
+                }, 15_000);
+                post();
+              }}
+              className="absolute inset-0 h-full w-full border-0"
+              style={{ visibility: ready ? "visible" : "hidden" }}
+            />
+          )}
+          {!ready && !initializing && sidebar}
+          {initializing && (
+            <div
+              role="status"
+              className="absolute inset-0 z-30 flex items-center justify-center bg-background text-sm text-muted-foreground"
+            >
+              Opening workspace…
+            </div>
+          )}
+          {projectPortal &&
+            sidebarOpen &&
+            createPortal(
+              <PortalContainer value={projectPortal}>
+                <div
+                  ref={projectContent}
+                  data-merged-project-navigation
+                  className="flex shrink-0 flex-col"
+                >
+                  {navigation}
+                </div>
+              </PortalContainer>,
+              projectPortal,
+            )}
+          {footerPortal &&
+            sidebarOpen &&
+            createPortal(
+              <PortalContainer value={footerPortal}>
+                <div ref={footerContent} data-merged-j1-utilities>
+                  {footer}
+                </div>
+              </PortalContainer>,
+              footerPortal,
+            )}
+          {ready && !projectPortal && bounds.projects && sidebarOpen && (
+            <div
+              data-merged-project-navigation
+              inert={bounds.modal}
+              className="merged-j1-navigation absolute z-20 flex min-h-0 flex-col overflow-clip bg-sidebar text-sidebar-foreground"
+              style={{
+                left: bounds.projects.left,
+                top: bounds.projects.top + bounds.projects.clipTop,
+                width: bounds.projects.width,
+                height: Math.max(
+                  0,
+                  bounds.projects.height - bounds.projects.clipTop - bounds.projects.clipBottom,
+                ),
+                clipPath: nativeOverlayClip(
+                  {
+                    ...bounds.projects,
+                    top: bounds.projects.top + bounds.projects.clipTop,
+                    height: Math.max(
+                      0,
+                      bounds.projects.height - bounds.projects.clipTop - bounds.projects.clipBottom,
+                    ),
+                  },
+                  bounds.overlays,
+                ),
+                // These overlays sit above the iframe backdrop; retain and dim them with it.
+                filter: bounds.modal ? "brightness(0.35)" : undefined,
+                pointerEvents: bounds.modal ? "none" : undefined,
+              }}
+            >
               <div
                 ref={projectContent}
-                data-merged-project-navigation
                 className="flex shrink-0 flex-col"
+                style={{ transform: `translateY(-${bounds.projects.clipTop}px)` }}
+                onFocusCapture={(event) => {
+                  const rect = event.target.getBoundingClientRect();
+                  const top = bounds.projects!.top + bounds.projects!.clipTop;
+                  const bottom =
+                    bounds.projects!.top + bounds.projects!.height - bounds.projects!.clipBottom;
+                  if (rect.top < top) scrollNavigation(rect.top - top);
+                  else if (rect.bottom > bottom) scrollNavigation(rect.bottom - bottom);
+                }}
+                onKeyDown={(event) => {
+                  if (
+                    event.defaultPrevented ||
+                    (event.key !== "PageDown" && event.key !== "PageUp")
+                  )
+                    return;
+                  event.preventDefault();
+                  scrollNavigation(
+                    (event.key === "PageDown" ? 1 : -1) * Math.max(100, innerHeight * 0.7),
+                  );
+                }}
               >
                 {navigation}
               </div>
-            </PortalContainer>,
-            projectPortal,
+            </div>
           )}
-        {footerPortal &&
-          sidebarOpen &&
-          createPortal(
-            <PortalContainer value={footerPortal}>
-              <div ref={footerContent} data-merged-j1-utilities>
-                {footer}
-              </div>
-            </PortalContainer>,
-            footerPortal,
-          )}
-        {ready && !projectPortal && bounds.projects && sidebarOpen && (
-          <div
-            data-merged-project-navigation
-            inert={bounds.modal}
-            className="merged-j1-navigation absolute z-20 flex min-h-0 flex-col overflow-clip bg-sidebar text-sidebar-foreground"
-            style={{
-              left: bounds.projects.left,
-              top: bounds.projects.top + bounds.projects.clipTop,
-              width: bounds.projects.width,
-              height: Math.max(
-                0,
-                bounds.projects.height - bounds.projects.clipTop - bounds.projects.clipBottom,
-              ),
-              clipPath: nativeOverlayClip(
-                {
-                  ...bounds.projects,
-                  top: bounds.projects.top + bounds.projects.clipTop,
-                  height: Math.max(
-                    0,
-                    bounds.projects.height - bounds.projects.clipTop - bounds.projects.clipBottom,
-                  ),
-                },
-                bounds.overlays,
-              ),
-              // These overlays sit above the iframe backdrop; retain and dim them with it.
-              filter: bounds.modal ? "brightness(0.35)" : undefined,
-              pointerEvents: bounds.modal ? "none" : undefined,
-            }}
-          >
+          {ready && !footerPortal && bounds.footer && sidebarOpen && (
             <div
-              ref={projectContent}
-              className="flex shrink-0 flex-col"
-              style={{ transform: `translateY(-${bounds.projects.clipTop}px)` }}
-              onFocusCapture={(event) => {
-                const rect = event.target.getBoundingClientRect();
-                const top = bounds.projects!.top + bounds.projects!.clipTop;
-                const bottom =
-                  bounds.projects!.top + bounds.projects!.height - bounds.projects!.clipBottom;
-                if (rect.top < top) scrollNavigation(rect.top - top);
-                else if (rect.bottom > bottom) scrollNavigation(rect.bottom - bottom);
-              }}
-              onKeyDown={(event) => {
-                if (event.defaultPrevented || (event.key !== "PageDown" && event.key !== "PageUp"))
-                  return;
-                event.preventDefault();
-                scrollNavigation(
-                  (event.key === "PageDown" ? 1 : -1) * Math.max(100, innerHeight * 0.7),
-                );
+              data-merged-j1-utilities
+              inert={bounds.modal}
+              className="absolute z-20 bg-sidebar text-sidebar-foreground"
+              style={{
+                left: bounds.footer.left,
+                top: bounds.footer.top,
+                width: bounds.footer.width,
+                clipPath: nativeOverlayClip(bounds.footer, bounds.overlays),
+                // These overlays sit above the iframe backdrop; retain and dim them with it.
+                filter: bounds.modal ? "brightness(0.35)" : undefined,
+                pointerEvents: bounds.modal ? "none" : undefined,
               }}
             >
-              {navigation}
+              <div ref={footerContent}>{footer}</div>
             </div>
-          </div>
-        )}
-        {ready && !footerPortal && bounds.footer && sidebarOpen && (
+          )}
           <div
-            data-merged-j1-utilities
-            inert={bounds.modal}
-            className="absolute z-20 bg-sidebar text-sidebar-foreground"
-            style={{
-              left: bounds.footer.left,
-              top: bounds.footer.top,
-              width: bounds.footer.width,
-              clipPath: nativeOverlayClip(bounds.footer, bounds.overlays),
-              // These overlays sit above the iframe backdrop; retain and dim them with it.
-              filter: bounds.modal ? "brightness(0.35)" : undefined,
-              pointerEvents: bounds.modal ? "none" : undefined,
-            }}
-          >
-            <div ref={footerContent}>{footer}</div>
-          </div>
-        )}
-        <div
-          data-merged-j1-content
-          className="relative z-10 flex min-h-0 min-w-0 flex-1"
-          style={
-            ready
-              ? {
-                  position: "absolute",
-                  ...(settingsOverlay && bounds.settings
-                    ? {
-                        left: bounds.settings.left,
-                        top: bounds.settings.top + bounds.settings.clipTop,
-                        width: bounds.settings.width,
-                        height: Math.max(
-                          0,
-                          bounds.settings.height -
-                            bounds.settings.clipTop -
-                            bounds.settings.clipBottom,
-                        ),
-                        overflow: "clip",
-                      }
-                    : bounds.main
+            data-merged-j1-content
+            className="relative z-10 flex min-h-0 min-w-0 flex-1"
+            style={
+              ready
+                ? {
+                    position: "absolute",
+                    ...(settingsOverlay && bounds.settings
                       ? {
-                          left: bounds.main.left,
-                          top: bounds.main.top,
-                          width: bounds.main.width,
-                          height: bounds.main.height,
-                          clipPath: nativeOverlayClip(bounds.main, bounds.overlays),
+                          left: bounds.settings.left,
+                          top: bounds.settings.top + bounds.settings.clipTop,
+                          width: bounds.settings.width,
+                          height: Math.max(
+                            0,
+                            bounds.settings.height -
+                              bounds.settings.clipTop -
+                              bounds.settings.clipBottom,
+                          ),
+                          overflow: "clip",
                         }
-                      : { inset: `${bounds.top}px 0 0 ${bounds.left}px` }),
-                  visibility: pathname.startsWith("/settings/")
-                    ? settingsOverlay && !bounds.settingsCovered
-                      ? "visible"
-                      : "hidden"
-                    : native || bounds.modal
-                      ? "hidden"
-                      : "visible",
-                }
-              : initializing
-                ? { visibility: "hidden" }
-                : undefined
-          }
-        >
-          {settingsPortal && settingsHosted ? (
-            createPortal(
-              <PortalContainer value={settingsPortal ?? undefined}>{children}</PortalContainer>,
-              settingsPortal,
-            )
-          ) : (
-            <div
-              ref={settingsContent}
-              className="flex min-w-0 flex-1 flex-col"
-              style={
-                settingsOverlay && bounds?.settings
-                  ? {
-                      flex: "none",
-                      alignSelf: "flex-start",
-                      display: "block",
-                      width: "100%",
-                      transform: `translateY(-${bounds.settings.clipTop}px)`,
-                    }
+                      : bounds.main
+                        ? {
+                            left: bounds.main.left,
+                            top: bounds.main.top,
+                            width: bounds.main.width,
+                            height: bounds.main.height,
+                            clipPath: nativeOverlayClip(bounds.main, bounds.overlays),
+                          }
+                        : { inset: `${bounds.top}px 0 0 ${bounds.left}px` }),
+                    visibility: pathname.startsWith("/settings/")
+                      ? settingsOverlay && !bounds.settingsCovered
+                        ? "visible"
+                        : "hidden"
+                      : native || bounds.modal
+                        ? "hidden"
+                        : "visible",
+                  }
+                : initializing
+                  ? { visibility: "hidden" }
                   : undefined
-              }
-              onFocusCapture={(event) => {
-                if (!settingsOverlay || !bounds?.settings) return;
-                const rect = event.target.getBoundingClientRect(),
-                  top = bounds.settings.top + bounds.settings.clipTop,
-                  bottom =
-                    bounds.settings.top + bounds.settings.height - bounds.settings.clipBottom;
-                if (rect.top < top) scrollSettings(rect.top - top);
-                else if (rect.bottom > bottom) scrollSettings(rect.bottom - bottom);
-              }}
-              onKeyDown={(event) => {
-                if (!settingsOverlay || event.defaultPrevented || !current) return;
-                if (event.key === "Tab") {
-                  const controls = [
-                    ...event.currentTarget.querySelectorAll<HTMLElement>(
-                      "button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])",
-                    ),
-                  ].filter((node) => node.checkVisibility());
-                  if (
-                    (!event.shiftKey && event.target === controls.at(-1)) ||
-                    (event.shiftKey && event.target === controls[0])
+            }
+          >
+            {settingsPortal && settingsHosted ? (
+              createPortal(
+                <PortalContainer value={settingsPortal ?? undefined}>{children}</PortalContainer>,
+                settingsPortal,
+              )
+            ) : (
+              <div
+                ref={settingsContent}
+                className="flex min-w-0 flex-1 flex-col"
+                style={
+                  settingsOverlay && bounds?.settings
+                    ? {
+                        flex: "none",
+                        alignSelf: "flex-start",
+                        display: "block",
+                        width: "100%",
+                        transform: `translateY(-${bounds.settings.clipTop}px)`,
+                      }
+                    : undefined
+                }
+                onFocusCapture={(event) => {
+                  if (!settingsOverlay || !bounds?.settings) return;
+                  const rect = event.target.getBoundingClientRect(),
+                    top = bounds.settings.top + bounds.settings.clipTop,
+                    bottom =
+                      bounds.settings.top + bounds.settings.height - bounds.settings.clipBottom;
+                  if (rect.top < top) scrollSettings(rect.top - top);
+                  else if (rect.bottom > bottom) scrollSettings(rect.bottom - bottom);
+                }}
+                onKeyDown={(event) => {
+                  if (!settingsOverlay || event.defaultPrevented || !current) return;
+                  if (event.key === "Tab") {
+                    const controls = [
+                      ...event.currentTarget.querySelectorAll<HTMLElement>(
+                        "button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])",
+                      ),
+                    ].filter((node) => node.checkVisibility());
+                    if (
+                      (!event.shiftKey && event.target === controls.at(-1)) ||
+                      (event.shiftKey && event.target === controls[0])
+                    ) {
+                      event.preventDefault();
+                      frame.current?.contentWindow?.postMessage(
+                        {
+                          source: "j1-host",
+                          type: "settings-focus-source",
+                          edge: event.shiftKey ? "before" : "after",
+                        },
+                        new URL(current.url).origin,
+                      );
+                    }
+                  } else if (
+                    (event.key === "PageDown" || event.key === "PageUp") &&
+                    !(
+                      event.target instanceof Element &&
+                      event.target.closest("input,textarea,[contenteditable=true]")
+                    )
                   ) {
                     event.preventDefault();
-                    frame.current?.contentWindow?.postMessage(
-                      {
-                        source: "j1-host",
-                        type: "settings-focus-source",
-                        edge: event.shiftKey ? "before" : "after",
-                      },
-                      new URL(current.url).origin,
-                    );
+                    scrollSettings((event.key === "PageDown" ? 1 : -1) * innerHeight * 0.7);
                   }
-                } else if (
-                  (event.key === "PageDown" || event.key === "PageUp") &&
-                  !(
-                    event.target instanceof Element &&
-                    event.target.closest("input,textarea,[contenteditable=true]")
-                  )
-                ) {
-                  event.preventDefault();
-                  scrollSettings((event.key === "PageDown" ? 1 : -1) * innerHeight * 0.7);
-                }
-              }}
-            >
-              {children}
-            </div>
-          )}
+                }}
+              >
+                {children}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </WorkspaceState>
