@@ -62,6 +62,24 @@ const session = (
 };
 
 describe("CommandJobs", () => {
+  it("announces a background handoff before a racing completion receipt", async () => {
+    const work = deferred<string>();
+    const events: string[] = [];
+    const { jobs, clock } = session(undefined, {
+      onBackgrounded: () => {
+        events.push("backgrounded");
+        work.resolve("done at handoff");
+      },
+      onChange: (job) => {
+        if (job.state === "completed") events.push("completed");
+      },
+    });
+    const starting = jobs.start("racing", async () => work.promise);
+    clock.advance(10);
+    const handle = await starting;
+    await jobs.wait(handle.id);
+    expect(events).toEqual(["backgrounded", "completed"]);
+  });
   it("returns a terminal result during the foreground budget", async () => {
     const { jobs } = session();
     const result = await jobs.start("quick", async (_signal, output) => {

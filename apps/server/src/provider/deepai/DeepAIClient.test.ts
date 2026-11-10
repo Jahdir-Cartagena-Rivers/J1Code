@@ -114,7 +114,7 @@ describe("DeepAI wire boundary", () => {
           { status: 403 },
         ),
     });
-    await expect(client.allowance("key", signal())).rejects.toThrow("too many restarts today");
+    await expect(client.allowance("key", signal())).rejects.toThrow("connection check-in");
     await expect(client.allowance("key", signal())).rejects.not.toThrow("private-key");
   });
 

@@ -53,7 +53,7 @@ export class DeepAIRequestError extends Error {
   constructor(status: number, retryAfter: string | null = null, code?: string) {
     super(
       code === "check_in_refused"
-        ? "DeepAI refused the connection check-in: too many restarts today. Try again after DeepAI's daily reset. Signing in again will not clear this limit."
+        ? "DeepAI refused this app's connection check-in. Its reset time and restart limit are not provided by this response."
         : code === "machine_required"
           ? "DeepAI could not identify this server's machine. Check the server's system-information access."
           : status === 401

@@ -50,6 +50,7 @@ export type CommandJobsOptions = {
   clock?: CommandJobClock;
   createId?: () => string;
   onChange?: (result: CommandJobResult) => void;
+  onBackgrounded?: (result: CommandJobResult) => void;
 };
 
 type Job = {
@@ -91,6 +92,7 @@ export class CommandJobs {
   readonly #clock: CommandJobClock;
   readonly #createId: () => string;
   readonly #onChange: ((result: CommandJobResult) => void) | undefined;
+  readonly #onBackgrounded: ((result: CommandJobResult) => void) | undefined;
   #disposed = false;
   #disposal: Promise<void> | undefined;
 
@@ -102,6 +104,7 @@ export class CommandJobs {
     this.#clock = options.clock ?? systemClock;
     this.#createId = options.createId ?? (() => NodeCrypto.randomUUID());
     this.#onChange = options.onChange;
+    this.#onBackgrounded = options.onBackgrounded;
     options.signal.addEventListener("abort", () => void this.dispose(), { once: true });
     if (options.signal.aborted) void this.dispose();
   }
@@ -116,7 +119,7 @@ export class CommandJobs {
     this.#assertAvailable();
     const existing = this.#keys.get(key);
     if (existing?.state === "running") {
-      return { ...this.#snapshot(existing), backgrounded: true };
+      return this.#startResult(existing, true);
     }
     if (this.#runningCount() >= this.#maxConcurrent) {
       throw new Error("Command job capacity reached for this session.");
@@ -150,7 +153,7 @@ export class CommandJobs {
       ),
     ]);
     timer.abort();
-    return { ...this.#snapshot(job), backgrounded: !completed };
+    return this.#startResult(job, !completed);
   }
 
   async wait(id: string, timeoutMs = this.#foregroundMs): Promise<CommandJobWaitResult> {
@@ -278,6 +281,19 @@ export class CommandJobs {
       outputChars: job.outputChars,
       msSinceOutput: Math.max(0, this.#clock.now() - (job.lastOutputAt ?? job.startedAt)),
     };
+  }
+
+  #startResult(job: Job, yielded: boolean): CommandJobStartResult {
+    const result = { ...this.#snapshot(job), backgrounded: yielded && job.state === "running" };
+    if (result.backgrounded) {
+      try {
+        // Announce before returning the handle: completion can race the caller's await.
+        this.#onBackgrounded?.(result);
+      } catch {
+        // Presentation must not change execution ownership.
+      }
+    }
+    return result;
   }
 
   #prune() {

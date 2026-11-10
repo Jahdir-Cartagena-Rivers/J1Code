@@ -1,3 +1,5 @@
+import { recoverDeepAIImageHistory } from "./DeepAIImageHistory.ts";
+import type { NativeComputerDescriptor } from "../../mausbot/NativeComputer.ts";
 import * as NodeModule from "node:module";
 import * as NodePath from "node:path";
 import * as NodeStringDecoder from "node:string_decoder";
@@ -7,6 +9,12 @@ import { CommandJobs, type CommandJobResult } from "./CommandJobs.ts";
 
 /** J1 owns admission and approvals; Pi owns the model/tool loop and transcript. */
 export async function createDeepAIAgent(input: {
+  readonly computer?: NativeComputerDescriptor;
+  readonly interpretToolImages?: (
+    question: string,
+    images: ReadonlyArray<{ data: string; mimeType: string }>,
+    signal?: AbortSignal,
+  ) => Promise<string>;
   readonly cwd: string;
   readonly agentDir: string;
   readonly sessionDir: string;
@@ -82,6 +90,7 @@ export async function createDeepAIAgent(input: {
   const jobs = new CommandJobs({
     signal: controller.signal,
     onChange: (job) => input.onCommandJob?.(job, false),
+    onBackgrounded: (job) => input.onCommandJob?.(job, true),
   });
   const loader = new DefaultResourceLoader({
     cwd: input.cwd,
@@ -92,21 +101,40 @@ export async function createDeepAIAgent(input: {
     noPromptTemplates: true,
     systemPrompt: input.systemPrompt,
     extensionFactories: [
-      ...(input.mcp
+      ...(input.mcp || input.computer
         ? [
             createMcpExtension({
               loadConfig: () => ({
                 servers: [
-                  {
-                    name: "t3",
-                    scope: "extension",
-                    source: "j1",
-                    config: {
-                      url: input.mcp!.endpoint,
-                      headers: { Authorization: input.mcp!.authorizationHeader },
-                      exposure: "direct",
-                    },
-                  },
+                  ...(input.computer
+                    ? [
+                        {
+                          name: "j1-desktop",
+                          scope: "extension" as const,
+                          source: "j1",
+                          config: {
+                            command: input.computer.mcpCommand,
+                            args: input.computer.mcpArgs,
+                            env: input.computer.mcpEnv,
+                            exposure: "direct" as const,
+                          },
+                        },
+                      ]
+                    : []),
+                  ...(input.mcp
+                    ? [
+                        {
+                          name: "t3",
+                          scope: "extension" as const,
+                          source: "j1",
+                          config: {
+                            url: input.mcp!.endpoint,
+                            headers: { Authorization: input.mcp!.authorizationHeader },
+                            exposure: "direct" as const,
+                          },
+                        },
+                      ]
+                    : []),
                 ],
                 errors: [],
               }),
@@ -137,7 +165,6 @@ export async function createDeepAIAgent(input: {
                   return { output: decoder.end(), exitCode: exitCode ?? 1 };
                 },
               );
-              if (result.backgrounded) input.onCommandJob?.(result, true);
               if (result.state === "failed" || result.state === "cancelled")
                 throw new Error(JSON.stringify(result));
               return {
@@ -151,7 +178,12 @@ export async function createDeepAIAgent(input: {
           type: "object",
           properties: {
             jobId: { type: "string" },
-            waitSeconds: { type: "number", minimum: 0, maximum: 20 },
+            waitSeconds: {
+              type: "number",
+              minimum: 0,
+              maximum: 20,
+              description: "Seconds to wait, default 20. Use 0 for an immediate snapshot.",
+            },
           },
           required: ["jobId"],
           additionalProperties: false,
@@ -165,7 +197,7 @@ export async function createDeepAIAgent(input: {
           async execute(_id, params) {
             const result = await jobs.wait(
               params.jobId,
-              Math.min(20, Math.max(0, params.waitSeconds ?? 0)) * 1000,
+              Math.min(20, Math.max(0, params.waitSeconds ?? 20)) * 1000,
             );
             input.onCommandJob?.(result, false);
             return { content: [{ type: "text", text: JSON.stringify(result) }], details: {} };
@@ -176,13 +208,40 @@ export async function createDeepAIAgent(input: {
           label: "Cancel command",
           description:
             "Request cancellation of one shell job owned by this session. Wait for its terminal status to confirm it stopped.",
-          parameters,
+          parameters: { ...parameters, properties: { jobId: parameters.properties.jobId } },
           async execute(_id, params) {
             return {
               content: [{ type: "text", text: JSON.stringify(jobs.cancel(params.jobId)) }],
               details: {},
             };
           },
+        });
+        api.on("tool_result", async (event) => {
+          const images = event.content.filter((part) => part.type === "image");
+          if (!images.length || !input.interpretToolImages) return;
+          try {
+            const report = await input.interpretToolImages(
+              "Describe the visual result of " + event.toolName,
+              images,
+              controller.signal,
+            );
+            return {
+              content: [
+                ...event.content.filter((part) => part.type !== "image"),
+                { type: "text" as const, text: report },
+              ],
+            };
+          } catch {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: "The tool returned an image, but the configured vision interpreter failed. Do not claim to have seen it.",
+                },
+              ],
+              isError: true,
+            };
+          }
         });
         api.on("tool_call", async (event) => {
           const allowed = await input.authorize(event.toolName, event.input, controller.signal);
@@ -207,6 +266,11 @@ export async function createDeepAIAgent(input: {
   });
   // Extension hook errors are observational in Pi, so enforce admission at the
   // actual stream boundary instead of a before-provider extension callback.
+  const transformContext = session.agent.transformContext;
+  session.agent.transformContext = async (messages, signal) =>
+    recoverDeepAIImageHistory(
+      transformContext ? await transformContext(messages, signal) : messages,
+    );
   const stream = session.agent.streamFunction;
   session.agent.streamFunction = async (model, context, options) => {
     const allowance = await client.allowance(input.apiKey, options?.signal ?? controller.signal);
@@ -228,12 +292,25 @@ export async function createDeepAIAgent(input: {
     interruptCommands() {
       jobs.cancelAll();
     },
+    checkpoint() {
+      const messages = [...session.messages];
+      const leaf = manager.getLeafId();
+      return () => {
+        if (leaf) manager.branch(leaf);
+        else manager.resetLeaf();
+        session.agent.state.messages = messages;
+      };
+    },
     async stop() {
       controller.abort();
       await jobs.dispose();
       await session.abort();
-      unsubscribe();
-      session.dispose();
+      try {
+        await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+      } finally {
+        unsubscribe();
+        session.dispose();
+      }
     },
   };
 }
