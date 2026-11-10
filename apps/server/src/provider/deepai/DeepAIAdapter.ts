@@ -1,3 +1,5 @@
+import { isDeepAIImageRejection } from "./DeepAIImageHistory.ts";
+import { readNativeComputerDescriptor } from "../../mausbot/NativeComputer.ts";
 import * as Schema from "effect/Schema";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
@@ -144,6 +146,8 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
           models: catalog.models,
           modelId,
           ...(mcp ? { mcp } : {}),
+          ...(readNativeComputerDescriptor() ? { computer: readNativeComputerDescriptor()! } : {}),
+          ...(options.describeImages ? { interpretToolImages: options.describeImages } : {}),
           systemPrompt: buildRuntimeInstructions({ harness: "DeepAI", model: modelId }),
           authorize: async (tool, args, signal) => {
             const state = requireSession(input.threadId);
@@ -341,8 +345,8 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
               return "DeepAI advertised image support, but its server has image processing disabled for this model. Try another image-capable model or send text only.";
             if (/Codex/i.test(message))
               return "Codex vision could not complete. Check Codex sign-in and allowance on the server.";
-            if (/too many restarts|daily reset/i.test(message))
-              return "DeepAI's daily connection restart limit was reached. Wait for its daily reset; signing in again will not clear the limit.";
+            if (/connection check-in|too many restarts|daily reset/i.test(message))
+              return "DeepAI refused the app connection check-in. Check provider status before retrying; the reset time is unverified.";
             return errorMessage;
           };
           try {
@@ -358,11 +362,13 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
               if (!(error instanceof Error)) throw error;
               nativeError = error.message;
             }
-            const imageRejected =
-              nativeError &&
-              /multimodal processing is not enabled|(?:image|vision|multimodal).{0,60}(?:not supported|unsupported|not enabled)/i.test(
-                nativeError,
-              );
+            const imageRejected = nativeError && isDeepAIImageRejection(nativeError);
+            const safeToRestore =
+              imageRejected &&
+              !state.agent.session.messages
+                .slice(originalMessageCount)
+                .some((message) => message.role === "toolResult");
+            if (safeToRestore) restore();
             if (
               images.length &&
               imageRejected &&
@@ -372,7 +378,6 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
                 .slice(originalMessageCount)
                 .some((message) => message.role === "toolResult")
             ) {
-              restore();
               await emit({
                 ...stamp(input.threadId, turnId),
                 itemId: RuntimeItemId.make(`${turnId}:assistant`),

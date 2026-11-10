@@ -3,7 +3,7 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import { describe, expect, it } from "vite-plus/test";
-import { startMausbotComputer } from "./NativeComputer.ts";
+import { startMausbotComputer, readNativeComputerDescriptor } from "./NativeComputer.ts";
 import { mausbotChildEnvironment } from "./ChildEnvironment.ts";
 
 describe("isolated native computer host", () => {
@@ -31,12 +31,14 @@ describe("isolated native computer host", () => {
     const host = await startMausbotComputer(root);
     try {
       const pid = Number(await NodeFSP.readFile(NodePath.join(root, "native/pid"), "utf8"));
+      expect(readNativeComputerDescriptor()).toBe(host.descriptor);
       expect(host.descriptor.socketPath).toBe("fixture-socket");
       expect(host.descriptor.mcpEnv.CUA_DRIVER_HOST_BUNDLE_ID).toMatch(
         /^com\.j1code\.mausbot-runtime\.[a-f0-9]{24}$/,
       );
       await Promise.all([host.stop(), host.stop()]);
       expect(() => process.kill(pid, 0)).toThrow();
+      expect(readNativeComputerDescriptor()).toBeUndefined();
     } finally {
       await host.stop();
       await NodeFSP.rm(root, { recursive: true, force: true });

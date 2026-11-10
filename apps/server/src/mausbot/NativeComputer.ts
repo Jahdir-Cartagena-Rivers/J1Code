@@ -6,6 +6,17 @@ import * as NodeTimers from "node:timers";
 import * as NodeCrypto from "node:crypto";
 import { mausbotChildEnvironment } from "./ChildEnvironment.ts";
 
+export interface NativeComputerDescriptor {
+  readonly mcpCommand: string;
+  readonly mcpArgs: string[];
+  readonly mcpEnv: Record<string, string>;
+}
+let activeDescriptor: NativeComputerDescriptor | undefined;
+/** Only exposes an already running J1-owned helper; never launches a desktop connection. */
+export function readNativeComputerDescriptor() {
+  return activeDescriptor;
+}
+
 /** A separate SDK host cannot crash J1 or attach to the installed Mausbot helper identity. */
 export async function startMausbotComputer(resources: string) {
   const native = NodePath.join(resources, "native");
@@ -37,9 +48,14 @@ export async function startMausbotComputer(resources: string) {
       resolve();
     });
   });
+  let descriptor: NativeComputerDescriptor | undefined;
+  child.once("exit", () => {
+    if (activeDescriptor === descriptor) activeDescriptor = undefined;
+  });
   let stopping: Promise<void> | undefined;
   const stop = () =>
     (stopping ??= (async () => {
+      if (activeDescriptor === descriptor) activeDescriptor = undefined;
       if (exited) return;
       child.stdin.end();
       let deadline: ReturnType<typeof NodeTimers.setTimeout> | undefined;
@@ -102,22 +118,21 @@ export async function startMausbotComputer(resources: string) {
       child.once("error", failed);
     });
     child.stdout.resume();
-    return {
-      descriptor: {
-        mode: "embedded",
-        socketPath,
-        mcpCommand: NodePath.join(native, "cua-driver.exe"),
-        mcpArgs: ["mcp", "--embedded", "--socket", socketPath],
-        mcpEnv: {
-          CUA_DRIVER_EMBEDDED: "1",
-          CUA_DRIVER_HOST_BUNDLE_ID: hostId,
-          CUA_DRIVER_RS_TELEMETRY_ENABLED: "false",
-          CUA_DRIVER_RS_UPDATE_CHECK: "false",
-        },
+    const connection = {
+      mode: "embedded",
+      socketPath,
+      mcpCommand: NodePath.join(native, "cua-driver.exe"),
+      mcpArgs: ["mcp", "--embedded", "--socket", socketPath],
+      mcpEnv: {
+        CUA_DRIVER_EMBEDDED: "1",
+        CUA_DRIVER_HOST_BUNDLE_ID: hostId,
+        CUA_DRIVER_RS_TELEMETRY_ENABLED: "false",
+        CUA_DRIVER_RS_UPDATE_CHECK: "false",
       },
-      stop,
-      closed: exit,
     };
+    descriptor = connection;
+    activeDescriptor = descriptor;
+    return { descriptor: connection, stop, closed: exit };
   } catch (error) {
     await stop();
     throw error;

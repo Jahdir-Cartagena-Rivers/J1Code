@@ -1,3 +1,5 @@
+import { recoverDeepAIImageHistory } from "./DeepAIImageHistory.ts";
+import type { NativeComputerDescriptor } from "../../mausbot/NativeComputer.ts";
 import * as NodeModule from "node:module";
 import * as NodePath from "node:path";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
@@ -5,6 +7,12 @@ import { makeDeepAIClient, type DeepAIModel } from "./DeepAIClient.ts";
 
 /** J1 owns admission and approvals; Pi owns the model/tool loop and transcript. */
 export async function createDeepAIAgent(input: {
+  readonly computer?: NativeComputerDescriptor;
+  readonly interpretToolImages?: (
+    question: string,
+    images: ReadonlyArray<{ data: string; mimeType: string }>,
+    signal?: AbortSignal,
+  ) => Promise<string>;
   readonly cwd: string;
   readonly agentDir: string;
   readonly sessionDir: string;
@@ -81,21 +89,40 @@ export async function createDeepAIAgent(input: {
     noPromptTemplates: true,
     systemPrompt: input.systemPrompt,
     extensionFactories: [
-      ...(input.mcp
+      ...(input.mcp || input.computer
         ? [
             createMcpExtension({
               loadConfig: () => ({
                 servers: [
-                  {
-                    name: "t3",
-                    scope: "extension",
-                    source: "j1",
-                    config: {
-                      url: input.mcp!.endpoint,
-                      headers: { Authorization: input.mcp!.authorizationHeader },
-                      exposure: "direct",
-                    },
-                  },
+                  ...(input.computer
+                    ? [
+                        {
+                          name: "j1-desktop",
+                          scope: "extension" as const,
+                          source: "j1",
+                          config: {
+                            command: input.computer.mcpCommand,
+                            args: input.computer.mcpArgs,
+                            env: input.computer.mcpEnv,
+                            exposure: "direct" as const,
+                          },
+                        },
+                      ]
+                    : []),
+                  ...(input.mcp
+                    ? [
+                        {
+                          name: "t3",
+                          scope: "extension" as const,
+                          source: "j1",
+                          config: {
+                            url: input.mcp!.endpoint,
+                            headers: { Authorization: input.mcp!.authorizationHeader },
+                            exposure: "direct" as const,
+                          },
+                        },
+                      ]
+                    : []),
                 ],
                 errors: [],
               }),
@@ -103,6 +130,33 @@ export async function createDeepAIAgent(input: {
           ]
         : []),
       (api) => {
+        api.on("tool_result", async (event) => {
+          const images = event.content.filter((part) => part.type === "image");
+          if (!images.length || !input.interpretToolImages) return;
+          try {
+            const report = await input.interpretToolImages(
+              "Describe the visual result of " + event.toolName,
+              images,
+              controller.signal,
+            );
+            return {
+              content: [
+                ...event.content.filter((part) => part.type !== "image"),
+                { type: "text" as const, text: report },
+              ],
+            };
+          } catch {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: "The tool returned an image, but the configured vision interpreter failed. Do not claim to have seen it.",
+                },
+              ],
+              isError: true,
+            };
+          }
+        });
         api.on("tool_call", async (event) => {
           const allowed = await input.authorize(event.toolName, event.input, controller.signal);
           if (!allowed) return { block: true, reason: "J1 denied this action." };
@@ -126,6 +180,11 @@ export async function createDeepAIAgent(input: {
   });
   // Extension hook errors are observational in Pi, so enforce admission at the
   // actual stream boundary instead of a before-provider extension callback.
+  const transformContext = session.agent.transformContext;
+  session.agent.transformContext = async (messages, signal) =>
+    recoverDeepAIImageHistory(
+      transformContext ? await transformContext(messages, signal) : messages,
+    );
   const stream = session.agent.streamFunction;
   session.agent.streamFunction = async (model, context, options) => {
     const allowance = await client.allowance(input.apiKey, options?.signal ?? controller.signal);
@@ -155,8 +214,12 @@ export async function createDeepAIAgent(input: {
     async stop() {
       controller.abort();
       await session.abort();
-      unsubscribe();
-      session.dispose();
+      try {
+        await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+      } finally {
+        unsubscribe();
+        session.dispose();
+      }
     },
   };
 }
