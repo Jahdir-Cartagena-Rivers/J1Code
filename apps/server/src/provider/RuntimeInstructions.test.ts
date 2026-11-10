@@ -2,6 +2,14 @@ import { describe, expect, it } from "vite-plus/test";
 import { buildRuntimeInstructions } from "./RuntimeInstructions.ts";
 
 describe("buildRuntimeInstructions", () => {
+  it("advertises owned command tools only for the harness that implements them", () => {
+    expect(buildRuntimeInstructions({ harness: "DeepAI" })).toContain("command_status");
+    for (const harness of ["Codex", "Claude Code", "OpenCode", "Cursor", "Grok", "Antigravity"]) {
+      const instructions = buildRuntimeInstructions({ harness });
+      expect(instructions).not.toContain("command_status");
+      expect(instructions).toContain("Do not repeat a still-running scan");
+    }
+  });
   it("does not treat a new handoff as delivery to an existing owner", () => {
     const instructions = buildRuntimeInstructions({ harness: "Codex" });
     expect(instructions).toContain(

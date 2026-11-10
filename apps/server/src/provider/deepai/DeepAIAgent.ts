@@ -1,7 +1,9 @@
 import * as NodeModule from "node:module";
 import * as NodePath from "node:path";
+import * as NodeStringDecoder from "node:string_decoder";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { makeDeepAIClient, type DeepAIModel } from "./DeepAIClient.ts";
+import { CommandJobs, type CommandJobResult } from "./CommandJobs.ts";
 
 /** J1 owns admission and approvals; Pi owns the model/tool loop and transcript. */
 export async function createDeepAIAgent(input: {
@@ -16,6 +18,7 @@ export async function createDeepAIAgent(input: {
   readonly systemPrompt: string;
   readonly authorize: (tool: string, args: unknown, signal: AbortSignal) => Promise<boolean>;
   readonly onEvent: (event: AgentSessionEvent) => void;
+  readonly onCommandJob?: (job: CommandJobResult, backgrounded: boolean) => void;
   readonly mcp?: { readonly endpoint: string; readonly authorizationHeader: string };
 }) {
   // SEA can load file-backed ESM through require, but not package imports.
@@ -32,6 +35,10 @@ export async function createDeepAIAgent(input: {
     ModelRuntime,
     SessionManager,
     SettingsManager,
+    createBashToolDefinition,
+    createLocalBashOperations,
+    createPowerShellToolDefinition,
+    createLocalPowerShellOperations,
   } = NodeModule.createRequire(import.meta.url)(
     NodePath.join(NodePath.dirname(packageFile), "dist", "index.js"),
   ) as typeof import("@earendil-works/pi-coding-agent");
@@ -72,6 +79,10 @@ export async function createDeepAIAgent(input: {
     compaction: { enabled: false },
   });
   const controller = new AbortController();
+  const jobs = new CommandJobs({
+    signal: controller.signal,
+    onChange: (job) => input.onCommandJob?.(job, false),
+  });
   const loader = new DefaultResourceLoader({
     cwd: input.cwd,
     agentDir: input.agentDir,
@@ -103,6 +114,76 @@ export async function createDeepAIAgent(input: {
           ]
         : []),
       (api) => {
+        const shells = [
+          [createBashToolDefinition(input.cwd), createLocalBashOperations()],
+          [createPowerShellToolDefinition(input.cwd), createLocalPowerShellOperations()],
+        ] as const;
+        for (const [shell, operations] of shells) {
+          const { outputSchema: _output, promptGuidelines: _guidelines, ...definition } = shell;
+          api.registerTool({
+            ...definition,
+            description: `Execute a ${shell.name} command in the current working directory. Returns JSON with state, exitCode, output (bounded tail), elapsed time and an owned job ID. Commands still running after 10 seconds continue in this session. Inspect/wait with command_status; never resubmit a running command. Optional timeout in seconds.`,
+            async execute(_id, params, signal) {
+              signal?.throwIfAborted();
+              const result = await jobs.start(
+                `${shell.name}: ${params.command}`,
+                async (signal, output) => {
+                  const decoder = new NodeStringDecoder.StringDecoder("utf8");
+                  const { exitCode } = await operations.exec(params.command, input.cwd, {
+                    signal,
+                    onData: (data) => output(decoder.write(data)),
+                    ...(params.timeout === undefined ? {} : { timeout: params.timeout }),
+                  });
+                  return { output: decoder.end(), exitCode: exitCode ?? 1 };
+                },
+              );
+              if (result.backgrounded) input.onCommandJob?.(result, true);
+              if (result.state === "failed" || result.state === "cancelled")
+                throw new Error(JSON.stringify(result));
+              return {
+                content: [{ type: "text", text: JSON.stringify(result) }],
+                details: undefined,
+              };
+            },
+          });
+        }
+        const parameters = {
+          type: "object",
+          properties: {
+            jobId: { type: "string" },
+            waitSeconds: { type: "number", minimum: 0, maximum: 20 },
+          },
+          required: ["jobId"],
+          additionalProperties: false,
+        } as const;
+        api.registerTool({
+          name: "command_status",
+          label: "Command status",
+          description:
+            "Inspect an owned shell job. Wait up to 20 seconds for its completion receipt. Running is not success. Reuse its ID; do not restart or repeatedly poll a quiet job.",
+          parameters,
+          async execute(_id, params) {
+            const result = await jobs.wait(
+              params.jobId,
+              Math.min(20, Math.max(0, params.waitSeconds ?? 0)) * 1000,
+            );
+            input.onCommandJob?.(result, false);
+            return { content: [{ type: "text", text: JSON.stringify(result) }], details: {} };
+          },
+        });
+        api.registerTool({
+          name: "command_cancel",
+          label: "Cancel command",
+          description:
+            "Request cancellation of one shell job owned by this session. Wait for its terminal status to confirm it stopped.",
+          parameters,
+          async execute(_id, params) {
+            return {
+              content: [{ type: "text", text: JSON.stringify(jobs.cancel(params.jobId)) }],
+              details: {},
+            };
+          },
+        });
         api.on("tool_call", async (event) => {
           const allowed = await input.authorize(event.toolName, event.input, controller.signal);
           if (!allowed) return { block: true, reason: "J1 denied this action." };
@@ -136,6 +217,7 @@ export async function createDeepAIAgent(input: {
   try {
     await session.bindExtensions({});
   } catch (error) {
+    await jobs.dispose();
     unsubscribe();
     session.dispose();
     throw error;
@@ -143,8 +225,12 @@ export async function createDeepAIAgent(input: {
   return {
     session,
     sessionFile: manager.getSessionFile(),
+    interruptCommands() {
+      jobs.cancelAll();
+    },
     async stop() {
       controller.abort();
+      await jobs.dispose();
       await session.abort();
       unsubscribe();
       session.dispose();

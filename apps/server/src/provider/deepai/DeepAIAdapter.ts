@@ -1,10 +1,12 @@
 import * as NodeCrypto from "node:crypto";
 import * as NodePath from "node:path";
+import * as NodePerfHooks from "node:perf_hooks";
 import {
   EventId,
   ProviderDriverKind,
   RuntimeItemId,
   RuntimeRequestId,
+  RuntimeTaskId,
   TurnId,
   type ProviderInstanceId,
   type ProviderRuntimeEvent,
@@ -22,6 +24,7 @@ import { buildRuntimeInstructions } from "../RuntimeInstructions.ts";
 import type { createDeepAIAgent } from "./DeepAIAgent.ts";
 import type { makeDeepAIClient, DeepAIModel } from "./DeepAIClient.ts";
 import { readMcpProviderSession } from "../../mcp/McpProviderSession.ts";
+import { deepAIToolEvent } from "./DeepAIToolEvents.ts";
 
 const provider = ProviderDriverKind.make("deepai");
 type Agent = Awaited<ReturnType<typeof createDeepAIAgent>>;
@@ -110,6 +113,12 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
         const modelId = input.modelSelection?.model ?? catalog.default;
         const mcp = readMcpProviderSession(input.threadId);
         const { createDeepAIAgent: create } = await import("./DeepAIAgent.ts");
+        const lastToolUpdate = new Map<string, number>();
+        const toolCommands = new Map<string, string>();
+        const commandTurns = new Map<string, TurnId>();
+        const backgroundCommands = new Set<string>();
+        const lastCommandUpdate = new Map<string, number>();
+        let owned: Session | undefined;
         const agent = await create({
           ...(options.client ? { client: options.client } : {}),
           cwd: input.cwd ?? process.cwd(),
@@ -123,7 +132,8 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
           systemPrompt: buildRuntimeInstructions({ harness: "DeepAI", model: modelId }),
           authorize: async (tool, args, signal) => {
             const state = requireSession(input.threadId);
-            if (state.cancelled || signal.aborted) return false;
+            if (state !== owned || state.cancelled || signal.aborted) return false;
+            if (tool === "command_status") return true;
             if (state.view.runtimeMode === "full-access") return true;
             const requestId = RuntimeRequestId.make(NodeCrypto.randomUUID());
             const requestType =
@@ -153,7 +163,32 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
           },
           onEvent: (event) => {
             const state = sessions.get(input.threadId);
-            if (!state?.active) return;
+            if (state !== owned || !state?.active) return;
+            const tool = deepAIToolEvent(
+              event,
+              "toolCallId" in event ? toolCommands.get(event.toolCallId) : undefined,
+            );
+            if (
+              tool &&
+              (tool.type !== "item.updated" ||
+                NodePerfHooks.performance.now() - (lastToolUpdate.get(tool.callId) ?? -Infinity) >=
+                  1000)
+            ) {
+              if (tool.type === "item.completed") {
+                lastToolUpdate.delete(tool.callId);
+                toolCommands.delete(tool.callId);
+              } else {
+                lastToolUpdate.set(tool.callId, NodePerfHooks.performance.now());
+                if (tool.payload.itemType === "command_execution" && tool.payload.detail)
+                  toolCommands.set(tool.callId, tool.payload.detail);
+              }
+              void emit({
+                ...stamp(input.threadId, state.active),
+                itemId: RuntimeItemId.make(`${state.active}:tool:${tool.callId}`),
+                type: tool.type,
+                payload: tool.payload,
+              });
+            }
             if (event.type === "message_update") {
               const delta = event.assistantMessageEvent;
               if (delta.type === "text_delta" || delta.type === "thinking_delta")
@@ -166,6 +201,56 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
                     delta: delta.delta,
                   },
                 });
+            }
+          },
+          onCommandJob: (job, backgrounded) => {
+            const state = sessions.get(input.threadId);
+            if (state !== owned || !state) return;
+            if (!commandTurns.has(job.id) && state.active) commandTurns.set(job.id, state.active);
+            const turnId = commandTurns.get(job.id);
+            if (!turnId) return;
+            const taskId = RuntimeTaskId.make(`deepai:command:${job.id}`);
+            if (backgrounded && !backgroundCommands.has(job.id)) {
+              backgroundCommands.add(job.id);
+              void emit({
+                ...stamp(input.threadId, turnId),
+                type: "task.started",
+                payload: { taskId, description: `Shell job: ${job.key.slice(0, 512)}` },
+              });
+            }
+            if (backgroundCommands.has(job.id)) {
+              const summary = (job.error ?? job.output).trim().slice(-4000);
+              if (job.state !== "running") {
+                void emit({
+                  ...stamp(input.threadId, turnId),
+                  type: "task.completed",
+                  payload: {
+                    taskId,
+                    status: job.state === "cancelled" ? "stopped" : job.state,
+                    ...(summary ? { summary } : {}),
+                  },
+                });
+                backgroundCommands.delete(job.id);
+              } else if (
+                NodePerfHooks.performance.now() - (lastCommandUpdate.get(job.id) ?? -Infinity) >=
+                1000
+              ) {
+                lastCommandUpdate.set(job.id, NodePerfHooks.performance.now());
+                void emit({
+                  ...stamp(input.threadId, turnId),
+                  type: "task.progress",
+                  payload: {
+                    taskId,
+                    description: `${job.cancelRequested ? "Cancellation requested" : "Running"}; ${Math.floor(job.elapsedMs / 1000)}s elapsed; ${job.outputChars} output characters`,
+                    status: "running",
+                    ...(summary ? { summary } : {}),
+                  },
+                });
+              }
+            }
+            if (job.state !== "running") {
+              commandTurns.delete(job.id);
+              lastCommandUpdate.delete(job.id);
             }
           },
         });
@@ -182,7 +267,8 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
           updatedAt: now,
           resumeCursor: { sessionFile: agent.sessionFile },
         };
-        sessions.set(input.threadId, { view, agent, cancelled: false });
+        owned = { view, agent, cancelled: false };
+        sessions.set(input.threadId, owned);
         await emit({
           ...stamp(input.threadId),
           type: "session.started",
@@ -252,6 +338,7 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
             pending.delete(id);
             request.resolve(false);
           }
+        state.agent.interruptCommands();
         await state.agent.session.abort();
       }),
     respondToRequest: (threadId, requestId, decision) =>
