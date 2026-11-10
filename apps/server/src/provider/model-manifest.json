@@ -3,6 +3,13 @@
   "updatedAt": "2026-09-29T20:20:00Z",
   "compatibility": [
     {
+      "driver": "deepai",
+      "t3CodeRange": ">=0.0.44",
+      "recommendedRange": "=1.5.1",
+      "recommendedVersion": "1.5.1",
+      "ranges": [{ "range": "=1.5.1", "status": "supported" }]
+    },
+    {
       "driver": "codex",
       "t3CodeRange": ">=0.0.44",
       "recommendedRange": ">=0.159.0",
