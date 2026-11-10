@@ -4,11 +4,17 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
+import * as NodeFSP from "node:fs/promises";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 import { ApprovalRequestId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import type { createDeepAIAgent } from "./DeepAIAgent.ts";
 import { makeDeepAIAdapter } from "./DeepAIAdapter.ts";
 
 const harness = vi.hoisted(() => ({
+  prompt: vi.fn(async (..._args: unknown[]) => {}),
+  effort: vi.fn(),
+  messages: [] as Array<{ role: "assistant"; stopReason: "error"; errorMessage: string }>,
   options: undefined as Parameters<typeof createDeepAIAgent>[0] | undefined,
 }));
 vi.mock("./DeepAIAgent.ts", () => ({
@@ -16,16 +22,23 @@ vi.mock("./DeepAIAgent.ts", () => ({
     harness.options = options;
     return {
       sessionFile: `${options.sessionDir}/fixture.jsonl`,
-      session: { prompt: async () => {}, abort: async () => {}, messages: [] },
+      session: {
+        prompt: harness.prompt,
+        getAvailableThinkingLevels: () => ["low", "medium", "high"],
+        setThinkingLevel: harness.effort,
+        abort: async () => {},
+        messages: harness.messages,
+      },
       stop: async () => {},
     };
   },
 }));
 const thread = ThreadId.make("deepai-test");
 const instanceId = ProviderInstanceId.make("deepai-test");
-const make = () =>
+const make = (attachmentsDir?: string, imageCapable = true) =>
   makeDeepAIAdapter({
     instanceId,
+    ...(attachmentsDir ? { attachmentsDir } : {}),
     directory: "C:/isolated-deepai",
     credentials: async () => "test-only",
     catalog: async () => ({
@@ -34,8 +47,8 @@ const make = () =>
         {
           id: "pilot",
           name: "Pilot",
-          reasoning: false,
-          input: ["text"],
+          reasoning: true,
+          input: imageCapable ? ["text", "image"] : ["text"],
           contextWindow: 4096,
           maxTokens: 512,
         },
@@ -115,5 +128,170 @@ it.effect("full access needs no approval and unsupported attachments fail explic
       .sendTurn({ threadId: thread, input: "Plan", interactionMode: "plan" })
       .pipe(Effect.result);
     assert.strictEqual(result._tag, "Failure");
+  }).pipe(Effect.scoped),
+);
+
+it.effect("sends stored images and selected effort to the model runtime", () =>
+  Effect.gen(function* () {
+    const directory = yield* Effect.promise(() =>
+      NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "deepai-image-")),
+    );
+    yield* Effect.addFinalizer(() =>
+      Effect.promise(() => NodeFSP.rm(directory, { recursive: true })),
+    );
+    const id = "deepai-test-12345678-1234-1234-1234-123456789abc";
+    yield* Effect.promise(() =>
+      NodeFSP.writeFile(NodePath.join(directory, `${id}.png`), Buffer.from("fixture")),
+    );
+    harness.prompt.mockClear();
+    harness.effort.mockClear();
+    const adapter = yield* make(directory);
+    const queue = yield* adapter.streamEvents.pipe(Stream.toQueue({ capacity: "unbounded" }));
+    yield* Effect.yieldNow;
+    yield* adapter.startSession({ threadId: thread, runtimeMode: "full-access" });
+    yield* Queue.take(queue);
+    yield* adapter.sendTurn({
+      threadId: thread,
+      input: "Describe",
+      modelSelection: {
+        instanceId,
+        model: "pilot",
+        options: [{ id: "reasoningEffort", value: "high" }],
+      },
+      attachments: [{ type: "image", id, name: "test.png", mimeType: "image/png", sizeBytes: 7 }],
+    });
+    let event = yield* Queue.take(queue);
+    while (event.type !== "turn.completed") event = yield* Queue.take(queue);
+    assert.strictEqual(event.payload.state, "completed");
+    assert.deepStrictEqual(harness.prompt.mock.calls[0], [
+      "Describe",
+      {
+        images: [
+          { type: "image", mimeType: "image/png", data: Buffer.from("fixture").toString("base64") },
+        ],
+      },
+    ]);
+    assert.deepStrictEqual(harness.effort.mock.calls.at(-1), ["high"]);
+  }).pipe(Effect.scoped),
+);
+
+it.effect("rejects images for text models and reports the reason without starting a turn", () =>
+  Effect.gen(function* () {
+    const adapter = yield* make("C:/isolated", false);
+    yield* adapter.startSession({ threadId: thread, runtimeMode: "full-access" });
+    const result = yield* adapter
+      .sendTurn({
+        threadId: thread,
+        input: "Describe",
+        attachments: [
+          {
+            type: "image",
+            id: "deepai-test-12345678-1234-1234-1234-123456789abc",
+            name: "test.png",
+            mimeType: "image/png",
+            sizeBytes: 7,
+          },
+        ],
+      })
+      .pipe(Effect.result);
+    assert.strictEqual(result._tag, "Failure");
+    if (result._tag === "Failure") assert.include(String(result.failure), "does not accept images");
+    assert.strictEqual((yield* adapter.listSessions())[0]?.status, "ready");
+  }).pipe(Effect.scoped),
+);
+
+it.effect("failed attachment preparation and invalid effort leave the session reusable", () =>
+  Effect.gen(function* () {
+    const adapter = yield* make("C:/missing-deepai-fixture");
+    yield* adapter.startSession({ threadId: thread, runtimeMode: "full-access" });
+    const missing = yield* adapter
+      .sendTurn({
+        threadId: thread,
+        attachments: [
+          {
+            type: "image",
+            id: "deepai-test-12345678-1234-1234-1234-123456789abc",
+            name: "test.png",
+            mimeType: "image/png",
+            sizeBytes: 7,
+          },
+        ],
+      })
+      .pipe(Effect.result);
+    assert.strictEqual(missing._tag, "Failure");
+    if (missing._tag === "Failure") assert.include(String(missing.failure), "could not be read");
+    const invalid = yield* adapter
+      .sendTurn({
+        threadId: thread,
+        input: "Hello",
+        modelSelection: {
+          instanceId,
+          model: "pilot",
+          options: [{ id: "reasoningEffort", value: "invalid" }],
+        },
+      })
+      .pipe(Effect.result);
+    assert.strictEqual(invalid._tag, "Failure");
+    assert.strictEqual((yield* adapter.listSessions())[0]?.status, "ready");
+    const queue = yield* adapter.streamEvents.pipe(Stream.toQueue({ capacity: "unbounded" }));
+    yield* Effect.yieldNow;
+    yield* adapter.sendTurn({ threadId: thread, input: "Hello" });
+    let event = yield* Queue.take(queue);
+    while (event.type !== "turn.completed") event = yield* Queue.take(queue);
+    assert.strictEqual(event.payload.state, "completed");
+  }).pipe(Effect.scoped),
+);
+
+it.effect("explains upstream image rejection without exposing upstream payloads", () =>
+  Effect.gen(function* () {
+    const adapter = yield* make();
+    yield* adapter.startSession({ threadId: thread, runtimeMode: "full-access" });
+    harness.messages.push({
+      role: "assistant",
+      stopReason: "error",
+      errorMessage: "secret-prompt ValueError: multimodal processing is not enabled",
+    });
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        harness.messages.length = 0;
+      }),
+    );
+    const queue = yield* adapter.streamEvents.pipe(Stream.toQueue({ capacity: "unbounded" }));
+    yield* Effect.yieldNow;
+    yield* adapter.sendTurn({ threadId: thread, input: "Describe" });
+    let event = yield* Queue.take(queue);
+    while (event.type !== "runtime.error") event = yield* Queue.take(queue);
+    assert.include(event.payload.message, "image processing disabled");
+    assert.notInclude(event.payload.message, "secret-prompt");
+    while (event.type !== "turn.completed") event = yield* Queue.take(queue);
+    assert.strictEqual(event.payload.state, "failed");
+  }).pipe(Effect.scoped),
+);
+
+it.effect("passes file attachments as references instead of reading them into context", () =>
+  Effect.gen(function* () {
+    const adapter = yield* make("C:/isolated-deepai-attachments");
+    yield* adapter.startSession({ threadId: thread, runtimeMode: "full-access" });
+    harness.prompt.mockClear();
+    const queue = yield* adapter.streamEvents.pipe(Stream.toQueue({ capacity: "unbounded" }));
+    yield* Effect.yieldNow;
+    yield* adapter.sendTurn({
+      threadId: thread,
+      input: "Read the file",
+      attachments: [
+        {
+          type: "file",
+          id: "deepai-test-12345678-1234-1234-1234-123456789abc-txt",
+          name: "notes.txt",
+          mimeType: "text/plain",
+          sizeBytes: 7,
+        },
+      ],
+    });
+    let event = yield* Queue.take(queue);
+    while (event.type !== "turn.completed") event = yield* Queue.take(queue);
+    assert.include(String(harness.prompt.mock.calls[0]?.[0]), "Attached file");
+    assert.include(String(harness.prompt.mock.calls[0]?.[0]), "notes.txt");
+    assert.include(String(harness.prompt.mock.calls[0]?.[0]), "123456789abc-txt.txt");
   }).pipe(Effect.scoped),
 );

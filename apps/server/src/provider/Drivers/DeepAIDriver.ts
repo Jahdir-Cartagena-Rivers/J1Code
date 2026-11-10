@@ -22,6 +22,7 @@ import { makeDeepAITextGeneration } from "../deepai/DeepAITextGeneration.ts";
 
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { deepAIMachineDigest } from "../deepai/DeepAIMachine.ts";
+import { deepAIModelCapabilities } from "../deepai/DeepAIModelCapabilities.ts";
 
 const DRIVER = ProviderDriverKind.make("deepai");
 const Config = Schema.Struct({});
@@ -59,6 +60,7 @@ export const DeepAIDriver: ProviderDriver<typeof Config.Type, DeepAIDriverEnv> =
         instanceId,
         credentials,
         catalog,
+        attachmentsDir: config.attachmentsDir,
         directory: NodePath.join(config.stateDir, "providers", "deepai", instanceId),
       });
       const setupError = (cause?: unknown) =>
@@ -157,7 +159,7 @@ export const DeepAIDriver: ProviderDriver<typeof Config.Type, DeepAIDriverEnv> =
                 name: model.name,
                 isDefault: models?.default === model.id,
                 isCustom: false,
-                capabilities: null,
+                capabilities: deepAIModelCapabilities(model),
               })) ?? [],
             probe: {
               installed: true,

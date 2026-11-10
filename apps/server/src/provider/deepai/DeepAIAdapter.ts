@@ -1,4 +1,9 @@
+import * as Schema from "effect/Schema";
 import * as NodeCrypto from "node:crypto";
+import * as NodeFSP from "node:fs/promises";
+import { resolveAttachmentPath } from "../../attachmentStore.ts";
+import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
+import { DEEPAI_EFFORTS } from "./DeepAIModelCapabilities.ts";
 import * as NodePath from "node:path";
 import {
   EventId,
@@ -23,13 +28,22 @@ import type { createDeepAIAgent } from "./DeepAIAgent.ts";
 import type { makeDeepAIClient, DeepAIModel } from "./DeepAIClient.ts";
 import { readMcpProviderSession } from "../../mcp/McpProviderSession.ts";
 
+const encodeString = Schema.encodeSync(Schema.fromJsonString(Schema.String));
+
 const provider = ProviderDriverKind.make("deepai");
 type Agent = Awaited<ReturnType<typeof createDeepAIAgent>>;
-type Session = { view: ProviderSession; agent: Agent; active?: TurnId; cancelled: boolean };
+type Session = {
+  model: DeepAIModel;
+  view: ProviderSession;
+  agent: Agent;
+  active?: TurnId;
+  cancelled: boolean;
+};
 
 export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (options: {
   instanceId: ProviderInstanceId;
   directory: string;
+  attachmentsDir?: string;
   credentials: () => Promise<string>;
   client?: ReturnType<typeof makeDeepAIClient>;
   catalog: () => Promise<{ models: ReadonlyArray<DeepAIModel>; default: string }>;
@@ -52,11 +66,11 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
     createdAt: new Date().toISOString(),
     ...(turnId ? { turnId } : {}),
   });
-  const failure = (operation: string) =>
+  const failure = (operation: string, detail = `DeepAI could not complete ${operation}.`) =>
     new ProviderAdapterRequestError({
       provider,
       method: operation,
-      detail: `DeepAI could not complete ${operation}.`,
+      detail,
     });
   const task = <A>(operation: string, work: () => Promise<A>) =>
     Effect.tryPromise({
@@ -108,6 +122,8 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
           sessionFile = value;
         }
         const modelId = input.modelSelection?.model ?? catalog.default;
+        const selectedModel = catalog.models.find((model) => model.id === modelId);
+        if (!selectedModel) throw new Error("Selected model is unavailable.");
         const mcp = readMcpProviderSession(input.threadId);
         const { createDeepAIAgent: create } = await import("./DeepAIAgent.ts");
         const agent = await create({
@@ -169,6 +185,18 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
             }
           },
         });
+        const initialEffort = getModelSelectionStringOptionValue(
+          input.modelSelection,
+          "reasoningEffort",
+        );
+        if (initialEffort) {
+          const effort = DEEPAI_EFFORTS.find((value) => value === initialEffort);
+          if (!effort || !agent.session.getAvailableThinkingLevels().includes(effort)) {
+            await agent.stop();
+            throw new Error("Unsupported reasoning effort.");
+          }
+          agent.session.setThinkingLevel(effort);
+        }
         const now = new Date().toISOString();
         const view: ProviderSession = {
           provider,
@@ -182,7 +210,7 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
           updatedAt: now,
           resumeCursor: { sessionFile: agent.sessionFile },
         };
-        sessions.set(input.threadId, { view, agent, cancelled: false });
+        sessions.set(input.threadId, { model: selectedModel, view, agent, cancelled: false });
         await emit({
           ...stamp(input.threadId),
           type: "session.started",
@@ -193,10 +221,89 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
     sendTurn: (input) =>
       Effect.gen(function* () {
         const state = sessions.get(input.threadId);
-        if (!state || state.active || input.attachments?.length || input.interactionMode === "plan")
-          return yield* Effect.fail(failure("send turn"));
+        if (!state)
+          return yield* Effect.fail(
+            failure("send turn", "DeepAI session is not active. Retry the turn to reconnect."),
+          );
+        if (state.active)
+          return yield* Effect.fail(
+            failure(
+              "send turn",
+              "DeepAI is already running a turn. Stop it or wait for completion.",
+            ),
+          );
+        if (input.interactionMode === "plan")
+          return yield* Effect.fail(
+            failure(
+              "send turn",
+              "DeepAI Plan mode is not implemented. Select the default interaction mode.",
+            ),
+          );
         if (input.modelSelection && input.modelSelection.model !== state.view.model)
           return yield* Effect.fail(failure("switch model"));
+        const model = state.model;
+        const images: NonNullable<Parameters<Agent["session"]["prompt"]>[1]>["images"] = [];
+        const fileReferences: string[] = [];
+        for (const attachment of input.attachments ?? []) {
+          const path =
+            options.attachmentsDir &&
+            resolveAttachmentPath({ attachmentsDir: options.attachmentsDir, attachment });
+          if (!path)
+            return yield* Effect.fail(
+              failure("send turn", "The attachment is unavailable. Remove it and attach it again."),
+            );
+          if (attachment.type === "image") {
+            if (!model?.input.includes("image"))
+              return yield* Effect.fail(
+                failure(
+                  "send turn",
+                  "The selected DeepAI model does not accept images. Choose an image-capable model.",
+                ),
+              );
+            const data = yield* Effect.tryPromise({
+              try: () => NodeFSP.readFile(path),
+              catch: () =>
+                failure("send turn", "The attached image could not be read. Attach it again."),
+            });
+            images.push({
+              type: "image",
+              mimeType: attachment.mimeType,
+              data: data.toString("base64"),
+            });
+          } else if (attachment.type === "file") {
+            fileReferences.push(
+              `Attached file ${encodeString(attachment.name)}: ${encodeString(path)}`,
+            );
+          } else {
+            return yield* Effect.fail(
+              failure("send turn", "This attachment type is not supported by DeepAI."),
+            );
+          }
+        }
+        // Attachment reads yield; another request may have started or stopped the session.
+        if (sessions.get(input.threadId) !== state || state.active)
+          return yield* Effect.fail(
+            failure(
+              "send turn",
+              "DeepAI session changed while preparing the turn. Retry after the current turn finishes.",
+            ),
+          );
+        const selectedEffort = getModelSelectionStringOptionValue(
+          input.modelSelection,
+          "reasoningEffort",
+        );
+        if (selectedEffort) {
+          const effort = DEEPAI_EFFORTS.find((value) => value === selectedEffort);
+          if (!effort || !state.agent.session.getAvailableThinkingLevels().includes(effort))
+            return yield* Effect.fail(
+              failure(
+                "send turn",
+                "The selected reasoning effort is not supported by this DeepAI model.",
+              ),
+            );
+          state.agent.session.setThinkingLevel(effort);
+        }
+        const prompt = [input.input ?? "Continue.", ...fileReferences].join("\n\n");
         const turnId = TurnId.make(NodeCrypto.randomUUID());
         state.active = turnId;
         state.cancelled = false;
@@ -218,13 +325,30 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
         );
         yield* Effect.promise(async () => {
           let failed = false;
+          let errorMessage = "DeepAI could not complete the turn. Check provider status and retry.";
+          const classifyError = (message: string) => {
+            if (/multimodal processing is not enabled/i.test(message))
+              return "DeepAI advertised image support, but its server has image processing disabled for this model. Try another image-capable model or send text only.";
+            if (/too many restarts|daily reset/i.test(message))
+              return "DeepAI's daily connection restart limit was reached. Wait for its daily reset; signing in again will not clear the limit.";
+            return errorMessage;
+          };
           try {
-            await state.agent.session.prompt(input.input ?? "Continue.");
+            await state.agent.session.prompt(prompt, { images });
             const last = state.agent.session.messages.at(-1);
             failed = last?.role === "assistant" && last.stopReason === "error";
-          } catch {
+            if (last?.role === "assistant" && last.errorMessage)
+              errorMessage = classifyError(last.errorMessage);
+          } catch (error) {
             failed = true;
+            if (error instanceof Error) errorMessage = classifyError(error.message);
           } finally {
+            if (failed && !state.cancelled)
+              await emit({
+                ...stamp(input.threadId, turnId),
+                type: "runtime.error",
+                payload: { message: errorMessage },
+              });
             await emit({
               ...stamp(input.threadId, turnId),
               itemId: RuntimeItemId.make(`${turnId}:assistant`),
