@@ -25,6 +25,7 @@
  * only inside the emitted bundle and is unreachable there. This closure is
  * enforced by a test, not by inspection.
  */
+
 export const CLI_RUNTIME_EXTERNAL_PREFIXES = [
   "node-pty",
   "ffi-rs",
@@ -47,7 +48,13 @@ export const CLI_RUNTIME_EXTERNAL_PREFIXES = [
 ] as const;
 
 export function isRuntimeExternalCliDependency(id: string): boolean {
-  return CLI_RUNTIME_EXTERNAL_PREFIXES.some((prefix) => id.startsWith(prefix));
+  // The SDK is installed as a complete dependency root in the server sidecar;
+  // its own package manager closure preserves its resource and WASM paths.
+  return (
+    id === "@earendil-works/pi-coding-agent" ||
+    id.startsWith("@earendil-works/pi-coding-agent/") ||
+    CLI_RUNTIME_EXTERNAL_PREFIXES.some((prefix) => id.startsWith(prefix))
+  );
 }
 
 /**

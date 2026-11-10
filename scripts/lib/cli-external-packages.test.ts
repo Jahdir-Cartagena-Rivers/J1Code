@@ -83,7 +83,7 @@ describe("selectCliRuntimeExternalDependencies", () => {
   it("selects every external root declared by the server", () => {
     assert.deepStrictEqual(
       Object.keys(selectCliRuntimeExternalDependencies(serverPackageJson.dependencies)).sort(),
-      ["@ff-labs/fff-node", "@napi-rs/keyring", "node-pty"],
+      ["@earendil-works/pi-coding-agent", "@ff-labs/fff-node", "@napi-rs/keyring", "node-pty"],
     );
   });
 });

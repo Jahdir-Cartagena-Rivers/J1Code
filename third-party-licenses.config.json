@@ -487,6 +487,39 @@
         "licenseId": "MIT",
         "copyrights": ["Copyright (c) 2025 opencode"]
       }
+    },
+    {
+      "repositoryUrl": "https://github.com/earendil-works/pi",
+      "sourceUrl": "https://github.com/earendil-works/pi/blob/main/LICENSE",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2025 Mario Zechner"]
+      }
+    },
+    {
+      "name": "data-uri-to-buffer",
+      "sourceUrl": "https://github.com/TooTallNate/proxy-agents/tree/main/packages/data-uri-to-buffer",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2014 Nathan Rajlich <nathan@tootallnate.net>"]
+      }
+    },
+    {
+      "name": "standardwebhooks",
+      "license": "MIT AND Apache-2.0",
+      "sourceUrl": "https://github.com/standard-webhooks/standard-webhooks",
+      "generatedNotices": [
+        {
+          "licenseId": "MIT",
+          "preamble": ["standardwebhooks declares MIT in its package metadata."]
+        },
+        {
+          "licenseId": "Apache-2.0",
+          "preamble": [
+            "The upstream Standard Webhooks repository provides this Apache-2.0 license."
+          ]
+        }
+      ]
     }
   ]
 }

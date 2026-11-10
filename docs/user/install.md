@@ -91,7 +91,7 @@ base URL. Mark secret values as sensitive; after saving, J1 Code does not displa
 their original values.
 
 For provider-specific setup and accounts, see [Codex](./providers-codex.md),
-[Claude](./providers-claude.md), [OpenCode](./providers-opencode.md), and
+[Claude](./providers-claude.md), [OpenCode](./providers-opencode.md), [DeepAI](./providers-deepai.md), and
 [Antigravity](./providers-antigravity.md).
 
 ## Next steps
