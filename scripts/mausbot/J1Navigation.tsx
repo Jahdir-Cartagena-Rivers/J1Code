@@ -16,6 +16,7 @@ type Navigation = {
   appearance?: unknown;
   settingsHeight?: number;
   settingsPresentation?: "portal" | "overlay";
+  providers?: { id: string; label: string; selected?: boolean }[];
   settingsPages?: { path: string; label: string }[];
   projectsHeight?: number;
   footerHeight?: number;

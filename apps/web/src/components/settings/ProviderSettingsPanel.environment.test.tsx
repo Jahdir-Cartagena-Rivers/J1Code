@@ -50,6 +50,8 @@ vi.mock("react", async (importOriginal) => {
   };
 });
 
+vi.mock("./settingsAppearance", () => ({ useMergedSettingsAppearance: () => false }));
+
 vi.mock("./settingsLayout", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./settingsLayout")>();
   return {

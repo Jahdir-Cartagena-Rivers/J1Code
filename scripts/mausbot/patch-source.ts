@@ -629,7 +629,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
   await change(
     "src/components/SettingsModal.tsx",
     "            <LicenseExpiryBanner config={state.config} />\n            {renderSection(section)}",
-    '            {j1Path === "/settings/appearance" && <J1SettingsSlot />}\n            {(!j1Path || Boolean(j1SettingsSection(j1Path))) && !(j1Navigation && section === "companion") && <><LicenseExpiryBanner config={state.config} />{renderSection(section)}</>}\n            {j1Path === "/settings/keybindings" && <><TalkShortcutRow /><SendKeyRow /></>}\n            {j1Path && j1Path !== "/settings/appearance" && <J1SettingsSlot />}',
+    '            {j1Path === "/settings/appearance" && <J1SettingsSlot />}\n            {(!j1Path || Boolean(j1SettingsSection(j1Path))) && !(j1Navigation && section === "companion") && <><LicenseExpiryBanner config={state.config} />{renderSection(section)}</>}\n            {j1Path === "/settings/keybindings" && <><TalkShortcutRow /><SendKeyRow /></>}\n            {j1Path && j1Path !== "/settings/appearance" && j1Path !== "/settings/providers" && <J1SettingsSlot />}',
   );
   await change(
     "src/components/SettingsModal.tsx",
@@ -999,6 +999,46 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
     "src/App.tsx",
     "        <FirstConversationTour quiet={spotlightsQuiet(viewer)} />",
     "        {showWelcome && <FirstConversationTour quiet={spotlightsQuiet(viewer)} />}",
+  );
+  await copy("scripts/mausbot/deepai-driver-config.ts", "server/j1/deepai-driver-config.ts");
+  await copy("scripts/mausbot/deepai-driver.ts", "server/drivers/j1-deepai.ts");
+  await change(
+    "server/drivers/builtIn.ts",
+    'import { PiDriver } from "./pi.ts";',
+    'import { PiDriver } from "./pi.ts";\nimport { J1DeepAIDriver } from "./j1-deepai.ts";',
+  );
+  await change("server/drivers/builtIn.ts", "  PiDriver,", "  PiDriver,\n  J1DeepAIDriver,");
+  await change(
+    "server/config.ts",
+    "  const map: InstanceConfigMap = withoutComputerEngine(configured ? { ...configured } : { ...DEFAULT_FLEET });",
+    '  const map: InstanceConfigMap = withoutComputerEngine(configured ? { ...configured } : { ...DEFAULT_FLEET });\n  if (!Object.hasOwn(map, "j1-deepai")) map["j1-deepai"] = { driver: "j1-deepai", displayName: "DeepAI", access: "subscription", config: {} };',
+  );
+  await copy("apps/web/src/assets/deepai-mark.png", "src/assets/j1-deepai-mark.png");
+  await change(
+    "src/components/ProviderIcons.tsx",
+    'import { useState } from "react";',
+    'import { useState } from "react";\nimport deepAIMark from "../assets/j1-deepai-mark.png";',
+  );
+  await change(
+    "src/components/ProviderIcons.tsx",
+    '    case "piAgent":',
+    '    case "j1-deepai":\n      return <span aria-hidden className={cn("inline-block shrink-0 bg-current", className)} style={{ width: size ?? 16, height: size ?? 16, maskImage: `url(${deepAIMark})`, maskSize: "contain", maskRepeat: "no-repeat" }} />;\n    case "piAgent":',
+  );
+  await copy("scripts/mausbot/J1Providers.tsx", "src/components/J1Providers.tsx");
+  await change(
+    "src/components/EnginesSettings.tsx",
+    'import { t } from "@/lib/i18n";',
+    'import { t } from "@/lib/i18n";\nimport { useJ1Navigation } from "./J1Navigation";\nimport { J1Providers } from "./J1Providers";',
+  );
+  await change(
+    "src/components/EnginesSettings.tsx",
+    "  const listed = state.instances.filter(",
+    "  const j1Navigation = useJ1Navigation();\n  const listed = state.instances.filter(",
+  );
+  await change(
+    "src/components/EnginesSettings.tsx",
+    "  if (simple && more) return <>",
+    "  if (j1Navigation) return <J1Providers instances={rows} renderEngine={renderEngine} extra={<>{orphanEndpoints && <ClaudeEndpoints />}<HiddenEngines /><CacheKeepWarmSettings /></>} />;\n  if (simple && more) return <>",
   );
   await copy("scripts/mausbot/native-browser.ts", "server/j1/native-browser.ts");
   await copy("scripts/mausbot/native-login-input.ts", "server/j1/native-login-input.ts");

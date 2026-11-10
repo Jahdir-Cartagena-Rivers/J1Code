@@ -20,7 +20,7 @@ import { ProviderAdapterRequestError } from "../Errors.ts";
 import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
 import { buildRuntimeInstructions } from "../RuntimeInstructions.ts";
 import type { createDeepAIAgent } from "./DeepAIAgent.ts";
-import type { DeepAIModel } from "./DeepAIClient.ts";
+import type { makeDeepAIClient, DeepAIModel } from "./DeepAIClient.ts";
 import { readMcpProviderSession } from "../../mcp/McpProviderSession.ts";
 
 const provider = ProviderDriverKind.make("deepai");
@@ -31,6 +31,7 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
   instanceId: ProviderInstanceId;
   directory: string;
   credentials: () => Promise<string>;
+  client?: ReturnType<typeof makeDeepAIClient>;
   catalog: () => Promise<{ models: ReadonlyArray<DeepAIModel>; default: string }>;
 }) {
   const events = yield* PubSub.unbounded<ProviderRuntimeEvent>();
@@ -110,6 +111,7 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
         const mcp = readMcpProviderSession(input.threadId);
         const { createDeepAIAgent: create } = await import("./DeepAIAgent.ts");
         const agent = await create({
+          ...(options.client ? { client: options.client } : {}),
           cwd: input.cwd ?? process.cwd(),
           agentDir: NodePath.join(directory, "config"),
           sessionDir: directory,

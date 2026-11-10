@@ -18,7 +18,10 @@ import type {
 import { startMausbotComputer } from "./NativeComputer.ts";
 import { mausbotChildEnvironment } from "./ChildEnvironment.ts";
 
+import { startDeepAIBridge, type DeepAIBridge, type DeepAIBridgeOptions } from "./DeepAIBridge.ts";
+
 export interface MausbotRuntimeOptions {
+  readonly deepAI?: DeepAIBridgeOptions;
   readonly platform: NodeJS.Platform;
   readonly memory?: (input: unknown, current: () => boolean) => Promise<unknown>;
   readonly conversationCall?: (input: unknown, current: () => boolean) => Promise<unknown>;
@@ -61,6 +64,7 @@ export class MausbotRuntime {
   private stopping: Promise<void> | undefined;
   private computer: Awaited<ReturnType<typeof startMausbotComputer>> | undefined;
   private token: string | undefined;
+  private deepAIBridge: DeepAIBridge | undefined;
   private origin: string | undefined;
   private browserExecutable: string;
   private appliedBrowserExecutable: string | undefined;
@@ -220,6 +224,8 @@ export class MausbotRuntime {
     if (port === webhookPort) throw new Error("Runtime ports collided. Try starting again.");
     const owner = NodeCrypto.randomBytes(32).toString("base64url");
     const origin = `http://127.0.0.1:${port}`;
+    const bridge = this.options.deepAI ? await startDeepAIBridge(this.options.deepAI) : undefined;
+    this.deepAIBridge = bridge;
     const child = NodeChildProcess.spawn(this.options.executable ?? process.execPath, [entry], {
       cwd: this.options.resources,
       windowsHide: true,
@@ -227,6 +233,7 @@ export class MausbotRuntime {
       stdio: ["pipe", "pipe", "pipe", "ipc"],
       env: {
         ...mausbotChildEnvironment(),
+        ...(bridge ? { OMB_J1_DEEPAI_URL: bridge.baseUrl, OMB_J1_DEEPAI_TOKEN: bridge.token } : {}),
         ELECTRON_RUN_AS_NODE: "1",
         OMB_PORT: String(port),
         OMB_WEBHOOK_PORT: String(webhookPort),
@@ -243,6 +250,8 @@ export class MausbotRuntime {
     const { stdin, stdout, stderr } = child;
     if (!stdin || !stdout || !stderr) {
       child.kill();
+      await bridge?.close();
+      this.deepAIBridge = undefined;
       throw new Error("Could not open the managed runtime pipes.");
     }
     this.child = child;
@@ -317,6 +326,10 @@ export class MausbotRuntime {
     stdout.setEncoding("utf8");
     stderr.setEncoding("utf8");
     stderr.resume();
+    child.once("exit", () => {
+      void bridge?.close().catch(() => {});
+      if (this.deepAIBridge === bridge) this.deepAIBridge = undefined;
+    });
     child.on("error", () => {
       if (this.child !== child) return;
       this.token = undefined;
@@ -612,6 +625,9 @@ export class MausbotRuntime {
   }
 
   private async stopChild() {
+    const bridge = this.deepAIBridge;
+    this.deepAIBridge = undefined;
+    await bridge?.close();
     const child = this.child;
     this.token = undefined;
     this.origin = undefined;

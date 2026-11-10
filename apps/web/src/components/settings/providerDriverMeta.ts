@@ -16,7 +16,7 @@ import {
   type Icon,
   OpenAI,
   OpenCodeIcon,
-  PiAgentIcon,
+  DeepAIIcon,
 } from "../Icons";
 
 type ProviderSettingsSchema = {
@@ -86,7 +86,7 @@ const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = [
   {
     value: ProviderDriverKind.make("deepai"),
     label: "DeepAI",
-    icon: PiAgentIcon,
+    icon: DeepAIIcon,
     settingsSchema: Schema.Struct({}),
   },
 ];

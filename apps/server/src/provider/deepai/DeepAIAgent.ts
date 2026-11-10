@@ -1,7 +1,7 @@
 import * as NodeModule from "node:module";
 import * as NodePath from "node:path";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import type { DeepAIModel } from "./DeepAIClient.ts";
+import { makeDeepAIClient, type DeepAIModel } from "./DeepAIClient.ts";
 
 /** J1 owns admission and approvals; Pi owns the model/tool loop and transcript. */
 export async function createDeepAIAgent(input: {
@@ -10,6 +10,7 @@ export async function createDeepAIAgent(input: {
   readonly sessionDir: string;
   readonly sessionFile?: string;
   readonly apiKey: string;
+  readonly client?: ReturnType<typeof makeDeepAIClient>;
   readonly models: ReadonlyArray<DeepAIModel>;
   readonly modelId: string;
   readonly systemPrompt: string;
@@ -45,13 +46,14 @@ export async function createDeepAIAgent(input: {
     refreshOnCreate: false,
     allowModelNetwork: false,
   });
+  const client = input.client ?? makeDeepAIClient();
   runtime.registerProvider("deepai", {
     name: "DeepAI",
     baseUrl: "https://api.deepai.org/deepai_code",
     api: "openai-completions",
     apiKey: input.apiKey,
     authHeader: false,
-    headers: { "Api-Key": input.apiKey, "X-DeepAI-Code-Theos": "4" },
+    headers: { "Api-Key": input.apiKey, ...client.headers },
     models: input.models.map((model) => ({
       id: model.id,
       name: model.name,
@@ -122,6 +124,14 @@ export async function createDeepAIAgent(input: {
     sessionManager: manager,
     resourceLoader: loader,
   });
+  // Extension hook errors are observational in Pi, so enforce admission at the
+  // actual stream boundary instead of a before-provider extension callback.
+  const stream = session.agent.streamFunction;
+  session.agent.streamFunction = async (model, context, options) => {
+    const allowance = await client.allowance(input.apiKey, options?.signal ?? controller.signal);
+    if (!allowance.enabled) throw new Error("DeepAI is not enabled for this account.");
+    return stream(model, context, options);
+  };
   const unsubscribe = session.subscribe(input.onEvent);
   try {
     await session.bindExtensions({});

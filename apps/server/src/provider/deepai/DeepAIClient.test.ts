@@ -59,20 +59,63 @@ describe("DeepAI wire boundary", () => {
   it("passes both API formats and the original stream through without buffering", async () => {
     for (const api of ["openai-completions", "openai-responses"] as const) {
       const response = new Response("data: [DONE]\n\n");
-      const request = vi.fn<typeof fetch>(async () => response);
+      const request = vi.fn<typeof fetch>(async (url) =>
+        String(url).endsWith("/theos") ? Response.json({ enabled: true }) : response,
+      );
       const client = makeDeepAIClient({ request });
       const body = { model: "pilot", stream: true };
       const controller = new AbortController();
       expect(
         await client.completion({ apiKey: "private-key", api, body, signal: controller.signal }),
       ).toBe(response);
-      const [url, init] = request.mock.calls[0]!;
+      const [url, init] = request.mock.calls.at(-1)!;
       expect(
         String(url).endsWith(api === "openai-responses" ? "/responses" : "/chat/completions"),
       ).toBe(true);
       expect(init?.body).toBe(JSON.stringify(body));
       expect(init?.signal).toBe(controller.signal);
     }
+  });
+
+  it("shares a host identity across clients and renews the check-in nonce instead of restarting it", async () => {
+    let now = 100000;
+
+    {
+      const request = vi.fn<typeof fetch>(async () =>
+        Response.json({ enabled: true, check_in: { nonce: "a".repeat(32), seconds: 60 } }),
+      );
+      const client = makeDeepAIClient({ request, machineDigest: "b".repeat(64), now: () => now });
+      await Promise.all([client.allowance("key", signal()), client.allowance("key", signal())]);
+      expect(request).toHaveBeenCalledTimes(1);
+      now += 31000;
+      await client.allowance("key", signal());
+      const first = new Headers(request.mock.calls[0]![1]?.headers);
+      const renewed = new Headers(request.mock.calls[1]![1]?.headers);
+      expect(first.get("X-DeepAI-Code-Machine")).toBe("b".repeat(64));
+      expect(renewed.get("X-DeepAI-Code-Check-In")).toBe("a".repeat(32));
+      const other = makeDeepAIClient({ request });
+      await other.models(signal()).catch(() => {});
+      expect(
+        new Headers(request.mock.calls.at(-1)![1]?.headers).get("X-DeepAI-Code-Instance"),
+      ).toBe(first.get("X-DeepAI-Code-Instance"));
+    }
+  });
+
+  it("reports check-in refusals without relabeling them as sign-in or exposing server messages", async () => {
+    const client = makeDeepAIClient({
+      request: async () =>
+        Response.json(
+          {
+            error: {
+              code: "check_in_refused",
+              message: "private-key",
+            },
+          },
+          { status: 403 },
+        ),
+    });
+    await expect(client.allowance("key", signal())).rejects.toThrow("too many restarts today");
+    await expect(client.allowance("key", signal())).rejects.not.toThrow("private-key");
   });
 
   it("propagates cancellation instead of retrying a cancelled generation", async () => {

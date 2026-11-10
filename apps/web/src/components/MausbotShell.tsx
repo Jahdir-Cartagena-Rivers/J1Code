@@ -389,6 +389,22 @@ export function MausbotShell({
       },
     });
   }, [ready, connected, searchCall]);
+  const [providerCatalog, setProviderCatalog] = useState<
+    { id: string; label: string; selected?: boolean }[]
+  >([]);
+  useEffect(() => {
+    const receive = (event: Event) => {
+      const value: unknown = (event as CustomEvent).detail;
+      if (
+        Array.isArray(value) &&
+        value.length <= 100 &&
+        value.every((row) => row && typeof row.id === "string" && typeof row.label === "string")
+      )
+        setProviderCatalog(value);
+    };
+    window.addEventListener("j1-provider-catalog", receive);
+    return () => window.removeEventListener("j1-provider-catalog", receive);
+  }, []);
   const post = useCallback(() => {
     if (!current || !frame.current?.contentWindow) return;
     const root = document.documentElement;
@@ -398,6 +414,7 @@ export function MausbotShell({
         source: "j1-host",
         navigation: {
           active: pathname,
+          providers: providerCatalog,
           ...(pathname === "/assistants"
             ? {
                 conversation: {
@@ -450,6 +467,7 @@ export function MausbotShell({
     environments,
     environmentId,
     primaryEnvironmentId,
+    providerCatalog,
   ]);
   useEffect(() => {
     const observer = new MutationObserver(post);
@@ -593,6 +611,21 @@ export function MausbotShell({
           hash: typeof data.hash === "string" && data.hash.length <= 300 ? data.hash : "",
           hashScrollIntoView: false,
         });
+      } else if (
+        pathname === "/settings/providers" &&
+        (data.type === "provider-select" || data.type === "provider-add")
+      ) {
+        if (
+          data.type === "provider-add" ||
+          (typeof data.instanceId === "string" &&
+            providerCatalog.some((row) => row.id === data.instanceId))
+        ) {
+          window.dispatchEvent(
+            new CustomEvent("j1-provider-select", {
+              detail: data.type === "provider-add" ? null : data.instanceId,
+            }),
+          );
+        }
       } else if (data.type === "settings-native") {
         void navigate({ to: "/assistants" });
       } else if (data.type === "settings-close" && pathname.startsWith("/settings/")) {
@@ -699,6 +732,7 @@ export function MausbotShell({
     settingsOverlay,
     environments,
     toggleSidebar,
+    providerCatalog,
   ]);
   const settingsHosted =
     ready && pathname.startsWith("/settings/") && (settingsPortal !== null || settingsOverlay);

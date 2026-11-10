@@ -1,6 +1,22 @@
 import React, { type SVGProps, useId } from "react";
 import { cn } from "~/lib/utils";
+import deepAIMark from "../assets/deepai-mark.png";
 export type Icon = React.FC<SVGProps<SVGSVGElement>>;
+
+// Official provider mark shipped by DeepAI Code; keep its original silhouette.
+export const DeepAIIcon: Icon = (props) => {
+  const mask = useId();
+  return (
+    <svg viewBox="0 0 512 512" {...props}>
+      <defs>
+        <mask id={mask}>
+          <image href={deepAIMark} width="512" height="512" />
+        </mask>
+      </defs>
+      <rect width="512" height="512" fill="currentColor" mask={`url(#${mask})`} />
+    </svg>
+  );
+};
 
 export const FinderIcon: Icon = (props) => (
   <svg viewBox="0 0 24 24" fill="none" {...props}>

@@ -34,6 +34,12 @@ import {
   type ConversationQuery,
 } from "@t3tools/contracts";
 import { ExternalRouteEndpoints } from "../routing/ExternalRouteEndpoints.ts";
+import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
+import * as ProviderCredentialStore from "../provider/ProviderCredentialStore.ts";
+import { makeDeepAIClient } from "../provider/deepai/DeepAIClient.ts";
+import { deepAIMachineDigest } from "../provider/deepai/DeepAIMachine.ts";
+import { resolveProviderInstanceEnabled } from "@t3tools/contracts";
+
 const decodeHostInvocation = Schema.decodeUnknownEffect(
   Schema.Union([MausbotConversationInvocation, MausbotRoutingInvocation, ExternalRouteHostEvent]),
 );
@@ -71,6 +77,28 @@ export class MausbotService extends Context.Service<
     Effect.gen(function* () {
       const config = yield* ServerConfig;
       const platform = yield* HostProcessPlatform;
+      const hostContext = yield* Effect.context<ServerSecretStore>();
+      const runHost = Effect.runPromiseWith(hostContext);
+      const deepAIClient = makeDeepAIClient({
+        resolveMachineDigest: () => deepAIMachineDigest(platform),
+      });
+      const deepAICredentials = () =>
+        runHost(
+          Effect.gen(function* () {
+            const current = yield* settings.getSettings;
+            for (const [id, instance] of Object.entries(current.providerInstances).sort(
+              ([a], [b]) => a.localeCompare(b),
+            )) {
+              if (instance.driver !== "deepai" || !resolveProviderInstanceEnabled(instance))
+                continue;
+              const store = yield* ProviderCredentialStore.make("deepai", id);
+              const value = yield* store.get;
+              if (Option.isSome(value)) return new TextDecoder().decode(value.value);
+            }
+            return yield* Effect.fail("Connect a DeepAI account in Model providers first.");
+          }),
+        );
+
       const path = yield* Path.Path;
       const settings = yield* ServerSettingsService;
       const sessions = yield* SessionStore;
@@ -191,6 +219,17 @@ export class MausbotService extends Context.Service<
             );
             runtime = new MausbotRuntime({
               platform,
+              deepAI: {
+                client: deepAIClient,
+                credentials: deepAICredentials,
+                catalog: async (signal) => {
+                  const key = await deepAICredentials();
+                  const allowance = await deepAIClient.allowance(key, signal);
+                  if (!allowance.enabled)
+                    throw new Error("DeepAI is unavailable for this account.");
+                  return deepAIClient.models(signal);
+                },
+              },
               resources: expanded,
               ...(config.devUrl && config.mausbotDevUiDir ? { uiDir: config.mausbotDevUiDir } : {}),
               dataDir: path.join(config.baseDir, "userdata", "mausbot"),

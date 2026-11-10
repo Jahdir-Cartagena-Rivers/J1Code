@@ -37,9 +37,10 @@ const decodeResponse = Schema.decodeUnknownSync(ResponseBody);
 
 export function makeDeepAITextGeneration(options: {
   credentials: () => Promise<string>;
+  client?: ReturnType<typeof makeDeepAIClient>;
   catalog: () => Promise<{ models: ReadonlyArray<DeepAIModel> }>;
 }): TextGeneration["Service"] {
-  const client = makeDeepAIClient();
+  const client = options.client ?? makeDeepAIClient();
   const generate = <A>(modelId: string, prompt: string, schema: Schema.Codec<A, unknown>) =>
     Effect.gen(function* () {
       const result = yield* Effect.tryPromise({

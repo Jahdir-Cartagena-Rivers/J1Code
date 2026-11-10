@@ -17,8 +17,11 @@ import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMainte
 import { buildServerProvider } from "../providerSnapshot.ts";
 import { withInstanceIdentity } from "./instanceIdentity.ts";
 import { makeDeepAIAdapter } from "../deepai/DeepAIAdapter.ts";
-import { makeDeepAIClient } from "../deepai/DeepAIClient.ts";
+import { DeepAIRequestError, makeDeepAIClient } from "../deepai/DeepAIClient.ts";
 import { makeDeepAITextGeneration } from "../deepai/DeepAITextGeneration.ts";
+
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { deepAIMachineDigest } from "../deepai/DeepAIMachine.ts";
 
 const DRIVER = ProviderDriverKind.make("deepai");
 const Config = Schema.Struct({});
@@ -42,7 +45,9 @@ export const DeepAIDriver: ProviderDriver<typeof Config.Type, DeepAIDriverEnv> =
       const store = yield* ProviderCredentialStore.make("deepai", instanceId);
       const context = yield* Effect.context<never>();
       const run = Effect.runPromiseWith(context);
-      const client = makeDeepAIClient();
+      const platform = yield* HostProcessPlatform;
+      const machineDigest = yield* Effect.promise(() => deepAIMachineDigest(platform));
+      const client = makeDeepAIClient({ ...(machineDigest ? { machineDigest } : {}) });
       const credentials = async () => {
         const stored = await run(store.get);
         if (Option.isNone(stored)) throw new Error("Sign in to DeepAI first.");
@@ -50,16 +55,20 @@ export const DeepAIDriver: ProviderDriver<typeof Config.Type, DeepAIDriverEnv> =
       };
       const catalog = () => client.models(AbortSignal.timeout(15000));
       const adapter = yield* makeDeepAIAdapter({
+        client,
         instanceId,
         credentials,
         catalog,
         directory: NodePath.join(config.stateDir, "providers", "deepai", instanceId),
       });
-      const setupError = () =>
+      const setupError = (cause?: unknown) =>
         new ProviderSetupError({
           instanceId,
           operation: "authenticate",
-          detail: "Sign in to DeepAI Code on this server first, then import the account again.",
+          detail:
+            cause instanceof DeepAIRequestError
+              ? cause.message
+              : "Sign in to DeepAI Code on this server first, then import the account again.",
         });
       let refreshAfterAuth: Effect.Effect<void> = Effect.void;
       const auth = yield* ProviderAuthFlow.make({
@@ -187,7 +196,7 @@ export const DeepAIDriver: ProviderDriver<typeof Config.Type, DeepAIDriverEnv> =
           streamChanges: SubscriptionRef.changes(snapshots),
           applyUsageLimits: () => Effect.void,
         },
-        textGeneration: makeDeepAITextGeneration({ credentials, catalog }),
+        textGeneration: makeDeepAITextGeneration({ credentials, catalog, client }),
       };
     }),
 };

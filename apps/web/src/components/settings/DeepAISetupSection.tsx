@@ -26,7 +26,7 @@ export function DeepAISetupSection(props: {
     <section aria-label="DeepAI setup">
       <SettingsRow
         title="DeepAI account"
-        description="Import the account signed in to DeepAI Code on this environment's server. Signing out here leaves DeepAI Code signed in."
+        description="Import the account already signed in to DeepAI Code on this server. This does not open a sign-in window. Signing out here leaves DeepAI Code signed in."
         control={
           <Button
             size="sm"

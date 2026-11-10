@@ -1,3 +1,4 @@
+import { useMergedSettingsAppearance } from "./settingsAppearance";
 import { SettingsGroup } from "./SettingsGroup";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { useAtomValue } from "@effect/atom-react";
@@ -593,6 +594,7 @@ export function EnvironmentProviderSettings({
    */
   readonly readOnly?: boolean;
 }) {
+  const mergedProviders = useMergedSettingsAppearance();
   const settings = useEnvironmentSettings(environmentId);
   // Provider instances hold per-machine credentials and binaries, so this
   // page always edits exactly the environment it displays.
@@ -819,6 +821,31 @@ export function EnvironmentProviderSettings({
   const selectedRow =
     rows.find((row) => row.instanceId === selectedInstanceId) ??
     (targetInstanceMissing ? null : (rows[0] ?? null));
+
+  const mergedCatalog = JSON.stringify(
+    rows.map((row) => ({
+      id: String(row.instanceId),
+      label: row.instance.displayName ?? row.driver,
+      selected: row.instanceId === selectedRow?.instanceId,
+    })),
+  );
+  useEffect(() => {
+    if (!mergedProviders) return;
+    window.dispatchEvent(
+      new CustomEvent("j1-provider-catalog", { detail: JSON.parse(mergedCatalog) }),
+    );
+  }, [mergedProviders, mergedCatalog]);
+  useEffect(() => {
+    if (!mergedProviders) return;
+    const receive = (event: Event) => {
+      const detail: unknown = (event as CustomEvent).detail;
+      if (typeof detail === "string" && rows.some((row) => String(row.instanceId) === detail)) {
+        setSelectedInstanceId(rows.find((row) => String(row.instanceId) === detail)!.instanceId);
+      } else if (detail === null && !readOnly) setIsAddInstanceDialogOpen(true);
+    };
+    window.addEventListener("j1-provider-select", receive);
+    return () => window.removeEventListener("j1-provider-select", receive);
+  }, [mergedProviders, rows, readOnly]);
 
   const updateProviderInstance = (
     row: InstanceRow,
@@ -1070,6 +1097,7 @@ export function EnvironmentProviderSettings({
     <>
       <SettingsSection
         {...searchableSetting("providers")}
+        title={mergedProviders ? "" : searchableSetting("providers").title}
         variant="plain"
         headerAction={
           <div className="flex min-w-0 items-center gap-2">
@@ -1103,21 +1131,23 @@ export function EnvironmentProviderSettings({
                   />
                   <TooltipPopup side="top">Refresh provider status</TooltipPopup>
                 </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        size="icon-xs"
-                        variant="ghost-muted"
-                        onClick={() => setIsAddInstanceDialogOpen(true)}
-                        aria-label="Add provider"
-                      >
-                        <PlusIcon />
-                      </Button>
-                    }
-                  />
-                  <TooltipPopup side="top">Add provider</TooltipPopup>
-                </Tooltip>
+                {!mergedProviders && (
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          size="icon-xs"
+                          variant="ghost-muted"
+                          onClick={() => setIsAddInstanceDialogOpen(true)}
+                          aria-label="Add provider"
+                        >
+                          <PlusIcon />
+                        </Button>
+                      }
+                    />
+                    <TooltipPopup side="top">Add provider</TooltipPopup>
+                  </Tooltip>
+                )}
               </>
             )}
           </div>
@@ -1138,10 +1168,15 @@ export function EnvironmentProviderSettings({
           divided={false}
           className={cn(
             providerCardHeightClassName,
-            "overflow-hidden @min-[48rem]/providers:grid @min-[48rem]/providers:grid-cols-[17rem_minmax(0,1fr)]",
+            mergedProviders
+              ? "overflow-hidden"
+              : "overflow-hidden @min-[48rem]/providers:grid @min-[48rem]/providers:grid-cols-[17rem_minmax(0,1fr)]",
           )}
         >
-          <div className="border-b border-border/60 bg-muted/10 @min-[48rem]/providers:flex @min-[48rem]/providers:min-h-0 @min-[48rem]/providers:flex-col @min-[48rem]/providers:border-r @min-[48rem]/providers:border-b-0">
+          <div
+            style={mergedProviders ? { display: "none" } : undefined}
+            className="border-b border-border/60 bg-muted/10 @min-[48rem]/providers:flex @min-[48rem]/providers:min-h-0 @min-[48rem]/providers:flex-col @min-[48rem]/providers:border-r @min-[48rem]/providers:border-b-0"
+          >
             <ScrollArea
               scrollFade
               chainVerticalScroll

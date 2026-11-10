@@ -1,8 +1,10 @@
+// @effect-diagnostics globalFetch:off - Native child capability fixture uses its captured loopback listener.
 // @effect-diagnostics nodeBuiltinImport:off - Exercises the real child/loopback boundary with isolated fixtures.
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import { describe, expect, it } from "vite-plus/test";
+import { makeDeepAIClient } from "../provider/deepai/DeepAIClient.ts";
 import { MausbotRuntime } from "./Runtime.ts";
 
 const fixtureSource = `
@@ -14,6 +16,7 @@ let browser = process.env.J1_MAUSBOT_LIGHTPANDA_PATH;
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', value => { owner += value; });
 fs.writeFileSync(path.join(process.env.OMB_DATA_DIR, 'fixture-pid'), String(process.pid));
+if(process.env.OMB_J1_DEEPAI_URL) fs.writeFileSync(path.join(process.env.OMB_DATA_DIR,'fixture-bridge.json'), JSON.stringify({url:process.env.OMB_J1_DEEPAI_URL,token:process.env.OMB_J1_DEEPAI_TOKEN}));
 const server = http.createServer((req, res) => {
   res.setHeader('content-type', 'application/json');
   res.setHeader('content-security-policy', "default-src 'self'; frame-ancestors 'none'; connect-src 'self'");
@@ -44,6 +47,7 @@ process.stdin.on('end', () => server.listen(Number(process.env.OMB_PORT), '127.0
 
 async function fixture(
   conversationCall?: ConstructorParameters<typeof MausbotRuntime>[0]["conversationCall"],
+  deepAI?: ConstructorParameters<typeof MausbotRuntime>[0]["deepAI"],
 ) {
   const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-mausbot-runtime-test-"));
   const resources = NodePath.join(root, "resources");
@@ -57,11 +61,61 @@ async function fixture(
     resources,
     dataDir,
     ...(conversationCall ? { conversationCall } : {}),
+    ...(deepAI ? { deepAI } : {}),
   });
   return { runtime, resources, dataDir, root };
 }
 
 describe("managed upstream runtime", () => {
+  it("binds DeepAI access to the captured child and revokes it across stop/restart", async () => {
+    const secret = "parent-only-account-key";
+    const { runtime, dataDir } = await fixture(undefined, {
+      credentials: async () => secret,
+      catalog: async () => ({
+        default: "fixture",
+        models: [
+          {
+            id: "fixture",
+            name: "Fixture",
+            reasoning: false,
+            input: ["text"],
+            contextWindow: 4096,
+            maxTokens: 512,
+          },
+        ],
+      }),
+      client: makeDeepAIClient({ request: async () => Response.json({ enabled: true }) }),
+    });
+    try {
+      await runtime.start();
+      const file = NodePath.join(dataDir, "fixture-bridge.json");
+      const text = await NodeFSP.readFile(file, "utf8");
+      expect(text).not.toContain(secret);
+      const first = JSON.parse(text) as { url: string; token: string };
+      const response = await fetch(`${first.url}/models`, {
+        headers: { authorization: `Bearer ${first.token}` },
+      });
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain('"fixture"');
+      await runtime.stop();
+      await expect(
+        fetch(`${first.url}/models`, { headers: { authorization: `Bearer ${first.token}` } }),
+      ).rejects.toThrow();
+      await runtime.start();
+      const next = JSON.parse(await NodeFSP.readFile(file, "utf8")) as {
+        url: string;
+        token: string;
+      };
+      expect(next.token).not.toBe(first.token);
+      const denied = await fetch(`${next.url}/models`, {
+        headers: { authorization: `Bearer ${first.token}` },
+      });
+      expect(denied.status).toBe(401);
+    } finally {
+      await runtime.stop();
+    }
+  });
+
   it("serves successive development UI edits without another archive or child restart", async () => {
     const { root, resources, dataDir } = await fixture();
     const uiDir = NodePath.join(root, "watch-output");
