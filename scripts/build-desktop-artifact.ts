@@ -3370,7 +3370,9 @@ export const validateWindowsPackagedPayload = Effect.fn(
       });
     }
     // The CLI archive runs the single-executable, never a loose server bundle.
-    const bundleEntry = members.find((member) => member.endsWith("/bin.mjs"));
+    const bundleEntry = members.find(
+      (member) => member.endsWith("/bin.mjs") && !member.startsWith(`${stem}/node_modules/`),
+    );
     if (bundleEntry !== undefined) {
       return yield* invalidWslRuntime(
         new Error(`WSL runtime archive contains a server bundle entry ${bundleEntry}`),

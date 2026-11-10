@@ -178,6 +178,7 @@ const makeWindowsPayloadFixture = Effect.fn("test.makeWindowsPayloadFixture")(fu
   readonly wslRuntime?: "valid" | "loose-server-tree" | "missing-pty" | "bad-digest";
   readonly targetArch?: "x64" | "arm64";
   readonly ptyPrebuildArch?: "x64" | "arm64";
+  readonly wslExtraMembers?: ReadonlyArray<string>;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -232,13 +233,14 @@ const makeWindowsPayloadFixture = Effect.fn("test.makeWindowsPayloadFixture")(fu
             ...(input.wslRuntime === "missing-pty" || input.ptyPrebuildArch !== undefined
               ? { omitMembers: [`${stem}/node_modules/node-pty/build/Release/pty.node`] }
               : {}),
-            ...(input.ptyPrebuildArch !== undefined
-              ? {
-                  extraMembers: [
+            extraMembers: [
+              ...(input.ptyPrebuildArch !== undefined
+                ? [
                     `${stem}/node_modules/node-pty/prebuilds/linux-${input.ptyPrebuildArch}/pty.node`,
-                  ],
-                }
-              : {}),
+                  ]
+                : []),
+              ...(input.wslExtraMembers ?? []).map((member) => `${stem}/${member}`),
+            ],
           });
     const archivePath = path.join(resourcesDir, WSL_RUNTIME_ARCHIVE_NAME);
     const hashPath = path.join(resourcesDir, WSL_RUNTIME_ARCHIVE_HASH_NAME);
@@ -1363,6 +1365,36 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       }),
     ).pipe(Effect.provideService(HostProcessPlatform, "linux")),
   );
+
+  for (const [member, accepted] of [
+    ["node_modules/yaml/bin.mjs", true],
+    ["bin.mjs", false],
+    ["apps/server/dist/bin.mjs", false],
+  ] as const) {
+    it.effect(
+      `${accepted ? "accepts dependency CLI" : "rejects loose server bundle"} ${member}`,
+      () =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const fixture = yield* makeWindowsPayloadFixture({
+              copyUnpackedNatives: true,
+              wslRuntime: "valid",
+              wslExtraMembers: [member],
+            });
+            const result = yield* validateWindowsPackagedPayload({
+              stageDistDir: fixture.stageDistDir,
+              appExecutableName: fixture.appExecutableName,
+              targetArch: "x64",
+              appVersion: WINDOWS_PAYLOAD_FIXTURE_VERSION,
+              expectWslRuntime: true,
+            }).pipe(Effect.result);
+            assert.equal(result._tag === "Success", accepted);
+            if (result._tag === "Failure")
+              assert.equal(result.failure.reason, "wsl-runtime-invalid");
+          }),
+        ).pipe(Effect.provideService(HostProcessPlatform, "linux")),
+    );
+  }
 
   for (const targetArch of ["x64", "arm64"] as const) {
     it.effect(`accepts an embedded archive with the Linux ${targetArch} node-pty prebuild`, () =>
