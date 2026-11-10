@@ -22,10 +22,20 @@ import { makeDeepAITextGeneration } from "../deepai/DeepAITextGeneration.ts";
 
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { deepAIMachineDigest } from "../deepai/DeepAIMachine.ts";
+import { makeDeepAIVision } from "../deepai/DeepAIVision.ts";
 import { deepAIModelCapabilities } from "../deepai/DeepAIModelCapabilities.ts";
 
 const DRIVER = ProviderDriverKind.make("deepai");
-const Config = Schema.Struct({});
+const Config = Schema.Struct({
+  visionEndpoint: Schema.optionalKey(Schema.String),
+  visionModel: Schema.optionalKey(Schema.NonEmptyString),
+}).check(
+  Schema.makeFilter(
+    (value) =>
+      Boolean(value.visionEndpoint) === Boolean(value.visionModel) ||
+      "Set both the vision endpoint and vision model, or remove both.",
+  ),
+);
 const Account = Schema.fromJsonString(Schema.Struct({ apiKey: Schema.NonEmptyString }));
 const decodeAccount = Schema.decodeUnknownSync(Account);
 export type DeepAIDriverEnv =
@@ -39,7 +49,7 @@ export const DeepAIDriver: ProviderDriver<typeof Config.Type, DeepAIDriverEnv> =
   metadata: { displayName: "DeepAI", supportsMultipleInstances: true },
   configSchema: Config,
   defaultConfig: () => ({}),
-  create: ({ instanceId, enabled, displayName, accentColor }) =>
+  create: ({ instanceId, enabled, displayName, accentColor, config: providerConfig }) =>
     Effect.gen(function* () {
       const config = yield* ServerConfig;
       const fs = yield* FileSystem.FileSystem;
@@ -61,6 +71,14 @@ export const DeepAIDriver: ProviderDriver<typeof Config.Type, DeepAIDriverEnv> =
         credentials,
         catalog,
         attachmentsDir: config.attachmentsDir,
+        ...(providerConfig.visionEndpoint && providerConfig.visionModel
+          ? {
+              describeImages: makeDeepAIVision({
+                endpoint: providerConfig.visionEndpoint,
+                model: providerConfig.visionModel,
+              }),
+            }
+          : {}),
         directory: NodePath.join(config.stateDir, "providers", "deepai", instanceId),
       });
       const setupError = (cause?: unknown) =>

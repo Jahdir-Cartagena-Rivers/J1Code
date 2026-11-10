@@ -44,6 +44,10 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
   instanceId: ProviderInstanceId;
   directory: string;
   attachmentsDir?: string;
+  describeImages?: (
+    question: string,
+    images: ReadonlyArray<{ data: string; mimeType: string }>,
+  ) => Promise<string>;
   credentials: () => Promise<string>;
   client?: ReturnType<typeof makeDeepAIClient>;
   catalog: () => Promise<{ models: ReadonlyArray<DeepAIModel>; default: string }>;
@@ -241,6 +245,7 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
           );
         if (input.modelSelection && input.modelSelection.model !== state.view.model)
           return yield* Effect.fail(failure("switch model"));
+        state.cancelled = false;
         const model = state.model;
         const images: NonNullable<Parameters<Agent["session"]["prompt"]>[1]>["images"] = [];
         const fileReferences: string[] = [];
@@ -253,7 +258,7 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
               failure("send turn", "The attachment is unavailable. Remove it and attach it again."),
             );
           if (attachment.type === "image") {
-            if (!model?.input.includes("image"))
+            if (!options.describeImages && !model?.input.includes("image"))
               return yield* Effect.fail(
                 failure(
                   "send turn",
@@ -280,8 +285,20 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
             );
           }
         }
+        if (images.length && options.describeImages) {
+          const report = yield* Effect.tryPromise({
+            try: () => options.describeImages!(input.input ?? "Describe the images.", images),
+            catch: () =>
+              failure(
+                "image analysis",
+                "The configured vision interpreter could not analyze the images. Check that its server and vision model are available. The DeepAI turn was not sent.",
+              ),
+          });
+          fileReferences.push(report);
+          images.length = 0;
+        }
         // Attachment reads yield; another request may have started or stopped the session.
-        if (sessions.get(input.threadId) !== state || state.active)
+        if (sessions.get(input.threadId) !== state || state.active || state.cancelled)
           return yield* Effect.fail(
             failure(
               "send turn",

@@ -35,10 +35,18 @@ vi.mock("./DeepAIAgent.ts", () => ({
 }));
 const thread = ThreadId.make("deepai-test");
 const instanceId = ProviderInstanceId.make("deepai-test");
-const make = (attachmentsDir?: string, imageCapable = true) =>
+const make = (
+  attachmentsDir?: string,
+  imageCapable = true,
+  describeImages?: (
+    question: string,
+    images: ReadonlyArray<{ data: string; mimeType: string }>,
+  ) => Promise<string>,
+) =>
   makeDeepAIAdapter({
     instanceId,
     ...(attachmentsDir ? { attachmentsDir } : {}),
+    ...(describeImages ? { describeImages } : {}),
     directory: "C:/isolated-deepai",
     credentials: async () => "test-only",
     catalog: async () => ({
@@ -294,4 +302,50 @@ it.effect("passes file attachments as references instead of reading them into co
     assert.include(String(harness.prompt.mock.calls[0]?.[0]), "notes.txt");
     assert.include(String(harness.prompt.mock.calls[0]?.[0]), "123456789abc-txt.txt");
   }).pipe(Effect.scoped),
+);
+
+it.effect(
+  "the vision bridge enables images for a text model without forwarding unsupported multimodal content",
+  () =>
+    Effect.gen(function* () {
+      const directory = yield* Effect.promise(() =>
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "deepai-bridge-")),
+      );
+      yield* Effect.addFinalizer(() =>
+        Effect.promise(() => NodeFSP.rm(directory, { recursive: true })),
+      );
+      const id = "deepai-test-12345678-1234-1234-1234-123456789abc";
+      yield* Effect.promise(() =>
+        NodeFSP.writeFile(NodePath.join(directory, `${id}.png`), Buffer.from("fixture")),
+      );
+      const describe = vi
+        .fn(async () => "[Image observations from local vision] A red square.")
+        .mockRejectedValueOnce(new Error("vision unavailable"));
+      const adapter = yield* make(directory, false, describe);
+      yield* adapter.startSession({ threadId: thread, runtimeMode: "full-access" });
+      harness.prompt.mockClear();
+      const queue = yield* adapter.streamEvents.pipe(Stream.toQueue({ capacity: "unbounded" }));
+      yield* Effect.yieldNow;
+      const failed = yield* adapter
+        .sendTurn({
+          threadId: thread,
+          input: "What shape?",
+          attachments: [
+            { type: "image", id, name: "test.png", mimeType: "image/png", sizeBytes: 7 },
+          ],
+        })
+        .pipe(Effect.result);
+      assert.strictEqual(failed._tag, "Failure");
+      assert.strictEqual(harness.prompt.mock.calls.length, 0);
+      yield* adapter.sendTurn({
+        threadId: thread,
+        input: "What shape?",
+        attachments: [{ type: "image", id, name: "test.png", mimeType: "image/png", sizeBytes: 7 }],
+      });
+      let event = yield* Queue.take(queue);
+      while (event.type !== "turn.completed") event = yield* Queue.take(queue);
+      assert.strictEqual(describe.mock.calls.length, 2);
+      assert.include(String(harness.prompt.mock.calls[0]?.[0]), "A red square");
+      assert.deepStrictEqual(harness.prompt.mock.calls[0]?.[1], { images: [] });
+    }).pipe(Effect.scoped),
 );

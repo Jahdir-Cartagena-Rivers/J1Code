@@ -26,3 +26,14 @@ Access permits tools without those approval prompts.
 Start a new thread to change models. Plan mode, native
 conversation rollback, and manual compaction are not currently supported by this
 provider. Signing out in J1 removes J1's credential; DeepAI Code remains signed in.
+
+
+For models whose image backend is unavailable, the provider can use a local
+Ollama vision interpreter. Set both `visionEndpoint` (for example,
+`http://127.0.0.1:11434`) and `visionModel` in the DeepAI provider configuration.
+The interpreter must already be running with a vision-capable model installed.
+J1 sends it the images and your question, then gives DeepAI a labeled visual
+report instead of unsupported image content. This supports visual observations
+and text; report accuracy depends on the selected vision model. Remove both
+settings to return to native DeepAI image delivery. Interpreter failures stop
+the turn rather than silently omitting the images.
