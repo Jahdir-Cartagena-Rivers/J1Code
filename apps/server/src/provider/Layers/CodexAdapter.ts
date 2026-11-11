@@ -2334,6 +2334,10 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
                   `mcp_servers.t3-code.url=${mcpSession.endpoint}`,
                   "-c",
                   'mcp_servers.t3-code.bearer_token_env_var="T3_MCP_BEARER_TOKEN"',
+                  "-c",
+                  // Only server-advertised read-only tools skip approval. Mutating
+                  // tools keep Codex's approval gate and J1 still enforces scope.
+                  'mcp_servers.t3-code.default_tools_approval_mode="auto"',
                 ],
                 mcpCapabilities: mcpSession.capabilities,
               }

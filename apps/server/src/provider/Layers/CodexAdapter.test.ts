@@ -47,6 +47,8 @@ import {
   type CodexThreadSnapshot,
 } from "./CodexSessionRuntime.ts";
 import { makeCodexAdapter } from "./CodexAdapter.ts";
+import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import { EnvironmentId } from "@t3tools/contracts";
 const decodeCodexSettings = Schema.decodeSync(CodexSettings);
 
 // Test-local service tag so the rest of the file can keep using `yield* CodexAdapter`.
@@ -319,6 +321,42 @@ const sessionErrorLayer = it.layer(
 );
 
 sessionErrorLayer("CodexAdapterLive session errors", (it) => {
+  it.effect("mounts native MCP with read-only auto approval on fresh and resumed sessions", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      for (const resumed of [false, true]) {
+        const threadId = asThreadId(`thread-mcp-readonly-${resumed}`);
+        McpProviderSession.setMcpProviderSession({
+          environmentId: EnvironmentId.make("mcp-readonly-test"),
+          threadId,
+          providerSessionId: "mcp-test",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          endpoint: "http://127.0.0.1:1234/mcp",
+          authorizationHeader: "Bearer fixture",
+          capabilities: new Set(["hiveMind", "conversations"]),
+        });
+        yield* Effect.gen(function* () {
+          yield* adapter.startSession({
+            provider: ProviderDriverKind.make("codex"),
+            threadId,
+            runtimeMode: "full-access",
+            ...(resumed ? { resumeCursor: { threadId: "provider-thread" } } : {}),
+          });
+          const runtime = sessionRuntimeFactory.lastRuntime;
+          NodeAssert.ok(runtime);
+          NodeAssert.ok(
+            runtime.options.appServerArgs?.includes(
+              'mcp_servers.t3-code.default_tools_approval_mode="auto"',
+            ),
+          );
+          NodeAssert.ok(!runtime.options.appServerArgs?.some((arg) => arg.includes('="approve"')));
+          yield* adapter.stopSession(threadId);
+        }).pipe(
+          Effect.ensuring(Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId))),
+        );
+      }
+    }),
+  );
   it.effect("maps missing adapter sessions to ProviderAdapterSessionNotFoundError", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;
