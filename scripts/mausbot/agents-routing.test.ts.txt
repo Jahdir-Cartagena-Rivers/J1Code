@@ -3,9 +3,16 @@ import { availableTools, catalogProfileFromEnv } from "../drivers/agents-catalog
 import { callTool, type ToolCallContext } from "../drivers/agents-call.ts";
 import { routingToolAllowed } from "./agents-routing.ts";
 describe("native shared routing SDK", () => {
-  it("advertises all seven tools through the original provider catalog", () => {
+  it("advertises native project discovery and routing through the original provider catalog", () => {
     const names = availableTools(catalogProfileFromEnv({ OMB_BOT_ID: "crown" })).map(tool => tool.name);
-    expect(names).toEqual(expect.arrayContaining(["routing_mode", "claim_task", "release_task", "route_task", "routing_status", "list_routes", "acknowledge_route"]));
+    expect(names).toEqual(expect.arrayContaining(["list_chat_projects", "routing_mode", "claim_task", "release_task", "route_task", "routing_status", "list_routes", "acknowledge_route"]));
+  });
+  it("uses native project discovery from delegated turns and rejects injected identity", async () => {
+    const apiResponse = vi.fn(async () => ({ ok: true, status: 200, body: [{ id: "j1", title: "J1 Code", workspaceRoot: "C:/Projects/J1_Code" }] }));
+    const context = { botId: "builder", threadId: "work", depth: 1, externalRuntime: false, sharedComputers: false, client: { api: async () => ({}), apiResponse } } as ToolCallContext;
+    expect(JSON.parse((await callTool("list_chat_projects", {}, context)).text)).toEqual([{ id: "j1", title: "J1 Code", workspaceRoot: "C:/Projects/J1_Code" }]);
+    expect((await callTool("list_chat_projects", { botId: "forged" }, context)).isError).toBe(true);
+    expect(apiResponse).toHaveBeenCalledTimes(1);
   });
   it("uses the actual capability-bound source and rejects actor/approval overrides", async () => {
     const apiResponse = vi.fn(async () => ({ ok: true, status: 200, body: { status: "suggested" } }));

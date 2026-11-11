@@ -1,10 +1,24 @@
 import { describe, expect, it, vi } from "vitest";
-import { createNativeRouteReceiver } from "./route-receiver.ts";
+import { createNativeRouteReceiver, canForwardProjectRoute } from "./route-receiver.ts";
+import type { BotRecord } from "../store.ts";
 import type { Message } from "../store.ts";
 
 const source = { environmentId: "local", projectId: "project", threadId: "real-j1" };
 const destination = { environmentId: "local", projectId: "mausbot:crown", threadId: "mausbot:crown:main" };
 const delivery = { requestId: "a".repeat(64), fingerprint: "immutable", attemptId: "attempt-one", source, destination, content: "Use the updated requirements before building", permissionCeiling: ["runtime:full-access"], visited: [source], expectedGeneration: "native-generation" };
+describe("delegated project forwarding", () => {
+  const bot = { approvalMode: "full" } as BotRecord;
+  it("allows an unrestricted delegate to use host routing independently of peer-bot depth", () => {
+    expect(canForwardProjectRoute(bot, 1, 1)).toBe(true);
+    expect(canForwardProjectRoute(bot, 0, 1)).toBe(true);
+  });
+  it("preserves delegated grants and restricted permission ceilings", () => {
+    expect(canForwardProjectRoute({ ...bot, approvalMode: "ask" }, 1, 1)).toBe(false);
+    expect(canForwardProjectRoute({ ...bot, approvalMode: "custom" }, 1, 1)).toBe(false);
+    expect(canForwardProjectRoute({ ...bot, toolScope: { allow: ["mcp:agents:route_task"] } }, 1, 1)).toBe(false);
+    expect(canForwardProjectRoute({ ...bot, approvalGrant: {} } as BotRecord, 1, 1)).toBe(false);
+  });
+});
 function fixture() {
   const messages: Message[] = [];
   const target = { allowed: true, blocked: false, generation: "native-generation" as string | null, providerTurnId: "native-provider-turn" as string | null, canSteer: true };

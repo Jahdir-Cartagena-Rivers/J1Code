@@ -14,6 +14,12 @@ export function unrestrictedRouteProfile(bot: BotRecord) {
   );
 }
 
+/** Peer-bot call depth is not a project-route hop count. The host owns route
+ * ancestry, idempotency and user confirmation; restricted delegates stay blocked. */
+export function canForwardProjectRoute(bot: BotRecord, depth: number, maxPeerDepth: number) {
+  return depth < maxPeerDepth || unrestrictedRouteProfile(bot);
+}
+
 const endpoint = z
   .object({ environmentId: z.string(), projectId: z.string(), threadId: z.string() })
   .strict();

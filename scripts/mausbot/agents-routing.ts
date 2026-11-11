@@ -8,6 +8,7 @@ const endpoint = z
 const identity = z.object({ taskId: z.string(), requestId: z.string() }).strict();
 const routeId = z.object({ requestId: z.string() }).strict();
 const inputs = {
+  list_chat_projects: z.object({}).strict(),
   routing_mode: z.object({}).strict(),
   list_routes: z.object({}).strict(),
   claim_task: identity,
@@ -41,6 +42,13 @@ const schema = (properties: object, required: string[]) => ({
   required,
 });
 export const J1_ROUTING_TOOLS = [
+  {
+    name: "list_chat_projects",
+    description:
+      "List actual J1 projects in this environment. Use this native agents tool instead of a separate connected project's list_projects tool. Find an existing destination chat with search_conversations, pass its exact endpoint to route_task, then verify routing_status. Listing does not deliver work or grant permission.",
+    inputSchema: schema({}, []),
+    annotations: { readOnlyHint: true },
+  },
   {
     name: "routing_mode",
     description: "Read the shared J1 Off, Suggest or Auto routing policy before forwarding work.",

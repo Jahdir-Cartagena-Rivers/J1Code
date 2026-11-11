@@ -29,7 +29,7 @@ const decodeReceipt = Schema.decodeUnknownEffect(
     kind: Schema.Literals(["accepted", "completed", "failed"]),
   }),
 );
-const decodeEmpty = Schema.decodeUnknownEffect(Schema.Struct({}));
+const decodeEmpty = Schema.decodeUnknownEffect(Schema.Record(Schema.String, Schema.Never));
 const routeSummary = (state: RouteState) => ({
   requestId: state.request.requestId,
   status: state.status,
@@ -409,6 +409,15 @@ export const RoutingRuntimeLive = Layer.effect(
         );
         return Effect.gen(function* () {
           switch (operation) {
+            case "list_chat_projects": {
+              yield* decodeEmpty(input, { onExcessProperty: "error" });
+              yield* boundary.routingMode;
+              return (yield* snapshots.getProjectShells()).map(({ id, title, workspaceRoot }) => ({
+                id,
+                title,
+                workspaceRoot,
+              }));
+            }
             case "route_task":
               return routeSummary(yield* boundary.routeRequest(input));
             case "routing_mode":

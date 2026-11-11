@@ -147,6 +147,31 @@ effectIt.effect(
         notice: () => Effect.void,
       });
       yield* Effect.gen(function* () {
+        const actor = {
+          kind: "mausbot",
+          environmentId: "env",
+          botId: "crown",
+          threadId: "main",
+          generation: "generation",
+        } as const;
+        expect(yield* registry.call(actor, "list_chat_projects", {})).toEqual([
+          { id: "merged-p", title: "Original project", workspaceRoot: process.cwd() },
+        ]);
+        expect(
+          yield* registry
+            .call(actor, "list_chat_projects", { source: "forged" })
+            .pipe(Effect.result),
+        ).toMatchObject({ _tag: "Failure" });
+        expect(
+          yield* registry
+            .call({ ...actor, environmentId: "foreign" }, "list_chat_projects", {})
+            .pipe(Effect.result),
+        ).toMatchObject({ _tag: "Failure" });
+        expect(
+          yield* registry
+            .call({ ...actor, threadId: "missing" }, "list_chat_projects", {})
+            .pipe(Effect.result),
+        ).toMatchObject({ _tag: "Failure" });
         const ports = yield* RoutingBoundaryPorts;
         const requestId = "a".repeat(64);
         const result = yield* ports.submit({

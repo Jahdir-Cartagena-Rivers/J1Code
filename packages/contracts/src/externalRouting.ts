@@ -73,6 +73,7 @@ export const MausbotRoutingInvocation = Schema.Struct({
   threadId: Schema.String,
   generation: Schema.String,
   operation: Schema.Literals([
+    "list_chat_projects",
     "routing_mode",
     "claim_task",
     "release_task",

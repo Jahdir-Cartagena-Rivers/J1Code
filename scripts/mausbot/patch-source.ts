@@ -361,7 +361,7 @@ function j1InputSent(threadId: string, generation: string, turnId: string) {
   await change(
     "server/index.ts",
     'import { createInternalThreadRoutes } from "./routes/internal-threads.ts";',
-    'import { createInternalThreadRoutes, internalThreadRows } from "./routes/internal-threads.ts";\nimport { createConversationQueries, installConversationQueries, requestHostConversation, historyToolAllowed, type HistoryPrincipal } from "./j1/conversations.ts";\nimport { routingToolAllowed } from "./j1/agents-routing.ts";\nimport { hiveToolAllowed, parseHiveTool, hiveProviderPrompt } from "./j1/agents-hive-memory.ts";\nimport { createNativeRouteReceiver, unrestrictedRouteProfile } from "./j1/route-receiver.ts";',
+    'import { createInternalThreadRoutes, internalThreadRows } from "./routes/internal-threads.ts";\nimport { createConversationQueries, installConversationQueries, requestHostConversation, historyToolAllowed, type HistoryPrincipal } from "./j1/conversations.ts";\nimport { routingToolAllowed } from "./j1/agents-routing.ts";\nimport { hiveToolAllowed, parseHiveTool, hiveProviderPrompt } from "./j1/agents-hive-memory.ts";\nimport { createNativeRouteReceiver, unrestrictedRouteProfile, canForwardProjectRoute } from "./j1/route-receiver.ts";',
   );
   await change(
     "server/index.ts",
@@ -385,7 +385,10 @@ function j1InputSent(threadId: string, generation: string, turnId: string) {
         if (proactive.fence.confines(internalCapability.threadId) || botApiThread(internalCapability.threadId) || cloudLendingView(internalCapability) || CLOUD_TEAM || CLOUD_HOME) return json(res, 403, { error: "Shared J1 routing is unavailable in this conversation." });
         const body = z.object({ operation: z.string(), arguments: z.unknown() }).strict().parse(await readInternalBody());
         requireActiveInternalCapability();
-        if (body.operation === "route_task" && internalCapability.depth >= MAX_COMMS_DEPTH) return json(res, 403, { error: "This delegated turn cannot forward work further." });
+        if (cloudGuestDriven(internalCapability.threadId)) return json(res, 403, { error: "Shared routing is unavailable to an outside-driven conversation." });
+        const routingRoom = store.groupByThread(internalCapability.threadId);
+        if (routingRoom && !roomFeedsBot(routingRoom, internalSender)) return json(res, 403, { error: "Shared routing cannot cross this room's audience boundary." });
+        if (body.operation === "route_task" && !canForwardProjectRoute(internalSender, internalCapability.depth, MAX_COMMS_DEPTH)) return json(res, 403, { error: "This delegated turn's permission profile cannot forward project work." });
         if (!routingToolAllowed(toolScopeForTurn(internalSender.id), body.operation)) return json(res, 403, { error: "This routing tool is not allowed for this bot." });
         const result = await requestHostConversation({ kind: "routing", botId: internalSender.id, threadId: internalCapability.threadId, generation: internalCapability.generation, ...body });
         requireActiveInternalCapability();
