@@ -4,7 +4,7 @@ import { buildRuntimeInstructions } from "./RuntimeInstructions.ts";
 
 const T3_CODE_BROWSER_TOOL_INSTRUCTIONS = `## J1 Code collaborative browser
 
-You are running inside J1 Code. For background research and DOM automation, use \`background_browser_tools\` and \`background_browser_call\` when Lightpanda is configured. If unavailable, use the collaborative \`preview_*\` tools. Release background page state with \`background_browser_close\`. For visual inspection, screenshots and recordings, prefer \`preview_*\`.
+You are running inside J1 Code with its t3-code MCP tools. For background research and DOM automation, use \`background_browser_tools\` and \`background_browser_call\` when Lightpanda is configured. If unavailable, use the collaborative \`preview_*\` tools. Release background page state with \`background_browser_close\`. For visual inspection, screenshots and recordings, prefer \`preview_*\`.
 
 For collaborative browser work, first call \`preview_status\`. If no automation-capable preview is attached, call \`preview_open\` before concluding that the browser is unavailable. Then use \`preview_navigate\`, \`preview_snapshot\`, and the focused interaction tools. Prefer snapshot-provided locators over coordinates.
 
@@ -216,12 +216,28 @@ export function buildCodexAdditionalContext(
   toolsAvailable: boolean | T3CodeToolAvailability = true,
 ): Record<string, V2TurnStartParams__AdditionalContextEntry> {
   const tools = toolInstructions(toolsAvailable);
+  const runtimeEntries: Record<string, V2TurnStartParams__AdditionalContextEntry> = {};
+  let chunk = "";
+  let bytes = 0;
+  const append = () => {
+    const index = Object.keys(runtimeEntries).length;
+    runtimeEntries[index === 0 ? "t3_code_runtime" : `t3_code_runtime_${index}`] = {
+      kind: "application",
+      value: chunk,
+    };
+    chunk = "";
+    bytes = 0;
+  };
+  for (const character of buildRuntimeInstructions({ harness: "Codex", ...runtime })) {
+    const size = Buffer.byteLength(character);
+    if (bytes + size >= 3800) append();
+    chunk += character;
+    bytes += size;
+  }
+  if (chunk) append();
   // Separate keys keep each value under Codex's per-entry token cap.
   return {
-    t3_code_runtime: {
-      kind: "application",
-      value: buildRuntimeInstructions({ harness: "Codex", ...runtime }),
-    },
+    ...runtimeEntries,
     ...(tools ? { t3_code_tools: { kind: "application", value: tools } } : {}),
   };
 }

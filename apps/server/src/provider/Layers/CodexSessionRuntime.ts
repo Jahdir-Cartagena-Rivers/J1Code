@@ -561,7 +561,8 @@ function runtimeModeToThreadConfig(input: RuntimeMode): {
     case "full-access":
     default:
       return {
-        approvalPolicy: "never",
+        // Codex forbids flagged commands under `never`, even with an unrestricted sandbox.
+        approvalPolicy: "on-request",
         sandbox: "danger-full-access",
         approvalsReviewer: "user",
       };

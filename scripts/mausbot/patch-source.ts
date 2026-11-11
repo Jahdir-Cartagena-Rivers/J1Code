@@ -4,6 +4,7 @@ import * as NodeURL from "node:url";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeUtil from "node:util";
 import { patchOpenMausImport } from "./patch-import.ts";
+import { patchCodexPolicyReview } from "./codex-policy-review.ts";
 
 export const MAUSBOT_SOURCE = "d818c28aa80686dc1d7db64ebeffa2a9dc468762";
 const root = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "../..");
@@ -11,6 +12,7 @@ const root = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta
 /** Applies only to our disposable, pinned OSS assembly; never edits the reference checkout. */
 export async function patchMausbotSource(stage: string) {
   await patchOpenMausImport(stage);
+  await patchCodexPolicyReview(stage);
   // OpenMausBot #4874: avoid spinning while many bot turns wait for memory.
   for (const file of ["e14bffd0-memory-queue.patch"])
     await NodeUtil.promisify(NodeChildProcess.execFile)(

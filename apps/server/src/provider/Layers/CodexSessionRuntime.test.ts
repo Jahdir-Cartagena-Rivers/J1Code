@@ -14,6 +14,7 @@ import {
   buildCodexDeveloperInstructions,
 } from "../CodexDeveloperInstructions.ts";
 import { codexSessionAppServerArgs } from "./codexLaunchArgs.ts";
+import { buildRuntimeInstructions } from "../RuntimeInstructions.ts";
 import {
   buildTurnStartParams,
   steerCodexTurn,
@@ -218,7 +219,7 @@ describe("buildTurnStartParams", () => {
 
     NodeAssert.deepStrictEqual(params, {
       threadId: "provider-thread-1",
-      approvalPolicy: "never",
+      approvalPolicy: "on-request",
       approvalsReviewer: "user",
       sandboxPolicy: {
         type: "dangerFullAccess",
@@ -672,7 +673,13 @@ describe("J1 Code tool instructions", () => {
     // Steering away from other browser automation must go with the tools;
     // keeping it would leave the model talked out of its only option.
     const context = buildCodexAdditionalContext(runtime, false);
-    NodeAssert.deepStrictEqual(Object.keys(context), ["t3_code_runtime"]);
+    NodeAssert.ok(Object.keys(context).every((key) => key.startsWith("t3_code_runtime")));
+    NodeAssert.equal(
+      Object.values(context)
+        .map((entry) => entry.value)
+        .join(""),
+      buildRuntimeInstructions({ harness: "Codex", ...runtime }),
+    );
   });
 });
 

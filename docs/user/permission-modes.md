@@ -13,7 +13,7 @@ and modes you choose in a draft keep their permissions.
 | **Supervised**        | Requests approval for commands and file changes.                                      |
 | **Auto-accept edits** | Approves file edits automatically; other actions can still require approval.          |
 | **Auto**              | Uses the provider's automatic review to approve routine actions and ask about others. |
-| **Full access**       | Allows commands and edits without approval prompts.                                   |
+| **Full access**       | Uses broad access; provider-required confirmations can still appear.                  |
 
 Approve or reject requests in the conversation to let the agent continue. Permission modes do
 not prevent the agent from asking questions about the task.
@@ -29,5 +29,10 @@ actions still require approval.
 
 Antigravity can still send native approval requests in **Full access**. It only offers remembered
 approvals for actions that support them.
+
+Codex, including Codex-powered bots, keeps full filesystem access in **Full access**, but commands
+flagged by Codex's execution policy require your approval in the conversation. These requests are
+reviewed by you, not automatic review. Rejecting a request leaves the command unexecuted; Full access
+does not override a hard policy denial.
 
 See the [provider guides](./install.md#providers) for setup and provider-specific limits.
