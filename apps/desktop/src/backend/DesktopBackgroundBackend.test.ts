@@ -23,6 +23,59 @@ vi.mock("node:child_process", async (importOriginal) => ({
 }));
 
 describe("desktop background backend", () => {
+  it.each(["unrelated", "matching", "unknown"] as const)(
+    "handles a dead host with a %s process reusing the server PID",
+    async (identity) => {
+      // oxlint-disable-next-line t3code/no-global-process-runtime -- Exercises Windows PID reuse.
+      if (NodeOS.platform() !== "win32") return;
+      const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-reused-pid-"));
+      const alive = vi.spyOn(process, "kill").mockImplementation((pid) => {
+        if (pid === process.pid) return true;
+        throw Object.assign(new Error("gone"), { code: "ESRCH" });
+      });
+      try {
+        await NodeFSP.mkdir(NodePath.join(root, "background"));
+        await NodeFSP.writeFile(
+          NodePath.join(root, "background", "server.json"),
+          JSON.stringify({
+            protocol: 1,
+            hostPid: 2147483647,
+            serverPid: process.pid,
+            version: "fixture",
+            executablePath:
+              identity === "unrelated" ? "C:\\fixture\\J1 Code.exe" : process.execPath,
+            entryPath: "server.cjs",
+            secret: "a".repeat(64),
+            bootstrap: {
+              mode: "desktop",
+              noBrowser: true,
+              port: 4888,
+              t3Home: root,
+              host: "127.0.0.1",
+              desktopBootstrapToken: "fixture",
+              tailscaleServeEnabled: false,
+              tailscaleServePort: 443,
+            },
+          }),
+        );
+        const lookup =
+          identity === "unknown"
+            ? vi.spyOn(NodeChildProcess, "execFile").mockImplementation(() => {
+                throw new Error("lookup denied");
+              })
+            : undefined;
+        try {
+          if (identity === "unrelated") expect(await readBackgroundRecord(root)).toBeUndefined();
+          else await expect(readBackgroundRecord(root)).rejects.toThrow("server is still running");
+        } finally {
+          lookup?.mockRestore();
+        }
+      } finally {
+        alive.mockRestore();
+        await NodeFSP.rm(root, { recursive: true, force: true });
+      }
+    },
+  );
   it.each([
     "same-version",
     "enable-network",

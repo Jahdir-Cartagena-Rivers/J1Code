@@ -81,7 +81,7 @@ export async function readBackgroundRecord(baseDir: string): Promise<BackgroundR
     throw new Error("Invalid J1 background state. Refusing a second server.");
   }
   if (!isProcessAlive(record.hostPid)) {
-    if (isProcessAlive(record.serverPid))
+    if (await isRecordedProcessAlive(record.serverPid, record.executablePath))
       throw new Error(
         "J1 background host is unavailable but its server is still running. Refusing a second server.",
       );
@@ -92,6 +92,34 @@ export async function readBackgroundRecord(baseDir: string): Promise<BackgroundR
     throw new Error("J1 background server identity changed. Refusing to attach.");
   }
   return record;
+}
+
+// Windows reuses PIDs across launches. A surviving unrelated process must not
+// turn a dead host's record into a permanent startup blocker. Unknown identity
+// still counts as alive so we never risk starting beside an orphaned server.
+async function isRecordedProcessAlive(pid: number, executablePath: string): Promise<boolean> {
+  if (!isProcessAlive(pid)) return false;
+  // oxlint-disable-next-line t3code/no-global-process-runtime -- Detached host inspection runs outside Effect.
+  if (NodeOS.platform() !== "win32") return true;
+  try {
+    const name = await new Promise<string>((resolve, reject) => {
+      NodeChildProcess.execFile(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          `(Get-Process -Id ${pid} -ErrorAction Stop).ProcessName`,
+        ],
+        { windowsHide: true, timeout: 5_000, maxBuffer: 4096 },
+        (error, stdout) => (error ? reject(error) : resolve(stdout.trim())),
+      );
+    });
+    if (!name) return true;
+    return name.toLowerCase() === NodePath.win32.basename(executablePath, ".exe").toLowerCase();
+  } catch {
+    return isProcessAlive(pid);
+  }
 }
 
 export function backgroundRequest(baseDir: string, secret: string, method: "status" | "stop") {
