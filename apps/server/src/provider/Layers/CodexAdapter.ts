@@ -2335,9 +2335,9 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
                   "-c",
                   'mcp_servers.t3-code.bearer_token_env_var="T3_MCP_BEARER_TOKEN"',
                   "-c",
-                  // Only server-advertised read-only tools skip approval. Mutating
-                  // tools keep Codex's approval gate and J1 still enforces scope.
-                  'mcp_servers.t3-code.default_tools_approval_mode="auto"',
+                  // J1's authenticated tools already enforce the granted session
+                  // scope. Full Access must not add a second MCP permission gate.
+                  `mcp_servers.t3-code.default_tools_approval_mode="${input.runtimeMode === "full-access" ? "approve" : "auto"}"`,
                 ],
                 mcpCapabilities: mcpSession.capabilities,
               }

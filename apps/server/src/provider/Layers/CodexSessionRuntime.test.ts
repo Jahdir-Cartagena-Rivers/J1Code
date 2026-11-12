@@ -219,7 +219,7 @@ describe("buildTurnStartParams", () => {
 
     NodeAssert.deepStrictEqual(params, {
       threadId: "provider-thread-1",
-      approvalPolicy: "on-request",
+      approvalPolicy: "never",
       approvalsReviewer: "user",
       sandboxPolicy: {
         type: "dangerFullAccess",

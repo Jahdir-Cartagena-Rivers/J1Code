@@ -30,9 +30,12 @@ actions still require approval.
 Antigravity can still send native approval requests in **Full access**. It only offers remembered
 approvals for actions that support them.
 
-Codex, including Codex-powered bots, keeps full filesystem access in **Full access**, but commands
-flagged by Codex's execution policy require your approval in the conversation. These requests are
-reviewed by you, not automatic review. Rejecting a request leaves the command unexecuted; Full access
-does not override a hard policy denial.
+Codex, including Codex-powered bots, uses no-prompt execution in **Full access**, with full filesystem
+access. Provider hard denials can still reject an action; they are reported as failures rather than
+converted into approval requests.
+
+In Codex **Full access**, J1's built-in tools use the session's granted access without another
+per-call app approval. Other permission modes automatically allow read-only J1 tools and retain
+approval for actions that change state. Project instructions and browser-use permissions still apply.
 
 See the [provider guides](./install.md#providers) for setup and provider-specific limits.

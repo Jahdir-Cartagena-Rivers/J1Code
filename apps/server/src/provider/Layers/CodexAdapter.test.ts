@@ -321,11 +321,14 @@ const sessionErrorLayer = it.layer(
 );
 
 sessionErrorLayer("CodexAdapterLive session errors", (it) => {
-  it.effect("mounts native MCP with read-only auto approval on fresh and resumed sessions", () =>
+  it.effect("honors each permission mode for native MCP on fresh and resumed sessions", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;
-      for (const resumed of [false, true]) {
-        const threadId = asThreadId(`thread-mcp-readonly-${resumed}`);
+      const cases = (
+        ["full-access", "approval-required", "auto-accept-edits", "auto"] as const
+      ).flatMap((runtimeMode) => [false, true].map((resumed) => ({ runtimeMode, resumed })));
+      for (const { runtimeMode, resumed } of cases) {
+        const threadId = asThreadId(`thread-mcp-${runtimeMode}-${resumed}`);
         McpProviderSession.setMcpProviderSession({
           environmentId: EnvironmentId.make("mcp-readonly-test"),
           threadId,
@@ -339,17 +342,21 @@ sessionErrorLayer("CodexAdapterLive session errors", (it) => {
           yield* adapter.startSession({
             provider: ProviderDriverKind.make("codex"),
             threadId,
-            runtimeMode: "full-access",
+            runtimeMode,
             ...(resumed ? { resumeCursor: { threadId: "provider-thread" } } : {}),
           });
           const runtime = sessionRuntimeFactory.lastRuntime;
           NodeAssert.ok(runtime);
           NodeAssert.ok(
             runtime.options.appServerArgs?.includes(
-              'mcp_servers.t3-code.default_tools_approval_mode="auto"',
+              `mcp_servers.t3-code.default_tools_approval_mode="${runtimeMode === "full-access" ? "approve" : "auto"}"`,
             ),
           );
-          NodeAssert.ok(!runtime.options.appServerArgs?.some((arg) => arg.includes('="approve"')));
+          if (runtimeMode !== "full-access") {
+            NodeAssert.ok(
+              !runtime.options.appServerArgs?.some((arg) => arg.includes('="approve"')),
+            );
+          }
           yield* adapter.stopSession(threadId);
         }).pipe(
           Effect.ensuring(Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId))),
