@@ -167,6 +167,12 @@
   ],
   "packageOverrides": [
     {
+      "name": "agent-desktop",
+      "license": "Apache-2.0",
+      "sourceUrl": "https://github.com/vercel-labs/agent-desktop/tree/v1.3.1",
+      "noticeFile": "licenses/agent-desktop-Apache-2.0.txt"
+    },
+    {
       "license": "MIT",
       "name": "@react-grab/cli",
       "sourceUrl": "https://github.com/aidenybai/react-grab/tree/main/packages/cli",

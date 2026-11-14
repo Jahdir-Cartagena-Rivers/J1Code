@@ -1,5 +1,9 @@
 # Settings and project overrides
 
+For native app testing, enable **Agent desktop access** in **Settings > Integrations**.
+See [Desktop automation](desktop-automation.md) for accessibility targeting,
+screenshots, and which computer an agent operates.
+
 On web and desktop, the "Applying settings for …" sentence at the top of Settings pages picks
 the project and environment a change applies to. Pages that only hold device preferences, such as
 Appearance, don't show it. They start at **All projects** and **All environments**

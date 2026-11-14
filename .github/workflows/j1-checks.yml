@@ -47,6 +47,11 @@ jobs:
           apps/mobile/src/features/threads/threadListV2.test.ts
       - name: Test release versioning and publication failures
         run: node --test .github/scripts/j1-release.test.cjs
+      - name: Test hybrid desktop automation
+        run: >-
+          vp test run apps/server/src/desktop/DesktopAutomation.test.ts
+          apps/server/src/mcp/McpDesktopToolkit.test.ts
+          scripts/lib/cli-external-packages.test.ts
       - name: Test worker projection regressions
         working-directory: apps/server
         run: >-

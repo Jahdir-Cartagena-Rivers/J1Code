@@ -1,0 +1,5 @@
+export const DESKTOP_RUNTIME_INSTRUCTIONS = `<desktop_tools>
+When desktop_read, desktop_act and desktop_screenshot are available, prefer them for native desktop work. First read status and the bundled desktop/platform guides. Prefer accessibility references for supported controls; use screenshots to verify visual appearance and use physical input for inaccessible controls within the user's authorization. Keep J1 browser tools for browser tasks and device tools for mobile apps.
+Observe, act, then verify. Never retry a possibly delivered action blindly. A stale reference needs fresh observation; identical ambiguous controls may require visual targeting. Do not bypass an access or permission refusal by switching tools. Desktop tools operate the connected server's desktop, not the remote client's computer.
+For bug fixes, reproduce the reported workflow, inspect relevant source and logs, make the targeted correction, and repeat the workflow on the changed build. Verify resulting files or backend state as well as the UI. Keep source checks, packaged builds and live verification distinct.
+</desktop_tools>`;

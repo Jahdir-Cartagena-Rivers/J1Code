@@ -48,7 +48,12 @@ const PAGE_TITLES: Record<SettingsPage, string> = {
 const PAGE_PROJECT_KEYS: Record<SettingsPage, readonly ProjectScopedServerSettingKey[]> = {
   "new-threads": ["defaultThreadEnvMode", "worktreeSubmodules", "defaultRuntimeMode"],
   "source-control": ["defaultAutoPull", "newWorktreesStartFromOrigin"],
-  "agent-behavior": ["responseStreamingMode", "enableAgentBrowserAccess", "autoModelPolicy"],
+  "agent-behavior": [
+    "responseStreamingMode",
+    "enableAgentBrowserAccess",
+    "enableAgentDesktopAccess",
+    "autoModelPolicy",
+  ],
   maintenance: ["continueThreadsAfterServerUpdate"],
 };
 
@@ -538,7 +543,7 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                       />
                     ))}
                   </SettingsSection>
-                  <SettingsSection title="Preview browser">
+                  <SettingsSection title="Computer access">
                     <FanoutSwitchRow
                       icon="globe"
                       label="Agent browser access"
@@ -546,6 +551,14 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                       value={uniform("enableAgentBrowserAccess")}
                       disabled={disabledFor("enableAgentBrowserAccess")}
                       onValueChange={(value) => write({ enableAgentBrowserAccess: value })}
+                    />
+                    <FanoutSwitchRow
+                      icon="desktopcomputer"
+                      label="Agent desktop access"
+                      subtitle="Allow accessibility controls and screenshots on the connected server's desktop. Applies to new agent sessions."
+                      value={uniform("enableAgentDesktopAccess")}
+                      disabled={disabledFor("enableAgentDesktopAccess")}
+                      onValueChange={(value) => write({ enableAgentDesktopAccess: value })}
                     />
                   </SettingsSection>
                 </>

@@ -78,6 +78,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
   const mixedWorkspace = useScopedSettingsMixed(["defaultThreadEnvMode"]);
   const mixedSubmodules = useScopedSettingsMixed(["worktreeSubmodules"]);
   const mixedBrowser = useScopedSettingsMixed(["enableAgentBrowserAccess"]);
+  const mixedDesktop = useScopedSettingsMixed(["enableAgentDesktopAccess"]);
   const mixedAutoPull = useScopedSettingsMixed(["defaultAutoPull"]);
   const mixedMergeMethod = useScopedSettingsMixed(["pullRequestMergeMethod"]);
   const modelSource = useScopedSettingSource(["defaultModelSelection"]);
@@ -493,6 +494,35 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                 mixed={mixedBrowser}
                 checked={mixedBrowser ? false : settings.enableAgentBrowserAccess}
                 onCheckedChange={(enabled) => updateSettings({ enableAgentBrowserAccess: enabled })}
+              />
+            }
+          />
+          <SettingsRow
+            serverScoped
+            settingKeys={["enableAgentDesktopAccess"]}
+            mixed={mixedDesktop}
+            id={searchableSetting("agent-desktop-access").id}
+            title="Agent desktop access"
+            description="Allow agents to inspect and operate this server's desktop using accessibility controls and screenshots. Applies when an agent session next starts."
+            resetAction={
+              settings.enableAgentDesktopAccess !==
+              DEFAULT_SERVER_SETTINGS.enableAgentDesktopAccess ? (
+                <SettingResetButton
+                  label="default desktop access"
+                  onClick={() =>
+                    updateSettings({
+                      enableAgentDesktopAccess: DEFAULT_SERVER_SETTINGS.enableAgentDesktopAccess,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Switch
+                aria-label="Agent desktop access"
+                mixed={mixedDesktop}
+                checked={mixedDesktop ? false : settings.enableAgentDesktopAccess}
+                onCheckedChange={(enabled) => updateSettings({ enableAgentDesktopAccess: enabled })}
               />
             }
           />

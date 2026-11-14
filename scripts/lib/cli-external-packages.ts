@@ -27,6 +27,7 @@
  */
 
 export const CLI_RUNTIME_EXTERNAL_PREFIXES = [
+  "agent-desktop",
   "node-pty",
   "ffi-rs",
   "@yuuang/",

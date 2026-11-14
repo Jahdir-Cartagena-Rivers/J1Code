@@ -23,6 +23,17 @@ import { PreviewAutomationError } from "@t3tools/contracts";
 import packageJson from "../../package.json" with { type: "json" };
 import * as ServerConfig from "../config.ts";
 import * as DeviceService from "../device/DeviceService.ts";
+import * as DesktopAutomation from "../desktop/DesktopAutomation.ts";
+import * as ProcessRunner from "../processRunner.ts";
+import {
+  DesktopStandardToolkit,
+  DesktopScreenshotTool,
+  DesktopScreenshotToolkit,
+} from "./toolkits/desktop/tools.ts";
+import {
+  DesktopStandardHandlersLive,
+  DesktopScreenshotHandlersLive,
+} from "./toolkits/desktop/handlers.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
@@ -643,6 +654,33 @@ const registerDeviceScreenshot = Effect.fn("McpHttpServer.registerDeviceScreensh
   );
 });
 
+const registerDesktopScreenshot = Effect.fn("McpHttpServer.registerDesktopScreenshot")(
+  function* () {
+    const desktop = yield* DesktopAutomation.DesktopAutomation;
+    const built = yield* DesktopScreenshotToolkit;
+    yield* registerImageTool(
+      DesktopScreenshotTool,
+      (payload) =>
+        built
+          .handle("desktop_screenshot", payload)
+          .pipe(Stream.unwrap, Stream.run(Sink.last()), Effect.flatMap(Effect.fromOption)),
+      (effect) => effect.pipe(Effect.provideService(DesktopAutomation.DesktopAutomation, desktop)),
+      "screenshot",
+      "Desktop screenshot failed. Check desktop access and the target application's availability.",
+    );
+  },
+);
+
+export const DesktopToolkitRegistration = Layer.mergeAll(
+  McpServer.toolkit(DesktopStandardToolkit).pipe(Layer.provide(DesktopStandardHandlersLive)),
+  Layer.effectDiscard(registerDesktopScreenshot()).pipe(
+    Layer.provide(DesktopScreenshotHandlersLive),
+  ),
+);
+export const DesktopToolkitRegistrationLive = DesktopToolkitRegistration.pipe(
+  Layer.provide(DesktopAutomation.layer.pipe(Layer.provide(ProcessRunner.layer))),
+);
+
 const PreviewStandardToolkitRegistrationLive = McpServer.toolkit(PreviewStandardToolkit).pipe(
   Layer.provide(PreviewStandardToolkitHandlersLive),
 );
@@ -701,4 +739,5 @@ export const layer = Layer.mergeAll(
   McpServer.toolkit(ConversationsToolkit).pipe(Layer.provide(ConversationsToolkitHandlers)),
   HiveMindToolkitRegistrationLive,
   DeviceToolkitRegistrationLive,
+  DesktopToolkitRegistrationLive,
 ).pipe(Layer.provideMerge(McpTransportLive));

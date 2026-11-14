@@ -5609,14 +5609,15 @@ describe("agent browser access", () => {
   const projectId = ProjectId.make("project-browser-access");
 
   const startSessionWith = (
-    access: boolean | { readonly browser: boolean; readonly device: boolean },
+    access: boolean | { readonly browser: boolean; readonly device: boolean; readonly desktop?: boolean },
     threadId: ThreadId,
-    projectOverride?: boolean | { readonly browser?: boolean; readonly device?: boolean },
+    projectOverride?: boolean | { readonly browser?: boolean; readonly device?: boolean; readonly desktop?: boolean },
     options?: { readonly withoutOrchestration?: boolean },
   ) =>
     Effect.gen(function* () {
       const enableAgentBrowserAccess = typeof access === "boolean" ? access : access.browser;
       const enableAgentDeviceAccess = typeof access === "boolean" ? access : access.device;
+      const enableAgentDesktopAccess = typeof access === "boolean" ? false : (access.desktop ?? false);
       const issued: Array<{ threadId: ThreadId; capabilities: ReadonlyArray<string> }> = [];
       const codex = makeFakeCodexAdapter();
       const providerAdapterLayer = Layer.succeed(
@@ -5696,6 +5697,7 @@ describe("agent browser access", () => {
           ServerSettings.ServerSettingsService.layerTest({
             enableAgentBrowserAccess,
             enableAgentDeviceAccess,
+            enableAgentDesktopAccess,
             projectSettingsOverrides:
               projectOverride === undefined
                 ? {}
@@ -5708,6 +5710,9 @@ describe("agent browser access", () => {
                           : {}),
                         ...(projectOverride.device !== undefined
                           ? { enableAgentDeviceAccess: projectOverride.device }
+                          : {}),
+                        ...(projectOverride.desktop !== undefined
+                          ? { enableAgentDesktopAccess: projectOverride.desktop }
                           : {}),
                       },
                     },
@@ -5739,6 +5744,30 @@ describe("agent browser access", () => {
   // The capability on the credential is the observable that matters: a session
   // always gets a credential (the pull request toolkit is never withheld), and
   // `preview` on it is what actually grants or denies the browser tools.
+  it.effect("grants desktop independently of browser and device access", () =>
+    Effect.gen(function* () {
+      const threadId = asThreadId("thread-desktop-only");
+      const issued = yield* startSessionWith({ browser: false, device: false, desktop: true }, threadId);
+      assert.deepEqual(issued, [{ threadId, capabilities: ["agents", "desktop", "pull-requests"] }]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+  it.effect("respects project desktop denial while preserving a working browser route", () =>
+    Effect.gen(function* () {
+      const threadId = asThreadId("thread-desktop-project-denied");
+      const issued = yield* startSessionWith({ browser: true, device: false, desktop: true }, threadId, { desktop: false });
+      assert.deepEqual(issued, [{ threadId, capabilities: ["agents", "preview", "pull-requests"] }]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+  it.effect("allows a project desktop override and withholds it when the project cannot be resolved", () =>
+    Effect.gen(function* () {
+      const threadId = asThreadId("thread-desktop-project-enabled");
+      const access = { browser: true, device: false, desktop: false };
+      const enabled = yield* startSessionWith(access, threadId, { desktop: true });
+      assert.deepEqual(enabled, [{ threadId, capabilities: ["agents", "desktop", "preview", "pull-requests"] }]);
+      const denied = yield* startSessionWith(access, threadId, { desktop: true }, { withoutOrchestration: true });
+      assert.deepEqual(denied, [{ threadId, capabilities: ["agents", "preview", "pull-requests"] }]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
   it.effect("issues a credential without preview when agent browser access is off", () =>
     Effect.gen(function* () {
       const threadId = asThreadId("thread-browser-off");

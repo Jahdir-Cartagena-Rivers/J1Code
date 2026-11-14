@@ -46,6 +46,7 @@ describe("shouldBundleCliDependency", () => {
   it("leaves native addons and their dlopen wrappers external", () => {
     for (const id of [
       "node-pty",
+      "agent-desktop",
       "ffi-rs",
       "@yuuang/ffi-rs-win32-x64-msvc",
       "@ff-labs/fff-node",
@@ -83,7 +84,7 @@ describe("selectCliRuntimeExternalDependencies", () => {
   it("selects every external root declared by the server", () => {
     assert.deepStrictEqual(
       Object.keys(selectCliRuntimeExternalDependencies(serverPackageJson.dependencies)).sort(),
-      ["@earendil-works/pi-coding-agent", "@ff-labs/fff-node", "@napi-rs/keyring", "node-pty"],
+      ["@earendil-works/pi-coding-agent", "@ff-labs/fff-node", "@napi-rs/keyring", "agent-desktop", "node-pty"],
     );
   });
 });

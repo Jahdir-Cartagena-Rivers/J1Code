@@ -600,6 +600,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["allow disable enable open drive preview tools sessions project override"],
   },
   {
+    id: "agent-desktop-access",
+    title: "Agent desktop access",
+    to: "/settings/integrations",
+    scope: "project-defaults",
+    searchTerms: ["computer accessibility native windows screenshots agent-desktop precision"],
+  },
+  {
     id: "device-hosts",
     title: "Device hosts",
     to: "/settings/integrations",
