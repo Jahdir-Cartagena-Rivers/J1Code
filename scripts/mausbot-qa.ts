@@ -2,7 +2,6 @@
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
-import * as NodeURL from "node:url";
 import * as NodeUtil from "node:util";
 import * as NodeCrypto from "node:crypto";
 
@@ -47,10 +46,7 @@ export async function mausbotQaEnvironment(resources: string, uiDir: string) {
   };
 }
 
-if (
-  process.argv[1] &&
-  NodePath.resolve(process.argv[1]) === NodeURL.fileURLToPath(import.meta.url)
-) {
+if (import.meta.main) {
   const { values } = NodeUtil.parseArgs({
     options: {
       resources: { type: "string" },

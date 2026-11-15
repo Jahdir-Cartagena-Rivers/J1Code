@@ -2,10 +2,27 @@
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import * as NodeChildProcess from "node:child_process";
+import * as NodeUtil from "node:util";
 import { describe, expect, it } from "vite-plus/test";
 import { acquireQaLease, mausbotQaEnvironment } from "./mausbot-qa.ts";
 
 describe("reusable Mausbot QA environment", () => {
+  it("runs the CLI when invoked through a linked workspace path", async () => {
+    const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-qa-linked-cli-"));
+    try {
+      const alias = NodePath.join(root, "scripts");
+      await NodeFSP.symlink(import.meta.dirname, alias, "junction");
+      const { stdout } = await NodeUtil.promisify(NodeChildProcess.execFile)(process.execPath, [
+        NodePath.join(alias, "mausbot-qa.ts"),
+        "--help",
+      ]);
+      expect(stdout).toContain("--resources <verified-archive-dir>");
+      expect(stdout).toContain("--ui-dir <Maus-dist>");
+    } finally {
+      await NodeFSP.rm(root, { recursive: true, force: true });
+    }
+  });
   it("rejects a second launcher on the same profile and permits reuse after release", async () => {
     const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-qa-lease-test-"));
     try {

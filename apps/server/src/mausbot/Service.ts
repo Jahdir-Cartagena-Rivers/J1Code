@@ -212,8 +212,13 @@ export class MausbotService extends Context.Service<
             const expanded = yield* Effect.tryPromise({
               try: () =>
                 resolveMausbotResources(resources, path.join(config.baseDir, "cache", "mausbot")),
-              catch: () => "The bundled assistant runtime failed verification.",
-            });
+              catch: (error) => String(error),
+            }).pipe(
+              Effect.tapError((error) =>
+                Effect.logError("Assistant runtime verification failed", error),
+              ),
+              Effect.mapError(() => "The bundled assistant runtime failed verification."),
+            );
             const current = yield* settings.getSettings.pipe(
               Effect.mapError(() => "Could not load browser settings."),
             );
