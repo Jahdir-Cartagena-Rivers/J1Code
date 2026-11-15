@@ -12,6 +12,15 @@ export function verifyNativeHash(bytes: Uint8Array, expected: string) {
   if (NodeCrypto.createHash("sha256").update(bytes).digest("hex") !== expected)
     throw new Error("Lightpanda integrity check failed");
 }
+/** Use the in-box extractor directly; PowerShell module failures can exit successfully. */
+export async function extractNativeArchive(archive: string, destination: string) {
+  const systemRoot = process.env.SystemRoot ?? process.env.windir;
+  if (!systemRoot)
+    throw new Error("Windows system directory is unavailable for archive extraction");
+  await run(NodePath.join(systemRoot, "System32", "tar.exe"), ["-xf", archive, "-C", destination], {
+    windowsHide: true,
+  });
+}
 /** Stage only pinned release artifacts. A missing binary or notice fails the build. */
 export async function stageLightpanda(destination: string) {
   const scratch = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-lightpanda-package-"));
@@ -34,19 +43,7 @@ export async function stageLightpanda(destination: string) {
       "1642099a9a445d63f74c61d374f1d09fdea41e185b19668bc9be5135e2722b22",
     );
     await NodeFSP.mkdir(destination, { recursive: true });
-    await run(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        "Expand-Archive -LiteralPath $env:J1_NATIVE_ARCHIVE -DestinationPath $env:J1_NATIVE_DESTINATION -Force",
-      ],
-      {
-        windowsHide: true,
-        env: { ...process.env, J1_NATIVE_ARCHIVE: archive, J1_NATIVE_DESTINATION: destination },
-      },
-    );
+    await extractNativeArchive(archive, destination);
     for (const name of [
       "LICENSE",
       "LICENSING.md",

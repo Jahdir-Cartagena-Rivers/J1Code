@@ -87,6 +87,8 @@ jobs:
         run: vp install --frozen-lockfile --filter=@t3tools/desktop... --filter=t3... --filter=@t3tools/scripts...
       - name: Align build versions
         run: node scripts/update-release-package-versions.ts "$env:J1_RELEASE_VERSION"
+      - name: Test native archive extraction
+        run: vp test run scripts/stage-lightpanda.test.ts
       - uses: actions/download-artifact@v4
         with:
           name: j1-linux-runtime
