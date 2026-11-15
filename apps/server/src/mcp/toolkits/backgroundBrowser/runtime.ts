@@ -3,7 +3,8 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { ServerConfig } from "../../../config.ts";
 import { resolveBrowserExecutable } from "./executable.ts";
-import { LightpandaPool } from "../../LightpandaProcess.ts";
+import * as Path from "effect/Path";
+import { persistentLightpandaPool } from "../../LightpandaProcess.ts";
 
 export class BackgroundBrowser extends Context.Service<
   BackgroundBrowser,
@@ -29,8 +30,11 @@ export const BackgroundBrowserLive = Layer.effect(
   BackgroundBrowser,
   Effect.gen(function* () {
     const config = yield* ServerConfig;
-    const pool = new LightpandaPool();
-    yield* Effect.addFinalizer(() => Effect.sync(() => pool.closeAll()));
+    const path = yield* Path.Path;
+    const pool = persistentLightpandaPool(
+      path.join(config.stateDir, "browser-profiles", "lightpanda"),
+    );
+    yield* Effect.addFinalizer(() => Effect.promise(() => pool.closeAll()));
     return BackgroundBrowser.of({
       openThread: (threadId, executable) =>
         Effect.tryPromise({

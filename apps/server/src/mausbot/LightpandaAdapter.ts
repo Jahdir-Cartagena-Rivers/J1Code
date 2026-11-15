@@ -38,7 +38,9 @@ export class MausbotLightpandaAdapter {
 
   sessionId(runtimeId: string, conversationId: string) {
     if (!runtimeId || !conversationId) throw new Error("Missing browser conversation identity.");
-    return `mausbot:${NodeCrypto.createHash("sha256")
+    return `mausbot:${/^guest-[a-f0-9]{8}-[a-f0-9]+$/.test(conversationId) ? "guest:" : ""}${NodeCrypto.createHash(
+      "sha256",
+    )
       .update(JSON.stringify([runtimeId, conversationId]))
       .digest("hex")}`;
   }

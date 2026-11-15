@@ -1,5 +1,6 @@
 import * as NodeCrypto from "node:crypto";
-import { LightpandaPool } from "./LightpandaProcess.ts";
+import * as NodePath from "node:path";
+import { persistentLightpandaPool } from "./LightpandaProcess.ts";
 import { MausbotLightpandaAdapter } from "./LightpandaAdapter.ts";
 import { browserPageScript, browserActionScript } from "./page-scripts.ts";
 import { nativeLoginInput } from "./native-login-input.ts";
@@ -11,7 +12,11 @@ delete process.env.J1_MAUSBOT_LIGHTPANDA_PATH;
 delete process.env.J1_MAUSBOT_MANAGED;
 export let ready = managed && executable.trim().length > 0;
 export const command = "j1-lightpanda";
-const pool = new LightpandaPool();
+const dataDir = process.env.OMB_DATA_DIR;
+if (managed && !dataDir) throw new Error("Managed browser storage directory is missing.");
+const pool = persistentLightpandaPool(
+  NodePath.join(dataDir ?? ".", "browser-profiles", "lightpanda"),
+);
 let adapter = new MausbotLightpandaAdapter(pool, executable);
 export function configure(path: string) {
   if (path === executable) return;
@@ -88,9 +93,9 @@ export function closeAll() {
   for (const timer of loginHolds.values()) clearTimeout(timer);
   loginHolds.clear();
   busy.clear();
-  pool.closeAll();
+  return pool.closeAll();
 }
-export const prompt = `Your browser is J1's native lightweight Lightpanda browser. Discover the available tools and follow their schemas. Use CSS selectors or backendNodeId from the page tree, not @eN references. The browser window and your tools share the same page. It has no Chromium/CDP, tab management, file upload, persistent sign-in profiles or pixel-accurate screenshot support. Do not install or launch a replacement browser. Unsupported actions must be reported to the person. Read the current page again after navigation or another participant changes it.`;
+export const prompt = `Your browser is J1's native lightweight Lightpanda browser. Discover the available tools and follow their schemas. Use CSS selectors or backendNodeId from the page tree, not @eN references. The browser window and your tools share the same page. It has no Chromium/CDP, tab management, file upload or pixel-accurate screenshot support. Do not install or launch a replacement browser. Unsupported actions must be reported to the person. Bot profiles retain cookies between tasks and clean restarts; guest profiles remain temporary. Reuse the existing page before attempting sign-in. If genuine authentication or Duo approval is required, report it once and wait rather than repeatedly restarting login. Read the current page again after navigation or another participant changes it.`;
 
 export async function rpc(
   session: string,

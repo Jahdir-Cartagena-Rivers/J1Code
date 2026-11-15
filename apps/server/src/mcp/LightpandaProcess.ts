@@ -1,5 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off
 // @effect-diagnostics globalTimers:off - Node subprocess callbacks own timeout cleanup independently of Effect fibers.
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
+import * as NodeCrypto from "node:crypto";
 import * as NodeTimers from "node:timers";
 import * as NodeChildProcess from "node:child_process";
 
@@ -13,6 +16,7 @@ export class LightpandaProcess {
   private stderr = "";
   private sequence = 0;
   private closed = false;
+  private readonly stopped: Promise<void>;
   get isClosed() {
     return this.closed;
   }
@@ -32,6 +36,11 @@ export class LightpandaProcess {
       stdio: "pipe",
       env: { ...process.env, LIGHTPANDA_DISABLE_TELEMETRY: "1" },
     });
+    this.stopped = new Promise((resolve) => {
+      this.child.once("exit", () => resolve());
+      this.child.once("error", () => resolve());
+    });
+    this.child.stdin.on("error", (error) => this.close(error));
     this.child.stdout.setEncoding("utf8");
     this.child.stderr.setEncoding("utf8");
     this.child.stdout.on("data", (chunk: string) => this.receive(chunk));
@@ -118,6 +127,24 @@ export class LightpandaProcess {
     );
   }
 
+  /** EOF lets the native engine atomically save its cookie jar before exit. */
+  async shutdown(): Promise<void> {
+    if (this.closed) return this.stopped;
+    if (this.pending.size > 0) {
+      this.close();
+      return this.stopped;
+    }
+    this.closed = true;
+    this.child.stdin.end();
+    const timer = NodeTimers.setTimeout(() => this.child.kill(), 3_000);
+    timer.unref();
+    try {
+      await this.stopped;
+    } finally {
+      NodeTimers.clearTimeout(timer);
+    }
+  }
+
   close(error = new Error("Lightpanda session closed.")) {
     if (this.closed) return;
     this.closed = true;
@@ -133,9 +160,10 @@ export class LightpandaProcess {
 
 /** Bounds native processes and reclaims idle browser memory without sharing storage. */
 export class LightpandaPool {
-  private readonly createProcess: (executable: string) => LightpandaProcess;
+  private readonly createProcess: (executable: string, id: string) => LightpandaProcess;
+  private readonly retiring = new Map<string, Promise<void>>();
   constructor(
-    createProcess: (executable: string) => LightpandaProcess = (executable) =>
+    createProcess: (executable: string, id: string) => LightpandaProcess = (executable) =>
       new LightpandaProcess(executable),
   ) {
     this.createProcess = createProcess;
@@ -156,11 +184,16 @@ export class LightpandaPool {
     if (!session) return false;
     this.sessions.delete(id);
     NodeTimers.clearTimeout(session.idle);
-    session.process.close();
+    const stopped = session.process.shutdown();
+    this.retiring.set(id, stopped);
+    void stopped.finally(() => {
+      if (this.retiring.get(id) === stopped) this.retiring.delete(id);
+    });
     return true;
   }
-  closeAll() {
+  async closeAll() {
     for (const id of this.sessions.keys()) this.close(id);
+    await Promise.all(this.retiring.values());
   }
   hasThread(threadId: string) {
     return [...this.sessions.values()].some(
@@ -168,6 +201,8 @@ export class LightpandaPool {
     );
   }
   async openThread(threadId: string, executable: string) {
+    const retiring = this.retiring.get(`bot-thread:${threadId}`);
+    if (retiring) await retiring;
     if (this.hasThread(threadId)) return;
     await this.request(
       `bot-thread:${threadId}`,
@@ -207,27 +242,31 @@ export class LightpandaPool {
     params: unknown,
     signal?: AbortSignal,
     threadId?: string,
-  ) {
+  ): Promise<unknown> {
     if (!executable.trim())
       throw new Error("Configure the native Lightpanda executable in Integrations settings first.");
     if (signal?.aborted) throw new Error("Background browser request cancelled.");
+    const retiring = this.retiring.get(id);
+    if (retiring) await retiring;
     let session = this.sessions.get(id);
     if (session?.process.isClosed) {
       this.close(id);
-      session = undefined;
+      await this.retiring.get(id);
+      return this.request(id, executable, method, params, signal, threadId);
     }
     if (session?.threadId && threadId && session.threadId !== threadId)
       throw new Error("Browser session belongs to another conversation.");
     if (session && session.executable !== executable) {
       this.close(id);
-      session = undefined;
+      await this.retiring.get(id);
+      return this.request(id, executable, method, params, signal, threadId);
     }
     if (!session) {
       if (this.sessions.size >= 8)
         throw new Error(
           "Eight background browser sessions are active. Close one before opening another.",
         );
-      const process = this.createProcess(executable);
+      const process = this.createProcess(executable, id);
       const idle = NodeTimers.setTimeout(() => this.close(id), 180_000);
       idle.unref();
       session = { executable, process, ready: process.initialize(), tail: Promise.resolve(), idle };
@@ -262,4 +301,55 @@ export class LightpandaPool {
       }
     }
   }
+}
+
+/** Only authenticated bot identities opt into persistent cookies; guests stay ephemeral. */
+export function persistentLightpandaPool(directory: string) {
+  return new LightpandaPool((executable, id) => {
+    if (
+      (!id.startsWith("mausbot:") || id.startsWith("mausbot:guest:")) &&
+      !id.startsWith("bot-thread:")
+    )
+      return new LightpandaProcess(executable);
+    NodeFS.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    const file = NodePath.join(
+      directory,
+      NodeCrypto.createHash("sha256").update(id).digest("hex") + ".json",
+    );
+    let exists = false;
+    try {
+      const stat = NodeFS.lstatSync(file);
+      if (!stat.isFile() || stat.size > MAX_FRAME_BYTES)
+        throw new Error("Invalid saved browser cookies.");
+      const cookies: unknown = JSON.parse(NodeFS.readFileSync(file, "utf8"));
+      if (
+        !Array.isArray(cookies) ||
+        !cookies.every(
+          (cookie: unknown) =>
+            cookie !== null &&
+            typeof cookie === "object" &&
+            "name" in cookie &&
+            typeof cookie.name === "string" &&
+            "value" in cookie &&
+            typeof cookie.value === "string" &&
+            "domain" in cookie &&
+            typeof cookie.domain === "string",
+        )
+      )
+        throw new Error("Invalid saved browser cookies.");
+      exists = true;
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
+        throw new Error(
+          "Saved browser cookies could not be read; the existing profile was preserved.",
+          { cause: error },
+        );
+    }
+    return new LightpandaProcess(executable, [
+      "mcp",
+      ...(exists ? ["--cookie", file] : []),
+      "--cookie-jar",
+      file,
+    ]);
+  });
 }

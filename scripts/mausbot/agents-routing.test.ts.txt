@@ -9,7 +9,7 @@ describe("native shared routing SDK", () => {
   });
   it("uses native project discovery from delegated turns and rejects injected identity", async () => {
     const apiResponse = vi.fn(async () => ({ ok: true, status: 200, body: [{ id: "j1", title: "J1 Code", workspaceRoot: "C:/Projects/J1_Code" }] }));
-    const context = { botId: "builder", threadId: "work", depth: 1, externalRuntime: false, sharedComputers: false, client: { api: async () => ({}), apiResponse } } as ToolCallContext;
+    const context = { botId: "builder", threadId: "work", depth: 1, externalRuntime: false, sharedComputers: false, client: { api: async () => ({}), apiResponse } } as unknown as ToolCallContext;
     expect(JSON.parse((await callTool("list_chat_projects", {}, context)).text)).toEqual([{ id: "j1", title: "J1 Code", workspaceRoot: "C:/Projects/J1_Code" }]);
     expect((await callTool("list_chat_projects", { botId: "forged" }, context)).isError).toBe(true);
     expect(apiResponse).toHaveBeenCalledTimes(1);

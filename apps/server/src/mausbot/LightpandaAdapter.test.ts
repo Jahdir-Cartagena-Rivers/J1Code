@@ -80,3 +80,17 @@ describe("Mausbot's J1 browser boundary", () => {
     ]);
   });
 });
+
+it("keeps named profile identities stable and marks guest identities as nonpersistent", () => {
+  const { adapter } = fixture();
+  expect(adapter.sessionId("managed", "profile-one")).toBe(
+    adapter.sessionId("managed", "profile-one"),
+  );
+  expect(adapter.sessionId("managed", "profile-one")).not.toBe(
+    adapter.sessionId("managed", "profile-two"),
+  );
+  expect(adapter.sessionId("managed", "guest-01234567-0123456789abcdef")).toMatch(
+    /^mausbot:guest:/,
+  );
+  expect(adapter.sessionId("managed", "profile-one")).not.toMatch(/^mausbot:guest:/);
+});

@@ -1160,7 +1160,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
   await change(
     "server/browser/engines.ts",
     "await Promise.all([this.#chrome.close(), this.#old.closeAll()]);",
-    "J1Browser.closeAll();\n    await Promise.all([this.#chrome.close(), this.#old.closeAll()]);",
+    "await J1Browser.closeAll();\n    await Promise.all([this.#chrome.close(), this.#old.closeAll()]);",
   );
 
   await change(
