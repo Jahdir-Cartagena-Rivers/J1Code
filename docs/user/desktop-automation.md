@@ -3,6 +3,7 @@
 Enable **Agent desktop access** in **Settings > Integrations**, then start a new
 agent session. Projects can override the environment default. Turn it off and
 start a new session to withdraw access.
+Existing visual computer integrations retain their own permissions.
 
 Agents can target native app controls through accessibility and take screenshots
 to inspect layout or controls that accessibility cannot expose. Ask an agent to

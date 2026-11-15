@@ -9,7 +9,7 @@ const access = requireMcpCapability("desktop").pipe(
     () =>
       new DesktopToolError({
         reason:
-          "Agent desktop access is disabled. Enable it in Settings > Integrations, then start a new agent session.",
+        "Agent desktop access is disabled for this J1 backend. Enable it in Settings > Integrations, then start a new agent session. Existing visual computer integrations retain their own permissions.",
         actionMayHaveRun: false,
       }),
   ),
