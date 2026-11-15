@@ -52,6 +52,10 @@ jobs:
           vp test run apps/server/src/desktop/DesktopAutomation.test.ts
           apps/server/src/mcp/McpDesktopToolkit.test.ts
           scripts/lib/cli-external-packages.test.ts
+      - name: Test routing feedback and consent continuity
+        run: >-
+          vp test run apps/server/src/routing
+          apps/server/src/provider/RuntimeInstructions.test.ts
       - name: Test worker projection regressions
         working-directory: apps/server
         run: >-
