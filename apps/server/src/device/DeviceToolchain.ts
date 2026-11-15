@@ -24,6 +24,7 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 
 import * as ProcessRunner from "../processRunner.ts";
+import { patchDeviceHubAndroidPorts } from "./deviceHubAndroidPorts.ts";
 
 const DEVICE_HUB_PACKAGE = "expo-device-hub";
 export const DEVICE_HUB_VERSION = "0.12.0";
@@ -118,7 +119,34 @@ const installTool = Effect.fn("DeviceToolchain.installTool")(function* (
   const fail = (step: string) => (cause: unknown) =>
     new DeviceToolchainInstallError({ tool: spec.name, step, cause });
 
-  if (yield* isInstalled(fs, paths, spec.version)) return paths;
+  const patchHub = Effect.fn("DeviceToolchain.patchHub")(function* (entryPath: string) {
+    if (spec.name !== DEVICE_HUB_PACKAGE) return;
+    const file = path.join(path.dirname(entryPath), "index.mjs");
+    const original = yield* fs
+      .readFileString(file)
+      .pipe(Effect.mapError(fail("reading hub compatibility code")));
+    const patched = yield* Effect.try({
+      try: () => patchDeviceHubAndroidPorts(original),
+      catch: fail("checking hub compatibility"),
+    });
+    if (patched === original) return;
+    const backup = `${file}.j1-before-android-ports`;
+    if (!(yield* fs.exists(backup)))
+      yield* fs
+        .writeFileString(backup, original)
+        .pipe(Effect.mapError(fail("preserving original hub")));
+    const temporary = `${file}.j1-android-ports.tmp`;
+    yield* fs
+      .writeFileString(temporary, patched)
+      .pipe(Effect.mapError(fail("staging hub compatibility code")));
+    yield* fs
+      .rename(temporary, file)
+      .pipe(Effect.mapError(fail("applying hub compatibility code")));
+  });
+  if (yield* isInstalled(fs, paths, spec.version)) {
+    yield* patchHub(paths.entryPath);
+    return paths;
+  }
 
   const parentDir = path.dirname(paths.installDir);
   yield* fs
@@ -171,6 +199,7 @@ const installTool = Effect.fn("DeviceToolchain.installTool")(function* (
         step: "verifying the installed entry point",
       });
     }
+    yield* patchHub(stagedEntry);
     yield* fs
       .writeFileString(path.join(stagingDir, ".install-complete"), `${spec.version}\n`)
       .pipe(Effect.mapError(fail("recording the completed install")));

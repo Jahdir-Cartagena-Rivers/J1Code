@@ -1,5 +1,6 @@
 import { deviceToolMaintenanceScript } from "./deviceToolMaintenance.ts";
 import { AGENT_DEVICE_VERSION, DEVICE_HUB_VERSION } from "./DeviceToolchain.ts";
+import { patchDeviceHubAndroidPorts } from "./deviceHubAndroidPorts.ts";
 
 export const quoteRemoteArg = (value: string) => `'${value.replaceAll("'", "'\"'\"'")}'`;
 
@@ -111,18 +112,31 @@ async function install(name, version, entry) {
   const dir = path.join(root, 'tools', name + '@' + version);
   const file = path.join(dir, 'node_modules', name, entry);
   const complete = () => fs.existsSync(file) && fs.existsSync(path.join(dir, '.install-complete')) && fs.readFileSync(path.join(dir, '.install-complete'), 'utf8').trim() === version;
-  if (complete()) return file;
+  const patchHub = entryFile => {
+    if (name !== 'expo-device-hub') return;
+    const index = path.join(path.dirname(entryFile), 'index.mjs');
+    const original = fs.readFileSync(index, 'utf8');
+    const patched = (${patchDeviceHubAndroidPorts.toString()})(original);
+    if (patched === original) return;
+    const backup = index + '.j1-before-android-ports';
+    if (!fs.existsSync(backup)) fs.writeFileSync(backup, original);
+    const temporary = index + '.j1-android-ports-' + process.pid + '.tmp';
+    fs.writeFileSync(temporary, patched);
+    fs.renameSync(temporary, index);
+  };
+  if (complete()) { patchHub(file); return file; }
   fs.mkdirSync(path.dirname(dir), { recursive: true });
   const lock = dir + '.lock';
   const release = await acquireLock(lock, complete);
-  if (!release) return file;
+  if (!release) { patchHub(file); return file; }
   let staging;
   try {
-    if (complete()) return file;
+    if (complete()) { patchHub(file); return file; }
     staging = fs.mkdtempSync(path.join(path.dirname(dir), '.install-'));
     const result = run('npm', ['install', '--prefix', staging, '--no-fund', '--no-audit', name + '@' + version], { timeout: 600000, maxBuffer: 8 * 1024 * 1024 });
     if (result.status !== 0) throw Error('Installing ' + name + ': ' + (result.error?.message || result.stderr?.slice(-2000)));
     if (!fs.existsSync(path.join(staging, 'node_modules', name, entry))) throw Error('Missing installed entry for ' + name);
+    patchHub(path.join(staging, 'node_modules', name, entry));
     fs.writeFileSync(path.join(staging, '.install-complete'), version);
     fs.rmSync(dir, { recursive: true, force: true });
     fs.renameSync(staging, dir);

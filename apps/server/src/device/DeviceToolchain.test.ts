@@ -14,6 +14,45 @@ import {
   isDeviceHubInstalled,
 } from "./DeviceToolchain.ts";
 
+it.effect.each([true, false])(
+  "patches an existing pinned hub safely (recognized=%s)",
+  (recognized) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const base = yield* fs.makeTempDirectoryScoped();
+      const dir = path.join(base, "tools", "expo-device-hub", DEVICE_HUB_VERSION);
+      const server = path.join(dir, "node_modules/expo-device-hub/dist/server");
+      yield* fs.makeDirectory(server, { recursive: true });
+      yield* fs.writeFileString(path.join(server, "cli.mjs"), "");
+      yield* fs.writeFileString(path.join(dir, ".install-complete"), DEVICE_HUB_VERSION);
+      const original = recognized
+        ? "async function freeEmulatorPort(listDevicesFn = listDevices) { if (!used.has(port)) return result(port); }\n// ../@expo/hub-android-utils/dist/list-device-profiles.js"
+        : "unsupported module";
+      const file = path.join(server, "index.mjs");
+      yield* fs.writeFileString(file, original);
+      const result = yield* ensureDeviceHub(base).pipe(Effect.result);
+      if (recognized) {
+        expect(result._tag).toBe("Success");
+        expect(yield* fs.readFileString(`${file}.j1-before-android-ports`)).toBe(original);
+        const patched = yield* fs.readFileString(file);
+        yield* ensureDeviceHub(base);
+        expect(yield* fs.readFileString(file)).toBe(patched);
+        expect(yield* fs.readFileString(`${file}.j1-before-android-ports`)).toBe(original);
+      } else {
+        expect(result._tag).toBe("Failure");
+        expect(yield* fs.readFileString(file)).toBe(original);
+        expect(yield* fs.exists(`${file}.j1-before-android-ports`)).toBe(false);
+      }
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(NodeServices.layer),
+      Effect.provideService(ProcessRunner.ProcessRunner, {
+        run: () => Effect.die("Unexpected package installation"),
+      }),
+    ),
+);
+
 it.effect("failed installation cleans staging and exposes only a safe failure message", () =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
