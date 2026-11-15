@@ -89,6 +89,11 @@ export function close(session: string) {
   busy.delete(session);
   adapter.close("managed", session);
 }
+export async function forget(session: string) {
+  close(session);
+  await pool.forget(adapter.sessionId("managed", session));
+  return true;
+}
 export function closeAll() {
   for (const timer of loginHolds.values()) clearTimeout(timer);
   loginHolds.clear();

@@ -1105,6 +1105,17 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
     "  if (simple && more) return <>",
     "  if (j1Navigation?.providers) return <J1Providers instances={rows} renderEngine={renderEngine} refresh={<RefreshEngines />} extra={<>{orphanEndpoints && <ClaudeEndpoints />}<HiddenEngines /><CacheKeepWarmSettings /></>} />;\n  if (simple && more) return <>",
   );
+  const browserEngineFile = NodePath.join(stage, "server/browser-engine.ts");
+  await NodeFSP.writeFile(
+    browserEngineFile,
+    'import * as J1Browser from "./j1/native-browser.ts";\n' +
+      (await NodeFSP.readFile(browserEngineFile, "utf8")),
+  );
+  await change(
+    "server/browser-engine.ts",
+    "  if (!/^[A-Za-z0-9_.-]{1,96}$/.test(session)) return false;",
+    "  if (!/^[A-Za-z0-9_.-]{1,96}$/.test(session)) return false;\n  if (J1Browser.managed) { try { return await J1Browser.forget(session); } catch { return false; } }",
+  );
   await copy("scripts/mausbot/native-browser.ts", "server/j1/native-browser.ts");
   await copy("scripts/mausbot/native-login-input.ts", "server/j1/native-login-input.ts");
   await copy("apps/server/src/mcp/LightpandaProcess.ts", "server/j1/LightpandaProcess.ts");

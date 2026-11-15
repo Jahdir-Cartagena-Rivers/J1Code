@@ -17,7 +17,7 @@ describe.skipIf(!executable)("native bot cookie persistence", () => {
         url: request.url ?? "",
         signedIn: request.headers.cookie?.includes("fixture_session=retained") ?? false,
       });
-      if (request.url === "/login")
+      if (request.url?.startsWith("/login"))
         response.setHeader(
           "Set-Cookie",
           "fixture_session=retained; HttpOnly; Path=/; SameSite=Lax",
@@ -49,8 +49,15 @@ describe.skipIf(!executable)("native bot cookie persistence", () => {
       expect(requests.find((r) => r.url === "/restart")?.signedIn).toBe(true);
       expect(requests.find((r) => r.url === "/other")?.signedIn).toBe(false);
       expect(requests.find((r) => r.url === "/guest")?.signedIn).toBe(false);
+      await navigate("mausbot:other", "/login-other");
       await pool.closeAll();
       expect(await NodeFSP.readdir(directory)).toHaveLength(2);
+      await pool.forget("mausbot:owner");
+      expect(await NodeFSP.readdir(directory)).toHaveLength(1);
+      await navigate("mausbot:owner", "/after-clear");
+      expect(requests.find((r) => r.url === "/after-clear")?.signedIn).toBe(false);
+      await navigate("mausbot:other", "/other-after-clear");
+      expect(requests.find((r) => r.url === "/other-after-clear")?.signedIn).toBe(true);
     } finally {
       await pool.closeAll();
       await new Promise<void>((resolve, reject) =>

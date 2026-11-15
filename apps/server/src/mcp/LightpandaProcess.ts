@@ -161,12 +161,15 @@ export class LightpandaProcess {
 /** Bounds native processes and reclaims idle browser memory without sharing storage. */
 export class LightpandaPool {
   private readonly createProcess: (executable: string, id: string) => LightpandaProcess;
+  private readonly forgetData: ((id: string) => Promise<void>) | undefined;
   private readonly retiring = new Map<string, Promise<void>>();
   constructor(
     createProcess: (executable: string, id: string) => LightpandaProcess = (executable) =>
       new LightpandaProcess(executable),
+    forgetData?: (id: string) => Promise<void>,
   ) {
     this.createProcess = createProcess;
+    this.forgetData = forgetData;
   }
   private readonly sessions = new Map<
     string,
@@ -190,6 +193,18 @@ export class LightpandaPool {
       if (this.retiring.get(id) === stopped) this.retiring.delete(id);
     });
     return true;
+  }
+  /** Clearing must finish after save and before another process can reload the profile. */
+  async forget(id: string) {
+    this.close(id);
+    const prior = this.retiring.get(id);
+    const cleared = Promise.resolve(prior).then(() => this.forgetData?.(id));
+    this.retiring.set(id, cleared);
+    try {
+      await cleared;
+    } finally {
+      if (this.retiring.get(id) === cleared) this.retiring.delete(id);
+    }
   }
   async closeAll() {
     for (const id of this.sessions.keys()) this.close(id);
@@ -305,51 +320,53 @@ export class LightpandaPool {
 
 /** Only authenticated bot identities opt into persistent cookies; guests stay ephemeral. */
 export function persistentLightpandaPool(directory: string) {
-  return new LightpandaPool((executable, id) => {
-    if (
-      (!id.startsWith("mausbot:") || id.startsWith("mausbot:guest:")) &&
-      !id.startsWith("bot-thread:")
-    )
-      return new LightpandaProcess(executable);
-    NodeFS.mkdirSync(directory, { recursive: true, mode: 0o700 });
-    const file = NodePath.join(
-      directory,
-      NodeCrypto.createHash("sha256").update(id).digest("hex") + ".json",
-    );
-    let exists = false;
-    try {
-      const stat = NodeFS.lstatSync(file);
-      if (!stat.isFile() || stat.size > MAX_FRAME_BYTES)
-        throw new Error("Invalid saved browser cookies.");
-      const cookies: unknown = JSON.parse(NodeFS.readFileSync(file, "utf8"));
-      if (
-        !Array.isArray(cookies) ||
-        !cookies.every(
-          (cookie: unknown) =>
-            cookie !== null &&
-            typeof cookie === "object" &&
-            "name" in cookie &&
-            typeof cookie.name === "string" &&
-            "value" in cookie &&
-            typeof cookie.value === "string" &&
-            "domain" in cookie &&
-            typeof cookie.domain === "string",
+  const persistent = (id: string) =>
+    (id.startsWith("mausbot:") && !id.startsWith("mausbot:guest:")) || id.startsWith("bot-thread:");
+  const cookieFile = (id: string) =>
+    NodePath.join(directory, NodeCrypto.createHash("sha256").update(id).digest("hex") + ".json");
+  return new LightpandaPool(
+    (executable, id) => {
+      if (!persistent(id)) return new LightpandaProcess(executable);
+      NodeFS.mkdirSync(directory, { recursive: true, mode: 0o700 });
+      const file = cookieFile(id);
+      let exists = false;
+      try {
+        const stat = NodeFS.lstatSync(file);
+        if (!stat.isFile() || stat.size > MAX_FRAME_BYTES)
+          throw new Error("Invalid saved browser cookies.");
+        const cookies: unknown = JSON.parse(NodeFS.readFileSync(file, "utf8"));
+        if (
+          !Array.isArray(cookies) ||
+          !cookies.every(
+            (cookie: unknown) =>
+              cookie !== null &&
+              typeof cookie === "object" &&
+              "name" in cookie &&
+              typeof cookie.name === "string" &&
+              "value" in cookie &&
+              typeof cookie.value === "string" &&
+              "domain" in cookie &&
+              typeof cookie.domain === "string",
+          )
         )
-      )
-        throw new Error("Invalid saved browser cookies.");
-      exists = true;
-    } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
-        throw new Error(
-          "Saved browser cookies could not be read; the existing profile was preserved.",
-          { cause: error },
-        );
-    }
-    return new LightpandaProcess(executable, [
-      "mcp",
-      ...(exists ? ["--cookie", file] : []),
-      "--cookie-jar",
-      file,
-    ]);
-  });
+          throw new Error("Invalid saved browser cookies.");
+        exists = true;
+      } catch (error) {
+        if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
+          throw new Error(
+            "Saved browser cookies could not be read; the existing profile was preserved.",
+            { cause: error },
+          );
+      }
+      return new LightpandaProcess(executable, [
+        "mcp",
+        ...(exists ? ["--cookie", file] : []),
+        "--cookie-jar",
+        file,
+      ]);
+    },
+    async (id) => {
+      if (persistent(id)) await NodeFS.promises.rm(cookieFile(id), { force: true });
+    },
+  );
 }
