@@ -2,6 +2,20 @@ import { describe, expect, it } from "vite-plus/test";
 import { buildRuntimeInstructions } from "./RuntimeInstructions.ts";
 
 describe("buildRuntimeInstructions", () => {
+  it.each(["Codex", "Claude Code", "OpenCode", "Cursor", "Grok", "Antigravity", "DeepAI"])(
+    "carries scoped prior consent and real approval boundaries into %s sessions",
+    (harness) => {
+      const instructions = buildRuntimeInstructions({ harness });
+      expect(instructions).toContain("<authorization_decisions>");
+      expect(instructions).toContain(
+        "Carry consent forward across follow-ups and resumed sessions",
+      );
+      expect(instructions).toContain("A request to test an app authorizes");
+      expect(instructions).toContain("a fresh confirmation for each action still applies");
+      expect(instructions).toContain("Neither mode expands the user's task or overrides a denial");
+      expect(instructions).toContain("Never answer a user's confirmation card yourself");
+    },
+  );
   it("advertises owned command tools only for the harness that implements them", () => {
     expect(buildRuntimeInstructions({ harness: "DeepAI" })).toContain("command_status");
     for (const harness of ["Codex", "Claude Code", "OpenCode", "Cursor", "Grok", "Antigravity"]) {

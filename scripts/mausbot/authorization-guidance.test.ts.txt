@@ -1,0 +1,20 @@
+import { describe, expect, it } from "vitest";
+import { buildSystemPrompt } from "../system-prompt.ts";
+import { AUTHORIZATION_INSTRUCTIONS } from "./authorization-instructions.ts";
+
+describe("J1 bot authorization context", () => {
+  it("keeps consent guidance in stable context across direct and resumed turns", () => {
+    const first = buildSystemPrompt("Fixture bot", "", []);
+    const resumed = buildSystemPrompt("Fixture bot", "", [
+      { id: "recent", label: "Recent messages", text: "Continue the authorized app test." },
+    ]);
+    for (const prompt of [first, resumed]) {
+      const section = prompt.sections.find((part) => part.id === "reply-habits");
+      expect(section?.text).toContain(AUTHORIZATION_INSTRUCTIONS);
+      expect(prompt.stable).toContain(AUTHORIZATION_INSTRUCTIONS);
+      expect(prompt.volatile).not.toContain(AUTHORIZATION_INSTRUCTIONS);
+      expect(prompt.text.split("<authorization_decisions>")).toHaveLength(2);
+    }
+    expect(first.stable).toBe(resumed.stable);
+  });
+});

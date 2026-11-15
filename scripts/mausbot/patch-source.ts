@@ -27,6 +27,24 @@ export async function patchMausbotSource(stage: string) {
   };
   const copy = (from: string, to: string) =>
     NodeFSP.copyFile(NodePath.join(root, from), NodePath.join(stage, to));
+  await NodeFSP.mkdir(NodePath.join(stage, "server/j1"), { recursive: true });
+  await copy(
+    "apps/server/src/provider/AuthorizationInstructions.ts",
+    "server/j1/authorization-instructions.ts",
+  );
+  await copy(
+    "scripts/mausbot/authorization-guidance.test.ts.txt",
+    "server/j1/authorization-guidance.test.ts",
+  );
+  await change(
+    "server/reply-habits.ts",
+    "export const REPLY_HABITS_PROMPT =",
+    'import { AUTHORIZATION_INSTRUCTIONS } from "./j1/authorization-instructions.ts";\n\nconst BASE_REPLY_HABITS_PROMPT =',
+  );
+  await NodeFSP.appendFile(
+    NodePath.join(stage, "server/reply-habits.ts"),
+    '\nexport const REPLY_HABITS_PROMPT = BASE_REPLY_HABITS_PROMPT + "\\n\\n" + AUTHORIZATION_INSTRUCTIONS;\n',
+  );
   // Preserve upstream checksum/version gates without PowerShell's non-terminating extraction errors.
   await change(
     "scripts/prepare-cua-win.mjs",
