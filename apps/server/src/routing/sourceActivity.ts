@@ -3,6 +3,7 @@ import { DateTime, Effect, Option } from "effect";
 import { ExternalRouteEndpoints } from "./ExternalRouteEndpoints.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import type { StoredRoute } from "./durableRoutingStore.ts";
+import { automaticRouteFeedback } from "./feedback.ts";
 
 /** Durable source-chat notice, never evidence of destination acceptance. */
 export const makeRouteSourceNotifier = Effect.gen(function* () {
@@ -11,6 +12,12 @@ export const makeRouteSourceNotifier = Effect.gen(function* () {
   return (row: StoredRoute) =>
     Effect.gen(function* () {
       const { state, revision } = row;
+      if (state.request.feedbackFor) return;
+      const feedback = automaticRouteFeedback(state);
+      if (feedback) {
+        if (state.request.source.threadId.startsWith("mausbot:") && Option.isSome(external))
+          yield* external.value.wake;
+      }
       if (state.request.source.threadId.startsWith("mausbot:")) {
         if (Option.isNone(external)) return;
         yield* external.value.notice({

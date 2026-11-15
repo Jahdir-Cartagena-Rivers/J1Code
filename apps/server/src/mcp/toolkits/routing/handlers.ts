@@ -6,6 +6,7 @@ import {
   routeRequest,
   routeStatus,
   recipientReceipt,
+  replyToRoute,
   claimTask,
   releaseTask,
   routingMode,
@@ -25,8 +26,10 @@ export const RoutingToolkitHandlers = RoutingToolkit.toLayer(
       release_task: ({ taskId, requestId }) => releaseTask(taskId, requestId),
       routing_mode: () => routingMode,
       claim_task: ({ taskId, requestId }) => claimTask(taskId, requestId),
-      acknowledge_route: ({ requestId, kind }) =>
-        recipientReceipt(requestId, kind).pipe(Effect.map(summary)),
+      acknowledge_route: ({ requestId, kind, message }) =>
+        recipientReceipt(requestId, kind, message).pipe(Effect.map(summary)),
+      reply_to_route: ({ requestId, replyId, message }) =>
+        replyToRoute(requestId, replyId, message).pipe(Effect.map(summary)),
       route_task: (input) => routeRequest(input).pipe(Effect.map(summary)),
       routing_status: ({ requestId }) => routeStatus(requestId).pipe(Effect.map(summary)),
       list_routes: () => listRoutes.pipe(Effect.map((routes) => routes.map(summary))),

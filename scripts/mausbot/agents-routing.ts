@@ -15,7 +15,15 @@ const inputs = {
   release_task: identity,
   route_task: identity.extend({ request: z.string(), candidate: endpoint.optional() }).strict(),
   routing_status: routeId,
-  acknowledge_route: routeId.extend({ kind: z.enum(["accepted", "completed", "failed"]) }).strict(),
+  acknowledge_route: routeId
+    .extend({
+      kind: z.enum(["accepted", "completed", "failed"]),
+      message: z.string().min(1).max(10_000).optional(),
+    })
+    .strict(),
+  reply_to_route: routeId
+    .extend({ replyId: z.string().min(1).max(128), message: z.string().min(1).max(10_000) })
+    .strict(),
 };
 export const J1_ROUTING_TOOL_NAMES = new Set(Object.keys(inputs));
 export function routingToolAllowed(scope: unknown, operation: string) {
@@ -96,8 +104,22 @@ export const J1_ROUTING_TOOLS = [
       {
         requestId: { type: "string" },
         kind: { type: "string", enum: ["accepted", "completed", "failed"] },
+        message: { type: "string", minLength: 1, maxLength: 10000 },
       },
       ["requestId", "kind"],
+    ),
+  },
+  {
+    name: "reply_to_route",
+    description:
+      "Send the other original conversation a result, question, correction or already-completed notice. Use the original requestId and a stable replyId. This is a linked continuation, not fresh permission or a new copy of the task. Check returned delivery status.",
+    inputSchema: schema(
+      {
+        requestId: { type: "string" },
+        replyId: { type: "string", minLength: 1, maxLength: 128 },
+        message: { type: "string", minLength: 1, maxLength: 10000 },
+      },
+      ["requestId", "replyId", "message"],
     ),
   },
 ];

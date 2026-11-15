@@ -10,7 +10,8 @@ import {
   makeDurableRoutingStoreWithResolution,
   makeDurableRoutingStore,
 } from "./durableRoutingStore.ts";
-import type { RouteRequest, RouteReceipt } from "./routeState.ts";
+import { transitionRoute, type RouteRequest, type RouteReceipt } from "./routeState.ts";
+import { automaticRouteFeedback } from "./feedback.ts";
 
 const request: RouteRequest = {
   requestId: "stable",
@@ -30,6 +31,100 @@ const request: RouteRequest = {
 const runtime = (path: string) => ManagedRuntime.make(NodeSqliteClient.layer({ filename: path }));
 
 describe("durable routing store", () => {
+  it("persists a recipient result and its return outbox together across restart", async () => {
+    const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-route-return-"));
+    const file = NodePath.join(directory, "state.sqlite");
+    let db = runtime(file);
+    try {
+      await db.runPromise(migration);
+      const store = await db.runPromise(makeDurableRoutingStore);
+      let row = await db.runPromise(store.create({ ...request, monitorSource: true }));
+      row = await db.runPromise(
+        store.transition(request.requestId, row.revision, {
+          type: "begin-send",
+          attemptId: "attempt",
+        }),
+      );
+      const expectedReturns: string[] = [];
+      for (const kind of ["delivered", "accepted", "completed"] as const) {
+        row = await db.runPromise(
+          store.transition(request.requestId, row.revision, {
+            type: "receipt",
+            receipt: {
+              requestId: request.requestId,
+              fingerprint: row.state.fingerprint,
+              attemptId: "attempt",
+              destination: request.destination!,
+              receiptId: kind,
+              kind,
+              ...(kind === "completed" ? { message: "Already done; see commit abc." } : {}),
+            },
+          }),
+        );
+        const queuedReturn = automaticRouteFeedback(row.state);
+        if (queuedReturn) expectedReturns.push(queuedReturn.requestId);
+      }
+      const feedback = automaticRouteFeedback(row.state)!;
+      expect(feedback.requestId).toMatch(/^[a-f0-9]{64}$/);
+      await db.dispose();
+      db = runtime(file);
+      const restored = await db.runPromise(makeDurableRoutingStore);
+      const saved = await db.runPromise(restored.get(feedback.requestId));
+      expect(saved?.state.request.feedbackFor).toBe(request.requestId);
+      expect(saved?.state.request.content).toContain("Already done; see commit abc.");
+      expect(saved?.state.status).toBe("queued");
+      expect(await db.runPromise(restored.queued())).toEqual(expectedReturns);
+      expect((await db.runPromise(restored.get(request.requestId)))?.state.status).toBe(
+        "completed",
+      );
+    } finally {
+      await db.dispose();
+      await NodeFSP.rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("rolls back a recipient receipt if its durable return cannot be recorded", async () => {
+    const db = runtime(":memory:");
+    try {
+      await db.runPromise(migration);
+      const store = await db.runPromise(makeDurableRoutingStore);
+      let row = await db.runPromise(store.create({ ...request, monitorSource: true }));
+      row = await db.runPromise(
+        store.transition(request.requestId, row.revision, {
+          type: "begin-send",
+          attemptId: "attempt",
+        }),
+      );
+      const delivered: RouteReceipt = {
+        requestId: request.requestId,
+        fingerprint: row.state.fingerprint,
+        attemptId: "attempt",
+        destination: request.destination!,
+        receiptId: "delivered",
+        kind: "delivered",
+      };
+      row = await db.runPromise(
+        store.transition(request.requestId, row.revision, { type: "receipt", receipt: delivered }),
+      );
+      const acceptance = { ...delivered, receiptId: "accepted", kind: "accepted" as const };
+      const result = automaticRouteFeedback(
+        transitionRoute(row.state, { type: "receipt", receipt: acceptance }),
+      )!;
+      await db.runPromise(store.create({ ...result, content: "Conflicting prior result" }));
+      await expect(
+        db.runPromise(
+          store.transition(request.requestId, row.revision, {
+            type: "receipt",
+            receipt: acceptance,
+          }),
+        ),
+      ).rejects.toThrow();
+      expect((await db.runPromise(store.get(request.requestId)))?.state.status).toBe("delivered");
+    } finally {
+      await db.dispose();
+    }
+  });
+
   it("CAS-protects automatic rediscovery and keeps retries bound to original intent", async () => {
     const db = runtime(":memory:");
     try {

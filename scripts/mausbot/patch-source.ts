@@ -45,6 +45,12 @@ export async function patchMausbotSource(stage: string) {
     NodePath.join(stage, "server/reply-habits.ts"),
     '\nexport const REPLY_HABITS_PROMPT = BASE_REPLY_HABITS_PROMPT + "\\n\\n" + AUTHORIZATION_INSTRUCTIONS;\n',
   );
+  await change(
+    "shared/outbound.ts",
+    "  if (AGENTS_X_READS.test(name)) return false;",
+    "  if (AGENTS_X_READS.test(name)) return false;\n  // J1 validates this return channel against the two original route participants.\n  if (/^(?:mcp__agents__|agents__|agents_)?reply_to_route$/.test(name)) return false;",
+  );
+  await copy("scripts/mausbot/routing-feedback.test.ts.txt", "server/j1/routing-feedback.test.ts");
   // Preserve upstream checksum/version gates without PowerShell's non-terminating extraction errors.
   await change(
     "scripts/prepare-cua-win.mjs",

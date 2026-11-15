@@ -18,6 +18,7 @@ import { makeRouteTransportConsumer } from "./transportConsumer.ts";
 import { isBuildIntegrationRequest, PROJECT_BUILD_OWNER_TASK } from "./integrationOwner.ts";
 import { makeRouteSourceNotifier } from "./sourceActivity.ts";
 import { suggestWorkingChat } from "./workingChatSuggestion.ts";
+import { createRouteFeedback } from "./feedback.ts";
 const encodeIdentity = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const decodeTaskIdentity = Schema.decodeUnknownEffect(
   Schema.Struct({ taskId: Schema.String, requestId: Schema.String }),
@@ -27,6 +28,16 @@ const decodeReceipt = Schema.decodeUnknownEffect(
   Schema.Struct({
     requestId: Schema.String,
     kind: Schema.Literals(["accepted", "completed", "failed"]),
+    message: Schema.optionalKey(
+      Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(10_000)),
+    ),
+  }),
+);
+const decodeReply = Schema.decodeUnknownEffect(
+  Schema.Struct({
+    requestId: Schema.String,
+    replyId: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
+    message: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(10_000)),
   }),
 );
 const decodeEmpty = Schema.decodeUnknownEffect(Schema.Record(Schema.String, Schema.Never));
@@ -276,7 +287,33 @@ export const RoutingRuntimeLive = Layer.effect(
           return { ...policy, visited, maxHops: 8 };
         }).pipe(Effect.mapError(error)),
       owner,
-      receipt: (endpoint, id, kind) =>
+      reply: (endpoint, id, replyId, message) =>
+        Effect.gen(function* () {
+          const original = yield* store.get(id);
+          if (!original) return yield* Effect.fail("Route unavailable.");
+          const identity = yield* encodeIdentity(["route-reply-v1", id, endpoint, replyId]);
+          const feedback = yield* Effect.try({
+            try: () =>
+              createRouteFeedback(
+                original.state,
+                endpoint,
+                NodeCrypto.createHash("sha256").update(identity).digest("hex"),
+                message,
+              ),
+            catch: () => "Route reply unavailable.",
+          });
+          const existing = yield* store.get(feedback.requestId);
+          if (
+            existing &&
+            (existing.state.originalRequest.feedbackFor !== feedback.feedbackFor ||
+              existing.state.originalRequest.feedbackMessageHash !== feedback.feedbackMessageHash)
+          )
+            return yield* Effect.fail("Reply identity conflict.");
+          const row = existing ?? (yield* store.create(feedback));
+          yield* drain.drain();
+          return (yield* store.get(row.state.request.requestId))!.state;
+        }).pipe(Effect.mapError(error)),
+      receipt: (endpoint, id, kind, message) =>
         Effect.gen(function* () {
           const row = yield* store.get(id);
           const destination = row?.state.request.destination;
@@ -297,6 +334,7 @@ export const RoutingRuntimeLive = Layer.effect(
               attemptId: row.state.attemptId,
               destination,
               kind,
+              ...(message === undefined ? {} : { message }),
               receiptId: `recipient:${id}:${row.state.attemptId}:${kind}`,
             },
           });
@@ -310,8 +348,10 @@ export const RoutingRuntimeLive = Layer.effect(
             ? yield* adapter.inspect(input.route.destination)
             : null;
           const existing = yield* store.get(input.route.requestId);
+          const monitorSource = existing ? existing.state.request.monitorSource : true;
           const row = yield* store.create({
             ...input.route,
+            ...(monitorSource === undefined ? {} : { monitorSource }),
             sourceUrl: input.sourceUrl,
             permissionCeiling:
               existing?.state.originalRequest.permissionCeiling ?? source.permissions,
@@ -440,7 +480,15 @@ export const RoutingRuntimeLive = Layer.effect(
             }
             case "acknowledge_route": {
               const args = yield* decodeReceipt(input, { onExcessProperty: "error" });
-              return routeSummary(yield* boundary.recipientReceipt(args.requestId, args.kind));
+              return routeSummary(
+                yield* boundary.recipientReceipt(args.requestId, args.kind, args.message),
+              );
+            }
+            case "reply_to_route": {
+              const args = yield* decodeReply(input, { onExcessProperty: "error" });
+              return routeSummary(
+                yield* boundary.replyToRoute(args.requestId, args.replyId, args.message),
+              );
             }
             default:
               return yield* Effect.fail("Unsupported routing operation.");

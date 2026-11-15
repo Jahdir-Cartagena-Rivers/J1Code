@@ -8,6 +8,10 @@ export interface RouteEndpoint {
 
 export interface RouteRequest {
   readonly requestId: string;
+  /** Server-owned return channel; feedback never generates another status notification. */
+  readonly feedbackFor?: string;
+  readonly feedbackMessageHash?: string;
+  readonly monitorSource?: boolean;
   readonly taskId?: string;
   readonly sourceUrl?: string;
   readonly source: RouteEndpoint;
@@ -53,6 +57,7 @@ export interface RouteReceipt {
   readonly attemptId: string;
   readonly destination: RouteEndpoint;
   readonly kind: "delivered" | "accepted" | "completed" | "failed";
+  readonly message?: string;
 }
 
 export type RouteEvent =
@@ -240,7 +245,8 @@ export function transitionRoute(state: RouteState, event: RouteEvent): RouteStat
     throw new Error("Receipt identity mismatch");
   const previous = state.receipts.find((entry) => entry.receiptId === receipt.receiptId);
   if (previous) {
-    if (previous.kind !== receipt.kind) throw new Error("Receipt identity conflict");
+    if (previous.kind !== receipt.kind || previous.message !== receipt.message)
+      throw new Error("Receipt identity conflict");
     return state;
   }
   const allowed: Record<RouteReceipt["kind"], readonly RouteStatus[]> = {
@@ -252,6 +258,8 @@ export function transitionRoute(state: RouteState, event: RouteEvent): RouteStat
   if (!allowed[receipt.kind].includes(state.status)) throw new Error("Invalid receipt transition");
   return {
     ...state,
+    // A fresh authenticated receipt also opts an older in-flight request into monitoring.
+    request: state.request.feedbackFor ? state.request : { ...state.request, monitorSource: true },
     status: receipt.kind,
     reason: receipt.kind === "failed" ? "receipt-failed" : null,
     receipts: [...state.receipts, structuredClone(receipt)],

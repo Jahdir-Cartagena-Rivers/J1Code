@@ -42,6 +42,21 @@ export const RoutingToolkit = Toolkit.make(
     parameters: Schema.Struct({
       requestId: Schema.String,
       kind: Schema.Literals(["accepted", "completed", "failed"]),
+      message: Schema.optionalKey(
+        Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(10_000)),
+      ),
+    }),
+    success: Status,
+    failure: Schema.String,
+    dependencies,
+  }).annotate(Tool.Idempotent, true),
+  Tool.make("reply_to_route", {
+    description:
+      "Send a linked result, question, correction or already-completed notice to the other original participant. Use the original requestId and a stable replyId; identical retries do not redeliver. This continues the existing task without expanding its permissions. Returned status describes reply delivery, not the original task's completion.",
+    parameters: Schema.Struct({
+      requestId: Schema.String,
+      replyId: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
+      message: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(10_000)),
     }),
     success: Status,
     failure: Schema.String,

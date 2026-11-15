@@ -81,6 +81,7 @@ export const MausbotRoutingInvocation = Schema.Struct({
     "routing_status",
     "list_routes",
     "acknowledge_route",
+    "reply_to_route",
   ]),
   arguments: Schema.Unknown,
 });

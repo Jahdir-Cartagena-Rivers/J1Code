@@ -13,6 +13,7 @@ export function shouldWakeRouteDrain(event: OrchestrationEvent): boolean {
   if (event.type === "thread.activity-appended") {
     return (
       event.payload.activity.kind === "approval.resolved" ||
+      event.payload.activity.kind === "routing.updated" ||
       event.payload.activity.kind === "user-input.resolved"
     );
   }

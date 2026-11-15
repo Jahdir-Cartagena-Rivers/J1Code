@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import { automaticRouteFeedback } from "./feedback.ts";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import {
@@ -20,6 +21,9 @@ const Endpoint = Schema.Struct({
 });
 const Request = Schema.Struct({
   requestId: Schema.String,
+  feedbackFor: Schema.optionalKey(Schema.String),
+  feedbackMessageHash: Schema.optionalKey(Schema.String),
+  monitorSource: Schema.optionalKey(Schema.Boolean),
   taskId: Schema.optionalKey(Schema.String),
   sourceUrl: Schema.optionalKey(Schema.String),
   source: Endpoint,
@@ -40,6 +44,7 @@ const Receipt = Schema.Struct({
   attemptId: Schema.String,
   destination: Endpoint,
   kind: Schema.Literals(["delivered", "accepted", "completed", "failed"]),
+  message: Schema.optionalKey(Schema.String),
 });
 const State = Schema.Struct({
   request: Request,
@@ -160,8 +165,10 @@ export const makeDurableRoutingStoreWithResolution = (verifier?: RouteResolution
         return yield* Effect.fail(
           new RoutingStoreError({ operation: "validate", cause: "Route revision conflict" }),
         );
+      const feedback = yield* Effect.try(() => automaticRouteFeedback(state));
+      if (feedback && state !== stored.state) yield* create(feedback);
       return { revision, state };
-    });
+    }, sql.withTransaction);
     const recoverInterruptedSends = Effect.fn("DurableRoutingStore.recoverInterruptedSends")(
       function* () {
         // One atomic statement: no queued row is touched and no uncertain row is made sendable.
@@ -225,7 +232,7 @@ export const makeDurableRoutingStoreWithResolution = (verifier?: RouteResolution
           Effect.gen(function* () {
             const rows = yield* sql<{
               request_id: string;
-            }>`SELECT request_id FROM durable_routes WHERE status = 'queued' ORDER BY request_id`;
+            }>`SELECT request_id FROM durable_routes WHERE status = 'queued' ORDER BY rowid`;
             return rows.map((row) => row.request_id);
           }),
         ),

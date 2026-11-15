@@ -257,8 +257,14 @@ with the conversation, and their status updates in place. Select **Approve and s
 to forward it, or **Not now** to keep discussing it here. The destination link
 remains available after delivery.
 
-The source conversation stays available. Follow the destination link to continue
-the work, and check the request card for progress. Queued, delivered,
+The originating chat or bot receives linked acceptance, completion, and failure
+reports, so it can keep you informed without starting another copy of the work.
+Either conversation can send a clarification, question, result, or evidence that
+the work is already done back on the original request. Ask the chat to reply to
+that request rather than forwarding it as a new task. Older completed requests
+without a fresh report remain available through their status and destination link.
+
+The source conversation stays available, and the request card shows progress. Queued, delivered,
 accepted, and completed are separate states: delivery does not mean the receiving
 agent has incorporated the request. Supported providers can receive updates during
 their active turn. Other providers wait until idle. Routing preserves pending approval

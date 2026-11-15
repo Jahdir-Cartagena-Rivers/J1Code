@@ -34,6 +34,9 @@ import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSna
 import { ServerConfig } from "../config.ts";
 
 import { shouldWakeRouteDrain } from "./engineDrain.ts";
+import { automaticRouteFeedback } from "./feedback.ts";
+import * as Schema from "effect/Schema";
+const decodeReplyReceipt = Schema.decodeUnknownEffect(Schema.Struct({ requestId: Schema.String }));
 
 it("wakes for release of an approval, not routine tool activity", () => {
   const activity = (kind: string) =>
@@ -41,6 +44,7 @@ it("wakes for release of an approval, not routine tool activity", () => {
   expect(shouldWakeRouteDrain(activity("tool.completed"))).toBe(false);
   expect(shouldWakeRouteDrain(activity("approval.resolved"))).toBe(true);
   expect(shouldWakeRouteDrain(activity("user-input.resolved"))).toBe(true);
+  expect(shouldWakeRouteDrain(activity("routing.updated"))).toBe(true);
   expect(shouldWakeRouteDrain({ type: "thread.session-set" } as OrchestrationEvent)).toBe(true);
 });
 function makeOrchestrationLayer(
@@ -241,9 +245,65 @@ effectIt.effect(
           ),
         ).toMatchObject({ status: "blocked", reason: "routing-loop" });
         expect((yield* ports.receipt!(destination, requestId, "accepted")).status).toBe("accepted");
-        expect((yield* ports.receipt!(destination, requestId, "completed")).status).toBe(
-          "completed",
+        const earlyReply = yield* decodeReplyReceipt(
+          yield* registry.call(actor, "reply_to_route", {
+            requestId,
+            replyId: "stable-across-completion",
+            message: "Here is the evidence so far.",
+          }),
         );
+        expect(
+          (yield* ports.receipt!(
+            destination,
+            requestId,
+            "completed",
+            "Already fixed in commit abc.",
+          )).status,
+        ).toBe("completed");
+        const completedState = (yield* ports.get(requestId))!;
+        const returned = yield* ports.get(automaticRouteFeedback(completedState)!.requestId);
+        expect(returned?.request.destination).toEqual(source);
+        expect(returned?.request.feedbackFor).toBe(requestId);
+        expect(returned?.request.content).toContain("Already fixed in commit abc.");
+        expect(
+          yield* registry.call(actor, "reply_to_route", {
+            requestId,
+            replyId: "stable-across-completion",
+            message: "Here is the evidence so far.",
+          }),
+        ).toMatchObject({ requestId: earlyReply.requestId });
+        const reply = yield* decodeReplyReceipt(
+          yield* registry.call(actor, "reply_to_route", {
+            requestId,
+            replyId: "commit-evidence",
+            message: "The tests are in commit abc.",
+          }),
+        );
+        expect((yield* ports.get(reply.requestId))?.request.feedbackFor).toBe(requestId);
+        expect(
+          yield* registry.call(actor, "reply_to_route", {
+            requestId,
+            replyId: "commit-evidence",
+            message: "The tests are in commit abc.",
+          }),
+        ).toMatchObject({ requestId: reply.requestId });
+        expect(
+          yield* ports.reply!(
+            { ...source, threadId: "outsider" },
+            requestId,
+            "forged",
+            "Pretend",
+          ).pipe(Effect.result),
+        ).toMatchObject({ _tag: "Failure" });
+        expect(
+          yield* registry
+            .call(actor, "reply_to_route", {
+              requestId,
+              replyId: "commit-evidence",
+              message: "Changed result under same identity",
+            })
+            .pipe(Effect.result),
+        ).toMatchObject({ _tag: "Failure" });
       }).pipe(Effect.provide(RoutingRuntimeLive));
     }).pipe(
       Effect.provide(

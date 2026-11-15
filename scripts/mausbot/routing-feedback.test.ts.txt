@@ -1,0 +1,16 @@
+import { describe, expect, it } from "vitest";
+import { isOutboundTool, isReadOnlyTool } from "../../shared/outbound.ts";
+import { J1_ROUTING_TOOLS, J1_ROUTING_TOOL_NAMES } from "./agents-routing.ts";
+
+describe("J1 internal route replies", () => {
+  it("advertises the authenticated return channel without treating it as external outreach", () => {
+    expect(J1_ROUTING_TOOL_NAMES.has("reply_to_route")).toBe(true);
+    expect(J1_ROUTING_TOOLS.find(t => t.name === "reply_to_route")?.inputSchema.required).toContain("replyId");
+    for (const prefix of ["", "mcp__agents__", "agents__", "agents_"]) {
+      expect(isOutboundTool(prefix + "reply_to_route")).toBe(false);
+      expect(isReadOnlyTool(prefix + "reply_to_route")).toBe(false);
+    }
+    expect(isOutboundTool("mcp__other_server__reply_to_route")).toBe(true);
+    expect(isOutboundTool("mcp__agents__send_email")).toBe(true);
+  });
+});

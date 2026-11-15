@@ -31,6 +31,13 @@ export interface RoutingPorts {
     endpoint: RouteEndpoint,
     requestId: string,
     kind: "accepted" | "completed" | "failed",
+    message?: string,
+  ) => Effect.Effect<RouteState, string>;
+  readonly reply?: (
+    endpoint: RouteEndpoint,
+    requestId: string,
+    replyId: string,
+    message: string,
   ) => Effect.Effect<RouteState, string>;
   /** Current snapshot lookup; null includes archived/deleted/unavailable threads. */
   readonly current: (
@@ -161,11 +168,23 @@ export function makeRoutingBoundary<R>(currentEndpoint: Effect.Effect<RouteEndpo
   const recipientReceipt = Effect.fn("RoutingBoundary.recipientReceipt")(function* (
     requestId: string,
     kind: "accepted" | "completed" | "failed",
+    message?: string,
   ) {
     const endpoint = yield* currentEndpoint;
     const ports = yield* RoutingBoundaryPorts;
     if (!ports.receipt) return yield* Effect.fail("Recipient acknowledgment unavailable.");
-    return yield* ports.receipt(endpoint, requestId, kind);
+    return yield* ports.receipt(endpoint, requestId, kind, message);
+  });
+
+  const replyToRoute = Effect.fn("RoutingBoundary.reply")(function* (
+    requestId: string,
+    replyId: string,
+    message: string,
+  ) {
+    const endpoint = yield* currentEndpoint;
+    const ports = yield* RoutingBoundaryPorts;
+    if (!ports.reply) return yield* Effect.fail("Route reply unavailable.");
+    return yield* ports.reply(endpoint, requestId, replyId, message);
   });
 
   const routingMode = Effect.gen(function* () {
@@ -197,6 +216,7 @@ export function makeRoutingBoundary<R>(currentEndpoint: Effect.Effect<RouteEndpo
     routeStatus,
     listRoutes,
     recipientReceipt,
+    replyToRoute,
     routingMode,
     claimTask,
     releaseTask,
@@ -207,6 +227,7 @@ export const {
   routeStatus,
   listRoutes,
   recipientReceipt,
+  replyToRoute,
   routingMode,
   claimTask,
   releaseTask,
