@@ -385,6 +385,29 @@ for (const [diagnostic, reason, message] of [
   );
 }
 
+it.effect("does not report shutdown after a failed boot left no session", () =>
+  Effect.gen(function* () {
+    const { service, requests } = yield* fixture(Effect.void, "Boot failed");
+    yield* service.configure({ enabled: true });
+    const threadId = ThreadId.make("failed-boot-shutdown");
+    yield* service
+      .open({ threadId, deviceId: "Pixel_API_35", platform: "android" })
+      .pipe(Effect.flip);
+    const error = yield* service
+      .close({ threadId, deviceId: "Pixel_API_35", shutdown: true })
+      .pipe(Effect.flip);
+    expect(error).toMatchObject({
+      _tag: "DeviceOperationError",
+      operation: "shutdown",
+      reason: "no_open_session",
+    });
+    expect(error.message).toContain("Shutdown was not attempted");
+    expect(requests.some((url) => url.endsWith("/shutdown"))).toBe(false);
+    yield* service.close({ threadId, deviceId: "Pixel_API_35" });
+    yield* service.close({ threadId, shutdown: true });
+  }).pipe(Effect.scoped),
+);
+
 it.effect("keeps shutdown successful when subsequent discovery fails", () =>
   Effect.gen(function* () {
     const { service } = yield* fixture(Effect.void, undefined, true);

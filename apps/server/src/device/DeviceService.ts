@@ -807,7 +807,15 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
           (input.hostId === undefined || session.hostId === input.hostId) &&
           (input.deviceId === undefined || session.deviceId === input.deviceId),
       );
-      if (closing.length === 0) return;
+      if (closing.length === 0) {
+        if (input.shutdown && input.deviceId !== undefined)
+          return yield* new DeviceOperationError({
+            operation: "shutdown",
+            reason: "no_open_session",
+            cause: "No matching device session; no shutdown command was sent.",
+          });
+        return;
+      }
       yield* publish((current) => ({
         ...current,
         sessions: current.sessions.filter((session) => !closing.includes(session)),
