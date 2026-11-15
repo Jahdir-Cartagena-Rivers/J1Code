@@ -317,6 +317,60 @@ layer("OrchestrationEventStore", (it) => {
   );
 });
 
+it.effect(
+  "filters command prefixes before decoding, preserving literal matching and paged cursors",
+  () =>
+    Effect.gen(function* () {
+      const store = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.make("filtered-replay");
+      const prefix = "route[?*]:";
+      const matching = yield* Effect.forEach(
+        Array.from({ length: 503 }, (_, index) => index),
+        (index) =>
+          store.append({
+            ...messageEvent(threadId, `filtered-${index}`),
+            commandId: CommandId.make(`${prefix}${index}`),
+          }),
+      );
+      const decoy = yield* store.append({
+        ...messageEvent(threadId, "unrelated"),
+        commandId: CommandId.make("routeX:anything:"),
+      });
+      // A targeted recovery must not hydrate unrelated payloads, even if a future
+      // reader could not decode them. The ordinary replay still reports corruption.
+      yield* sql`UPDATE orchestration_events SET payload_json = ${"{"} WHERE sequence = ${decoy.sequence}`;
+      const replay = yield* store
+        .readFromSequence(matching[0]!.sequence, 501, { commandIdPrefix: prefix })
+        .pipe(Stream.runCollect);
+      assert.deepEqual(
+        replay.map((event) => event.sequence),
+        matching.slice(1, 502).map((event) => event.sequence),
+      );
+      const tail = yield* store
+        .readFromSequence(replay.at(-1)!.sequence, 10, { commandIdPrefix: prefix })
+        .pipe(Stream.runCollect);
+      assert.deepEqual(
+        tail.map((event) => event.sequence),
+        [matching.at(-1)!.sequence],
+      );
+      assert.deepEqual(
+        yield* store
+          .readFromSequence(0, 10, { commandIdPrefix: "missing:" })
+          .pipe(Stream.runCollect),
+        [],
+      );
+      assert.equal(
+        (yield* store
+          .readFromSequence(decoy.sequence - 1, 1)
+          .pipe(Stream.runCollect, Effect.result))._tag,
+        "Failure",
+      );
+    }).pipe(
+      Effect.provide(OrchestrationEventStoreLive.pipe(Layer.provideMerge(SqlitePersistenceMemory))),
+    ),
+);
+
 for (const reader of ["all", "aggregate"] as const) {
   it.effect(`releases consumed pages during ${reader} replay`, () =>
     Effect.gen(function* () {

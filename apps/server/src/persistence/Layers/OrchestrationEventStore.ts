@@ -73,6 +73,7 @@ const HasEventAfterRequestSchema = Schema.Struct({
 const ReadFromSequenceRequestSchema = Schema.Struct({
   sequenceExclusive: NonNegativeInt,
   limit: Schema.Number,
+  commandIdPattern: Schema.optionalKey(Schema.String),
 });
 const AggregateReplayRequestSchema = Schema.Struct({
   aggregateKind: OrchestrationAggregateKind,
@@ -197,7 +198,12 @@ const makeEventStore = Effect.gen(function* () {
           payload_json AS "payload",
           metadata_json AS "metadata"
         FROM orchestration_events
-        WHERE sequence > ${request.sequenceExclusive}
+        WHERE ${sql.and([
+          sql`sequence > ${request.sequenceExclusive}`,
+          ...(request.commandIdPattern === undefined
+            ? []
+            : [sql`command_id GLOB ${request.commandIdPattern}`]),
+        ])}
         ORDER BY sequence ASC
         LIMIT ${request.limit}
       `,
@@ -287,17 +293,24 @@ const makeEventStore = Effect.gen(function* () {
   const readFromSequence: OrchestrationEventStoreShape["readFromSequence"] = (
     sequenceExclusive,
     limit = DEFAULT_READ_FROM_SEQUENCE_LIMIT,
+    filter,
   ) => {
     const normalizedLimit = Math.max(0, Math.floor(limit));
     if (normalizedLimit === 0) {
       return Stream.empty;
     }
+    // GLOB preserves case and lets SQLite use the existing command-id index.
+    const commandIdPattern = filter?.commandIdPrefix
+      .replaceAll("[", "[[]")
+      .replaceAll("*", "[*]")
+      .replaceAll("?", "[?]");
     return Stream.paginate(
       { cursor: sequenceExclusive, remaining: normalizedLimit },
       ({ cursor, remaining }) =>
         readEventRowsFromSequence({
           sequenceExclusive: cursor,
           limit: Math.min(remaining, READ_PAGE_SIZE),
+          ...(commandIdPattern === undefined ? {} : { commandIdPattern: `${commandIdPattern}*` }),
         }).pipe(
           Effect.mapError(
             toPersistenceSqlOrDecodeError(
