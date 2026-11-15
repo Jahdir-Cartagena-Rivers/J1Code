@@ -337,6 +337,14 @@ describe("searchSettings", () => {
     });
   });
 
+  it("opens the profiles controls rather than the browser section heading", () => {
+    expect(searchSettings("browser profiles")[0]).toMatchObject({
+      id: "browser-profiles",
+      to: "/settings/integrations",
+      targetId: "browser-profiles",
+    });
+  });
+
   it.each([
     ["default model", "default-model", "/settings/general"],
     ["new threads", "new-threads", "/settings/general"],

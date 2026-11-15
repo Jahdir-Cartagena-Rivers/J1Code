@@ -1,6 +1,6 @@
 # Settings and project overrides
 
-For native app testing, enable **Agent desktop access** in **Settings > Integrations**.
+For native app testing, search Settings for **Agent desktop access** and enable it.
 See [Desktop automation](desktop-automation.md) for accessibility targeting,
 screenshots, and which computer an agent operates.
 
@@ -58,6 +58,11 @@ Settings a repository can also declare in `t3.json`, such as the workspace for n
 resolve in one order: a project override, then the environment setting, then `t3.json`, then the
 built-in default. Leave a setting on **Inherit** to let the next tier decide.
 Browser access changes apply when an agent session next starts.
+
+**Background browser** selects Lightpanda for bots and project chats. Use **Bundled Lightpanda**
+for the included browser, **Custom executable** for a path on the selected server, or **Off**
+to disable it. A custom path applies when you finish editing it; choosing Custom alone keeps
+the saved browser active. Visual browser profiles keep separate cookies and sign-ins.
 
 New worktrees initialize git submodules recursively. If that step is slow because the repository
 declares many nested submodules, set **Submodules** in **Settings → General** (with the project

@@ -1,7 +1,7 @@
 # Desktop automation
 
-Enable **Agent desktop access** in **Settings > Integrations**, then start a new
-agent session. Projects can override the environment default. Turn it off and
+In Settings, search for **Agent desktop access** or open **Browser, desktop & devices**,
+then enable it and start a new agent session. Projects can override the environment default. Turn it off and
 start a new session to withdraw access.
 Existing visual computer integrations retain their own permissions.
 

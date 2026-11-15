@@ -50,6 +50,28 @@ export async function patchMausbotSource(stage: string) {
     "export interface ConfigStatus {\n  j1Managed?: boolean;",
   );
   await change("src/state/store.tsx", '  "xai" | "mistral"', '  "j1Managed" | "xai" | "mistral"');
+  // Managed J1 sessions use Lightpanda. Upstream Chrome switches and profiles
+  // cannot affect that backend; keep their saved values for standalone imports.
+  await change(
+    "src/components/BrowserSettingsRows.tsx",
+    "  if (on === undefined || owner !== true || !builtInBrowserEnabled(state.config)) return null;",
+    "  if (state.config?.j1Managed || on === undefined || owner !== true || !builtInBrowserEnabled(state.config)) return null;",
+  );
+  await change(
+    "src/components/BrowserSettingsRows.tsx",
+    '  const on = state.config?.browserEngine?.engine === "chrome";\n  const { saving, error, save } = useConfigSave();',
+    '  const on = state.config?.browserEngine?.engine === "chrome";\n  const { saving, error, save } = useConfigSave();\n  if (state.config?.j1Managed) return null;',
+  );
+  await change(
+    "src/components/AppSettingsRows.tsx",
+    "  if (!builtInBrowserEnabled(state.config) && profiles.length === 0) return null;",
+    "  if (state.config?.j1Managed || (!builtInBrowserEnabled(state.config) && profiles.length === 0)) return null;",
+  );
+  await change(
+    "src/components/BrowserSettingsRows.tsx",
+    "  const { saving, error, save } = useConfigSave();\n\n  return (\n    <SettingRow",
+    "  const { saving, error, save } = useConfigSave();\n  if (state.config?.j1Managed) return null;\n\n  return (\n    <SettingRow",
+  );
   await change(
     "src/state/store.tsx",
     "    ...(frame.cloudHome ? { cloudHome: true } : {}),",
@@ -648,7 +670,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
   await change(
     "src/components/SettingsModal.tsx",
     "            <LicenseExpiryBanner config={state.config} />\n            {renderSection(section)}",
-    '            {j1Path === "/settings/appearance" && <J1SettingsSlot />}\n            {(!j1Path || Boolean(j1SettingsSection(j1Path))) && !(j1Navigation && section === "companion") && <><LicenseExpiryBanner config={state.config} />{renderSection(section)}</>}\n            {j1Path === "/settings/keybindings" && <><TalkShortcutRow /><SendKeyRow /></>}\n            {j1Path && j1Path !== "/settings/appearance" && !(j1Path === "/settings/providers" && j1Navigation?.providers) && <J1SettingsSlot />}',
+    '            {(j1Path === "/settings/appearance" || j1Path === "/settings/integrations") && <J1SettingsSlot />}\n            {(!j1Path || Boolean(j1SettingsSection(j1Path))) && !(j1Navigation && section === "companion") && <><LicenseExpiryBanner config={state.config} />{renderSection(section)}</>}\n            {j1Path === "/settings/keybindings" && <><TalkShortcutRow /><SendKeyRow /></>}\n            {j1Path && j1Path !== "/settings/appearance" && j1Path !== "/settings/integrations" && !(j1Path === "/settings/providers" && j1Navigation?.providers) && <J1SettingsSlot />}',
   );
   await change(
     "src/components/SettingsModal.tsx",

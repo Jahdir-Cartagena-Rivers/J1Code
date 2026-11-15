@@ -35,7 +35,7 @@ export const j1SettingsPath = (section: AppSettingsSection) =>
   Object.entries(sections).find(([, value]) => value === section)?.[0];
 export const j1SettingsLabel = (section: AppSettingsSection, original: string) =>
   section === "computer"
-    ? "Browser & devices"
+    ? "Browser, desktop & devices"
     : section === "backups"
       ? "Storage & backups"
       : original;

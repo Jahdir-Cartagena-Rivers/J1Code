@@ -1428,21 +1428,73 @@ function BrowserProfilesSetting({ disabled }: { readonly disabled: boolean }) {
 function LightpandaSetting() {
   const path = useScopedSettings((settings) => settings.lightpandaExecutablePath);
   const update = useUpdateScopedSettings();
+  const [editingCustom, setEditingCustom] = useState(false);
+  const [customError, setCustomError] = useState("");
+  const configuredMode = !path.trim()
+    ? "bundled"
+    : path.trim().toLowerCase() === "disabled"
+      ? "disabled"
+      : "custom";
+  const mode = editingCustom ? "custom" : configuredMode;
+  const labels = { bundled: "Bundled Lightpanda", custom: "Custom executable", disabled: "Off" };
   return (
     <SettingsRow
       serverScoped
       settingKeys={["lightpandaExecutablePath"]}
       id="lightpanda-background-browser"
       title="Background browser"
-      description="Use native Lightpanda for agent research and page automation. Leave blank to use the bundled browser, enter a custom executable path on the connected server, or enter disabled to turn it off. The visual browser keeps its own profiles."
+      description="Lightpanda handles web research and page automation for bots and project chats on this server. The visual browser is separate and keeps its own sign-in profiles."
     >
-      <DraftInput
-        nativeInput
-        aria-label="Lightpanda executable path"
-        value={path}
-        maxLength={4096}
-        onCommit={(value) => update({ lightpandaExecutablePath: value.trim() })}
-      />
+      <div className="flex w-full flex-col gap-2 sm:max-w-96">
+        <Select
+          value={mode}
+          onValueChange={(value) => {
+            if (value !== "bundled" && value !== "custom" && value !== "disabled") return;
+            setCustomError("");
+            setEditingCustom(value === "custom");
+            if (value !== "custom")
+              update({ lightpandaExecutablePath: value === "disabled" ? "disabled" : "" });
+          }}
+        >
+          <SelectTrigger size="sm" aria-label="Background browser">
+            <SelectValue>{labels[mode]}</SelectValue>
+          </SelectTrigger>
+          <SelectPopup align="end" alignItemWithTrigger={false}>
+            <SelectItem value="bundled">Bundled Lightpanda</SelectItem>
+            <SelectItem value="custom">Custom executable</SelectItem>
+            <SelectItem value="disabled">Off</SelectItem>
+          </SelectPopup>
+        </Select>
+        {mode === "custom" && (
+          <DraftInput
+            nativeInput
+            aria-label="Lightpanda executable path"
+            value={configuredMode === "custom" ? path : ""}
+            placeholder="Executable path on this server"
+            maxLength={4096}
+            onCommit={(value) => {
+              const next = value.trim();
+              if (!next || next.toLowerCase() === "disabled") {
+                setCustomError("Enter an executable path, or select Bundled Lightpanda or Off.");
+                return;
+              }
+              setCustomError("");
+              update({ lightpandaExecutablePath: next });
+              setEditingCustom(false);
+            }}
+          />
+        )}
+        {customError && (
+          <p role="alert" className="text-xs text-destructive">
+            {customError}
+          </p>
+        )}
+        {editingCustom && configuredMode !== "custom" && (
+          <p className="text-xs text-muted-foreground">
+            Enter a path to apply the custom browser. The saved browser stays active until then.
+          </p>
+        )}
+      </div>
     </SettingsRow>
   );
 }
