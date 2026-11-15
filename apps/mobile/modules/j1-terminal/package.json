@@ -1,0 +1,17 @@
+{
+  "name": "@j1code/mobile-terminal-native",
+  "version": "0.0.0",
+  "private": true,
+  "expo-module": {
+    "ios": {
+      "modules": [
+        "J1TerminalModule"
+      ]
+    },
+    "android": {
+      "modules": [
+        "expo.modules.j1terminal.J1TerminalModule"
+      ]
+    }
+  }
+}

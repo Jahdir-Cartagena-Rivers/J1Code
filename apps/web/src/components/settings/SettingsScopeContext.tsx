@@ -1,5 +1,5 @@
-import { T3_PROJECT_FILE_NAME, type T3ProjectFile } from "@j1code/contracts";
-import { parseT3ProjectFile } from "@j1code/shared/t3ProjectFile";
+import { J1_PROJECT_FILE_NAME, type J1ProjectFile } from "@j1code/contracts";
+import { parseJ1ProjectFile } from "@j1code/shared/j1ProjectFile";
 import { useAtomValue } from "@effect/atom-react";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
@@ -23,13 +23,13 @@ function useMemberProjectFiles(scope: ReturnType<typeof resolveSettingsScope>) {
     useMemo(
       () =>
         Atom.make((get) => {
-          const files = new Map<string, T3ProjectFile | null>();
+          const files = new Map<string, J1ProjectFile | null>();
           for (const member of members) {
             const result = get(
               getProjectFileQueryAtom(
                 member.environmentId,
                 member.workspaceRoot,
-                T3_PROJECT_FILE_NAME,
+                J1_PROJECT_FILE_NAME,
               ),
             );
             if (result.waiting) continue;
@@ -39,12 +39,12 @@ function useMemberProjectFiles(scope: ReturnType<typeof resolveSettingsScope>) {
                 optimisticFileAtom(
                   member.environmentId,
                   member.workspaceRoot,
-                  T3_PROJECT_FILE_NAME,
+                  J1_PROJECT_FILE_NAME,
                 ),
               )?.data ?? Option.getOrNull(AsyncResult.value(result));
             files.set(
               member.physicalProjectKey,
-              data === null || data.truncated ? null : parseT3ProjectFile(data.contents),
+              data === null || data.truncated ? null : parseJ1ProjectFile(data.contents),
             );
           }
           return files;

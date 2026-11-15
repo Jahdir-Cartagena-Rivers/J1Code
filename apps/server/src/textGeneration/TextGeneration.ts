@@ -107,7 +107,7 @@ export class TextGeneration extends Context.Service<
       input: ThreadTitleGenerationInput,
     ) => Effect.Effect<ThreadTitleGenerationResult, TextGenerationError>;
   }
->()("t3/textGeneration/TextGeneration") {}
+>()("@j1code/server/textGeneration/TextGeneration") {}
 
 type TextGenerationOp =
   | "generateCommitMessage"

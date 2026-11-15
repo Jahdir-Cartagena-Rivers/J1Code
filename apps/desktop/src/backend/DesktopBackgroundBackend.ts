@@ -99,7 +99,7 @@ export async function readBackgroundRecord(baseDir: string): Promise<BackgroundR
 // still counts as alive so we never risk starting beside an orphaned server.
 async function isRecordedProcessAlive(pid: number, executablePath: string): Promise<boolean> {
   if (!isProcessAlive(pid)) return false;
-  // oxlint-disable-next-line t3code/no-global-process-runtime -- Detached host inspection runs outside Effect.
+  // oxlint-disable-next-line j1code/no-global-process-runtime -- Detached host inspection runs outside Effect.
   if (NodeOS.platform() !== "win32") return true;
   try {
     const name = await new Promise<string>((resolve, reject) => {
@@ -271,7 +271,7 @@ export async function runBackgroundHost(raw: string) {
     if (!child || child.pid === undefined || child.exitCode !== null || stopping) return;
     stopping = true;
     // Only the child handle captured by this host is ever terminated, never a PID read from disk.
-    // oxlint-disable-next-line t3code/no-global-process-runtime -- Detached host runs outside the desktop Effect runtime.
+    // oxlint-disable-next-line j1code/no-global-process-runtime -- Detached host runs outside the desktop Effect runtime.
     if (NodeOS.platform() === "win32") {
       await new Promise<void>((resolve, reject) => {
         const killer = NodeChildProcess.spawn(

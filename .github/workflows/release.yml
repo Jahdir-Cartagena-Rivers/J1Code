@@ -296,7 +296,7 @@ jobs:
           sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config build-essential
 
       - name: Test
-        run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@j1code/monorepo' test
+        run: vp run --parallel --concurrency-limit 4 --filter '!@j1code/server' --filter '!@j1code/monorepo' test
 
   test_server:
     name: Release server tests ${{ matrix.shard }}
@@ -329,7 +329,7 @@ jobs:
       # and none of its tests touch the runtime. Only the non-server `test`
       # job, which covers @j1code/desktop, needs the download.
       - name: Test
-        run: vp run --filter t3 test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
+        run: vp run --filter @j1code/server test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
 
   relay_public_config:
     name: Resolve J1 Connect public config
@@ -487,7 +487,7 @@ jobs:
       - name: Install bundle dependencies
         env:
           pnpm_config_cache_dir: ${{ runner.temp }}/pnpm-metadata
-        run: vp install --filter=t3... --filter=@j1code/web... --filter=@j1code/desktop... --filter=@j1code/scripts...
+        run: vp install --filter=@j1code/server... --filter=@j1code/web... --filter=@j1code/desktop... --filter=@j1code/scripts...
 
       - name: Download relay client tracing config
         uses: actions/download-artifact@v8
@@ -513,7 +513,7 @@ jobs:
       - name: Install browser secret helper build libraries
         run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
 
-      # Runs t3#build (which depends on @j1code/web#build) and
+      # Runs @j1code/server#build (which depends on @j1code/web#build) and
       # @j1code/desktop#build, so apps/server/dist holds the server bundle
       # plus the web client and apps/desktop/dist-electron the Electron main.
       - name: Build JS bundle
@@ -725,7 +725,7 @@ jobs:
           cache: true
           run-install: |
             args:
-              - --filter=t3...
+              - --filter=@j1code/server...
               - --filter=@j1code/scripts...
 
       - name: Download all CLI archives
@@ -1164,7 +1164,7 @@ jobs:
           run-install: |
             args:
               - --filter=@j1code/scripts...
-              - --filter=@j1code/oxlint-plugin-t3code...
+              - --filter=@j1code/oxlint-plugin-j1code...
 
       - id: update_versions
         name: Update version strings

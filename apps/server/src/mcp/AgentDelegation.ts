@@ -93,7 +93,7 @@ export class AgentDelegation extends Context.Service<
       invocation: McpInvocationScope,
     ) => Effect.Effect<AgentDelegationResult, AgentDelegationError>;
   }
->()("t3/mcp/AgentDelegation") {}
+>()("@j1code/server/mcp/AgentDelegation") {}
 
 const make = Effect.gen(function* () {
   const engine = yield* OrchestrationEngineService;

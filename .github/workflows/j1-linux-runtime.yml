@@ -45,7 +45,7 @@ jobs:
             node scripts/update-release-package-versions.ts "$J1_RELEASE_VERSION"
           fi
       - name: Build J1 server and web client
-        run: vp run --filter t3 build
+        run: vp run --filter @j1code/server build
       - name: Build resource monitor
         run: cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml
       - name: Build Linux executable

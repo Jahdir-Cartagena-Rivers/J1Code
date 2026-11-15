@@ -1,0 +1,17 @@
+{
+  "name": "@j1code/mobile-review-diff-native",
+  "version": "0.0.0",
+  "private": true,
+  "expo-module": {
+    "ios": {
+      "modules": [
+        "J1ReviewDiffModule"
+      ]
+    },
+    "android": {
+      "modules": [
+        "expo.modules.j1reviewdiff.J1ReviewDiffModule"
+      ]
+    }
+  }
+}

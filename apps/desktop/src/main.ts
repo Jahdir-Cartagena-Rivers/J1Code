@@ -17,7 +17,7 @@ import * as Electron from "electron";
 
 import * as NetService from "@j1code/shared/Net";
 import { HostProcessArchitecture, HostProcessPlatform } from "@j1code/shared/hostProcess";
-import type { RemoteT3RunnerOptions } from "@j1code/ssh/tunnel";
+import type { RemoteJ1RunnerOptions } from "@j1code/ssh/tunnel";
 import serverPackageJson from "../../server/package.json" with { type: "json" };
 
 import * as DesktopIpc from "./ipc/DesktopIpc.ts";
@@ -92,8 +92,8 @@ const desktopEnvironmentLayer = Layer.unwrap(
 // a source checkout instead so the two sides can be iterated together.
 const resolveDesktopSshCliRunner = (
   environment: DesktopEnvironment.DesktopEnvironment["Service"],
-): RemoteT3RunnerOptions => {
-  const devRemoteEntryPath = Option.getOrUndefined(environment.devRemoteT3ServerEntryPath);
+): RemoteJ1RunnerOptions => {
+  const devRemoteEntryPath = Option.getOrUndefined(environment.devRemoteJ1ServerEntryPath);
   if (environment.isDevelopment && devRemoteEntryPath !== undefined) {
     return {
       nodeScriptPath: devRemoteEntryPath,

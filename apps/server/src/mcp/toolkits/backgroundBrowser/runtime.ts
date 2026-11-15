@@ -23,7 +23,7 @@ export class BackgroundBrowser extends Context.Service<
     readonly close: (sessionId: string) => Effect.Effect<boolean>;
     readonly openThread: (threadId: string, executable: string) => Effect.Effect<void, string>;
   }
->()("t3/mcp/toolkits/backgroundBrowser/runtime/BackgroundBrowser") {}
+>()("@j1code/server/mcp/toolkits/backgroundBrowser/runtime/BackgroundBrowser") {}
 
 export const BackgroundBrowserLive = Layer.effect(
   BackgroundBrowser,

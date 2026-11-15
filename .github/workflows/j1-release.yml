@@ -84,7 +84,7 @@ jobs:
           cache: false
           run-install: false
       - name: Install locked build dependencies
-        run: vp install --frozen-lockfile --filter=@j1code/desktop... --filter=t3... --filter=@j1code/scripts...
+        run: vp install --frozen-lockfile --filter=@j1code/desktop... --filter=@j1code/server... --filter=@j1code/scripts...
       - name: Align build versions
         run: node scripts/update-release-package-versions.ts "$env:J1_RELEASE_VERSION"
       - name: Test native archive extraction
@@ -144,7 +144,7 @@ jobs:
           node-version-file: package.json
           cache: true
           run-install: false
-      - run: vp install --frozen-lockfile --filter=t3...
+      - run: vp install --frozen-lockfile --filter=@j1code/server...
       - uses: actions/download-artifact@v4
         with:
           name: j1-windows-update

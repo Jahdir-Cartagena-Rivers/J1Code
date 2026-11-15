@@ -1,4 +1,4 @@
-import { EnvironmentId, type T3ProjectFileScript } from "@j1code/contracts";
+import { EnvironmentId, type J1ProjectFileScript } from "@j1code/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -6,7 +6,7 @@ import {
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@j1code/shared/keybindings";
 import { ChevronDownIcon, PlusIcon } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
-import { useT3ProjectFileState } from "../../hooks/useT3ProjectFileScripts";
+import { useJ1ProjectFileState } from "../../hooks/useJ1ProjectFileScripts";
 import { useEnvironments } from "../../state/environments";
 import {
   EMPTY_PROJECT_SCRIPT_INPUT,
@@ -88,7 +88,7 @@ export function ProjectActionsSettings() {
   // A project's t3.json can declare actions to import. Read it from the
   // representative checkout; the imported action still fans out.
   const representativeMember = target?.projectId ? memberById.get(target.projectId) : undefined;
-  const t3File = useT3ProjectFileState(
+  const t3File = useJ1ProjectFileState(
     representativeMember?.environmentId ?? EnvironmentId.make("none"),
     representativeMember?.workspaceRoot ?? null,
   );
@@ -105,7 +105,7 @@ export function ProjectActionsSettings() {
     [scripts, t3File.scripts],
   );
   const importFileScript = useCallback(
-    async (fileScript: T3ProjectFileScript) => {
+    async (fileScript: J1ProjectFileScript) => {
       const payload: NewProjectScriptInput = {
         name: fileScript.name,
         command: fileScript.command,

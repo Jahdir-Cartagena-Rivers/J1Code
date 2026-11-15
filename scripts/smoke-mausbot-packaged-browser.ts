@@ -15,7 +15,7 @@ const resources = await resolveMausbotResources(
   NodePath.join(sandbox, "cache"),
 );
 const runtime = new MausbotRuntime({
-  // oxlint-disable-next-line t3code/no-global-process-runtime -- Standalone host runtime smoke.
+  // oxlint-disable-next-line j1code/no-global-process-runtime -- Standalone host runtime smoke.
   platform: process.platform,
   resources,
   dataDir: NodePath.join(sandbox, "state"),

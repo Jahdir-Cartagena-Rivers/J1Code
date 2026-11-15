@@ -52,7 +52,7 @@ export class ExternalRouteEndpoints extends Context.Service<
     readonly wake: Effect.Effect<void>;
     readonly subscribe: Effect.Effect<Stream.Stream<void>, never, import("effect/Scope").Scope>;
   }
->()("t3/routing/ExternalRouteEndpoints") {
+>()("@j1code/server/routing/ExternalRouteEndpoints") {
   static readonly layer = Layer.effect(
     ExternalRouteEndpoints,
     Effect.gen(function* () {

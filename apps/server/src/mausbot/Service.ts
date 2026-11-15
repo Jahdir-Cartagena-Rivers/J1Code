@@ -71,7 +71,7 @@ export class MausbotService extends Context.Service<
     ) => Effect.Effect<{ relativeUrl: string }, string>;
     readonly authorizeView: (key: string) => Effect.Effect<boolean>;
   }
->()("t3/mausbot/Service/MausbotService") {
+>()("@j1code/server/mausbot/Service/MausbotService") {
   static readonly layer = Layer.effect(
     MausbotService,
     Effect.gen(function* () {

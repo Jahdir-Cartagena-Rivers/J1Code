@@ -22,7 +22,7 @@ it.each(["ios", "android"])("uses the registered native voice module on %s", asy
   const bridge = { speak: vi.fn() };
   mocks.resolve.mockReturnValue(bridge);
   expect((await import("./botVoice")).botVoice).toBe(bridge);
-  expect(mocks.resolve).toHaveBeenCalledWith("T3BotVoice");
+  expect(mocks.resolve).toHaveBeenCalledWith("J1BotVoice");
 });
 it("does not resolve the native module on unsupported platforms", async () => {
   mocks.os = "web";

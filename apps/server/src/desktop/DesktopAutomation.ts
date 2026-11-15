@@ -72,7 +72,7 @@ export class DesktopAutomation extends Context.Service<
       DesktopToolError
     >;
   }
->()("t3/desktop/DesktopAutomation") {}
+>()("@j1code/server/desktop/DesktopAutomation") {}
 
 export const layer = Layer.effect(
   DesktopAutomation,

@@ -1,5 +1,5 @@
 {
-  "name": "t3",
+  "name": "@j1code/server",
   "version": "1.10.0",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
@@ -8,6 +8,7 @@
     "directory": "apps/server"
   },
   "bin": {
+    "j1": "./dist/bin.mjs",
     "t3": "./dist/bin.mjs"
   },
   "files": [

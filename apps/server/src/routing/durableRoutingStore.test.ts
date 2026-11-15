@@ -27,7 +27,7 @@ const request: RouteRequest = {
   initiation: "manual",
 };
 // Explicit runtime lifetimes exercise SQLite close/reopen crash recovery against the same file.
-// eslint-disable-next-line t3code/no-manual-effect-runtime-in-tests
+// eslint-disable-next-line j1code/no-manual-effect-runtime-in-tests
 const runtime = (path: string) => ManagedRuntime.make(NodeSqliteClient.layer({ filename: path }));
 
 describe("durable routing store", () => {

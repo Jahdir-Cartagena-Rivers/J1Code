@@ -1,7 +1,7 @@
 import { ChatGptUsageLimitNotice } from "./ChatGptUsageLimitNotice";
 import { resolveAutoModelPolicy } from "@j1code/shared/projectSettings";
 import { useComposerDraft } from "../../state/use-composer-drafts";
-import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
+import type { ComposerTextPaste } from "../../native/J1ComposerEditor.types";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { useAtomValue } from "@effect/atom-react";
 import { clampFileAttachmentUploadBytes } from "@j1code/client-runtime/state/attachments";
@@ -15,7 +15,7 @@ import {
   type OrchestrationThreadShell,
   type ProviderInteractionMode,
   type RuntimeMode,
-  type ServerConfig as T3ServerConfig,
+  type ServerConfig as J1ServerConfig,
   type UsageLimitsReport,
 } from "@j1code/contracts";
 import {
@@ -135,7 +135,7 @@ export interface ThreadComposerProps {
   readonly environmentLabel: string | null;
   readonly selectedThread: OrchestrationThreadShell;
   readonly hasCompactableConversation: boolean;
-  readonly serverConfig: T3ServerConfig | null;
+  readonly serverConfig: J1ServerConfig | null;
   readonly queueCount: number;
   readonly environmentId: EnvironmentId;
   readonly projectCwd: string | null;

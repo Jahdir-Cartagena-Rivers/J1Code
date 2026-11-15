@@ -57,7 +57,7 @@ jobs:
           run-install: false
 
       - name: Install bundle dependencies
-        run: vp install --filter=t3... --filter=@j1code/web... --filter=@j1code/desktop... --filter=@j1code/scripts...
+        run: vp install --filter=@j1code/server... --filter=@j1code/web... --filter=@j1code/desktop... --filter=@j1code/scripts...
 
       # The publish workflow derives the same version from this run's number,
       # so the version baked into the bundle matches the packaged app.

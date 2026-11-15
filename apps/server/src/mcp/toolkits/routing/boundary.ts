@@ -85,7 +85,7 @@ export interface RoutingPorts {
   readonly list: (endpoint: RouteEndpoint) => Effect.Effect<readonly RouteState[], string>;
 }
 export class RoutingBoundaryPorts extends Context.Service<RoutingBoundaryPorts, RoutingPorts>()(
-  "t3/mcp/toolkits/routing/boundary/RoutingBoundaryPorts",
+  "@j1code/server/mcp/toolkits/routing/boundary/RoutingBoundaryPorts",
 ) {}
 
 const same = (a: RouteEndpoint, b: RouteEndpoint) =>

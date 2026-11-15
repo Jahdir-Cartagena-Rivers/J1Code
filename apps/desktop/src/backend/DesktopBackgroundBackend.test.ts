@@ -26,7 +26,7 @@ describe("desktop background backend", () => {
   it.each(["unrelated", "matching", "unknown"] as const)(
     "handles a dead host with a %s process reusing the server PID",
     async (identity) => {
-      // oxlint-disable-next-line t3code/no-global-process-runtime -- Exercises Windows PID reuse.
+      // oxlint-disable-next-line j1code/no-global-process-runtime -- Exercises Windows PID reuse.
       if (NodeOS.platform() !== "win32") return;
       const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-reused-pid-"));
       const alive = vi.spyOn(process, "kill").mockImplementation((pid) => {
@@ -89,7 +89,7 @@ describe("desktop background backend", () => {
   ] as const)(
     "%s launch preserves or replaces the owned runtime without a second writer",
     async (scenario) => {
-      // oxlint-disable-next-line t3code/no-global-process-runtime -- This fixture exercises Windows named pipes.
+      // oxlint-disable-next-line j1code/no-global-process-runtime -- This fixture exercises Windows named pipes.
       if (NodeOS.platform() !== "win32") return;
       const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-background-upgrade-"));
       const sourceRuntimeDir = NodePath.join(root, "app");
@@ -335,7 +335,7 @@ describe("desktop background backend", () => {
 
   it("uses an authenticated local control request and rejects malformed replies", async () => {
     const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-background-control-"));
-    // oxlint-disable-next-line t3code/no-global-process-runtime -- This test exercises actual Windows named pipes.
+    // oxlint-disable-next-line j1code/no-global-process-runtime -- This test exercises actual Windows named pipes.
     const isWindows = NodeOS.platform() === "win32";
     const pipe = isWindows ? backgroundPipe(root) : NodePath.join(root, "control.sock");
     if (!isWindows) {

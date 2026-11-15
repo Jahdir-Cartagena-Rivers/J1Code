@@ -27,7 +27,7 @@ export class HiveMindService extends Context.Service<
       project?: string,
     ) => Effect.Effect<typeof HiveMindSearchResult.Type, HiveMindError>;
   }
->()("t3/hiveMind/HiveMindService") {
+>()("@j1code/server/hiveMind/HiveMindService") {
   static readonly layer = Layer.effect(
     HiveMindService,
     Effect.gen(function* () {

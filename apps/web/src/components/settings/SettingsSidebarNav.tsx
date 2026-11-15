@@ -63,14 +63,14 @@ const SnapShotIcon = createLucideIcon("snap-shot", [
   ["circle", { cx: "12", cy: "12", r: "1.5", key: "lens" }],
 ]);
 
-const T3ConnectSidebarSignIn = lazy(() =>
-  import("../clerk/T3ConnectSidebarSignIn").then((module) => ({
-    default: module.T3ConnectSidebarSignIn,
+const J1ConnectSidebarSignIn = lazy(() =>
+  import("../clerk/J1ConnectSidebarSignIn").then((module) => ({
+    default: module.J1ConnectSidebarSignIn,
   })),
 );
-const T3ConnectSidebarAvatar = lazy(() =>
-  import("../clerk/T3ConnectSidebarSignIn").then((module) => ({
-    default: module.T3ConnectSidebarAvatar,
+const J1ConnectSidebarAvatar = lazy(() =>
+  import("../clerk/J1ConnectSidebarSignIn").then((module) => ({
+    default: module.J1ConnectSidebarAvatar,
   })),
 );
 
@@ -351,14 +351,14 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
       </SidebarContent>
       <SidebarFooter>
         <Suspense fallback={null}>
-          <T3ConnectSidebarSignIn />
+          <J1ConnectSidebarSignIn />
         </Suspense>
         <div className="flex items-center gap-1">
           <div className="min-w-0 flex-1">
             <SidebarUtilityMenu />
           </div>
           <Suspense fallback={null}>
-            <T3ConnectSidebarAvatar />
+            <J1ConnectSidebarAvatar />
           </Suspense>
         </div>
       </SidebarFooter>

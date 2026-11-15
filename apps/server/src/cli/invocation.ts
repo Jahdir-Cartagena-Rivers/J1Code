@@ -42,15 +42,15 @@ function detectCliRunner(entryPath: string): CliRunner | null {
  * from the running version: nightly builds re-suggest the nightly channel,
  * anything else suggests the bare package.
  */
-function suggestedPackageSpec(version: string): string {
+function suggestedPackageSpec(version: string, packageName: string): string {
   const channel = /^[^-+]+-(nightly|preview)\./.exec(version)?.[1];
-  return channel === undefined ? "t3" : `t3@${channel}`;
+  return channel === undefined ? packageName : `${packageName}@${channel}`;
 }
 
 /**
- * Render a `t3 <subcommand>` suggestion that matches how this process was
+ * Render a `j1 <subcommand>` suggestion that matches how this process was
  * launched, so copy/pasting it actually works: `npx t3 connect` suggests
- * `npx t3 serve`, a global install suggests `t3 serve`, and a nightly build
+ * `npx t3 serve`, a global install suggests `j1 serve`, and a nightly build
  * keeps the `@nightly` tag.
  */
 export function formatCliCommand(input: {
@@ -59,10 +59,15 @@ export function formatCliCommand(input: {
   readonly version: string;
 }): string {
   const runner = detectCliRunner(input.entryPath);
+  const entryPath = input.entryPath.replaceAll("\\", "/");
+  // Existing npm packages and archive launchers keep their executable names.
+  const legacyPackage = /(?:\/node_modules\/t3\/|\/cache\/t3@)/.test(entryPath);
+  const command = legacyPackage || /(?:^|\/)t3(?:\.exe)?$/.test(entryPath) ? "t3" : "j1";
   if (runner === null) {
-    return `t3 ${input.subcommand}`;
+    return `${command} ${input.subcommand}`;
   }
-  return `${runner} ${suggestedPackageSpec(input.version)} ${input.subcommand}`;
+  const packageName = legacyPackage ? "t3" : packageJson.name;
+  return `${runner} ${suggestedPackageSpec(input.version, packageName)} ${input.subcommand}`;
 }
 
 /** `formatCliCommand` against this process's real entry path and version. */

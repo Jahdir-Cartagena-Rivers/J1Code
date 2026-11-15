@@ -14,7 +14,7 @@ type BotVoiceModule = {
 };
 const module =
   Platform.OS === "android" || Platform.OS === "ios"
-    ? requireOptionalNativeModule<BotVoiceModule>("T3BotVoice")
+    ? requireOptionalNativeModule<BotVoiceModule>("J1BotVoice")
     : null;
 /** Older native clients remain usable but cannot offer bot voice until updated. */
 export const botVoice = typeof module?.speak === "function" ? module : null;

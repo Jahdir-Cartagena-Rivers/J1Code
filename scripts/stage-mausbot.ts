@@ -12,7 +12,7 @@ const repository = "https://github.com/milind-soni/OpenMausBot.git";
 const ownRoot = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "..");
 
 /** A locked OSS source build; no Docker, enterprise payload or Chromium preparation step. */
-// oxlint-disable-next-line t3code/no-global-process-runtime -- This standalone Node builder also runs without an Effect runtime.
+// oxlint-disable-next-line j1code/no-global-process-runtime -- This standalone Node builder also runs without an Effect runtime.
 const hostPlatform = process.platform;
 
 export async function stageMausbot(

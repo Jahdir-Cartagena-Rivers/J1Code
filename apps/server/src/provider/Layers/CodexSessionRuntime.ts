@@ -43,7 +43,7 @@ import { expandHomePath } from "../../pathExpansion.ts";
 import {
   buildCodexAdditionalContext,
   buildCodexDeveloperInstructions,
-  type T3CodeToolAvailability,
+  type J1CodeToolAvailability,
 } from "../CodexDeveloperInstructions.ts";
 const decodeV2TurnStartResponse = Schema.decodeUnknownEffect(EffectCodexSchema.V2TurnStartResponse);
 
@@ -74,7 +74,7 @@ export function hasConfiguredMcpServer(appServerArgs: ReadonlyArray<string> | un
 function configuredMcpToolAvailability(
   appServerArgs: ReadonlyArray<string> | undefined,
   mcpCapabilities: ReadonlySet<string> | undefined,
-): T3CodeToolAvailability {
+): J1CodeToolAvailability {
   if (!hasConfiguredMcpServer(appServerArgs)) return { browser: false, device: false };
   // Callers predating the capability set attached the browser toolkit only.
   if (mcpCapabilities === undefined) return { browser: true, device: false };
@@ -612,7 +612,7 @@ function buildCodexTurnInstructions(input: {
   readonly model?: string;
   readonly modelName?: string;
   readonly effort?: EffectCodexSchema.V2TurnStartParams__ReasoningEffort;
-  readonly browserToolsAvailable?: boolean | T3CodeToolAvailability;
+  readonly browserToolsAvailable?: boolean | J1CodeToolAvailability;
 }): Pick<CodexTurnStartParamsWithCollaborationMode, "collaborationMode" | "additionalContext"> {
   if (input.interactionMode === undefined) {
     return {};
@@ -654,7 +654,7 @@ export function buildTurnStartParams(input: {
   readonly effort?: EffectCodexSchema.V2TurnStartParams__ReasoningEffort;
   readonly interactionMode?: ProviderInteractionMode;
   /** Defaults to true so callers that predate the agent-access gate are unchanged. */
-  readonly browserToolsAvailable?: boolean | T3CodeToolAvailability;
+  readonly browserToolsAvailable?: boolean | J1CodeToolAvailability;
 }): Effect.Effect<
   CodexTurnStartParamsWithCollaborationMode,
   CodexErrors.CodexAppServerProtocolParseError

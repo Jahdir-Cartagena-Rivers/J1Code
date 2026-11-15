@@ -1,5 +1,5 @@
 import { composerSendContent } from "./composerSendContent";
-import type { ComposerTextPaste } from "../native/T3ComposerEditor.types";
+import type { ComposerTextPaste } from "../native/J1ComposerEditor.types";
 import { resolveAutoModelPolicy } from "@j1code/shared/projectSettings";
 import { useAtomValue } from "@effect/atom-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

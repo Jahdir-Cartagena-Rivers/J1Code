@@ -77,7 +77,7 @@ if (import.meta.main) {
       if (child.exitCode !== null) return;
       // Windows cannot deliver POSIX signals through this wrapper. Stop only the
       // captured dev-runner tree; never match other J1 processes by name or path.
-      // oxlint-disable-next-line t3code/no-global-process-runtime -- Standalone Node launcher owns its captured process tree.
+      // oxlint-disable-next-line j1code/no-global-process-runtime -- Standalone Node launcher owns its captured process tree.
       if (process.platform === "win32" && child.pid) {
         NodeChildProcess.spawnSync("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], {
           windowsHide: true,

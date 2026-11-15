@@ -24,10 +24,10 @@ type IOSLiveDictationModule = {
 
 const nativeModule =
   Platform.OS === "ios"
-    ? requireOptionalNativeModule<IOSLiveDictationModule>("T3LiveDictation")
+    ? requireOptionalNativeModule<IOSLiveDictationModule>("J1LiveDictation")
     : null;
 
-/** Null on old binaries; rebuild after registering T3LiveDictationModule. */
+/** Null on old binaries; rebuild after registering J1LiveDictationModule. */
 export const iosLiveDictation =
   typeof nativeModule?.startDictation === "function" ? nativeModule : null;
 

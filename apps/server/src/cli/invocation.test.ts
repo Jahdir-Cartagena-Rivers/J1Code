@@ -30,15 +30,18 @@ it("formats package runner commands from their cache entry paths", () => {
 });
 
 it("treats stable installs as direct invocations", () => {
-  for (const entryPath of [
-    "/usr/local/lib/node_modules/t3/dist/bin.mjs",
-    "/home/theo/Code/work/t3code/apps/server/dist/bin.mjs",
-    "/home/theo/.t3/runtime/0.0.31/node_modules/t3/dist/bin.mjs",
-    "",
-  ]) {
+  for (const [entryPath, command] of [
+    ["/usr/local/lib/node_modules/t3/dist/bin.mjs", "t3"],
+    ["/home/theo/Code/work/j1code/apps/server/dist/bin.mjs", "j1"],
+    ["/home/theo/.t3/runtime/0.0.31/node_modules/t3/dist/bin.mjs", "t3"],
+    ["/home/theo/.j1/runtime/versions/1.88.0/t3", "t3"],
+    ["C:\\Users\\theo\\.j1\\runtime\\t3.exe", "t3"],
+    ["/usr/local/lib/node_modules/@j1code/server/dist/bin.mjs", "j1"],
+    ["", "j1"],
+  ] as const) {
     assert.equal(
       formatCliCommand({ subcommand: "serve", entryPath, version: "0.0.31" }),
-      "t3 serve",
+      `${command} serve`,
     );
   }
 });
@@ -85,5 +88,16 @@ it("formats serve suggestions to match the launching command", () => {
       version: "0.0.31-nightly.20260729",
     }),
     "t3 serve",
+  );
+});
+
+it("keeps J1 package runner suggestions on the J1 package", () => {
+  assert.equal(
+    formatCliCommand({
+      subcommand: "serve",
+      entryPath: "/tmp/_npx/hash/node_modules/@j1code/server/dist/bin.mjs",
+      version: "1.89.0",
+    }),
+    "npx @j1code/server serve",
   );
 });

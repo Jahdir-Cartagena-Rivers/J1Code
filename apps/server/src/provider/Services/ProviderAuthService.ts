@@ -101,4 +101,4 @@ export interface ProviderAuthServiceShape {
 export class ProviderAuthService extends Context.Service<
   ProviderAuthService,
   ProviderAuthServiceShape
->()("t3/provider/Services/ProviderAuthService") {}
+>()("@j1code/server/provider/Services/ProviderAuthService") {}

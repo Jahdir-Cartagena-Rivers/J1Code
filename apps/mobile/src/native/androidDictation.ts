@@ -19,7 +19,7 @@ type DictationModule = {
 };
 const nativeDictation =
   Platform.OS === "android"
-    ? requireOptionalNativeModule<DictationModule>("T3NativeControls")
+    ? requireOptionalNativeModule<DictationModule>("J1NativeControls")
     : null;
 // An old installed dialog-only client needs a native rebuild for live dictation.
 export const androidDictation =

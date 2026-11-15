@@ -66,11 +66,11 @@ export const gitCommandDuration = Metric.timer("t3_git_command_duration", {
   description: "Git command execution duration.",
 });
 
-export const terminalSessionsTotal = Metric.counter("t3_terminal_sessions_total", {
+export const terminalSessionsTotal = Metric.counter("j1_terminal_sessions_total", {
   description: "Total terminal sessions started.",
 });
 
-export const terminalRestartsTotal = Metric.counter("t3_terminal_restarts_total", {
+export const terminalRestartsTotal = Metric.counter("j1_terminal_restarts_total", {
   description: "Total terminal restart requests handled.",
 });
 

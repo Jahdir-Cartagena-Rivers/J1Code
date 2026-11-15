@@ -61,10 +61,11 @@ export function resolveProviderCompatibility(
   driver: ProviderDriverKind,
   version: string | null,
   // Remote policies target upstream releases, independently of J1's app version.
-  t3CodeVersion = packageJson.t3CodeCompatibilityVersion,
+  compatibilityVersion = packageJson.t3CodeCompatibilityVersion,
 ): ServerProviderCompatibilityAdvisory | undefined {
   const policy = policies?.find(
-    (entry) => entry.driver === driver && satisfiesSemverRange(t3CodeVersion, entry.t3CodeRange),
+    (entry) =>
+      entry.driver === driver && satisfiesSemverRange(compatibilityVersion, entry.t3CodeRange),
   );
   if (!policy) return undefined;
   const unprefixed = version?.replace(/^v/, "");

@@ -93,6 +93,6 @@ export const makeExternalConversations = () => {
 export class ExternalConversations extends Context.Service<
   ExternalConversations,
   ReturnType<typeof makeExternalConversations>
->()("t3/conversations/ExternalConversations") {
+>()("@j1code/server/conversations/ExternalConversations") {
   static readonly layer = Layer.sync(ExternalConversations, makeExternalConversations);
 }

@@ -12,7 +12,7 @@ import {
   type TaskOwnerVerifier,
 } from "./taskOwnerStore.ts";
 
-// eslint-disable-next-line t3code/no-manual-effect-runtime-in-tests
+// eslint-disable-next-line j1code/no-manual-effect-runtime-in-tests
 const runtime = (filename: string) => ManagedRuntime.make(NodeSqliteClient.layer({ filename }));
 const scope = { environmentId: "env", projectId: "project" };
 const binding = { ...scope, bindingId: "binding", taskId: "task", threadId: "thread" };

@@ -8,7 +8,7 @@ import {
   type ProjectScopedServerSettingKey,
   type ProjectSettingsOverrides,
   ServerSettings,
-  type T3ProjectFile,
+  type J1ProjectFile,
   type ServerSettingsPatch,
 } from "@j1code/contracts";
 import type { EnvironmentConnectionPhase } from "@j1code/client-runtime/connection";
@@ -89,7 +89,7 @@ export function resolveScopedSettingsTargets(
   connectedEnvironments: readonly ScopedSettingsEnvironment[],
   // Each member's decoded t3.json, keyed by physical project key, once read.
   // A member absent here has no file tier yet; null is a missing or invalid file.
-  projectFiles?: ReadonlyMap<string, T3ProjectFile | null>,
+  projectFiles?: ReadonlyMap<string, J1ProjectFile | null>,
 ): readonly ScopedSettingsTarget[] {
   const byId = new Map(
     connectedEnvironments.map((environment) => [environment.environmentId, environment]),

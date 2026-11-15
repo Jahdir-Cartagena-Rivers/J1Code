@@ -4,7 +4,7 @@ import { BotBrowserButton } from "../bots/BotBrowserButton";
 import { BotVoiceControl } from "../bots/BotVoiceControl";
 import { MobileRouteRequests } from "./MobileRouteRequests";
 import type { WorktreeSetupCardProps } from "./worktree-setup-card";
-import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
+import type { ComposerTextPaste } from "../../native/J1ComposerEditor.types";
 import { type EnvironmentConnectionPhase } from "@j1code/client-runtime/connection";
 import {
   appendCodexArtifactTemplateUsePrompt,
@@ -28,7 +28,7 @@ import type {
   ProviderApprovalDecision,
   ProviderInteractionMode,
   RuntimeMode,
-  ServerConfig as T3ServerConfig,
+  ServerConfig as J1ServerConfig,
   ThreadId,
   UsageLimitsReport,
   UserInputQuestion,
@@ -165,7 +165,7 @@ export interface ThreadDetailScreenProps {
   readonly selectedThreadQueueCount: number;
   readonly queuedMessages: ReadonlyArray<QueuedThreadMessage>;
   readonly dispatchingMessageId: MessageId | null;
-  readonly serverConfig: T3ServerConfig | null;
+  readonly serverConfig: J1ServerConfig | null;
   readonly layoutVariant?: LayoutVariant;
   readonly usesAutomaticContentInsets?: boolean;
   readonly onHeaderMaterialVisibilityChange?: (visible: boolean) => void;
