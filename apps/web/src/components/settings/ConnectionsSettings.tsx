@@ -68,6 +68,7 @@ import {
 } from "./settingsLayout";
 import { LocalEnvironmentSetting } from "./LocalEnvironmentSetting";
 import { DesktopCloseSetting } from "./DesktopCloseSetting";
+import { isMobileWorkspace, openMobileWorkspacePage } from "../../mobileWorkspaceHost";
 import { searchableSetting } from "./settingsSearch";
 import { EnvironmentIconMenu } from "./EnvironmentIconPicker";
 import {
@@ -3696,6 +3697,36 @@ export function ConnectionsSettings() {
 
   return (
     <SettingsPageContainer width="wide">
+      {isMobileWorkspace() ? (
+        <SettingsSection title="This device">
+          <SettingsRow
+            title="Saved connections"
+            description="Choose or reconnect the environment used by this app."
+            control={
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => openMobileWorkspacePage("open-connections")}
+              >
+                Manage connections
+              </Button>
+            }
+          />
+          <SettingsRow
+            title="App tools"
+            description="Open device settings and the existing project tools."
+            control={
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => openMobileWorkspacePage("open-app-tools")}
+              >
+                Open app tools
+              </Button>
+            }
+          />
+        </SettingsSection>
+      ) : null}
       {primarySettings}
       <SettingsSection
         {...searchableSetting("remote-environments")}

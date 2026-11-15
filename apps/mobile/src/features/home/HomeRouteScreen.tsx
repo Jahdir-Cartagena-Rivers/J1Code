@@ -1,9 +1,10 @@
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
 import { ProjectId } from "@j1code/contracts";
-import { useNavigation } from "@react-navigation/native";
+import { CommonActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Platform, useWindowDimensions } from "react-native";
+import { Alert, Platform, View, useWindowDimensions } from "react-native";
+import * as Option from "effect/Option";
 
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
 import {
@@ -32,10 +33,105 @@ import { useArchivedThreadSnapshots } from "../archive/useArchivedThreadSnapshot
 import { useAtomCommand } from "../../state/use-atom-command";
 import { threadEnvironment } from "../../state/threads";
 import { projectEnvironment } from "../../state/projects";
+import { useEnvironments } from "../../state/environments";
+import { usePreparedConnection } from "../../state/session";
+import { SharedWorkspace } from "../mausbot/SharedWorkspace";
+import { selectWorkspaceEnvironment, workspaceConversationUrl } from "../mausbot/workspace-browser";
+import { MaterialButton } from "../../components/MaterialButton";
 
 /* ─── Route screen ───────────────────────────────────────────────────── */
 
-export function HomeRouteScreen() {
+export function HomeRouteScreen(
+  props: StaticScreenProps<
+    { workspaceEnvironmentId?: string; workspaceThreadId?: string } | undefined
+  >,
+) {
+  const navigation = useNavigation();
+  useEffect(() => {
+    void checkForAppUpdateOnLaunch();
+    startAppUpdateForegroundRecheck();
+  }, []);
+  const { nativeToolsActive: appTools, setNativeToolsActive: setAppTools } =
+    useAdaptiveWorkspaceLayout();
+  const { environments } = useEnvironments();
+  const availableIds = useMemo(
+    () => new Set(environments.map((e) => e.environmentId)),
+    [environments],
+  );
+  const { options, setSelectedEnvironmentId } = useHomeListOptions(availableIds);
+  const parameters = props.route.params;
+  const target =
+    parameters?.workspaceEnvironmentId && parameters.workspaceThreadId
+      ? { environmentId: parameters.workspaceEnvironmentId, threadId: parameters.workspaceThreadId }
+      : undefined;
+  const selected = selectWorkspaceEnvironment(
+    environments,
+    target?.environmentId ?? options.selectedEnvironmentId,
+  );
+  const prepared = usePreparedConnection(selected?.environmentId ?? null);
+  const currentAddress =
+    selected && Option.isSome(prepared)
+      ? {
+          environmentId: selected.environmentId,
+          baseUrl: prepared.value.httpBaseUrl,
+        }
+      : null;
+  const [lastAddress, setLastAddress] = useState(currentAddress);
+  if (
+    currentAddress &&
+    (lastAddress?.environmentId !== currentAddress.environmentId ||
+      lastAddress.baseUrl !== currentAddress.baseUrl)
+  )
+    setLastAddress(currentAddress);
+  const address =
+    lastAddress?.environmentId === selected?.environmentId ? lastAddress?.baseUrl : null;
+  const openConnections = useCallback(
+    () =>
+      navigation.navigate("SettingsSheet", {
+        screen: "SettingsContent",
+        params: { screen: "SettingsEnvironments" },
+      }),
+    [navigation],
+  );
+  const selectedId = selected?.environmentId;
+  const openAppTools = useCallback(() => {
+    if (selectedId) setSelectedEnvironmentId(selectedId);
+    navigation.dispatch(
+      CommonActions.setParams({ workspaceEnvironmentId: undefined, workspaceThreadId: undefined }),
+    );
+    setAppTools(true);
+  }, [setAppTools, navigation, selectedId, setSelectedEnvironmentId]);
+  const available =
+    selected?.serverConfig?.environment.capabilities.workspaceBrowser === true && Boolean(address);
+  if (!available || appTools || !selected || !address)
+    return (
+      <View className="flex-1 bg-screen">
+        {available ? (
+          <MaterialButton
+            label="Back to workspace"
+            tone="text"
+            onPress={() => setAppTools(false)}
+          />
+        ) : null}
+        <NativeHomeRouteScreen />
+      </View>
+    );
+  return (
+    <>
+      <NativeStackScreenOptions options={{ headerShown: false }} />
+      <SharedWorkspace
+        key={`${selected.environmentId}:${address}`}
+        environmentId={selected.environmentId}
+        baseUrl={address}
+        {...(target ? { initialUrl: workspaceConversationUrl(address, target) } : {})}
+        onOpenConnections={openConnections}
+        onOpenAppTools={openAppTools}
+      />
+    </>
+  );
+}
+
+function NativeHomeRouteScreen() {
   const { width: windowWidth } = useWindowDimensions();
   const { layout, panes } = useAdaptiveWorkspaceLayout();
   const projects = useProjects();
@@ -48,11 +144,6 @@ export function HomeRouteScreen() {
   const handleSelectThread = useHomeThreadSelection();
   const unarchiveThread = useAtomCommand(threadEnvironment.unarchive, { reportFailure: false });
   const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
-
-  useEffect(() => {
-    void checkForAppUpdateOnLaunch();
-    startAppUpdateForegroundRecheck();
-  }, []);
 
   const {
     archiveThread,

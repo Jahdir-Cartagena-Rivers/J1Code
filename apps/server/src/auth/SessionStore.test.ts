@@ -22,6 +22,7 @@ import {
 import * as AuthSessions from "../persistence/AuthSessions.ts";
 import * as SessionStore from "./SessionStore.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
+import * as WorkspaceSessions from "./WorkspaceSessions.ts";
 
 const makeServerConfigLayer = (overrides?: Partial<ServerConfig.ServerConfig["Service"]>) =>
   Layer.effect(
@@ -729,5 +730,57 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
       yield* sessions.recordClientConnection(issued.sessionId, {});
       expect((yield* readRow)[0]).toEqual({ surface: "mobile", appVersion: "1.3.0" });
     }).pipe(Effect.provide(Layer.mergeAll(makeSessionStoreLayer(), SqlitePersistenceMemory))),
+  );
+});
+
+it.layer(NodeServices.layer)("mobile workspace handoff", (it) => {
+  it.effect("keeps DPoP parent permissions and revocation on the browser surface", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const parent = yield* sessions.issue({
+        ...relaySessionInput,
+        scopes: ["orchestration:read"],
+      });
+      const browser = yield* sessions.issueWorkspaceBrowserSession(parent.token);
+      const verified = yield* sessions.verify(browser.sessionToken);
+      expect(verified.sessionId).toBe(parent.sessionId);
+      expect(verified.scopes).toEqual(["orchestration:read"]);
+      expect(verified.method).toBe("browser-session-cookie");
+      expect(verified.proofKeyThumbprint).toBeUndefined();
+      expect(yield* sessions.listActive()).toHaveLength(1);
+      yield* sessions.revoke(parent.sessionId);
+      const rejected = yield* Effect.result(sessions.verify(browser.sessionToken));
+      expect(rejected._tag).toBe("Failure");
+    }).pipe(Effect.provide(makeSessionStoreLayer())),
+  );
+
+  it.effect("never extends the parent session lifetime", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const parent = yield* sessions.issue({ ttl: Duration.seconds(2) });
+      const browser = yield* sessions.issueWorkspaceBrowserSession(parent.token);
+      expect(browser.response.expiresAt.epochMilliseconds).toBe(parent.expiresAt.epochMilliseconds);
+      yield* TestClock.adjust(Duration.seconds(3));
+      expect((yield* Effect.result(sessions.verify(browser.sessionToken)))._tag).toBe("Failure");
+    }).pipe(Effect.provide(makeSessionStoreLayer())),
+  );
+
+  it.effect("consumes handoffs once and rejects expired or revoked parents", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const workspace = yield* WorkspaceSessions.WorkspaceSessions;
+      const parent = yield* sessions.issue(relaySessionInput);
+      const once = yield* workspace.issue(parent.token);
+      yield* workspace.redeem(once.credential);
+      expect((yield* Effect.result(workspace.redeem(once.credential)))._tag).toBe("Failure");
+      const expired = yield* workspace.issue(parent.token);
+      yield* TestClock.adjust(Duration.seconds(61));
+      expect((yield* Effect.result(workspace.redeem(expired.credential)))._tag).toBe("Failure");
+      const revoked = yield* workspace.issue(parent.token);
+      yield* sessions.revoke(parent.sessionId);
+      expect((yield* Effect.result(workspace.redeem(revoked.credential)))._tag).toBe("Failure");
+    }).pipe(
+      Effect.provide(WorkspaceSessions.layer.pipe(Layer.provideMerge(makeSessionStoreLayer()))),
+    ),
   );
 });

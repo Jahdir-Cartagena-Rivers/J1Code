@@ -1,5 +1,6 @@
 import {
   AuthSessionId,
+  type AuthBrowserSessionResult,
   AuthAdministrativeScopes,
   AuthStandardClientScopes,
   AuthEnvironmentScopes,
@@ -381,6 +382,14 @@ export class SessionStore extends Context.Service<
       readonly replaceActiveForSubjectAndMethod?: boolean;
     }) => Effect.Effect<IssuedSession, SessionCredentialInternalError>;
     readonly verify: (token: string) => Effect.Effect<VerifiedSession, SessionCredentialError>;
+    readonly issueWorkspaceBrowserSession: (parentToken: string) => Effect.Effect<
+      {
+        sessionToken: string;
+        cookieName: string;
+        response: AuthBrowserSessionResult;
+      },
+      SessionCredentialError
+    >;
     readonly issueWebSocketToken: (
       sessionId: AuthSessionId,
       input?: {
@@ -844,6 +853,45 @@ export const make = Effect.gen(function* () {
   );
 
   const encodeWsClaims = Schema.encodeEffect(Schema.fromJsonString(WebSocketClaims));
+  // Another surface of the same app session: scope, expiry and revocation stay shared.
+  const issueWorkspaceBrowserSession: SessionStore["Service"]["issueWorkspaceBrowserSession"] =
+    Effect.fn("SessionStore.issueWorkspaceBrowserSession")(function* (parentToken) {
+      const parent = yield* verify(parentToken);
+      const now = yield* DateTime.now;
+      const expiresAt = DateTime.makeUnsafe(
+        Math.min(
+          parent.expiresAt?.epochMilliseconds ?? Infinity,
+          now.epochMilliseconds + 3_600_000,
+        ),
+      );
+      const claims: SessionClaims = {
+        v: 1,
+        kind: "session",
+        sid: parent.sessionId,
+        sub: parent.subject,
+        scopes: parent.scopes,
+        method: "browser-session-cookie",
+        iat: now.epochMilliseconds,
+        exp: expiresAt.epochMilliseconds,
+      };
+      const payload = yield* encodeClaims(claims).pipe(
+        Effect.map(base64UrlEncode),
+        Effect.mapError(
+          (cause) => new SessionCredentialIssueError({ sessionId: parent.sessionId, cause }),
+        ),
+      );
+      return {
+        sessionToken: `${payload}.${signPayload(payload, signingSecret)}`,
+        cookieName,
+        response: {
+          authenticated: true as const,
+          scopes: parent.scopes,
+          sessionMethod: "browser-session-cookie" as const,
+          expiresAt: DateTime.toUtc(expiresAt),
+        },
+      };
+    });
+
   const issueWebSocketToken: SessionStore["Service"]["issueWebSocketToken"] = Effect.fn(
     "SessionStore.issueWebSocketToken",
   )(function* (sessionId, input) {
@@ -1036,6 +1084,7 @@ export const make = Effect.gen(function* () {
     legacyCookieName,
     issue,
     verify,
+    issueWorkspaceBrowserSession,
     issueWebSocketToken,
     verifyWebSocketToken,
     listActive,

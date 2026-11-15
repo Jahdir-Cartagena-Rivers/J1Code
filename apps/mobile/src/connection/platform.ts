@@ -14,7 +14,6 @@ import {
   Wakeups,
 } from "@j1code/client-runtime/connection";
 import { managedRelayAccountChanges, managedRelaySessionAtom } from "@j1code/client-runtime/relay";
-import { AuthStandardClientScopes } from "@j1code/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -171,7 +170,6 @@ const capabilitiesLayer = Layer.effectContext(
         ClientPresentation,
         ClientPresentation.of({
           metadata: authClientMetadata(Constants.expoConfig?.version),
-          scopes: AuthStandardClientScopes,
         }),
       ),
       Context.add(

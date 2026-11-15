@@ -11,6 +11,7 @@ import {
   AuthAccessTokenResult,
   AuthBrowserSessionRequest,
   AuthBrowserSessionResult,
+  AuthWorkspaceCredentialResult,
   AuthClientSession,
   AuthCreatePairingCredentialInput,
   AuthPairingCredentialResult,
@@ -424,6 +425,20 @@ class EnvironmentAuthHttpApi extends HttpApiGroup.make("auth")
   )
   .add(
     HttpApiEndpoint.post("browserSession", "/api/auth/browser-session", {
+      payload: AuthBrowserSessionRequest,
+      success: AuthBrowserSessionResult,
+      error: EnvironmentSessionCreationErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("workspaceCredential", "/api/auth/workspace-credential", {
+      headers: OptionalBearerHeaders,
+      success: AuthWorkspaceCredentialResult,
+      error: [EnvironmentScopeRequiredError, EnvironmentAuthInvalidError, EnvironmentInternalError],
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post("workspaceSession", "/api/auth/workspace-session", {
       payload: AuthBrowserSessionRequest,
       success: AuthBrowserSessionResult,
       error: EnvironmentSessionCreationErrors,

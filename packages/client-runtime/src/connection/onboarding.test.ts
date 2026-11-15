@@ -80,6 +80,35 @@ function pairingHttpLayer(
 }
 
 describe("connection onboarding", () => {
+  it.effect(
+    "lets mobile retain the pairing grant instead of requesting different permissions",
+    () =>
+      Effect.gen(function* () {
+        const calls: Array<{ readonly url: string; readonly init: RequestInit }> = [];
+        yield* preparePairingRegistration({
+          host: "remote.example.test",
+          pairingCode: "pairing-token",
+        }).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              pairingHttpLayer(calls),
+              Layer.succeed(
+                ClientPresentation,
+                ClientPresentation.of({
+                  metadata: { label: "J1 Code Mobile", deviceType: "mobile" },
+                }),
+              ),
+            ),
+          ),
+        );
+        const request = calls.find((call) => call.url.endsWith("/oauth/token"));
+        const body =
+          request?.init.body instanceof Uint8Array
+            ? new TextDecoder().decode(request.init.body)
+            : String(request?.init.body);
+        expect(new URLSearchParams(body).has("scope")).toBe(false);
+      }),
+  );
   it.effect("prepares a persisted bearer registration from pairing details", () =>
     Effect.gen(function* () {
       const calls: Array<{ readonly url: string; readonly init: RequestInit }> = [];

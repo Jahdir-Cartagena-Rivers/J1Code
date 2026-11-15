@@ -63,6 +63,9 @@ import { WorkspaceInspectorPane } from "./workspace-inspector-pane";
 import { WorkspaceContentWidthContext } from "./workspace-content-width";
 
 interface AdaptiveWorkspaceContextValue {
+  readonly nativeToolsActive: boolean;
+  readonly setNativeToolsActive: (active: boolean) => void;
+  readonly setSharedWorkspaceActive: (active: boolean) => void;
   readonly layout: Layout;
   readonly panes: WorkspacePaneLayout;
   readonly fileInspector: FileInspectorPaneLayout;
@@ -97,6 +100,9 @@ const compactFileInspector = deriveFileInspectorPaneLayout({
   viewportWidth: 0,
 });
 const AdaptiveWorkspaceContext = createContext<AdaptiveWorkspaceContextValue>({
+  nativeToolsActive: false,
+  setNativeToolsActive: () => undefined,
+  setSharedWorkspaceActive: () => undefined,
   layout: compactLayout,
   panes: compactPanes,
   fileInspector: compactFileInspector,
@@ -251,7 +257,12 @@ function AdaptiveWorkspaceLayoutContent(
   const [primarySidebarSearchQuery, setPrimarySidebarSearchQuery] = useState("");
   const [focusedAuxiliaryPaneRole, setFocusedAuxiliaryPaneRole] =
     useState<WorkspaceAuxiliaryPaneRole | null>(null);
-  const baseLayout = useMemo(() => deriveLayout({ width, height }), [height, width]);
+  const [sharedWorkspaceActive, setSharedWorkspaceActive] = useState(false);
+  const [nativeToolsActive, setNativeToolsActive] = useState(false);
+  const baseLayout = useMemo(
+    () => deriveLayout({ width: sharedWorkspaceActive ? 0 : width, height }),
+    [height, width, sharedWorkspaceActive],
+  );
   const layout = baseLayout;
   // In split layouts the sidebar IS the thread list — it renders on every
   // route, including Home (which shows an empty-detail pane instead of the
@@ -536,6 +547,9 @@ function AdaptiveWorkspaceLayoutContent(
 
   const contextValue = useMemo(
     () => ({
+      nativeToolsActive,
+      setNativeToolsActive,
+      setSharedWorkspaceActive,
       layout,
       panes,
       fileInspector,
@@ -550,6 +564,7 @@ function AdaptiveWorkspaceLayoutContent(
       setAuxiliaryPaneWidth,
     }),
     [
+      nativeToolsActive,
       activateAuxiliaryPaneRole,
       fileInspector,
       handleSelectThread,
