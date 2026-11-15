@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - The Promise-based Pi SDK boundary uses native paths outside Effect.
 import { recoverDeepAIImageHistory } from "./DeepAIImageHistory.ts";
 import type { NativeComputerDescriptor } from "../../mausbot/NativeComputer.ts";
 import * as NodeModule from "node:module";

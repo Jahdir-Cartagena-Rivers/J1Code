@@ -1,7 +1,8 @@
 import * as NodeOS from "node:os";
-import * as NodePath from "node:path";
 import { ProviderDriverKind, ProviderSetupError } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Clock from "effect/Clock";
+import * as DateTime from "effect/DateTime";
 import * as Path from "effect/Path";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { describeWithCodex } from "../deepai/DeepAICodexVision.ts";
@@ -59,6 +60,8 @@ export const DeepAIDriver: ProviderDriver<typeof Config.Type, DeepAIDriverEnv> =
     Effect.gen(function* () {
       const config = yield* ServerConfig;
       const fs = yield* FileSystem.FileSystem;
+      const paths = yield* Path.Path;
+      const clock = yield* Clock.Clock;
       const store = yield* ProviderCredentialStore.make("deepai", instanceId);
       const context = yield* Effect.context<DeepAIDriverEnv>();
       const run = Effect.runPromiseWith(context);
@@ -94,7 +97,7 @@ export const DeepAIDriver: ProviderDriver<typeof Config.Type, DeepAIDriverEnv> =
                 }),
               }
             : {}),
-        directory: NodePath.join(config.stateDir, "providers", "deepai", instanceId),
+        directory: paths.join(config.stateDir, "providers", "deepai", instanceId),
       });
       const setupError = (cause?: unknown) =>
         new ProviderSetupError({
@@ -120,7 +123,7 @@ export const DeepAIDriver: ProviderDriver<typeof Config.Type, DeepAIDriverEnv> =
         defaultMethodId: "import",
         authenticate: () =>
           Effect.gen(function* () {
-            const accountFile = NodePath.join(
+            const accountFile = paths.join(
               NodeOS.homedir(),
               ".deepai-code",
               "userdata",
@@ -185,7 +188,7 @@ export const DeepAIDriver: ProviderDriver<typeof Config.Type, DeepAIDriverEnv> =
               showInteractionModeToggle: false,
             },
             enabled,
-            checkedAt: new Date().toISOString(),
+            checkedAt: DateTime.formatIso(DateTime.makeUnsafe(clock.currentTimeMillisUnsafe())),
             models:
               models?.models.map((model) => ({
                 slug: model.id,

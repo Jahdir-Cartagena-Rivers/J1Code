@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - SDK fixtures exercise native filesystem and process boundaries.
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";

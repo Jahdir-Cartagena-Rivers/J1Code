@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - SDK fixtures exercise native filesystem and process boundaries.
 import { it, expect, vi } from "vite-plus/test";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";

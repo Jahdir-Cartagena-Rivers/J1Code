@@ -2,11 +2,9 @@ import { isDeepAIImageRejection } from "./DeepAIImageHistory.ts";
 import { readNativeComputerDescriptor } from "../../mausbot/NativeComputer.ts";
 import * as Schema from "effect/Schema";
 import * as NodeCrypto from "node:crypto";
-import * as NodeFSP from "node:fs/promises";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import { DEEPAI_EFFORTS } from "./DeepAIModelCapabilities.ts";
-import * as NodePath from "node:path";
 import * as NodePerfHooks from "node:perf_hooks";
 import {
   EventId,
@@ -22,6 +20,10 @@ import {
   type CanonicalRequestType,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Clock from "effect/Clock";
+import * as DateTime from "effect/DateTime";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
 import * as Stream from "effect/Stream";
 import * as Scope from "effect/Scope";
@@ -60,6 +62,9 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
   client?: ReturnType<typeof makeDeepAIClient>;
   catalog: () => Promise<{ models: ReadonlyArray<DeepAIModel>; default: string }>;
 }) {
+  const fs = yield* FileSystem.FileSystem;
+  const paths = yield* Path.Path;
+  const clock = yield* Clock.Clock;
   const events = yield* PubSub.unbounded<ProviderRuntimeEvent>();
   const scope = yield* Scope.Scope;
   const context = yield* Effect.context<never>();
@@ -75,7 +80,7 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
     provider,
     providerInstanceId: options.instanceId,
     threadId,
-    createdAt: new Date().toISOString(),
+    createdAt: DateTime.formatIso(DateTime.makeUnsafe(clock.currentTimeMillisUnsafe())),
     ...(turnId ? { turnId } : {}),
   });
   const failure = (operation: string, detail = `DeepAI could not complete ${operation}.`) =>
@@ -115,7 +120,7 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
         if (sessions.has(input.threadId)) throw new Error("Session already exists.");
         const catalog = await options.catalog();
         const apiKey = await options.credentials();
-        const directory = NodePath.join(
+        const directory = paths.join(
           options.directory,
           NodeCrypto.createHash("sha256").update(input.threadId).digest("hex"),
         );
@@ -129,7 +134,7 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
           const value = input.resumeCursor.sessionFile;
           if (
             typeof value !== "string" ||
-            NodePath.dirname(NodePath.resolve(value)) !== NodePath.resolve(directory)
+            paths.dirname(paths.resolve(value)) !== paths.resolve(directory)
           )
             throw new Error("Invalid resume cursor.");
           sessionFile = value;
@@ -148,7 +153,7 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
         const agent = await create({
           ...(options.client ? { client: options.client } : {}),
           cwd: input.cwd ?? process.cwd(),
-          agentDir: NodePath.join(directory, "config"),
+          agentDir: paths.join(directory, "config"),
           sessionDir: directory,
           ...(sessionFile ? { sessionFile } : {}),
           apiKey,
@@ -294,7 +299,7 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
           }
           agent.session.setThinkingLevel(effort);
         }
-        const now = new Date().toISOString();
+        const now = DateTime.formatIso(DateTime.makeUnsafe(clock.currentTimeMillisUnsafe()));
         const view: ProviderSession = {
           provider,
           providerInstanceId: options.instanceId,
@@ -359,15 +364,17 @@ export const makeDeepAIAdapter = Effect.fn("makeDeepAIAdapter")(function* (optio
                   "The selected DeepAI model does not accept images. Choose an image-capable model.",
                 ),
               );
-            const data = yield* Effect.tryPromise({
-              try: () => NodeFSP.readFile(path),
-              catch: () =>
-                failure("send turn", "The attached image could not be read. Attach it again."),
-            });
+            const data = yield* fs
+              .readFile(path)
+              .pipe(
+                Effect.mapError(() =>
+                  failure("send turn", "The attached image could not be read. Attach it again."),
+                ),
+              );
             images.push({
               type: "image",
               mimeType: attachment.mimeType,
-              data: data.toString("base64"),
+              data: Buffer.from(data).toString("base64"),
             });
           } else if (attachment.type === "file") {
             fileReferences.push(

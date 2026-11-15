@@ -1,6 +1,8 @@
+// @effect-diagnostics nodeBuiltinImport:off - Native temporary files exercise the real attachment boundary.
 import { it, assert } from "@effect/vitest";
 import { vi } from "vite-plus/test";
 import * as Effect from "effect/Effect";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
@@ -72,7 +74,7 @@ const make = (
         },
       ],
     }),
-  });
+  }).pipe(Effect.provide(NodeServices.layer));
 
 it.effect("routes approvals to the owning thread and denial reaches the tool hook", () =>
   Effect.gen(function* () {
