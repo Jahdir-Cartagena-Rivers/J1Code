@@ -115,7 +115,11 @@ export const makeRouteTransportConsumer = Effect.gen(function* () {
   const reconcile = Effect.gen(function* () {
     let cursor = 0;
     while (true) {
-      const page = yield* engine.readEvents(cursor, 256).pipe(Stream.runCollect);
+      // Transport evidence has a reserved command namespace; unrelated chat history
+      // must not be decoded or traced before the HTTP listener can become ready.
+      const page = yield* engine
+        .readEvents(cursor, 256, { commandIdPrefix: "route-transport:" })
+        .pipe(Stream.runCollect);
       if (page.length === 0) break;
       for (const event of page) yield* accept(event);
       cursor = page[page.length - 1]!.sequence;
