@@ -27,6 +27,22 @@ export async function patchMausbotSource(stage: string) {
   };
   const copy = (from: string, to: string) =>
     NodeFSP.copyFile(NodePath.join(root, from), NodePath.join(stage, to));
+  // Preserve upstream checksum/version gates without PowerShell's non-terminating extraction errors.
+  await change(
+    "scripts/prepare-cua-win.mjs",
+    `  await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
+    "Expand-Archive -LiteralPath $env:OMB_CUA_ARCHIVE -DestinationPath $env:OMB_CUA_EXTRACT"], {
+    env: { ...process.env, OMB_CUA_ARCHIVE: archive, OMB_CUA_EXTRACT: cache },
+    timeout: 60_000,
+    windowsHide: true,
+  });`,
+    `  const systemRoot = process.env.SystemRoot ?? process.env.windir;
+  if (!systemRoot) throw new Error("Windows system directory is unavailable for CUA extraction");
+  await run(join(systemRoot, "System32", "tar.exe"), ["-xf", archive, "-C", cache], {
+    timeout: 60_000,
+    windowsHide: true,
+  });`,
+  );
   await NodeFSP.mkdir(NodePath.join(stage, "server/j1"), { recursive: true });
   await change(
     "src/state/config-status.ts",
