@@ -1105,6 +1105,11 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
     "  if (simple && more) return <>",
     "  if (j1Navigation?.providers) return <J1Providers instances={rows} renderEngine={renderEngine} refresh={<RefreshEngines />} extra={<>{orphanEndpoints && <ClaudeEndpoints />}<HiddenEngines /><CacheKeepWarmSettings /></>} />;\n  if (simple && more) return <>",
   );
+  await change(
+    "server/host/browser.ts",
+    "    const engine = cleanupEngine();\n    const erased = async (name: string) => {",
+    "    if (J1Browser.managed) { try { return session ? await J1Browser.forget(session) : true; } catch { return false; } }\n    const engine = cleanupEngine();\n    const erased = async (name: string) => {",
+  );
   const browserEngineFile = NodePath.join(stage, "server/browser-engine.ts");
   await NodeFSP.writeFile(
     browserEngineFile,
