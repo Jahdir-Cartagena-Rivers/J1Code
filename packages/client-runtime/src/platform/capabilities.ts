@@ -45,7 +45,8 @@ export class ClientPresentation extends Context.Service<
   ClientPresentation,
   {
     readonly metadata: AuthClientPresentationMetadata;
-    readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
+    /** Omit to retain the scopes explicitly granted by the pairing credential. */
+    readonly scopes?: ReadonlyArray<AuthEnvironmentScope>;
   }
 >()("@j1code/client-runtime/platform/capabilities/ClientPresentation") {}
 

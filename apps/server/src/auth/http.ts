@@ -29,6 +29,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import { identity } from "effect/Function";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import * as Cookies from "effect/unstable/http/Cookies";
 import * as HttpEffect from "effect/unstable/http/HttpEffect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
@@ -36,6 +37,7 @@ import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 
 import * as EnvironmentAuth from "./EnvironmentAuth.ts";
 import * as SessionStore from "./SessionStore.ts";
+import * as WorkspaceSessions from "./WorkspaceSessions.ts";
 import { traceAuthenticatedRelayRequest, traceRelayRequest } from "../cloud/traceRelayRequest.ts";
 import { deriveAuthClientMetadata } from "./utils.ts";
 import { verifyRequestDpopProof } from "./dpop.ts";
@@ -44,6 +46,7 @@ const CREDENTIAL_RESPONSE_HEADERS = {
   "cache-control": "no-store",
   pragma: "no-cache",
 } as const;
+const isInternalSessionCredentialError = Schema.is(SessionStore.SessionCredentialInternalError);
 
 const appendCredentialResponseHeaders = HttpEffect.appendPreResponseHandler((_request, response) =>
   Effect.succeed(HttpServerResponse.setHeaders(response, CREDENTIAL_RESPONSE_HEADERS)),
@@ -233,8 +236,59 @@ export const authHttpApiLayer = HttpApiBuilder.group(
   Effect.fnUntraced(function* (handlers) {
     const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
     const sessions = yield* SessionStore.SessionStore;
+    const workspaceSessions = yield* WorkspaceSessions.WorkspaceSessions;
 
     return handlers
+      .handle(
+        "workspaceCredential",
+        Effect.fn("environment.auth.workspaceCredential")(function* (args) {
+          yield* annotateEnvironmentRequest(args.endpoint.name);
+          yield* requireEnvironmentScope(AuthOrchestrationReadScope);
+          const request = yield* HttpServerRequest.HttpServerRequest;
+          const credential = EnvironmentAuth.selectRequestCredential(
+            request,
+            sessions.cookieName,
+            sessions.legacyCookieName,
+          );
+          if (!credential) return yield* failEnvironmentAuthInvalid("invalid_credential");
+          const result = yield* workspaceSessions
+            .issue(credential.token)
+            .pipe(Effect.catch(() => failEnvironmentAuthInvalid("invalid_credential")));
+          yield* appendCredentialResponseHeaders;
+          return result;
+        }),
+      )
+      .handle(
+        "workspaceSession",
+        Effect.fn("environment.auth.workspaceSession")(function* (args) {
+          yield* annotateEnvironmentRequest(args.endpoint.name);
+          const result = yield* workspaceSessions
+            .redeem(args.payload.credential)
+            .pipe(
+              Effect.catch(
+                (
+                  error,
+                ): Effect.Effect<never, EnvironmentInternalError | EnvironmentAuthInvalidError> =>
+                  isInternalSessionCredentialError(error)
+                    ? failEnvironmentInternal("internal_error")
+                    : failEnvironmentAuthInvalid("invalid_credential"),
+              ),
+            );
+          const cookies = yield* Effect.fromResult(
+            Cookies.set(Cookies.empty, result.cookieName, result.sessionToken, {
+              expires: DateTime.toDate(result.response.expiresAt),
+              httpOnly: true,
+              path: "/",
+              sameSite: "lax",
+            }),
+          ).pipe(Effect.catch(() => failEnvironmentInternal("browser_session_cookie_failed")));
+          yield* HttpEffect.appendPreResponseHandler((_request, response) =>
+            Effect.succeed(HttpServerResponse.mergeCookies(response, cookies)),
+          );
+          yield* appendCredentialResponseHeaders;
+          return result.response;
+        }),
+      )
       .handle(
         "session",
         Effect.fn("environment.auth.session")(
@@ -497,4 +551,4 @@ export const authHttpApiLayer = HttpApiBuilder.group(
         ),
       );
   }),
-);
+).pipe(Layer.provide(WorkspaceSessions.layer));

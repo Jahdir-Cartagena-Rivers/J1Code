@@ -1,5 +1,6 @@
 import { WorkerChatsInChat } from "./WorkerChats";
 import { useHomeThreadSelection } from "../home/home-thread-navigation";
+import { useEnvironments } from "../../state/environments";
 import { makeTurnCommandMetadata } from "../../lib/commandMetadata";
 import { enqueueThreadOutboxMessage } from "../../state/thread-outbox";
 import {
@@ -28,10 +29,7 @@ import {
   ThreadId,
   type ProjectScript,
 } from "@j1code/contracts";
-import {
-  requestOlderThreadTurns,
-  threadHasOlderTurns,
-} from "@j1code/client-runtime/state/threads";
+import { requestOlderThreadTurns, threadHasOlderTurns } from "@j1code/client-runtime/state/threads";
 import {
   projectScriptCwd,
   projectScriptRuntimeEnv,
@@ -251,6 +249,35 @@ function ThreadUnavailableScreen(props: {
 }
 
 export function ThreadRouteScreen(props: ThreadRouteScreenProps) {
+  const navigation = useNavigation();
+  const { environments } = useEnvironments();
+  const { nativeToolsActive } = useAdaptiveWorkspaceLayout();
+  const environmentId = firstRouteParam(props.route.params.environmentId);
+  const threadId = firstRouteParam(props.route.params.threadId);
+  const environment = environments.find((candidate) => candidate.environmentId === environmentId);
+  const shared =
+    !nativeToolsActive &&
+    !props.renderInspector &&
+    !props.onReturnToThread &&
+    Boolean(
+      environmentId &&
+      threadId &&
+      environment?.entry.enabled &&
+      environment.serverConfig?.environment.capabilities.workspaceBrowser,
+    );
+  useEffect(() => {
+    if (shared && environmentId && threadId)
+      navigation.dispatch(
+        StackActions.popTo("Home", {
+          workspaceEnvironmentId: environmentId,
+          workspaceThreadId: threadId,
+        }),
+      );
+  }, [shared, environmentId, threadId, navigation]);
+  return shared ? <OpeningThreadLoadingScreen /> : <NativeThreadRouteScreen {...props} />;
+}
+
+function NativeThreadRouteScreen(props: ThreadRouteScreenProps) {
   const { state: workspaceState } = useWorkspaceState();
   const { connectionState } = useRemoteConnectionStatus();
   const { selectedThread } = useThreadSelection();

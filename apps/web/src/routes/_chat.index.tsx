@@ -22,6 +22,7 @@ import { usePrimaryEnvironment } from "../state/environments";
 import { useEnvironments } from "../state/environments";
 import { APP_DISPLAY_NAME } from "~/branding";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
+import { WorkspaceStatus } from "../components/WorkspaceStatus";
 
 function ChatIndexRouteView() {
   const environment = usePrimaryEnvironment();
@@ -36,7 +37,7 @@ function ChatIndexRouteView() {
   // The unified workspace owns the landing view; retained Home data is never recreated or deleted.
   // Wait for capabilities before mounting the legacy landing, which can create a thread.
   if (!environment?.serverConfig) return null;
-  if (environment?.serverConfig?.environment.capabilities.mausbot) return null;
+  if (environment?.serverConfig?.environment.capabilities.mausbot) return <WorkspaceStatus />;
   return <IndexDraftLanding />;
 }
 

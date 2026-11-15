@@ -42,6 +42,8 @@ command cannot reach the app, start or update the desktop app and try again.
 
 ## Mobile app
 
+With an updated J1 server, mobile opens the same shared workspace as the web and desktop apps. In Settings → Connections → This device, you can manage the app's saved connections or return to its existing project and device tools. Older servers keep the native interface until the server is updated.
+
 J1 mobile source is included, but no branded J1 release is currently published to the app stores. Build it using the [mobile setup guide](../../apps/mobile/README.md) with your own signing and Expo configuration, then pair it with your J1 server. Official T3 mobile clients are separate products; compatibility with this J1 base still needs device validation.
 
 If the app crashes during launch, open Settings → Diagnostics on the next launch

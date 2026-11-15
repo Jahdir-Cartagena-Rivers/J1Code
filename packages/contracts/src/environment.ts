@@ -104,6 +104,7 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   pullRequests: Schema.optionalKey(Schema.Boolean),
   /** This environment ships J1's managed OSS assistant workspace. */
   mausbot: Schema.optionalKey(Schema.Boolean),
+  workspaceBrowser: Schema.optionalKey(Schema.Boolean),
   /** Server understands canonical inline context links plus their message context records.
       Absent on servers from before inline context shipped, which drop the records and forward
       the links as literal text -- so a client must serialize context the legacy way for them. */

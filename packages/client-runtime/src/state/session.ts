@@ -14,7 +14,8 @@ import { environmentEndpointUrl } from "../environment/endpoint.ts";
 import { ManagedRelayDpopSigner } from "../relay/managedRelay.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
 import { executeAuthenticatedEnvironmentHttpRequest } from "./environmentHttpAuth.ts";
-import { followStreamInEnvironment } from "./runtime.ts";
+import { createEnvironmentCommand, followStreamInEnvironment } from "./runtime.ts";
+import { RemoteEnvironmentAuthFetchError } from "../rpc/http.ts";
 
 function initialConfigOption<E>(
   initialConfig: Effect.Effect<ServerConfig, E>,
@@ -158,4 +159,32 @@ export function createEnvironmentSessionAtoms<R, E>(
     sessionStateAtom,
     sessionStateValueAtom,
   };
+}
+
+export function createWorkspaceBrowserSessionCommand<R, E>(
+  runtime: Atom.AtomRuntime<EnvironmentRegistry | HttpClient.HttpClient | R, E>,
+) {
+  return createEnvironmentCommand(runtime, {
+    label: "workspace-browser-session",
+    execute: (_input: void) =>
+      Effect.gen(function* () {
+        const supervisor = yield* EnvironmentSupervisor;
+        const current = yield* SubscriptionRef.get(supervisor.prepared);
+        if (Option.isNone(current))
+          return yield* new RemoteEnvironmentAuthFetchError({
+            message: "Reconnect this environment to open the workspace.",
+            cause: "disconnected",
+          });
+        return yield* executeAuthenticatedEnvironmentHttpRequest({
+          prepared: current.value,
+          signer: yield* Effect.serviceOption(ManagedRelayDpopSigner),
+          remoteAuthorization: yield* Effect.serviceOption(RemoteEnvironmentAuthorization),
+          group: "auth",
+          method: "POST",
+          timeoutMs: 10_000,
+          url: (base) => environmentEndpointUrl(base, "/api/auth/workspace-credential"),
+          request: ({ client, headers }) => client.workspaceCredential({ headers }),
+        });
+      }),
+  });
 }

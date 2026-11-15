@@ -161,6 +161,13 @@ export const AuthBrowserSessionResult = Schema.Struct({
 });
 export type AuthBrowserSessionResult = typeof AuthBrowserSessionResult.Type;
 
+export const AuthWorkspaceCredentialResult = Schema.Struct({
+  credential: TrimmedNonEmptyString,
+  expiresAt: Schema.DateTimeUtc,
+  scopes: AuthEnvironmentScopes,
+});
+export type AuthWorkspaceCredentialResult = typeof AuthWorkspaceCredentialResult.Type;
+
 export const AuthClientMetadataDeviceType = Schema.Literals([
   "desktop",
   "mobile",
