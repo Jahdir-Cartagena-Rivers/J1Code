@@ -1,8 +1,60 @@
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { browserViewportSettingKey } from "~/browser/browserViewportLayout";
 
-import { isPreviewViewportReady } from "./previewViewportReadiness";
+import { isPreviewViewportReady, waitForPreviewViewport } from "./previewViewportReadiness";
+import { resolveHostWaitBudgetMs } from "./previewAutomationHostBudget";
+
+describe("viewport probe deadline", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("returns before the broker deadline even when the guest never responds", async () => {
+    const deadline = resolveHostWaitBudgetMs(1000);
+    await vi.advanceTimersByTimeAsync(300); // setup shares the original budget
+    const result = waitForPreviewViewport(deadline, () => new Promise(() => {}));
+    await vi.advanceTimersByTimeAsync(499);
+    let finished = false;
+    void result.then(() => {
+      finished = true;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(finished).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await result).toBeNull();
+    expect(Date.now()).toBe(800);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("ignores a viewport that arrives after its operation timed out", async () => {
+    let respond!: (value: { width: number; height: number }) => void;
+    const result = waitForPreviewViewport(
+      80,
+      () =>
+        new Promise((resolve) => {
+          respond = resolve;
+        }),
+    );
+    await vi.advanceTimersByTimeAsync(80);
+    expect(await result).toBeNull();
+    respond({ width: 390, height: 844 });
+    await vi.runAllTimersAsync();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("keeps polling through transient views and returns the matching viewport", async () => {
+    const size = { width: 390, height: 844 };
+    const probe = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(size);
+    const result = waitForPreviewViewport(800, probe);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(await result).toEqual(size);
+    expect(probe).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
 
 describe("isPreviewViewportReady", () => {
   const landscape = {

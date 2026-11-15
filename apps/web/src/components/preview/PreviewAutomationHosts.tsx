@@ -90,7 +90,7 @@ import {
   resolvePreviewAutomationTarget,
 } from "./previewAutomationTarget";
 import { resolveHostWaitBudgetMs, waitForHostReadiness } from "./previewAutomationHostBudget";
-import { isPreviewViewportReady } from "./previewViewportReadiness";
+import { isPreviewViewportReady, waitForPreviewViewport } from "./previewViewportReadiness";
 import { shouldRollbackPreviewViewport } from "./previewViewportRollback";
 
 const PREVIEW_PRESENTATION_SETTLE_TIMEOUT_MS = 500;
@@ -196,30 +196,28 @@ const waitForRenderedViewport = async (
   },
 ): Promise<PreviewRenderedViewportSize> => {
   const deadline = Date.now() + timeoutMs;
-  while (Date.now() <= deadline) {
+  const viewport = await waitForPreviewViewport(deadline, async () => {
     assertPreviewRuntimeCurrent(threadRef, tabId, runtimeTabId, context);
     try {
       const webview = findPreviewWebview(runtimeTabId);
       const appliedSettingKey = webview?.getAttribute("data-preview-viewport-key") ?? null;
       const declaredViewport = readDeclaredViewport(webview);
       const renderedViewport = webview ? await readWebviewViewport(webview) : null;
-      if (
-        renderedViewport &&
+      return renderedViewport &&
         isPreviewViewportReady({
           setting,
           appliedSettingKey,
           declaredViewport,
           renderedViewport,
         })
-      ) {
-        return renderedViewport;
-      }
+        ? renderedViewport
+        : null;
     } catch {
-      // Registration and navigation can transiently replace the guest while
-      // React applies the server snapshot. Retry until the operation deadline.
+      // Registration can replace a guest while React applies the server snapshot.
+      return null;
     }
-    await new Promise<void>((resolve) => window.setTimeout(resolve, 50));
-  }
+  });
+  if (viewport) return viewport;
   throw new PreviewAutomationViewportTimeoutError({
     ...context,
     tabId,
@@ -564,7 +562,7 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
                 activeRuntimeTabId,
                 request.operation,
                 "load",
-                request.timeoutMs,
+                Math.max(0, hostDeadlineMs - Date.now()),
               );
             }
             return await currentStatus(threadRef, activeTabId);
@@ -587,7 +585,10 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
               ready.runtimeTabId,
               request.operation,
               input.readiness ?? "load",
-              input.timeoutMs ?? request.timeoutMs,
+              Math.max(
+                0,
+                Math.min(input.timeoutMs ?? request.timeoutMs, hostDeadlineMs - Date.now()),
+              ),
             );
             return await currentStatus(threadRef, ready.tabId);
           }
@@ -628,7 +629,10 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
                 ready.tabId,
                 ready.runtimeTabId,
                 setting,
-                input.timeoutMs ?? request.timeoutMs,
+                Math.max(
+                  0,
+                  Math.min(input.timeoutMs ?? request.timeoutMs, hostDeadlineMs - Date.now()),
+                ),
                 {
                   requestId: request.requestId,
                   operation: request.operation,

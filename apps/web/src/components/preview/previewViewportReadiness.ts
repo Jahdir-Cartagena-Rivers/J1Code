@@ -1,6 +1,20 @@
 import type { PreviewRenderedViewportSize, PreviewViewportSetting } from "@t3tools/contracts";
 
 import { browserViewportSettingKey } from "~/browser/browserViewportLayout";
+import { waitForHostReadiness } from "./previewAutomationHostBudget";
+
+/** Bound the IPC probe itself, including a guest that stops answering. */
+export async function waitForPreviewViewport(
+  deadlineMs: number,
+  probe: () => Promise<PreviewRenderedViewportSize | null>,
+): Promise<PreviewRenderedViewportSize | null> {
+  let viewport: PreviewRenderedViewportSize | null = null;
+  const ready = await waitForHostReadiness(deadlineMs, async () => {
+    viewport = await probe();
+    return viewport !== null;
+  });
+  return ready ? viewport : null;
+}
 
 export function isPreviewViewportReady(input: {
   readonly setting: PreviewViewportSetting;
