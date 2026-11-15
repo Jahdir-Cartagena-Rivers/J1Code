@@ -1,4 +1,4 @@
-import type { ChatRoutingMode, OrchestrationThreadShell } from "@t3tools/contracts";
+import type { ChatRoutingMode, OrchestrationThreadShell } from "@j1code/contracts";
 import { Effect } from "effect";
 import type { RoutingPorts } from "../mcp/toolkits/routing/boundary.ts";
 import { DeliveryDispatchError, type DeliveryEndpointState } from "./deliveryDispatcher.ts";

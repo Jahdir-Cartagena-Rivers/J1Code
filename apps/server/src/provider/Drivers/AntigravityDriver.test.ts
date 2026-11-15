@@ -4,13 +4,13 @@ import {
   ANTIGRAVITY_DEFAULT_MODEL,
   ProviderInstanceId,
   type AntigravitySettings,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import {
   HostProcessEnvironment,
   HostProcessExecutablePath,
   HostProcessIsExecutable,
   HostProcessPlatform,
-} from "@t3tools/shared/hostProcess";
+} from "@j1code/shared/hostProcess";
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";

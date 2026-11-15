@@ -3,7 +3,7 @@ import {
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   AuthSessionId,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import type { AuthenticatedSession } from "../auth/EnvironmentAuth.ts";
 import { makeManualRouteBoundary } from "./manualRouteBoundary.ts";
 import { registerRoute, transitionRoute, type RouteEndpoint } from "./routeState.ts";

@@ -9,7 +9,7 @@ import {
   TurnId,
   ProviderInstanceId,
   type OrchestrationEvent,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -83,7 +83,7 @@ import { RoutingBoundaryPorts } from "../mcp/toolkits/routing/boundary.ts";
 import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { ExternalRouteEndpoints } from "./ExternalRouteEndpoints.ts";
-import type { ExternalRouteDelivery } from "@t3tools/contracts";
+import type { ExternalRouteDelivery } from "@j1code/contracts";
 
 effectIt.effect(
   "joins native transport receipts, acknowledgement and ancestry through the real registered runtime",

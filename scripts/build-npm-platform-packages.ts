@@ -19,7 +19,7 @@
  * bundleDependencies needs an arborist tree these flattened installs are
  * not), whereas `npm publish <tarball>` uploads the bytes as given.
  */
-import { legacyCliLauncherScript } from "@t3tools/shared/legacyCliLauncher";
+import { legacyCliLauncherScript } from "@j1code/shared/legacyCliLauncher";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
@@ -35,10 +35,10 @@ import {
   CLI_ARCHIVE_PLATFORM_KEYS,
   cliArchiveFileName,
   type CliArchivePlatformKey,
-} from "@t3tools/shared/cliRelease";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
-import { isCommandAvailable } from "@t3tools/shared/shell";
+} from "@j1code/shared/cliRelease";
+import { HostProcessPlatform } from "@j1code/shared/hostProcess";
+import { fromJsonStringPretty } from "@j1code/shared/schemaJson";
+import { isCommandAvailable } from "@j1code/shared/shell";
 import serverPackageJson from "../apps/server/package.json" with { type: "json" };
 
 import { windowsSystemTar } from "./build-cli-archive.ts";

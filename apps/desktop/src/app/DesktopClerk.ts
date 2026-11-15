@@ -7,12 +7,12 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
-import { codexAuthDeliveryUrl, readCodexAuthHandoff } from "@t3tools/shared/codexAuthHandoff";
+import { codexAuthDeliveryUrl, readCodexAuthHandoff } from "@j1code/shared/codexAuthHandoff";
 import { receiveCodexAuthCallback, CodexAuthCallbackError } from "./CodexAuthCallback.ts";
 import * as ElectronShell from "../electron/ElectronShell.ts";
-import { providerAuthReturnUrl } from "@t3tools/shared/providerAuthReturnUrl";
-import { HostProcessArguments } from "@t3tools/shared/hostProcess";
-import { clerkFrontendApiHostnameFromPublishableKey } from "@t3tools/shared/relayAuth";
+import { providerAuthReturnUrl } from "@j1code/shared/providerAuthReturnUrl";
+import { HostProcessArguments } from "@j1code/shared/hostProcess";
+import { clerkFrontendApiHostnameFromPublishableKey } from "@j1code/shared/relayAuth";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
@@ -60,7 +60,7 @@ export class DesktopClerk extends Context.Service<
       | Scope.Scope
     >;
   }
->()("@t3tools/desktop/app/DesktopClerk") {}
+>()("@j1code/desktop/app/DesktopClerk") {}
 
 function resolveDesktopClerkFrontendApiHostname(
   publishableKey: string | undefined,

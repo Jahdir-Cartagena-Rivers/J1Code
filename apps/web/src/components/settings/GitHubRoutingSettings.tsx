@@ -1,10 +1,10 @@
 import { useAtomValue } from "@effect/atom-react";
-import { resolveEnvironmentMachineKind } from "@t3tools/contracts";
+import { resolveEnvironmentMachineKind } from "@j1code/contracts";
 import {
   gitHubRoutingConnectionKey,
   gitHubRoutingPermissionFor,
   type GitHubRoutingPermission,
-} from "@t3tools/client-runtime/connection";
+} from "@j1code/client-runtime/connection";
 import { useState } from "react";
 
 import { environmentCatalog } from "~/connection/catalog";

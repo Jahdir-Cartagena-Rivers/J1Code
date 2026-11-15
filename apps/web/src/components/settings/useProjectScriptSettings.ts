@@ -3,16 +3,16 @@ import {
   mapAtomCommandResult,
   squashAtomCommandFailure,
   type AtomCommandResult,
-} from "@t3tools/client-runtime/state/runtime";
+} from "@j1code/client-runtime/state/runtime";
 import {
   type EnvironmentId,
   type ProjectId,
   type ProjectScript,
   type ResolvedKeybindingsConfig,
   type ServerSettings,
-} from "@t3tools/contracts";
-import { resolveProjectScripts } from "@t3tools/shared/projectScripts";
-import { clearProjectSettingsOverrides } from "@t3tools/shared/projectSettings";
+} from "@j1code/contracts";
+import { resolveProjectScripts } from "@j1code/shared/projectScripts";
+import { clearProjectSettingsOverrides } from "@j1code/shared/projectSettings";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useRef, useState } from "react";

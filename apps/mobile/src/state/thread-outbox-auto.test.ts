@@ -6,7 +6,7 @@ import {
   CommandId,
   ProviderInstanceId,
   ProjectId,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import { encodeQueuedThreadMessage, decodeQueuedThreadMessage } from "./thread-outbox-model";
 import { buildProjectThreadStartTurnInput } from "../lib/projectThreadStartTurn";
 

@@ -1,4 +1,4 @@
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, ThreadId } from "@j1code/contracts";
 import * as Schema from "effect/Schema";
 import { scopedThreadKey } from "./environment/scoped.ts";
 

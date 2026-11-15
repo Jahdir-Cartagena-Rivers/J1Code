@@ -5,7 +5,7 @@ import * as NodePath from "node:path";
 import * as NodeChildProcess from "node:child_process";
 import * as Effect from "effect/Effect";
 import { FetchHttpClient, HttpClient } from "effect/unstable/http";
-import type { HiveMindConfig } from "@t3tools/contracts";
+import type { HiveMindConfig } from "@j1code/contracts";
 import { ensureDirectory, writeAtomic } from "./files.ts";
 
 export type EndpointHealth = "ready" | "absent" | "occupied";

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it } from "vite-plus/test";
 import { browserPageScript, browserActionScript } from "./page.ts";
-import { BotBrowserPage } from "@t3tools/contracts";
+import { BotBrowserPage } from "@j1code/contracts";
 import { Schema } from "effect";
 interface FixtureElement {
   value: string;

@@ -1,6 +1,6 @@
-import { TextGenerationError } from "@t3tools/contracts";
-import { extractJsonObject } from "@t3tools/shared/schemaJson";
-import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
+import { TextGenerationError } from "@j1code/contracts";
+import { extractJsonObject } from "@j1code/shared/schemaJson";
+import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@j1code/shared/git";
 import {
   sanitizeCommitSubject,
   sanitizePrTitle,

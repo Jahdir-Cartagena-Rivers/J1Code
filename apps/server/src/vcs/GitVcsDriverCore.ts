@@ -26,13 +26,13 @@ import {
   type ReviewDiffFileStat,
   type ReviewDiffPreviewSource,
   type VcsRef,
-} from "@t3tools/contracts";
-import { dedupeRemoteBranchesWithLocalMatches, normalizeGitRemoteUrl } from "@t3tools/shared/git";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { compactTraceAttributes } from "@t3tools/shared/observability";
-import { decodeJsonResult } from "@t3tools/shared/schemaJson";
-import { parseT3ProjectFile } from "@t3tools/shared/t3ProjectFile";
-import { resolveProjectFileBackedSetting } from "@t3tools/shared/projectSettings";
+} from "@j1code/contracts";
+import { dedupeRemoteBranchesWithLocalMatches, normalizeGitRemoteUrl } from "@j1code/shared/git";
+import { HostProcessPlatform } from "@j1code/shared/hostProcess";
+import { compactTraceAttributes } from "@j1code/shared/observability";
+import { decodeJsonResult } from "@j1code/shared/schemaJson";
+import { parseT3ProjectFile } from "@j1code/shared/t3ProjectFile";
+import { resolveProjectFileBackedSetting } from "@j1code/shared/projectSettings";
 import { gitCommandDuration, gitCommandsTotal, withMetrics } from "../observability/Metrics.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
 import {

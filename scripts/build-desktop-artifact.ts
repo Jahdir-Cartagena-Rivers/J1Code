@@ -15,10 +15,10 @@ import {
   type DirectoryRecord,
 } from "@electron/asar";
 
-import { fromYaml } from "@t3tools/shared/schemaYaml";
-import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { clerkFrontendApiHostnameFromPublishableKey } from "@t3tools/shared/relayAuth";
-import { resolveSpawnCommand } from "@t3tools/shared/shell";
+import { fromYaml } from "@j1code/shared/schemaYaml";
+import { HostProcessArchitecture, HostProcessPlatform } from "@j1code/shared/hostProcess";
+import { clerkFrontendApiHostnameFromPublishableKey } from "@j1code/shared/relayAuth";
+import { resolveSpawnCommand } from "@j1code/shared/shell";
 import rootPackageJson from "../package.json" with { type: "json" };
 import desktopPackageJson from "../apps/desktop/package.json" with { type: "json" };
 import gnomeCaptureBundle from "../apps/desktop/gnome-extension/bundle.json" with { type: "json" };
@@ -3748,7 +3748,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     description: "J1 Code desktop build",
     license: "SEE LICENSE IN LICENSE",
     // Required by the .deb control file.
-    homepage: "https://github.com/Jahdir-Rivers/J1Code",
+    homepage: "https://github.com/Jahdir-Cartagena-Rivers/J1Code",
     author: "J1 Code contributors; based on T3 Code by T3 Tools",
     main: "apps/desktop/dist-electron/boot.cjs",
     build: yield* createBuildConfig(
@@ -3891,7 +3891,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const builderArgs = [
     "exec",
     "--filter",
-    "@t3tools/desktop",
+    "@j1code/desktop",
     "--",
     "electron-builder",
     "--projectDir",
@@ -3909,7 +3909,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       shell: builderCommand.shell,
     }),
     {
-      label: `vp exec --filter @t3tools/desktop -- electron-builder --projectDir ${stageAppDir} ${platformConfig.cliFlag} --${options.arch} --publish never`,
+      label: `vp exec --filter @j1code/desktop -- electron-builder --projectDir ${stageAppDir} ${platformConfig.cliFlag} --${options.arch} --publish never`,
       verbose: options.verbose,
     },
   );

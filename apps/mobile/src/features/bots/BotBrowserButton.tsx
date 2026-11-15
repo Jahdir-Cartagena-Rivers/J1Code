@@ -1,6 +1,6 @@
-import script from "@t3tools/mobile-bot-browser";
-import type { BotBrowserAction, BotBrowserPage, EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { readBotBrowserEvent } from "@t3tools/client-runtime/bots/browser-event";
+import script from "@j1code/mobile-bot-browser";
+import type { BotBrowserAction, BotBrowserPage, EnvironmentId, ThreadId } from "@j1code/contracts";
+import { readBotBrowserEvent } from "@j1code/client-runtime/bots/browser-event";
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { AppState, Modal, TextInput, View } from "react-native";
 import { WebView } from "react-native-webview";

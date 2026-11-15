@@ -8,18 +8,18 @@ import type {
   ScopedProjectRef,
   ServerConfig,
   ServerProvider,
-} from "@t3tools/contracts";
-import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+} from "@j1code/contracts";
+import { scopeProjectRef, scopeThreadRef } from "@j1code/client-runtime/environment";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
+} from "@j1code/client-runtime/state/runtime";
 import {
   CommandId,
   defaultInstanceIdForDriver,
   ProviderDriverKind,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import * as Schema from "effect/Schema";
 import {
   ArrowRightIcon,

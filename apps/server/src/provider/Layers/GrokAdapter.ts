@@ -11,10 +11,10 @@ import {
   RuntimeRequestId,
   type ThreadId,
   TurnId,
-} from "@t3tools/contracts";
-import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
-import { stableStringify } from "@t3tools/shared/relaySigning";
+} from "@j1code/contracts";
+import { HostProcessEnvironment, HostProcessPlatform } from "@j1code/shared/hostProcess";
+import { getModelSelectionStringOptionValue } from "@j1code/shared/model";
+import { stableStringify } from "@j1code/shared/relaySigning";
 import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";

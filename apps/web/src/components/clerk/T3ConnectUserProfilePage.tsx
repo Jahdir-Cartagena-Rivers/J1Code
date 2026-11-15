@@ -1,10 +1,10 @@
-import { findErrorTraceId } from "@t3tools/client-runtime/errors";
+import { findErrorTraceId } from "@j1code/client-runtime/errors";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
-import type { EnvironmentId } from "@t3tools/contracts";
-import type { RelayClientEnvironmentRecord } from "@t3tools/contracts/relay";
+} from "@j1code/client-runtime/state/runtime";
+import type { EnvironmentId } from "@j1code/contracts";
+import type { RelayClientEnvironmentRecord } from "@j1code/contracts/relay";
 import { ServerIcon } from "lucide-react";
 import { useRef, useState } from "react";
 

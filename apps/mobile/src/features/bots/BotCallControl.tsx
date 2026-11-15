@@ -1,7 +1,7 @@
-﻿import type { BotId, EnvironmentId, MessageId, ThreadId } from "@t3tools/contracts";
+﻿import type { BotId, EnvironmentId, MessageId, ThreadId } from "@j1code/contracts";
 import { useAtomValue } from "@effect/atom-react";
-import { createBotCallController } from "@t3tools/shared/bot-call-controller";
-import { initialBotCallState } from "@t3tools/shared/bot-voice-conversation";
+import { createBotCallController } from "@j1code/shared/bot-call-controller";
+import { initialBotCallState } from "@j1code/shared/bot-voice-conversation";
 import { requestRecordingPermissionsAsync } from "expo-audio";
 import { useEffect, useRef, useState } from "react";
 import { AppState, View } from "react-native";

@@ -1,9 +1,9 @@
-import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
+import type { EnvironmentConnectionPhase } from "@j1code/client-runtime/connection";
 import {
   AuthOrchestrationOperateScope,
   type AuthSessionState,
   type EnvironmentId,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 
 export interface ProviderEnvironmentOptionLike {
   readonly environmentId: EnvironmentId;

@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import type { BotId, EnvironmentId } from "@t3tools/contracts";
+import type { BotId, EnvironmentId } from "@j1code/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { environmentServerConfigsAtom } from "../../state/server";
 import { Button } from "../ui/button";

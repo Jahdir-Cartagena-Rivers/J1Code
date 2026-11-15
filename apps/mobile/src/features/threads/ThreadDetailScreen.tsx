@@ -1,21 +1,21 @@
-import { LEGACY_BOTS_ENABLED } from "@t3tools/shared/legacy-bots";
+import { LEGACY_BOTS_ENABLED } from "@j1code/shared/legacy-bots";
 import { BotCallControl } from "../bots/BotCallControl";
 import { BotBrowserButton } from "../bots/BotBrowserButton";
 import { BotVoiceControl } from "../bots/BotVoiceControl";
 import { MobileRouteRequests } from "./MobileRouteRequests";
 import type { WorktreeSetupCardProps } from "./worktree-setup-card";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
-import { type EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
+import { type EnvironmentConnectionPhase } from "@j1code/client-runtime/connection";
 import {
   appendCodexArtifactTemplateUsePrompt,
   type CodexArtifactTemplate,
-} from "@t3tools/client-runtime/codex-artifact-templates";
+} from "@j1code/client-runtime/codex-artifact-templates";
 import type {
   CodexFeedbackSubmission,
   EnvironmentThreadStatus,
-} from "@t3tools/client-runtime/state/threads";
+} from "@j1code/client-runtime/state/threads";
 import { useKeyboardChatComposerInset, useKeyboardScrollToEnd } from "@legendapp/list/keyboard";
-import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSkills";
+import { resolveProviderSkillsForCwd } from "@j1code/client-runtime/providerSkills";
 import type { LegendListRef } from "@legendapp/list/react-native";
 import { HeaderHeightContext } from "@react-navigation/elements";
 import { useNavigation } from "@react-navigation/native";
@@ -32,7 +32,7 @@ import type {
   ThreadId,
   UsageLimitsReport,
   UserInputQuestion,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import * as Haptics from "expo-haptics";
 import {
   memo,
@@ -71,7 +71,7 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useWorkspaceContentWidth } from "../layout/workspace-content-width";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
-import { collectProviderUsageLimits } from "@t3tools/shared/usageLimits";
+import { collectProviderUsageLimits } from "@j1code/shared/usageLimits";
 import type { ComposerEditorHandle } from "../../components/ComposerEditor";
 import type { StatusTone } from "../../components/StatusPill";
 import type { DraftComposerAttachment } from "../../lib/composerImages";
@@ -121,7 +121,7 @@ export interface ThreadDetailScreenProps {
   readonly onSendVoiceMessage: (text: string) => Promise<MessageId | null>;
   readonly botCallRevision: string;
   readonly botVoice?: {
-    readonly botId: import("@t3tools/contracts").BotId;
+    readonly botId: import("@j1code/contracts").BotId;
     readonly messageId: string | null;
     readonly text: string;
   } | null;

@@ -1,9 +1,9 @@
-import { isTransportConnectionErrorMessage } from "@t3tools/client-runtime/errors";
+import { isTransportConnectionErrorMessage } from "@j1code/client-runtime/errors";
 import {
   clampFileAttachmentUploadBytes,
   fileAttachmentTooLargeMessage,
-} from "@t3tools/client-runtime/state/attachments";
-import type { EnvironmentShellStatus } from "@t3tools/client-runtime/state/shell";
+} from "@j1code/client-runtime/state/attachments";
+import type { EnvironmentShellStatus } from "@j1code/client-runtime/state/shell";
 import {
   CommandId,
   EnvironmentId,
@@ -20,7 +20,7 @@ import {
   type ProviderInteractionMode as ProviderInteractionModeType,
   type RuntimeMode as RuntimeModeType,
   type ServerProvider,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import * as Schema from "effect/Schema";
 
 import { DraftComposerAttachmentSchema } from "../lib/composer-image-schema";

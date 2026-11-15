@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
-import { BotId, EnvironmentId, MessageId, ThreadId } from "@t3tools/contracts";
+import { BotId, EnvironmentId, MessageId, ThreadId } from "@j1code/contracts";
 const state = vi.hoisted(() => ({
   recognition: null as null | ((event: Record<string, unknown>) => void),
   voice: null as null | ((event: Record<string, unknown>) => void),

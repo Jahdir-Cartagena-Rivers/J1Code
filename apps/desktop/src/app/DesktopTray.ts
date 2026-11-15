@@ -46,7 +46,7 @@ export class DesktopTray extends Context.Service<
       Services | DesktopAssets.DesktopAssets | ElectronTray.ElectronTray | Scope.Scope
     >;
   }
->()("@t3tools/desktop/app/DesktopTray") {}
+>()("@j1code/desktop/app/DesktopTray") {}
 
 const { logError } = makeComponentLogger("desktop-tray");
 

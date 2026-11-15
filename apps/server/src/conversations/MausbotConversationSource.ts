@@ -3,7 +3,7 @@ import {
   ConversationHistoryPage,
   ConversationMessagePage,
   type ConversationQuery,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import { Effect, Schema } from "effect";
 import type { ExternalConversationSource } from "./ExternalConversations.ts";
 

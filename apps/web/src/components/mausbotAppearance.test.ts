@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { MAUSBOT_THEME_ROLES } from "@t3tools/shared/mausbotAppearance";
+import { MAUSBOT_THEME_ROLES } from "@j1code/shared/mausbotAppearance";
 import { decodeMausbotThemes } from "./mausbotAppearance";
 import {
   getCustomThemes,

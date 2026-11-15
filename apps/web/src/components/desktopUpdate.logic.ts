@@ -1,5 +1,5 @@
-import type { DesktopUpdateActionResult, DesktopUpdateState } from "@t3tools/contracts";
-import { J1_RELEASES_URL } from "@t3tools/shared/j1Brand";
+import type { DesktopUpdateActionResult, DesktopUpdateState } from "@j1code/contracts";
+import { J1_RELEASES_URL } from "@j1code/shared/j1Brand";
 
 export type DesktopUpdateButtonAction = "download" | "install" | "none";
 

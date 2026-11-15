@@ -1,5 +1,5 @@
 import type { DeepAIModel } from "./DeepAIClient.ts";
-import { createModelCapabilities } from "@t3tools/shared/model";
+import { createModelCapabilities } from "@j1code/shared/model";
 
 export const DEEPAI_EFFORTS = ["low", "medium", "high"] as const;
 

@@ -1,12 +1,12 @@
 import { SourceFileSurface } from "../features/files/SourceFileSurface";
-import { filePreviewKind } from "@t3tools/shared/filePreview";
+import { filePreviewKind } from "@j1code/shared/filePreview";
 import type {
   ComposerContextRecord,
   ElementContextSource,
   EnvironmentId,
-} from "@t3tools/contracts";
-import { formatAttachmentSize } from "@t3tools/client-runtime/state/attachments";
-import { videoMimeType } from "@t3tools/shared/video";
+} from "@j1code/contracts";
+import { formatAttachmentSize } from "@j1code/client-runtime/state/attachments";
+import { videoMimeType } from "@j1code/shared/video";
 import { useState } from "react";
 import {
   Alert,

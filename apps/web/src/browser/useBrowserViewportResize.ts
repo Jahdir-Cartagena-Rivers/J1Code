@@ -1,6 +1,6 @@
 "use client";
 
-import type { PreviewViewportSetting, PreviewViewportSize } from "@t3tools/contracts";
+import type { PreviewViewportSetting, PreviewViewportSize } from "@j1code/contracts";
 import {
   useCallback,
   useEffect,

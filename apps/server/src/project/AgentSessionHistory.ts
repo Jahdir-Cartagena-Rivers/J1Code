@@ -1,5 +1,5 @@
 import * as NodeCrypto from "node:crypto";
-import { MessageId, type OrchestrationThread, type ThreadId } from "@t3tools/contracts";
+import { MessageId, type OrchestrationThread, type ThreadId } from "@j1code/contracts";
 import type { AgentSessionThreadMessage } from "./AgentSessionScanner.ts";
 
 /** Keep saved history immutable, using source identities and a unique legacy tail to find new text. */

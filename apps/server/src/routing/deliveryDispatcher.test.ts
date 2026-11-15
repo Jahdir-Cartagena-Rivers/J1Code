@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
-import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
+import * as NodeSqliteClient from "@j1code/shared/nodeSqliteClient";
 import migration from "../persistence/Migrations/060_DurableRoutes.ts";
 import { makeDurableRoutingStore } from "./durableRoutingStore.ts";
 import {

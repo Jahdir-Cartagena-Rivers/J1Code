@@ -5,7 +5,7 @@ import {
   DesktopScreenshotInput,
   DesktopScreenshotResult,
   DesktopToolError,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import { Tool, Toolkit } from "effect/unstable/ai";
 import { DesktopAutomation } from "../../../desktop/DesktopAutomation.ts";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";

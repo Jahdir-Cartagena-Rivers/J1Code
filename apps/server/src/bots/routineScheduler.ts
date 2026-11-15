@@ -1,4 +1,4 @@
-import type { BotProfile, BotRoutine } from "@t3tools/contracts";
+import type { BotProfile, BotRoutine } from "@j1code/contracts";
 import { DateTime, Effect } from "effect";
 import { makeRoutineRuns } from "./routineRuns.ts";
 import { latestRoutineOccurrence } from "./routineSchedule.ts";

@@ -1,5 +1,5 @@
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import type { DesktopAppActivationRequest } from "@t3tools/contracts";
+import { squashAtomCommandFailure } from "@j1code/client-runtime/state/runtime";
+import type { DesktopAppActivationRequest } from "@j1code/contracts";
 import { useEffect, useEffectEvent, useRef } from "react";
 
 import { handleDesktopAppActivationRequest } from "../../desktopAppActivation";

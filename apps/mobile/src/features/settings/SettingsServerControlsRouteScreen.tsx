@@ -11,7 +11,7 @@ import {
   type WorktreeSubmodules,
   PROJECT_SCOPED_SERVER_SETTING_KEYS,
   type ProjectScopedServerSettingKey,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import { useRef, useState, type ComponentProps } from "react";
 import { Alert, Platform, Pressable, View, TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";

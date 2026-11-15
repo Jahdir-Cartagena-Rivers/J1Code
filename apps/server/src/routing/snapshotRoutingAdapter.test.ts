@@ -1,4 +1,4 @@
-import { ThreadId, ProjectId } from "@t3tools/contracts";
+import { ThreadId, ProjectId } from "@j1code/contracts";
 import { Effect } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import { makeSnapshotRoutingAdapter, type SnapshotRoutingFacts } from "./snapshotRoutingAdapter.ts";

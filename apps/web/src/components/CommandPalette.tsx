@@ -1,11 +1,11 @@
 "use client";
 
-import { getRootChats } from "@t3tools/client-runtime/worker-chats";
+import { getRootChats } from "@j1code/client-runtime/worker-chats";
 
-import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
-import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
+import { threadPullRequestLinkMode } from "@j1code/client-runtime/thread-pull-request-compatibility";
+import { visibleThreadPullRequests } from "@j1code/shared/threadPullRequests";
 
-import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { scopeProjectRef, scopeThreadRef } from "@j1code/client-runtime/environment";
 import {
   canCreateProjectInEnvironment,
   getCloneDestinationBrowsePath,
@@ -13,21 +13,21 @@ import {
   getCloneDirectoryName,
   getDefaultCloneUrl,
   normalizePastedCloneUrl,
-} from "@t3tools/client-runtime/operations/projects";
-import { connectionStatusText } from "@t3tools/client-runtime/connection";
-import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
-import { resolveThreadReferenceCopyTarget } from "@t3tools/shared/threadReference";
+} from "@j1code/client-runtime/operations/projects";
+import { connectionStatusText } from "@j1code/client-runtime/connection";
+import { threadSearchMatchKey } from "@j1code/client-runtime/state/thread-search";
+import { resolveThreadReferenceCopyTarget } from "@j1code/shared/threadReference";
 import {
   canPreloadBrowsePath,
   createBrowseNavigationCoordinator,
   filterFilesystemBrowseEntries,
   getFilesystemBrowsePath,
-} from "@t3tools/client-runtime/state/filesystem";
+} from "@j1code/client-runtime/state/filesystem";
 import {
   isAtomCommandInterrupted,
   settlePromise,
   squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
+} from "@j1code/client-runtime/state/runtime";
 import {
   type DesktopWslState,
   type EnvironmentId,
@@ -39,7 +39,7 @@ import {
   type SourceControlRepositoryInfo,
   PRIMARY_LOCAL_ENVIRONMENT_ID,
   resolveEnvironmentMachineKind,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
@@ -82,7 +82,7 @@ import { useClientSettings } from "../hooks/useSettings";
 import { useTheme } from "../hooks/useTheme";
 import { useCustomThemes } from "../hooks/useCustomThemes";
 import { useEnvironmentThemeDefinitions } from "../hooks/useEnvironmentTheme";
-import { BUILT_IN_THEMES } from "@t3tools/shared/themePalettes";
+import { BUILT_IN_THEMES } from "@j1code/shared/themePalettes";
 import { getThemeDefinition } from "../themePalette";
 import {
   STANDARD_THEME_CARDS,

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { WorkerChatExpansion } from "@t3tools/client-runtime/worker-chats";
+import { WorkerChatExpansion } from "@j1code/client-runtime/worker-chats";
 import * as Schema from "effect/Schema";
 import * as Option from "effect/Option";
 import { resolveStorage } from "./lib/storage";

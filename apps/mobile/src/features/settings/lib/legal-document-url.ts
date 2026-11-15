@@ -1,4 +1,4 @@
-import { J1_SOURCE_URL } from "@t3tools/shared/j1Brand";
+import { J1_SOURCE_URL } from "@j1code/shared/j1Brand";
 
 function resolveMarketingSiteUrl(override: string | undefined): URL | null {
   if (!override?.trim()) return null;

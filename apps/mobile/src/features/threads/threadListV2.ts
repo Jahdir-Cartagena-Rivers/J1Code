@@ -1,5 +1,5 @@
-import { getRootChats } from "@t3tools/client-runtime/worker-chats";
-import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
+import { getRootChats } from "@j1code/client-runtime/worker-chats";
+import { threadPullRequestSearchTerms } from "@j1code/shared/threadPullRequests";
 import {
   canSnooze,
   effectiveSnoozed,
@@ -7,17 +7,17 @@ import {
   QUEUED_TURN_START_GRACE_MS,
   resolveSnoozePresets,
   snoozeWakeLabel,
-} from "@t3tools/client-runtime/state/thread-settled";
-import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
+} from "@j1code/client-runtime/state/thread-settled";
+import type { SnoozePreset } from "@j1code/client-runtime/state/thread-settled";
+import type { EnvironmentThreadShell } from "@j1code/client-runtime/state/shell";
+import { threadSearchMatchKey } from "@j1code/client-runtime/state/thread-search";
 import {
   sortActiveThreadsByOrderKey,
   resolveSettledThreadTimestamp,
   sortPinnedThreadsByOrderKey,
   sortSettledThreads,
-} from "@t3tools/client-runtime/state/thread-sort";
-import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+} from "@j1code/client-runtime/state/thread-sort";
+import type { EnvironmentId, ProjectId } from "@j1code/contracts";
 
 import type { ThreadMoveAvailability } from "./threadOrder";
 

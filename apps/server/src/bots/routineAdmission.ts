@@ -6,9 +6,9 @@ import {
   ThreadId,
   type BotProfile,
   type BotRoutine,
-} from "@t3tools/contracts";
-import { standaloneBotWorkspace } from "@t3tools/shared/bot-workspace";
-import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+} from "@j1code/contracts";
+import { standaloneBotWorkspace } from "@j1code/shared/bot-workspace";
+import { resolveProjectSettings } from "@j1code/shared/projectSettings";
 import { DateTime, Effect, Option, Path } from "effect";
 import { ServerConfig } from "../config.ts";
 import { ServerSettingsService } from "../serverSettings.ts";

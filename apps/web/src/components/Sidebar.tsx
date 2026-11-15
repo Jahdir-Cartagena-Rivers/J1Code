@@ -1,10 +1,10 @@
-import { LEGACY_BOTS_ENABLED } from "@t3tools/shared/legacy-bots";
-import { isStandaloneBotProject } from "@t3tools/shared/bot-workspace";
+import { LEGACY_BOTS_ENABLED } from "@j1code/shared/legacy-bots";
+import { isStandaloneBotProject } from "@j1code/shared/bot-workspace";
 import { requestCustomSnooze } from "./CustomSnoozeDialog";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
-import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
+import { resolveThreadCurrentPullRequestLink } from "@j1code/shared/threadPullRequests";
 import { useAtomValue } from "@effect/atom-react";
-import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
+import { replaceComposerContextReferences } from "@j1code/shared/composerContextReferences";
 import * as Schema from "effect/Schema";
 import {
   DndContext,
@@ -22,30 +22,30 @@ import {
   canSnooze,
   effectiveSnoozed,
   threadWokeAt,
-} from "@t3tools/client-runtime/state/thread-settled";
+} from "@j1code/client-runtime/state/thread-settled";
 import {
   resolveSettledThreadTimestamp,
   sortSettledThreads,
-} from "@t3tools/client-runtime/state/thread-sort";
+} from "@j1code/client-runtime/state/thread-sort";
 import {
   threadSearchMatchKey,
   type EnvironmentThreadSearchMatch,
-} from "@t3tools/client-runtime/state/thread-search";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+} from "@j1code/client-runtime/state/thread-search";
+import type { EnvironmentThreadShell } from "@j1code/client-runtime/state/models";
 import {
   parseScopedThreadKey,
   scopeProjectRef,
   scopeThreadRef,
   scopedThreadKey,
-} from "@t3tools/client-runtime/environment";
+} from "@j1code/client-runtime/environment";
 import {
   resolveEnvironmentMachineKind,
   type EnvironmentMachineKind,
   type ProjectIconOverride,
   type ScopedThreadRef,
   type ThreadId,
-} from "@t3tools/contracts";
-import type { TimestampFormat } from "@t3tools/contracts/settings";
+} from "@j1code/contracts";
+import type { TimestampFormat } from "@j1code/contracts/settings";
 import {
   AlarmClockIcon,
   AlarmClockOffIcon,
@@ -92,7 +92,7 @@ import {
   settlePromise,
   squashAtomCommandFailure,
   type AtomCommandResult,
-} from "@t3tools/client-runtime/state/runtime";
+} from "@j1code/client-runtime/state/runtime";
 import { isElectron } from "../env";
 import {
   resolveShortcutCommand,
@@ -154,7 +154,7 @@ import {
 } from "../threadRoutes";
 import { formatRelativeTimeLabel, parseTimestampDate } from "../timestampFormat";
 import type { SidebarThreadSummary } from "../types";
-import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
+import type { EnvironmentProject } from "@j1code/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { ProjectEnvironmentBadge } from "./ProjectEnvironmentBadge";

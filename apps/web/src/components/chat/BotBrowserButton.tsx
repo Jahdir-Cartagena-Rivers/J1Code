@@ -1,6 +1,6 @@
-import type { BotBrowserAction, BotBrowserPage, EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { buildBotBrowserDocument } from "@t3tools/client-runtime/bots/browser-document";
-import { readBotBrowserEvent } from "@t3tools/client-runtime/bots/browser-event";
+import type { BotBrowserAction, BotBrowserPage, EnvironmentId, ThreadId } from "@j1code/contracts";
+import { buildBotBrowserDocument } from "@j1code/client-runtime/bots/browser-document";
+import { readBotBrowserEvent } from "@j1code/client-runtime/bots/browser-event";
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { botBrowserPage, actOnBotBrowser } from "../../state/botBrowser";
 import { useEnvironmentQuery } from "../../state/query";

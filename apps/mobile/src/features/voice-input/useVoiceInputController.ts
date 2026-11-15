@@ -27,7 +27,7 @@ import {
   voiceInputFreezesEditor,
   type VoiceDraftSnapshot,
   type VoiceInputState,
-} from "@t3tools/client-runtime/voice-input";
+} from "@j1code/client-runtime/voice-input";
 import { normalizeVoiceInputDecibels, VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 
 const liveDictation = iosLiveDictation ?? androidDictation;

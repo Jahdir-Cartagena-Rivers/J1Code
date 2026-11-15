@@ -2,7 +2,7 @@
 import { type ReactNode, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
-import { EnvironmentId } from "@t3tools/contracts";
+import { EnvironmentId } from "@j1code/contracts";
 import { RouteRequestControl } from "./RouteRequestControl";
 
 const commands = vi.hoisted(() => ({ list: vi.fn(), prepare: vi.fn(), confirm: vi.fn() }));

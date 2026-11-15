@@ -6,7 +6,7 @@ import {
   GrokSettings,
   OpenCodeSettings,
   ProviderDriverKind,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import * as Schema from "effect/Schema";
 import {
   AntigravityIcon,

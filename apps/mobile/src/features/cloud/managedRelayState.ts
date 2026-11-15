@@ -4,13 +4,13 @@ import {
   deregisterManagedRelayEnvironment,
   managedRelaySessionAtom,
   readManagedRelaySnapshotState,
-} from "@t3tools/client-runtime/relay";
+} from "@j1code/client-runtime/relay";
 import {
   createAtomCommandScheduler,
   createRuntimeCommand,
-} from "@t3tools/client-runtime/state/runtime";
-import type { EnvironmentId } from "@t3tools/contracts";
-import type { RelayClientEnvironmentRecord } from "@t3tools/contracts/relay";
+} from "@j1code/client-runtime/state/runtime";
+import type { EnvironmentId } from "@j1code/contracts";
+import type { RelayClientEnvironmentRecord } from "@j1code/contracts/relay";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import { useCallback, useEffect } from "react";
 

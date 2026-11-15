@@ -1,6 +1,6 @@
 import { expect, it } from "@effect/vitest";
-import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
-import type { AutoModelInput } from "@t3tools/shared/autoModel";
+import * as NodeSqliteClient from "@j1code/shared/nodeSqliteClient";
+import type { AutoModelInput } from "@j1code/shared/autoModel";
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import migration from "../persistence/Migrations/061_AutoModelAdmissions.ts";

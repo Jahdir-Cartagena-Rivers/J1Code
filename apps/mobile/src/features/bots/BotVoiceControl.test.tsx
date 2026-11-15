@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
-import { BotId, EnvironmentId } from "@t3tools/contracts";
+import { BotId, EnvironmentId } from "@j1code/contracts";
 const state = vi.hoisted(() => ({
   auto: true,
   speak: vi.fn(),

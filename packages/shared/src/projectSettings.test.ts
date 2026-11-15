@@ -4,7 +4,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   ProviderDriverKind,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import { createModelSelection } from "./model.ts";
 import {

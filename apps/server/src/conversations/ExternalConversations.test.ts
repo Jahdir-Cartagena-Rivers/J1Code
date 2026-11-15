@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "@effect/vitest";
-import { ProviderInstanceId } from "@t3tools/contracts";
+import { ProviderInstanceId } from "@j1code/contracts";
 import {
   makeExternalConversations,
   type ExternalConversationSource,

@@ -11,7 +11,7 @@ import type {
   ProviderTurnStartResult,
   ProviderUploadFeedbackInput,
   ProviderUploadFeedbackResult,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import {
   AGENT_DELEGATION_ACTIVITY_KIND,
   OrchestrationThread,
@@ -30,12 +30,12 @@ import {
   ProviderSessionStartInput,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import {
   expandAssistantCitationsForProvider,
   serializeAssistantCitation,
-} from "@t3tools/shared/assistantCitations";
-import { createModelSelection } from "@t3tools/shared/model";
+} from "@j1code/shared/assistantCitations";
+import { createModelSelection } from "@j1code/shared/model";
 import { it, assert, describe, vi } from "@effect/vitest";
 import { afterAll } from "vite-plus/test";
 

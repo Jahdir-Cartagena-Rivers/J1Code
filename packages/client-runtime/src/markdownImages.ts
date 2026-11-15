@@ -1,4 +1,4 @@
-import { isWindowsAbsolutePath } from "@t3tools/shared/path";
+import { isWindowsAbsolutePath } from "@j1code/shared/path";
 
 import {
   normalizeMarkdownLinkDestination,

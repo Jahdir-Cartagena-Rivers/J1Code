@@ -1,4 +1,4 @@
-import { BotId, MessageId, ProjectId, ThreadId } from "@t3tools/contracts";
+import { BotId, MessageId, ProjectId, ThreadId } from "@j1code/contracts";
 import { type CxOptions, cx } from "class-variance-authority";
 import * as Encoding from "effect/Encoding";
 import { extendTailwindMerge } from "tailwind-merge";

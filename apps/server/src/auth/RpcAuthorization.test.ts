@@ -7,7 +7,7 @@ import {
   AuthRelayWriteScope,
   WS_METHODS,
   WsRpcGroup,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import { describe, expect, it } from "@effect/vitest";
 
 import {

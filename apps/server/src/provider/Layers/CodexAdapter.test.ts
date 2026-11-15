@@ -17,8 +17,8 @@ import {
   type ProviderUserInputAnswers,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
-import { createModelSelection } from "@t3tools/shared/model";
+} from "@j1code/contracts";
+import { createModelSelection } from "@j1code/shared/model";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it, vi } from "@effect/vitest";
 
@@ -48,7 +48,7 @@ import {
 } from "./CodexSessionRuntime.ts";
 import { makeCodexAdapter } from "./CodexAdapter.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
-import { EnvironmentId } from "@t3tools/contracts";
+import { EnvironmentId } from "@j1code/contracts";
 const decodeCodexSettings = Schema.decodeSync(CodexSettings);
 
 // Test-local service tag so the rest of the file can keep using `yield* CodexAdapter`.

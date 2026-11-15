@@ -1,5 +1,5 @@
 import { sha256 } from "@noble/hashes/sha2";
-import { ProjectId, type BotId } from "@t3tools/contracts";
+import { ProjectId, type BotId } from "@j1code/contracts";
 
 const PREFIX = "j1-bot:";
 

@@ -84,7 +84,7 @@ jobs:
           cache: false
           run-install: false
       - name: Install locked build dependencies
-        run: vp install --frozen-lockfile --filter=@t3tools/desktop... --filter=t3... --filter=@t3tools/scripts...
+        run: vp install --frozen-lockfile --filter=@j1code/desktop... --filter=t3... --filter=@j1code/scripts...
       - name: Align build versions
         run: node scripts/update-release-package-versions.ts "$env:J1_RELEASE_VERSION"
       - name: Test native archive extraction

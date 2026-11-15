@@ -1,4 +1,4 @@
-import type { ConversationCall, ConversationPrincipal } from "@t3tools/contracts";
+import type { ConversationCall, ConversationPrincipal } from "@j1code/contracts";
 import type { ExternalConversations } from "./ExternalConversations.ts";
 
 export const conversationCall = (

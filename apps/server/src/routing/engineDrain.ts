@@ -1,11 +1,11 @@
-import { CommandId, MessageId, ThreadId, type OrchestrationEvent } from "@t3tools/contracts";
+import { CommandId, MessageId, ThreadId, type OrchestrationEvent } from "@j1code/contracts";
 import { DateTime, Effect, Option, Semaphore, Stream } from "effect";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProviderService } from "../provider/Services/ProviderService.ts";
 import { makeDurableRoutingStore } from "./durableRoutingStore.ts";
 import { ExternalRouteEndpoints } from "./ExternalRouteEndpoints.ts";
-import { routeEndpointUrl } from "@t3tools/shared/routeEndpointUrl";
+import { routeEndpointUrl } from "@j1code/shared/routeEndpointUrl";
 import { makeRouteSourceNotifier } from "./sourceActivity.ts";
 
 /** Only events that can release or change admission eligibility wake the queue. */

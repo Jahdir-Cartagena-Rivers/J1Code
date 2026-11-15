@@ -1,9 +1,9 @@
 import * as DesktopWindow from "../window/DesktopWindow.ts";
 // @effect-diagnostics nodeBuiltinImport:off globalFetchInEffect:off - Hosted handoff test uses a real localhost listener without an OpenAI account.
 import * as NodeHttp from "node:http";
-import { codexAuthHandoffUrl, readCodexAuthDelivery } from "@t3tools/shared/codexAuthHandoff";
-import { EnvironmentId, ProviderInstanceId } from "@t3tools/contracts";
-import { HostProcessArguments } from "@t3tools/shared/hostProcess";
+import { codexAuthHandoffUrl, readCodexAuthDelivery } from "@j1code/shared/codexAuthHandoff";
+import { EnvironmentId, ProviderInstanceId } from "@j1code/contracts";
+import { HostProcessArguments } from "@j1code/shared/hostProcess";
 import { assert, describe, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";

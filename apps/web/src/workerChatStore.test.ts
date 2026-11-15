@@ -4,7 +4,7 @@ import {
   reconcileWorkerChatExpansion,
   toggleWorkerChats,
   unfoldWorkerChat,
-} from "@t3tools/client-runtime/worker-chats";
+} from "@j1code/client-runtime/worker-chats";
 import { createMemoryStorage } from "./lib/storage";
 import { useWorkerChatStore } from "./workerChatStore";
 

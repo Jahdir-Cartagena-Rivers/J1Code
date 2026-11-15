@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { type EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { scopeThreadRef } from "@j1code/client-runtime/environment";
+import { type EnvironmentId, ThreadId } from "@j1code/contracts";
 
 import {
   isSameSidebarThreadRef,

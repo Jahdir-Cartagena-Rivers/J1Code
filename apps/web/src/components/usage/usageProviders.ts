@@ -1,4 +1,4 @@
-import type { UsageProviderKind } from "@t3tools/contracts";
+import type { UsageProviderKind } from "@j1code/contracts";
 
 import {
   AntigravityIcon,

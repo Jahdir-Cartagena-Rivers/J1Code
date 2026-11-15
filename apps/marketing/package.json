@@ -1,5 +1,5 @@
 {
-  "name": "@t3tools/marketing",
+  "name": "@j1code/marketing",
   "version": "0.0.0",
   "private": true,
   "license": "SEE LICENSE IN ../../LICENSE",
@@ -12,7 +12,7 @@
     "typecheck": "astro check"
   },
   "dependencies": {
-    "@t3tools/shared": "workspace:*",
+    "@j1code/shared": "workspace:*",
     "astro": "^7.2.8",
     "sharp": "0.35.4"
   },

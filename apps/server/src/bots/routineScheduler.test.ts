@@ -1,6 +1,6 @@
 import { it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
-import { BotProfile } from "@t3tools/contracts";
+import { BotProfile } from "@j1code/contracts";
 import { expect } from "vite-plus/test";
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import { makeRoutineScheduler } from "./routineScheduler.ts";

@@ -1,4 +1,4 @@
-import { WS_METHODS, type HiveMindConfig } from "@t3tools/contracts";
+import { WS_METHODS, type HiveMindConfig } from "@j1code/contracts";
 import type { Atom } from "effect/unstable/reactivity";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { createEnvironmentRpcCommand } from "./runtime.ts";

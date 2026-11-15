@@ -1,9 +1,9 @@
-import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
+import { parseChangeRequestUrl } from "@j1code/shared/changeRequestUrl";
 import { useAtomValue } from "@effect/atom-react";
 import { usePullRequestStack } from "~/state/usePullRequestStack";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
-import { scopedThreadKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { scopedThreadKey, scopeProjectRef } from "@j1code/client-runtime/environment";
+import { squashAtomCommandFailure } from "@j1code/client-runtime/state/runtime";
 import {
   type EnvironmentId,
   DEFAULT_SERVER_SETTINGS,
@@ -14,8 +14,8 @@ import {
   type PullRequestRef,
   resolveEnvironmentMachineKind,
   type ScopedThreadRef,
-} from "@t3tools/contracts";
-import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+} from "@j1code/contracts";
+import { resolveProjectSettings } from "@j1code/shared/projectSettings";
 import {
   ArrowDownUpIcon,
   ArrowLeftIcon,

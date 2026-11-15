@@ -1,6 +1,6 @@
 import { composerSendContent } from "./composerSendContent";
 import type { ComposerTextPaste } from "../native/T3ComposerEditor.types";
-import { resolveAutoModelPolicy } from "@t3tools/shared/projectSettings";
+import { resolveAutoModelPolicy } from "@j1code/shared/projectSettings";
 import { useAtomValue } from "@effect/atom-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "react-native";
@@ -16,17 +16,17 @@ import {
   type ProviderInteractionMode,
   type RuntimeMode,
   type ThreadId,
-} from "@t3tools/contracts";
-import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
-import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
-import { nextPastedTextFileName, pastedTextDisposition } from "@t3tools/client-runtime/text-paste";
+} from "@j1code/contracts";
+import { safeErrorLogAttributes } from "@j1code/client-runtime/errors";
+import { clampFileAttachmentUploadBytes } from "@j1code/client-runtime/state/attachments";
+import { nextPastedTextFileName, pastedTextDisposition } from "@j1code/client-runtime/text-paste";
 import {
   parseCodexFeedbackCommand,
   submitCodexFeedback,
   type CodexFeedbackSubmission,
-} from "@t3tools/client-runtime/state/threads";
-import { deriveActiveWorkStartedAt } from "@t3tools/shared/orchestrationTiming";
-import { upgradeLegacyContextMessage } from "@t3tools/shared/composerContextLegacy";
+} from "@j1code/client-runtime/state/threads";
+import { deriveActiveWorkStartedAt } from "@j1code/shared/orchestrationTiming";
+import { upgradeLegacyContextMessage } from "@j1code/shared/composerContextLegacy";
 import { composerContextSendBlockReason, reidentifyComposerContext } from "../lib/composerContext";
 import { uuidv4 } from "../lib/uuid";
 

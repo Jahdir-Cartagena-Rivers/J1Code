@@ -1,23 +1,23 @@
-import { findErrorTraceId } from "@t3tools/client-runtime/errors";
+import { findErrorTraceId } from "@j1code/client-runtime/errors";
 import {
   type EnvironmentConnectionPresentation,
   RelayConnectionRegistration,
   RelayConnectionTarget,
   orchestrationProtocolCompatibilityError,
-} from "@t3tools/client-runtime/connection";
+} from "@j1code/client-runtime/connection";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
+} from "@j1code/client-runtime/state/runtime";
 import {
   type EnvironmentId,
   resolveEnvironmentMachineKind,
   type ServerConfig,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import type {
   RelayClientEnvironmentRecord,
   RelayEnvironmentStatusResponse,
-} from "@t3tools/contracts/relay";
+} from "@j1code/contracts/relay";
 import * as Option from "effect/Option";
 import { type ReactNode, useCallback, useEffect, useEffectEvent, useState } from "react";
 

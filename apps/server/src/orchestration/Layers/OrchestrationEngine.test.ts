@@ -16,7 +16,7 @@ import {
   type OrchestrationCommand,
   type OrchestrationEvent,
   ProviderInstanceId,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -25,7 +25,7 @@ import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Metric from "effect/Metric";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { ServerProvider } from "@t3tools/contracts";
+import { ServerProvider } from "@j1code/contracts";
 import { layerTest as autoSettingsLayer } from "../../serverSettings.ts";
 import { makeProviderRegistryLayer } from "../../provider/testUtils/providerRegistryMock.ts";
 import * as Queue from "effect/Queue";

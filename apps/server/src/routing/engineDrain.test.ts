@@ -8,7 +8,7 @@ import {
   ProviderInstanceId,
   ServerProvider,
   type OrchestrationEvent,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
 import * as Effect from "effect/Effect";

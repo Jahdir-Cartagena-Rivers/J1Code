@@ -1,8 +1,8 @@
-import type { ScopedThreadRef, ThreadPullRequestLink } from "@t3tools/contracts";
+import type { ScopedThreadRef, ThreadPullRequestLink } from "@j1code/contracts";
 import {
   resolveThreadPullRequestChains,
   visibleThreadPullRequests,
-} from "@t3tools/shared/threadPullRequests";
+} from "@j1code/shared/threadPullRequests";
 import { ArrowUpRightIcon, LinkIcon, MoreHorizontalIcon, PlusIcon } from "lucide-react";
 import { useCallback, useMemo } from "react";
 

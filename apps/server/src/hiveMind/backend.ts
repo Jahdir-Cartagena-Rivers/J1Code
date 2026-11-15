@@ -11,7 +11,7 @@ import {
   ChatImageAttachment,
   ChatFileAttachment,
   type HiveMindMutation,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import { readHiveConfig, readHiveConfigSync } from "./config.ts";
 import { hiveContext, hiveMemoryDigest, type HiveImportFact } from "./store.ts";
 import {

@@ -1,4 +1,4 @@
-import type { ThreadBotIdentity } from "@t3tools/contracts";
+import type { ThreadBotIdentity } from "@j1code/contracts";
 
 export function botTurnContext(bot: ThreadBotIdentity | null | undefined): string {
   if (!bot) return "";

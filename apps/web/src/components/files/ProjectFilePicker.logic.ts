@@ -1,5 +1,5 @@
-import type { ProjectEntry } from "@t3tools/contracts";
-import { normalizeSearchQuery } from "@t3tools/shared/searchRanking";
+import type { ProjectEntry } from "@j1code/contracts";
+import { normalizeSearchQuery } from "@j1code/shared/searchRanking";
 
 export const PROJECT_FILE_PICKER_RESULT_LIMIT = 200;
 

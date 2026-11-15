@@ -4,7 +4,7 @@ import {
   RuntimeRequestId,
   ThreadId,
   type ProviderRuntimeEvent,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { runtimeEventToActivities } from "./ProviderRuntimeIngestion.ts";

@@ -15,10 +15,10 @@ import type { ThreadMoveDestination } from "./threadOrder";
 import type {
   EnvironmentProject,
   EnvironmentThreadShell,
-} from "@t3tools/client-runtime/state/shell";
-import type { EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state/thread-search";
-import type { EnvironmentMachineKind } from "@t3tools/contracts";
-import { canSnooze, resolveSnoozePresets } from "@t3tools/client-runtime/state/thread-settled";
+} from "@j1code/client-runtime/state/shell";
+import type { EnvironmentThreadSearchMatch } from "@j1code/client-runtime/state/thread-search";
+import type { EnvironmentMachineKind } from "@j1code/contracts";
+import { canSnooze, resolveSnoozePresets } from "@j1code/client-runtime/state/thread-settled";
 import type { MenuAction } from "@react-native-menu/menu";
 import { memo, useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
 import { Alert, Pressable, useWindowDimensions, View } from "react-native";

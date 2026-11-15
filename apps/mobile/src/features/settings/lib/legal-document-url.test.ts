@@ -9,11 +9,11 @@ describe("isLegalDocumentUrl", () => {
   });
 
   it.each([
-    "https://github.com/Jahdir-Rivers/J1Code/blob/j1-code/docs/user/open-source-licenses.md",
-    "https://github.com/Jahdir-Rivers/J1Code/blob/j1-code/docs/user/open-source-licenses.md/",
-    "https://github.com/Jahdir-Rivers/J1Code/blob/j1-code/docs/user/privacy.md?source=app",
-    "https://github.com/Jahdir-Rivers/J1Code/blob/j1-code/LICENSE#license",
-    "https://github.com/Jahdir-Rivers/J1Code/blob/j1-code/.github/SECURITY.md",
+    "https://github.com/Jahdir-Cartagena-Rivers/J1Code/blob/j1-code/docs/user/open-source-licenses.md",
+    "https://github.com/Jahdir-Cartagena-Rivers/J1Code/blob/j1-code/docs/user/open-source-licenses.md/",
+    "https://github.com/Jahdir-Cartagena-Rivers/J1Code/blob/j1-code/docs/user/privacy.md?source=app",
+    "https://github.com/Jahdir-Cartagena-Rivers/J1Code/blob/j1-code/LICENSE#license",
+    "https://github.com/Jahdir-Cartagena-Rivers/J1Code/blob/j1-code/.github/SECURITY.md",
   ])("allows a configured legal document: %s", (url) => {
     expect(isLegalDocumentUrl(url)).toBe(true);
   });
@@ -21,7 +21,7 @@ describe("isLegalDocumentUrl", () => {
   it.each([
     "https://t3.codes/download",
     "https://t3.codes/privacy-policy",
-    "https://github.com/Jahdir-Rivers/J1Code/blob/j1-code/README.md",
+    "https://github.com/Jahdir-Cartagena-Rivers/J1Code/blob/j1-code/README.md",
     "https://example.com/legal",
     "javascript:alert(1)",
     "not-a-url",
@@ -52,4 +52,4 @@ describe("isLegalDocumentUrl", () => {
 });
 
 const SOURCE_PRIVACY_URL =
-  "https://github.com/Jahdir-Rivers/J1Code/blob/j1-code/docs/user/privacy.md";
+  "https://github.com/Jahdir-Cartagena-Rivers/J1Code/blob/j1-code/docs/user/privacy.md";

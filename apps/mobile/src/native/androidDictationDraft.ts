@@ -1,4 +1,4 @@
-import { replaceTextRange } from "@t3tools/shared/composerTrigger";
+import { replaceTextRange } from "@j1code/shared/composerTrigger";
 
 /** Own only our inserted range; any external edit stops updates rather than overwriting it. */
 export class AndroidDictationDraft {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { callMausbotRouting, type MausbotRoutingHost } from "./mausbotRouting.ts";
-import type { ManualRouteStatus } from "@t3tools/contracts";
+import type { ManualRouteStatus } from "@j1code/contracts";
 
 const args = { botId: "crown", threadId: "main", requestId: "original" };
 function fixture() {

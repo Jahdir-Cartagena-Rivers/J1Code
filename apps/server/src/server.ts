@@ -8,8 +8,8 @@ import {
   EnvironmentHttpApi,
   ProviderDriverKind,
   type RepositoryIdentity,
-} from "@t3tools/contracts";
-import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
+} from "@j1code/contracts";
+import type { RelayManagedEndpointRuntimeConfig } from "@j1code/contracts/relay";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Duration from "effect/Duration";
@@ -177,9 +177,9 @@ import {
   persistServerRuntimeState,
 } from "./serverRuntimeState.ts";
 import { orchestrationHttpApiLayer } from "./orchestration/http.ts";
-import * as NetService from "@t3tools/shared/Net";
-import * as RelayClient from "@t3tools/shared/relayClient";
-import { disableTailscaleServe, ensureTailscaleServe } from "@t3tools/tailscale";
+import * as NetService from "@j1code/shared/Net";
+import * as RelayClient from "@j1code/shared/relayClient";
+import { disableTailscaleServe, ensureTailscaleServe } from "@j1code/tailscale";
 import { forkParked, ServerActivation } from "./serverActivation.ts";
 
 // MCP handoff thread IDs include escaped provenance and can exceed find-my-way's

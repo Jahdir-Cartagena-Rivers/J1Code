@@ -1,5 +1,5 @@
 import { expect, it } from "vite-plus/test";
-import { ProviderInstanceId, ServerProvider, type AutoModelPolicy } from "@t3tools/contracts";
+import { ProviderInstanceId, ServerProvider, type AutoModelPolicy } from "@j1code/contracts";
 import * as Schema from "effect/Schema";
 import { autoModelCandidates } from "./AutoModelCandidates.ts";
 const instanceId = ProviderInstanceId.make("codex");

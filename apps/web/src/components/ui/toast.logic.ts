@@ -1,4 +1,4 @@
-import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+import type { ScopedThreadRef, ThreadId } from "@j1code/contracts";
 
 /**
  * Base UI toast updates omit `undefined` fields, so callers that need to remove

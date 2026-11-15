@@ -7,7 +7,7 @@
 <p align="center">A local workspace for coding agents, shared memory, and work across providers.</p>
 
 <p align="center">
-  <a href="https://github.com/Jahdir-Rivers/J1Code/releases">Downloads</a> ?
+  <a href="https://github.com/Jahdir-Cartagena-Rivers/J1Code/releases">Downloads</a> ?
   <a href="docs/README.md">Documentation</a> ?
   <a href="CONTRIBUTING.md">Contributing</a> ?
   <a href="LICENSE">License and permissions</a>
@@ -32,7 +32,7 @@ Provider adapters include Codex, Claude Code, Cursor, Grok, OpenCode, and Antigr
 
 ## Get started
 
-1. Download the Windows x64 installer from [Releases](https://github.com/Jahdir-Rivers/J1Code/releases/latest). Current releases are unsigned; verify the published checksums before installing.
+1. Download the Windows x64 installer from [Releases](https://github.com/Jahdir-Cartagena-Rivers/J1Code/releases/latest). Current releases are unsigned; verify the published checksums before installing.
 2. Install and authenticate the coding provider you want to use.
 3. Open J1 Code, add your project, and configure your providers in Settings.
 
@@ -49,7 +49,7 @@ Use Node.js **24** within the version range in [package.json](package.json), and
 Install Vite+ using its [official setup instructions](https://viteplus.dev/guide/). Then, from your clone:
 
 ```sh
-git clone https://github.com/Jahdir-Rivers/J1Code.git
+git clone https://github.com/Jahdir-Cartagena-Rivers/J1Code.git
 cd J1Code
 vp i
 vp run dev

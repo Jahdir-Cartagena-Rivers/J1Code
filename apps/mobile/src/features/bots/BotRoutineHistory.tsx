@@ -1,4 +1,4 @@
-import type { BotId, BotRoutine, EnvironmentId } from "@t3tools/contracts";
+import type { BotId, BotRoutine, EnvironmentId } from "@j1code/contracts";
 import { View } from "react-native";
 import { AppText } from "../../components/AppText";
 import { MaterialButton } from "../../components/MaterialButton";

@@ -1,11 +1,11 @@
-import { ProviderOptionSelections } from "@t3tools/contracts";
+import { ProviderOptionSelections } from "@j1code/contracts";
 import {
   measureAutoModelDecision,
   resolveAutoModel,
   type AutoModelInput,
   type AutoModelPin,
   type AutoModelRef,
-} from "@t3tools/shared/autoModel";
+} from "@j1code/shared/autoModel";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";

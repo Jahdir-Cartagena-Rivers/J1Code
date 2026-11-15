@@ -3,9 +3,9 @@ import {
   type ModelSelection,
   type ProviderInstanceId,
   type WorktreeSubmodules,
-} from "@t3tools/contracts";
-import { createModelSelection } from "@t3tools/shared/model";
-import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+} from "@j1code/contracts";
+import { createModelSelection } from "@j1code/shared/model";
+import { resolveProjectSettings } from "@j1code/shared/projectSettings";
 import { useNavigate } from "@tanstack/react-router";
 
 import { getCustomModelOptionsByInstance } from "../../modelSelection";

@@ -9,7 +9,7 @@ import type {
   PullRequestInvolvement,
   PullRequestListState,
   PullRequestMergeMethod,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 
 import * as AzureDevOpsCli from "../sourceControl/AzureDevOpsCli.ts";
 import {

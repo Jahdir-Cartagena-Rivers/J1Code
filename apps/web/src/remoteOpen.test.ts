@@ -3,8 +3,8 @@ import {
   PrimaryConnectionTarget,
   RelayConnectionTarget,
   SshConnectionTarget,
-} from "@t3tools/client-runtime/connection";
-import { buildRemoteOpenUrl, EnvironmentId } from "@t3tools/contracts";
+} from "@j1code/client-runtime/connection";
+import { buildRemoteOpenUrl, EnvironmentId } from "@j1code/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { resolveRemoteOpenState } from "./remoteOpen";

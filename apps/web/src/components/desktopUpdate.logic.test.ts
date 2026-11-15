@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { DesktopUpdateActionResult, DesktopUpdateState } from "@t3tools/contracts";
+import type { DesktopUpdateActionResult, DesktopUpdateState } from "@j1code/contracts";
 
 import {
   canCheckForUpdate,
@@ -182,13 +182,13 @@ describe("getDesktopUpdateActionError", () => {
 describe("desktop update UI helpers", () => {
   it("builds the stable release URL for a downloaded version", () => {
     expect(getDesktopUpdateReleaseUrl("0.0.44-j1.17")).toBe(
-      "https://github.com/Jahdir-Rivers/J1Code/releases/tag/j1-code-0.0.44-j1.17",
+      "https://github.com/Jahdir-Cartagena-Rivers/J1Code/releases/tag/j1-code-0.0.44-j1.17",
     );
   });
 
   it("builds the nightly release URL without dropping its version suffix", () => {
     expect(getDesktopUpdateReleaseUrl("0.0.44-j1.18-nightly.20261003.1")).toBe(
-      "https://github.com/Jahdir-Rivers/J1Code/releases/tag/j1-code-0.0.44-j1.18-nightly.20261003.1",
+      "https://github.com/Jahdir-Cartagena-Rivers/J1Code/releases/tag/j1-code-0.0.44-j1.18-nightly.20261003.1",
     );
   });
 
@@ -199,7 +199,7 @@ describe("desktop update UI helpers", () => {
 
   it("builds the release history URL", () => {
     expect(getDesktopUpdateReleaseHistoryUrl()).toBe(
-      "https://github.com/Jahdir-Rivers/J1Code/releases",
+      "https://github.com/Jahdir-Cartagena-Rivers/J1Code/releases",
     );
   });
 

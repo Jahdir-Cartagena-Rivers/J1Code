@@ -9,7 +9,7 @@ import {
   ThreadId,
   type OrchestrationReadModel,
   type OrchestrationEvent,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import * as Effect from "effect/Effect";
 import { decideOrchestrationCommand } from "./decider.ts";
 import { createEmptyReadModel, projectEvent } from "./projector.ts";

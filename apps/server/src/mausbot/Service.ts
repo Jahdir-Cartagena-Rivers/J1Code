@@ -13,15 +13,15 @@ import { resolveMausbotResources } from "./Resources.ts";
 import { MausbotViewGrants } from "./ViewGrants.ts";
 import { SessionStore } from "../auth/SessionStore.ts";
 import type { AuthenticatedSession } from "../auth/EnvironmentAuth.ts";
-import { AuthAccessWriteScope } from "@t3tools/contracts";
-import type { MausbotApprovalModeInput } from "@t3tools/contracts";
+import { AuthAccessWriteScope } from "@j1code/contracts";
+import type { MausbotApprovalModeInput } from "@j1code/contracts";
 import { isMausbotDesktopSession } from "./DesktopTrust.ts";
 import { MausbotHiveMemory } from "./HiveMemory.ts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { HostProcessPlatform } from "@j1code/shared/hostProcess";
 import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
 import { ExternalConversations } from "../conversations/ExternalConversations.ts";
 import { makeMausbotConversationSource } from "../conversations/MausbotConversationSource.ts";
-import { MausbotConversationInvocation } from "@t3tools/contracts";
+import { MausbotConversationInvocation } from "@j1code/contracts";
 import * as Schema from "effect/Schema";
 import * as Option from "effect/Option";
 import { conversationCall } from "../conversations/query.ts";
@@ -32,13 +32,13 @@ import {
   ExternalRouteHostEvent,
   ExternalRouteTransportProof,
   type ConversationQuery,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import { ExternalRouteEndpoints } from "../routing/ExternalRouteEndpoints.ts";
 import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
 import * as ProviderCredentialStore from "../provider/ProviderCredentialStore.ts";
 import { makeDeepAIClient } from "../provider/deepai/DeepAIClient.ts";
 import { deepAIMachineDigest } from "../provider/deepai/DeepAIMachine.ts";
-import { resolveProviderInstanceEnabled } from "@t3tools/contracts";
+import { resolveProviderInstanceEnabled } from "@j1code/contracts";
 
 const decodeHostInvocation = Schema.decodeUnknownEffect(
   Schema.Union([MausbotConversationInvocation, MausbotRoutingInvocation, ExternalRouteHostEvent]),

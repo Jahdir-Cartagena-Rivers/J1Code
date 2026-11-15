@@ -5,10 +5,10 @@ import type {
   ProjectId,
   ThreadId,
   ExternalRouteSourceSnapshot,
-} from "@t3tools/contracts";
-import { OrchestrationCommand } from "@t3tools/contracts";
-import { resolveAutoModelPolicy } from "@t3tools/shared/projectSettings";
-import { classifyAutoModelRequest } from "@t3tools/shared/autoModel";
+} from "@j1code/contracts";
+import { OrchestrationCommand } from "@j1code/contracts";
+import { resolveAutoModelPolicy } from "@j1code/shared/projectSettings";
+import { classifyAutoModelRequest } from "@j1code/shared/autoModel";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 import { makeAutoModelAdmission } from "../../provider/AutoModelAdmission.ts";

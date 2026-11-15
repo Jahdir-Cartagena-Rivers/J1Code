@@ -21,10 +21,10 @@ import {
   EnvironmentScopeRequiredError,
   EnvironmentAuthenticatedAuth,
   EnvironmentAuthenticatedPrincipal,
-} from "@t3tools/contracts";
-import type { AuthEnvironmentScope, DpopFailureReason } from "@t3tools/contracts";
-import { parseAllowedOAuthScope } from "@t3tools/shared/oauthScope";
-import { causeErrorTag } from "@t3tools/shared/observability";
+} from "@j1code/contracts";
+import type { AuthEnvironmentScope, DpopFailureReason } from "@j1code/contracts";
+import { parseAllowedOAuthScope } from "@j1code/shared/oauthScope";
+import { causeErrorTag } from "@j1code/shared/observability";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import { identity } from "effect/Function";

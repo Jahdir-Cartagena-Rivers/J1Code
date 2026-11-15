@@ -7,7 +7,7 @@ import type {
   PullRequestListFilters,
   PullRequestListState,
   SourceControlProviderKind,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import {
   CircleCheckIcon,
   CircleDashedIcon,

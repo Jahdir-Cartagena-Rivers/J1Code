@@ -1,4 +1,4 @@
-import { DesktopCloseBehaviorSchema } from "@t3tools/contracts";
+import { DesktopCloseBehaviorSchema } from "@j1code/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Settings from "../../settings/DesktopAppSettings.ts";

@@ -1,10 +1,10 @@
-import { LEGACY_BOTS_ENABLED } from "@t3tools/shared/legacy-bots";
-import { isStandaloneBotProject } from "@t3tools/shared/bot-workspace";
+import { LEGACY_BOTS_ENABLED } from "@j1code/shared/legacy-bots";
+import { isStandaloneBotProject } from "@j1code/shared/bot-workspace";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
-import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
+import { resolveThreadCurrentPullRequestLink } from "@j1code/shared/threadPullRequests";
 import { Spinner } from "~/components/ui/spinner";
 import { useRootChatShells, WorkerChatTree } from "./WorkerChats";
-import { getRootChats } from "@t3tools/client-runtime/worker-chats";
+import { getRootChats } from "@j1code/client-runtime/worker-chats";
 import {
   ArchiveIcon,
   ArrowUpDownIcon,
@@ -56,20 +56,20 @@ import {
   type SidebarProjectGroupingMode,
   resolveEnvironmentMachineKind,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import {
   parseScopedThreadKey,
   scopedProjectKey,
   scopedThreadKey,
   scopeProjectRef,
   scopeThreadRef,
-} from "@t3tools/client-runtime/environment";
-import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
+} from "@j1code/client-runtime/environment";
+import { safeErrorLogAttributes } from "@j1code/client-runtime/errors";
 import {
   isAtomCommandInterrupted,
   settlePromise,
   squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
+} from "@j1code/client-runtime/state/runtime";
 import { useNavigate, useParams, useRouter } from "@tanstack/react-router";
 import {
   MAX_SIDEBAR_THREAD_PREVIEW_COUNT,
@@ -77,7 +77,7 @@ import {
   type SidebarProjectSortOrder,
   type SidebarThreadPreviewCount,
   type SidebarThreadSortOrder,
-} from "@t3tools/contracts/settings";
+} from "@j1code/contracts/settings";
 import { isDesktopLocalConnectionTarget, isWslConnectionTarget } from "../connection/desktopLocal";
 import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstraps";
 import { isElectron } from "../env";

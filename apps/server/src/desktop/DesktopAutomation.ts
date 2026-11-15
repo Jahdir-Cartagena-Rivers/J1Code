@@ -1,13 +1,13 @@
 import * as NodeCrypto from "node:crypto";
 import * as NodeModule from "node:module";
-import { DesktopToolError, type DesktopScreenshotInput } from "@t3tools/contracts";
+import { DesktopToolError, type DesktopScreenshotInput } from "@j1code/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
-import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { HostProcessArchitecture, HostProcessPlatform } from "@j1code/shared/hostProcess";
 import { ServerConfig } from "../config.ts";
 import { ProcessRunner } from "../processRunner.ts";
 import type { McpInvocationScope } from "../mcp/McpInvocationContext.ts";

@@ -10,7 +10,7 @@ import * as NodeNet from "node:net";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as Schema from "effect/Schema";
-import { DesktopBackendBootstrap, PositiveInt } from "@t3tools/contracts";
+import { DesktopBackendBootstrap, PositiveInt } from "@j1code/contracts";
 import type { DesktopBackendStartConfig } from "./DesktopBackendManager.ts";
 
 const RecordSchema = Schema.Struct({

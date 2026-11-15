@@ -1,4 +1,4 @@
-﻿import type { BotId, EnvironmentId } from "@t3tools/contracts";
+﻿import type { BotId, EnvironmentId } from "@j1code/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { View } from "react-native";

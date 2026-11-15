@@ -1,4 +1,4 @@
-import type { BotRoutine } from "@t3tools/contracts";
+import type { BotRoutine } from "@j1code/contracts";
 import { newBotId } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";

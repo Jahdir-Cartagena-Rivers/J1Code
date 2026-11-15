@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
-import { EnvironmentId, ThreadId, type TerminalSummary } from "@t3tools/contracts";
-import { selectRunningSubprocessTerminalIds } from "@t3tools/client-runtime/state/terminal";
+import { EnvironmentId, ThreadId, type TerminalSummary } from "@j1code/contracts";
+import { selectRunningSubprocessTerminalIds } from "@j1code/client-runtime/state/terminal";
 
 import { selectKnownTerminalSessions } from "./terminalSessions";
 

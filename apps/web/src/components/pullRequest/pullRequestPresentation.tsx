@@ -8,7 +8,7 @@ import type {
   PullRequestMergeability,
   PullRequestReviewDecision,
   PullRequestState,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import {
   CircleCheckIcon,
   CircleDashedIcon,

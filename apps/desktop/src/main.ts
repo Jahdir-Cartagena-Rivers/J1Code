@@ -15,9 +15,9 @@ import * as Option from "effect/Option";
 
 import * as Electron from "electron";
 
-import * as NetService from "@t3tools/shared/Net";
-import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import type { RemoteT3RunnerOptions } from "@t3tools/ssh/tunnel";
+import * as NetService from "@j1code/shared/Net";
+import { HostProcessArchitecture, HostProcessPlatform } from "@j1code/shared/hostProcess";
+import type { RemoteT3RunnerOptions } from "@j1code/ssh/tunnel";
 import serverPackageJson from "../../server/package.json" with { type: "json" };
 
 import * as DesktopIpc from "./ipc/DesktopIpc.ts";

@@ -1,5 +1,5 @@
-import type { AutoModelPolicy, ModelSelection, ServerProvider } from "@t3tools/contracts";
-import type { AutoModelCandidate, AutoModelRef } from "@t3tools/shared/autoModel";
+import type { AutoModelPolicy, ModelSelection, ServerProvider } from "@j1code/contracts";
+import type { AutoModelCandidate, AutoModelRef } from "@j1code/shared/autoModel";
 
 /** Only admin capability declarations and exact live instance descriptors are trusted. */
 export function autoModelCandidates(

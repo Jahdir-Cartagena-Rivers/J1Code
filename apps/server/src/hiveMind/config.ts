@@ -2,7 +2,7 @@
 import * as NodePath from "node:path";
 import * as NodeFS from "node:fs";
 import * as Schema from "effect/Schema";
-import { HiveMindConfig } from "@t3tools/contracts";
+import { HiveMindConfig } from "@j1code/contracts";
 import { readOptional } from "./files.ts";
 export { HiveMindConfig };
 const decodeConfig = Schema.decodeUnknownSync(HiveMindConfig);

@@ -1,7 +1,7 @@
 import type {
   EnvironmentProject,
   EnvironmentThreadShell,
-} from "@t3tools/client-runtime/state/shell";
+} from "@j1code/client-runtime/state/shell";
 
 import type {
   AgentActivityPhase,

@@ -3,7 +3,7 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as Schema from "effect/Schema";
-import { HiveMindMemory, HiveMindSearchResult } from "@t3tools/contracts";
+import { HiveMindMemory, HiveMindSearchResult } from "@j1code/contracts";
 import {
   externalHiveConnection,
   selectedHiveConnection,

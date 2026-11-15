@@ -1,5 +1,5 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import type { ItemLifecyclePayload } from "@t3tools/contracts";
+import type { ItemLifecyclePayload } from "@j1code/contracts";
 
 function output(value: unknown): string {
   if (!value || typeof value !== "object" || !("content" in value) || !Array.isArray(value.content))

@@ -1,4 +1,4 @@
-import { ProjectId, ThreadId, TrimmedNonEmptyString } from "@t3tools/contracts";
+import { ProjectId, ThreadId, TrimmedNonEmptyString } from "@j1code/contracts";
 import * as Schema from "effect/Schema";
 import * as Tool from "effect/unstable/ai/Tool";
 import * as Toolkit from "effect/unstable/ai/Toolkit";

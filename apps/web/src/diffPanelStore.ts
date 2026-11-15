@@ -1,5 +1,5 @@
-import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef, TurnId } from "@t3tools/contracts";
+import { scopedThreadKey } from "@j1code/client-runtime/environment";
+import type { ScopedThreadRef, TurnId } from "@j1code/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 

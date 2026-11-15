@@ -4,7 +4,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 import { MausbotHiveMemory } from "./HiveMemory.ts";
-import type { HiveMindMemory } from "@t3tools/contracts";
+import type { HiveMindMemory } from "@j1code/contracts";
 
 async function fixture() {
   const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-assistant-hive-"));

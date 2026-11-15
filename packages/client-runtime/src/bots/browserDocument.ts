@@ -1,4 +1,4 @@
-import type { BotBrowserPage } from "@t3tools/contracts";
+import type { BotBrowserPage } from "@j1code/contracts";
 
 /** Render the live DOM as a view; page scripts continue to run only in Lightpanda. */
 export function buildBotBrowserDocument(page: BotBrowserPage): string {

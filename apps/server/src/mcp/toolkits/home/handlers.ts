@@ -1,5 +1,5 @@
 import * as NodeCrypto from "node:crypto";
-import { CommandId, EventId, MessageId, ThreadId } from "@t3tools/contracts";
+import { CommandId, EventId, MessageId, ThreadId } from "@j1code/contracts";
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";

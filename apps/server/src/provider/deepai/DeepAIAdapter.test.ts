@@ -9,7 +9,7 @@ import * as Stream from "effect/Stream";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
-import { ApprovalRequestId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import { ApprovalRequestId, ProviderInstanceId, ThreadId } from "@j1code/contracts";
 import type { createDeepAIAgent } from "./DeepAIAgent.ts";
 import { makeDeepAIAdapter } from "./DeepAIAdapter.ts";
 import type { CommandJobResult } from "./CommandJobs.ts";

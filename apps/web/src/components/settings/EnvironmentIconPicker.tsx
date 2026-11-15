@@ -4,7 +4,7 @@ import {
   resolveEnvironmentMachineKind,
   type EnvironmentId,
   type ServerConfig,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 
 import { isElectron } from "../../env";
 import { usePrimarySessionState } from "../../environments/primary";

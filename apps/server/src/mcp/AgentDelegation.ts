@@ -15,7 +15,7 @@ import {
   type OrchestrationThreadShell,
   SpawnAgentInput,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";

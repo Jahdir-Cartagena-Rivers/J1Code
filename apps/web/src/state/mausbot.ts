@@ -1,5 +1,5 @@
-import { WS_METHODS } from "@t3tools/contracts";
-import { createEnvironmentRpcCommand } from "@t3tools/client-runtime/state/runtime";
+import { WS_METHODS } from "@j1code/contracts";
+import { createEnvironmentRpcCommand } from "@j1code/client-runtime/state/runtime";
 import { connectionAtomRuntime } from "../connection/runtime";
 export const openMausbot = createEnvironmentRpcCommand(connectionAtomRuntime, {
   label: "mausbot-open",

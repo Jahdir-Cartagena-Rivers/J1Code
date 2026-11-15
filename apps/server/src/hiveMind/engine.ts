@@ -18,7 +18,7 @@ import {
 } from "./store.ts";
 import { syncHiveVault } from "./vault.ts";
 import { selectedHiveConnection, requestHive } from "./connection.ts";
-import { HiveMindSearchResult, HiveMindMemory, HiveMindSnapshot } from "@t3tools/contracts";
+import { HiveMindSearchResult, HiveMindMemory, HiveMindSnapshot } from "@j1code/contracts";
 
 const Index = Schema.Struct({
   target: Schema.String,

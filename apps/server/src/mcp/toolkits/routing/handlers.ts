@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import { routeEndpointUrl } from "@t3tools/shared/routeEndpointUrl";
+import { routeEndpointUrl } from "@j1code/shared/routeEndpointUrl";
 import type { RouteState } from "../../../routing/routeState.ts";
 import {
   listRoutes,

@@ -1,4 +1,4 @@
-declare module "@t3tools/mobile-bot-browser" {
+declare module "@j1code/mobile-bot-browser" {
   const script: string;
   export default script;
 }

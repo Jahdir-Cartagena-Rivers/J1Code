@@ -19,7 +19,7 @@ export class ElectronTray extends Context.Service<
       open: () => void,
     ) => Effect.Effect<TrayHandle, never, Scope.Scope>;
   }
->()("@t3tools/desktop/electron/ElectronTray") {}
+>()("@j1code/desktop/electron/ElectronTray") {}
 
 export const layer = Layer.succeed(ElectronTray, {
   create: (icon, open) =>

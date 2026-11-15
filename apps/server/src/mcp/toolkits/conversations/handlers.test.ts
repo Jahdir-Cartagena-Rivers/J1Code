@@ -3,7 +3,7 @@ import {
   ThreadId,
   ProviderInstanceId,
   type ConversationPrincipal,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer, Exit } from "effect";
 import { McpSchema, McpServer } from "effect/unstable/ai";

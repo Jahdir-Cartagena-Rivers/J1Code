@@ -1,6 +1,6 @@
-import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
-import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
-import type { OrchestrationMessage } from "@t3tools/contracts";
+import { assistantCitationsToPlainText } from "@j1code/shared/assistantCitations";
+import { projectComposerContextForProvider } from "@j1code/shared/composerContextReferences";
+import type { OrchestrationMessage } from "@j1code/contracts";
 import { limitTitleMessage } from "../textGeneration/ThreadTitleContext.ts";
 
 const MAX_HISTORY = 64_000;

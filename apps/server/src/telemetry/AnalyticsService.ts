@@ -6,8 +6,8 @@
  *
  * @module AnalyticsService
  */
-import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import type { ClientOs } from "@t3tools/contracts";
+import { HostProcessArchitecture, HostProcessPlatform } from "@j1code/shared/hostProcess";
+import type { ClientOs } from "@j1code/contracts";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";

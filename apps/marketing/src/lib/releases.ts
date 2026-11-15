@@ -1,4 +1,4 @@
-import { J1_RELEASES_URL, J1_REPOSITORY_URL } from "@t3tools/shared/j1Brand";
+import { J1_RELEASES_URL, J1_REPOSITORY_URL } from "@j1code/shared/j1Brand";
 
 const REPO = new URL(J1_REPOSITORY_URL).pathname.slice(1);
 

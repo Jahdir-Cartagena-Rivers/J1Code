@@ -14,14 +14,14 @@ import {
   type ThreadPullRequestLink,
   type OrchestrationThreadActivity,
   type ThreadId,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import {
   legacyLinkedPullRequestOf,
   legacyThreadPullRequestKey,
   normalizeThreadPullRequestKey,
   threadPullRequestKeysEqual,
-} from "@t3tools/shared/threadPullRequests";
-import { compareDateTimeStrings } from "@t3tools/shared/dateTime";
+} from "@j1code/shared/threadPullRequests";
+import { compareDateTimeStrings } from "@j1code/shared/dateTime";
 import * as DateTime from "effect/DateTime";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -229,7 +229,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   readonly workerDescendantIds?: ReadonlyArray<ThreadId>;
   /** Server-only assertion: both detailed threads loaded inside the serialized queue. */
   readonly routeAdmissionHydrated?: boolean;
-  readonly externalRouteSource?: import("@t3tools/contracts").ExternalRouteSourceSnapshot;
+  readonly externalRouteSource?: import("@j1code/contracts").ExternalRouteSourceSnapshot;
   readonly autoSelection?: { readonly reason: string; readonly resolverDurationMs: number | null };
 }): Effect.fn.Return<
   DecideOrchestrationCommandResult,

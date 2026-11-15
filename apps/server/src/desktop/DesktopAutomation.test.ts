@@ -1,6 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ProviderInstanceId, ThreadId } from "@j1code/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { ExitCode } from "effect/unstable/process/ChildProcessSpawner";

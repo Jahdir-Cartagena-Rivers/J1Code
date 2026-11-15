@@ -1,5 +1,5 @@
-import { updateHiveMindConfig } from "@t3tools/contracts";
-import { formatHiveSkillRoots, parseHiveSkillRoots } from "@t3tools/client-runtime/state/hive-mind";
+import { updateHiveMindConfig } from "@j1code/contracts";
+import { formatHiveSkillRoots, parseHiveSkillRoots } from "@j1code/client-runtime/state/hive-mind";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   EnvironmentId,
@@ -7,8 +7,8 @@ import type {
   HiveMindMemory,
   HiveMindMutation,
   HiveMindSnapshot,
-} from "@t3tools/contracts";
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+} from "@j1code/contracts";
+import { squashAtomCommandFailure } from "@j1code/client-runtime/state/runtime";
 import { hiveMind } from "../../state/hiveMind";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";

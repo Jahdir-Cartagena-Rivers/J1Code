@@ -1,6 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - resolves the existing environment-owned store path.
 import * as NodePath from "node:path";
-import { HiveMindError, type HiveMindSearchResult } from "@t3tools/contracts";
+import { HiveMindError, type HiveMindSearchResult } from "@j1code/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -11,7 +11,7 @@ import { recallSelectedHive } from "./backend.ts";
 import { HiveMindRuntime } from "./runtime.ts";
 import { HiveLocalEngine } from "./localEngine.ts";
 import { readHiveConfig } from "./config.ts";
-import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { HostProcessEnvironment, HostProcessPlatform } from "@j1code/shared/hostProcess";
 
 export const hiveOperation = <A>(operation: () => Promise<A>) =>
   Effect.tryPromise({

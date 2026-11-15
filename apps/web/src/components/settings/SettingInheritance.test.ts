@@ -1,5 +1,5 @@
-import { DEFAULT_SERVER_SETTINGS, EnvironmentId, ProjectId } from "@t3tools/contracts";
-import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import { DEFAULT_SERVER_SETTINGS, EnvironmentId, ProjectId } from "@j1code/contracts";
+import { resolveProjectSettings } from "@j1code/shared/projectSettings";
 import { describe, expect, it } from "vite-plus/test";
 
 import { settingInheritanceLayers } from "./SettingInheritance";

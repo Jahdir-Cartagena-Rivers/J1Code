@@ -1,4 +1,4 @@
-import type { BotRoutineSchedule } from "@t3tools/contracts";
+import type { BotRoutineSchedule } from "@j1code/contracts";
 
 /** Latest due occurrence only: do not run an unbounded backlog after downtime. */
 export function latestRoutineOccurrence(schedule: BotRoutineSchedule, now: number): number | null {

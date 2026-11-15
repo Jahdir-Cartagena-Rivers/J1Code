@@ -6,7 +6,7 @@ import {
   PullRequestInvolvement,
   PullRequestListFilters,
   PullRequestListState,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 
 export const PullRequestListSort = Schema.Literals([
   "ready",

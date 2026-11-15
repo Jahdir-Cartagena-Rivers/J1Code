@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { Schema } from "effect";
-import { BotRoutineSchedule } from "@t3tools/contracts";
+import { BotRoutineSchedule } from "@j1code/contracts";
 import { latestRoutineOccurrence, routineOccurrenceKey } from "./routineSchedule.ts";
 const decode = Schema.decodeUnknownSync(BotRoutineSchedule);
 describe("bot routine timing", () => {

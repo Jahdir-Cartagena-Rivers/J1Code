@@ -3,7 +3,7 @@ import {
   RelayClientAuth,
   RelayClientPrincipal,
   type RelayClientDeviceRecord,
-} from "@t3tools/contracts/relay";
+} from "@j1code/contracts/relay";
 import * as EnvironmentLinker from "../environments/EnvironmentLinker.ts";
 import * as RelayTokens from "../auth/RelayTokens.ts";
 import * as Devices from "../agentActivity/Devices.ts";
@@ -31,13 +31,13 @@ import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import * as HttpApi from "effect/unstable/httpapi/HttpApi";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
-import { EnvironmentId } from "@t3tools/contracts";
+import { EnvironmentId } from "@j1code/contracts";
 import {
   RelayEnvironmentAuth,
   RelayEnvironmentPrincipal,
   RelayApi,
-} from "@t3tools/contracts/relay";
-import { RELAY_MANAGED_TUNNEL_RECOVERY_TYP, signRelayJwt } from "@t3tools/shared/relayJwt";
+} from "@j1code/contracts/relay";
+import { RELAY_MANAGED_TUNNEL_RECOVERY_TYP, signRelayJwt } from "@j1code/shared/relayJwt";
 
 import {
   RELAY_HTTP_ROUTER_CONFIG,

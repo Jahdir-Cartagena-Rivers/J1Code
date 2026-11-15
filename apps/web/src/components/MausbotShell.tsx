@@ -16,13 +16,13 @@ import { usePreparedConnection } from "../state/session";
 import { openMausbot, setMausbotApprovalMode } from "../state/mausbot";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useSidebar } from "./ui/sidebar";
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { EnvironmentId, ThreadId, MausbotApprovalModeInput } from "@t3tools/contracts";
-import { routeEndpointUrl } from "@t3tools/shared/routeEndpointUrl";
+import { squashAtomCommandFailure } from "@j1code/client-runtime/state/runtime";
+import { EnvironmentId, ThreadId, MausbotApprovalModeInput } from "@j1code/contracts";
+import { routeEndpointUrl } from "@j1code/shared/routeEndpointUrl";
 import {
   callMausbotRouting,
   isMausbotRoutingMethod,
-} from "@t3tools/client-runtime/mausbot-routing";
+} from "@j1code/client-runtime/mausbot-routing";
 import { serverEnvironment } from "../state/server";
 import * as Schema from "effect/Schema";
 import { localMausbotHost } from "./mausbotHost";
@@ -35,7 +35,7 @@ import { useNavigateToMainApp } from "./sidebar/mainAppLocation";
 import { createPortal } from "react-dom";
 import { useMausbotSettingsPortal, useMausbotSlotPortal } from "./MausbotSettingsPortal";
 import { PortalContainer } from "./ui/portal-container";
-import { MAUSBOT_THEME_ROLES } from "@t3tools/shared/mausbotAppearance";
+import { MAUSBOT_THEME_ROLES } from "@j1code/shared/mausbotAppearance";
 import { getThemeColorVariable, setWorkspaceThemes } from "../themePalette";
 import { decodeMausbotThemes } from "./mausbotAppearance";
 import { useTheme } from "../hooks/useTheme";

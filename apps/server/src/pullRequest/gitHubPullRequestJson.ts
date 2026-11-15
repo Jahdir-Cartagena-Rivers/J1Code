@@ -31,9 +31,9 @@ import type {
   PullRequestLabelCandidateList,
   PullRequestState,
   PullRequestThreadComment,
-} from "@t3tools/contracts";
-import { quoteGitPatchPath } from "@t3tools/shared/gitPatchPath";
-import { decodeJsonResult } from "@t3tools/shared/schemaJson";
+} from "@j1code/contracts";
+import { quoteGitPatchPath } from "@j1code/shared/gitPatchPath";
+import { decodeJsonResult } from "@j1code/shared/schemaJson";
 
 import { dedupeChecks } from "./pullRequestChecks.ts";
 

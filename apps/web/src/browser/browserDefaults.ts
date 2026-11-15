@@ -20,7 +20,7 @@ import {
   type DesktopPreviewTabDefaults,
   type PreviewAppearancePreference,
   type PreviewViewportSetting,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 
 import {
   ensureClientSettingsHydrated,

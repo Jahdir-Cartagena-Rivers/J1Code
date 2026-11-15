@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { BotProfile, CommandId, MessageId, ThreadId, TurnId } from "@t3tools/contracts";
+import { BotProfile, CommandId, MessageId, ThreadId, TurnId } from "@j1code/contracts";
 import { it } from "@effect/vitest";
 import { Effect, Layer, Schema, Stream } from "effect";
 import { expect } from "vite-plus/test";

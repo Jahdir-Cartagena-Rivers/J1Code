@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
-import type { ScopedThreadRef } from "@t3tools/contracts";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import type { ScopedThreadRef } from "@j1code/contracts";
+import type { EnvironmentThreadShell } from "@j1code/client-runtime/state/shell";
 import {
   foldWorkerChat,
   createWorkerChatLookup,
@@ -9,7 +9,7 @@ import {
   toggleWorkerChats,
   unfoldWorkerChat,
   workerChatKey,
-} from "@t3tools/client-runtime/worker-chats";
+} from "@j1code/client-runtime/worker-chats";
 import { ChevronDown, ChevronRight, Minus, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 

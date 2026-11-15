@@ -1,4 +1,4 @@
-import { DesktopToolError } from "@t3tools/contracts";
+import { DesktopToolError } from "@j1code/contracts";
 import * as Effect from "effect/Effect";
 import { DesktopAutomation } from "../../../desktop/DesktopAutomation.ts";
 import { requireMcpCapability } from "../../McpInvocationContext.ts";

@@ -7,7 +7,7 @@ import { BackgroundBrowserToolkit } from "./tools.ts";
 import { ProjectionSnapshotQuery } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
 
 const sessionId = Effect.fn("BackgroundBrowser.sessionId")(function* (scope: {
-  threadId: import("@t3tools/contracts").ThreadId;
+  threadId: import("@j1code/contracts").ThreadId;
   providerSessionId: string;
 }) {
   const bot = yield* (yield* ProjectionSnapshotQuery)

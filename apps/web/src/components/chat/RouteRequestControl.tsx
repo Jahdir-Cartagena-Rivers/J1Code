@@ -1,4 +1,4 @@
-import { routeRequestAnchors } from "@t3tools/shared/routeRequestAnchors";
+import { routeRequestAnchors } from "@j1code/shared/routeRequestAnchors";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   manualRouteReasonLabel,
@@ -7,14 +7,14 @@ import {
   ThreadId,
   ProjectId,
   type ManualRouteStatus,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useProjects, useThreadShells } from "../../state/entities";
 import { Button } from "../ui/button";
 import { Link } from "@tanstack/react-router";
 import { buildThreadRouteParams } from "../../threadRoutes";
-import { routeEndpointUrl } from "@t3tools/shared/routeEndpointUrl";
+import { routeEndpointUrl } from "@j1code/shared/routeEndpointUrl";
 
 const EMPTY_MESSAGES: Parameters<typeof routeRequestAnchors>[1] = [];
 const EMPTY_ACTIVITIES: Parameters<typeof routeRequestAnchors>[2] = [];

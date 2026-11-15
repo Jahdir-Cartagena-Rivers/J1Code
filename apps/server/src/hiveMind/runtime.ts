@@ -6,7 +6,7 @@ import {
   type HiveMindConfig,
   type HiveMindMutation,
   type HiveMindSnapshot,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import { hivePaths, readHiveConfig, validateHiveConfig } from "./config.ts";
 import { writeAtomic } from "./files.ts";
 import { hiveMindStatus, notifyHiveMindChange, onHiveMindChange, syncHiveMind } from "./engine.ts";

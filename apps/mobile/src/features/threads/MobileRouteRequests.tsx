@@ -1,4 +1,4 @@
-import { routeRequestAnchors } from "@t3tools/shared/routeRequestAnchors";
+import { routeRequestAnchors } from "@j1code/shared/routeRequestAnchors";
 import { CommonActions, useNavigation } from "@react-navigation/native";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { AppState, Pressable, View } from "react-native";
@@ -9,7 +9,7 @@ import {
   manualRouteStatusLabel,
   EnvironmentId,
   type ManualRouteStatus,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import { AppText as Text } from "../../components/AppText";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";

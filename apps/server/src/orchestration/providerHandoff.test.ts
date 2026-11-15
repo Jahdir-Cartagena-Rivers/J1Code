@@ -1,4 +1,4 @@
-import { MessageId, type OrchestrationMessage } from "@t3tools/contracts";
+import { MessageId, type OrchestrationMessage } from "@j1code/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import { formatProviderHandoff } from "./providerHandoff.ts";
 

@@ -8,7 +8,7 @@ import {
   type OrchestrationMessage,
   type OrchestrationThread,
   type OrchestrationThreadShell,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProjectionThreadMessageRepository } from "../persistence/Services/ProjectionThreadMessages.ts";
 import { encodeThreadDetailPageCursor } from "../orchestration/threadDetailCursor.ts";

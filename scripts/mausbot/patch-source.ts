@@ -1231,7 +1231,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
   await NodeFSP.writeFile(
     NodePath.join(stage, "src/components/j1-browser-document.ts"),
     document.replace(
-      'import type { BotBrowserPage } from "@t3tools/contracts";',
+      'import type { BotBrowserPage } from "@j1code/contracts";',
       "export interface BotBrowserPage { revision: string; url: string; title: string; html: string }",
     ),
   );

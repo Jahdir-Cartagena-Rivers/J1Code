@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
-import { EnvironmentId, MessageId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, MessageId, ThreadId } from "@j1code/contracts";
 import {
   collectAssistantCitations,
   serializeAssistantCitation,
-} from "@t3tools/shared/assistantCitations";
+} from "@j1code/shared/assistantCitations";
 
 import { removeLocalStorageItem } from "./hooks/useLocalStorage";
 

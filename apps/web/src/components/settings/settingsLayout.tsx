@@ -1,7 +1,7 @@
 import { SettingsGroup } from "./SettingsGroup";
 import { useMergedSettingsAppearance } from "./settingsAppearance";
 import { InfoIcon, Undo2Icon } from "lucide-react";
-import { DEFAULT_SERVER_SETTINGS, type ServerSettings } from "@t3tools/contracts";
+import { DEFAULT_SERVER_SETTINGS, type ServerSettings } from "@j1code/contracts";
 import * as Equal from "effect/Equal";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {

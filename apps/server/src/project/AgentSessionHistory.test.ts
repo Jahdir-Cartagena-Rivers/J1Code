@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { MessageId, ThreadId, type OrchestrationMessage } from "@t3tools/contracts";
+import { MessageId, ThreadId, type OrchestrationMessage } from "@j1code/contracts";
 import { reconcileAgentHistory } from "./AgentSessionHistory.ts";
 import type { AgentSessionThreadMessage } from "./AgentSessionScanner.ts";
 

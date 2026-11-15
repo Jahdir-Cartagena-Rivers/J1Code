@@ -4,8 +4,8 @@ import {
   type ProviderDriverKind,
   type ServerProvider,
   type ServerProviderCompatibilityAdvisory,
-} from "@t3tools/contracts";
-import { satisfiesSemverRange } from "@t3tools/shared/semver";
+} from "@j1code/contracts";
+import { satisfiesSemverRange } from "@j1code/shared/semver";
 import * as Schema from "effect/Schema";
 import packageJson from "../../package.json" with { type: "json" };
 

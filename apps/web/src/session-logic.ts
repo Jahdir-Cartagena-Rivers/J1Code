@@ -1,14 +1,14 @@
 import {
   requestKindFromRequestType,
   type PendingApproval,
-} from "@t3tools/client-runtime/pending-requests";
-import { UserInputAttachmentAnswerPayload } from "@t3tools/contracts";
-import { foldUserInputActivities } from "@t3tools/client-runtime/work-log/user-input";
+} from "@j1code/client-runtime/pending-requests";
+import { UserInputAttachmentAnswerPayload } from "@j1code/contracts";
+import { foldUserInputActivities } from "@j1code/client-runtime/work-log/user-input";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Arr from "effect/Array";
 import { shallow } from "zustand/vanilla/shallow";
-import { isBackgroundTaskActivity } from "@t3tools/client-runtime/state/subagentRuntime";
+import { isBackgroundTaskActivity } from "@j1code/client-runtime/state/subagentRuntime";
 import {
   commandDetailRepeatsCommand,
   extractCommandOutputText,
@@ -18,8 +18,8 @@ import {
   workEntryIndicatesToolSuccess,
   workLogEntryIsToolLike,
   type WorkLogToolLifecycleStatus,
-} from "@t3tools/client-runtime/work-log/presentation";
-import { extractToolActivityPresentation } from "@t3tools/client-runtime/work-log/tool-presentation";
+} from "@j1code/client-runtime/work-log/presentation";
+import { extractToolActivityPresentation } from "@j1code/client-runtime/work-log/tool-presentation";
 import {
   isToolLifecycleItemType,
   type AssetResource,
@@ -29,7 +29,7 @@ import {
   type ToolLifecycleItemType,
   type ThreadId,
   type TurnId,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 
 import {
   isImageAttachment,
@@ -42,16 +42,16 @@ import {
   type TurnDiffSummary,
 } from "./types";
 
-export type { PendingApproval, PendingUserInput } from "@t3tools/client-runtime/pending-requests";
+export type { PendingApproval, PendingUserInput } from "@j1code/client-runtime/pending-requests";
 
-export { formatDuration } from "@t3tools/shared/orchestrationTiming";
+export { formatDuration } from "@j1code/shared/orchestrationTiming";
 
 export {
   workEntryDisplayIndicatesToolFailure,
   workEntryIndicatesToolSuccess,
   workLogEntryIsToolLike,
   type WorkLogToolLifecycleStatus,
-} from "@t3tools/client-runtime/work-log/presentation";
+} from "@j1code/client-runtime/work-log/presentation";
 
 export interface WorkLogEntry {
   questionAnswer?: UserInputAttachmentAnswerPayload;
@@ -68,9 +68,9 @@ export interface WorkLogEntry {
   changedFiles?: ReadonlyArray<string>;
   tone: "thinking" | "tool" | "info" | "error";
   toolTitle?: string;
-  toolSurface?: import("@t3tools/contracts").ToolActivitySurface;
-  toolIcon?: import("@t3tools/contracts").ToolActivityIcon;
-  toolSource?: import("@t3tools/contracts").ToolActivitySource;
+  toolSurface?: import("@j1code/contracts").ToolActivitySurface;
+  toolIcon?: import("@j1code/contracts").ToolActivityIcon;
+  toolSource?: import("@j1code/contracts").ToolActivitySource;
   toolData?: unknown;
   itemType?: ToolLifecycleItemType;
   requestKind?: PendingApproval["requestKind"];

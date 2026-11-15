@@ -14,7 +14,7 @@ import type {
   ConversationQuery,
   ExternalRouteDelivery,
   ExternalRouteReceiptKey,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import { startMausbotComputer } from "./NativeComputer.ts";
 import { mausbotChildEnvironment } from "./ChildEnvironment.ts";
 

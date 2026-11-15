@@ -1,4 +1,4 @@
-import { EnvironmentId, ThreadId, ProviderInstanceId } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId, ProviderInstanceId } from "@j1code/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";

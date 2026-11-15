@@ -4,7 +4,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, ManagedRuntime } from "effect";
-import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
+import * as NodeSqliteClient from "@j1code/shared/nodeSqliteClient";
 import migration from "../persistence/Migrations/060_DurableRoutes.ts";
 import {
   makeDurableRoutingStoreWithResolution,

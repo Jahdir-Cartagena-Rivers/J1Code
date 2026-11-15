@@ -34,7 +34,7 @@ export class DesktopApplicationMenu extends Context.Service<
   {
     readonly configure: Effect.Effect<void>;
   }
->()("@t3tools/desktop/window/DesktopApplicationMenu") {}
+>()("@j1code/desktop/window/DesktopApplicationMenu") {}
 
 type DesktopApplicationMenuRuntimeServices =
   | DesktopUpdates.DesktopUpdates

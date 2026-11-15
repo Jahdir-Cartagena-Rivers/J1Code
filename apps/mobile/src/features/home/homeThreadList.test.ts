@@ -1,8 +1,8 @@
 import type {
   EnvironmentProject,
   EnvironmentThreadShell,
-} from "@t3tools/client-runtime/state/shell";
-import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+} from "@j1code/client-runtime/state/shell";
+import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@j1code/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { buildHomeProjectScopes, selectHomeThread, sortHomeProjectScopes } from "./homeThreadList";

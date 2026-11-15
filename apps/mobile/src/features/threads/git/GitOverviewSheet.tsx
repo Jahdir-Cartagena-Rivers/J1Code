@@ -3,12 +3,12 @@ import {
   buildMenuItems,
   getGitActionDisabledReason,
   requiresDefaultBranchConfirmation,
-} from "@t3tools/client-runtime/state/vcs";
+} from "@j1code/client-runtime/state/vcs";
 import {
   resolveThreadPullRequestChains,
   threadPullRequestKeyOf,
-} from "@t3tools/shared/threadPullRequests";
-import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+} from "@j1code/shared/threadPullRequests";
+import { EnvironmentId, ThreadId } from "@j1code/contracts";
 import {
   CommonActions,
   StackActions,

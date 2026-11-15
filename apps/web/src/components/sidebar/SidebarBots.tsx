@@ -1,5 +1,5 @@
-import { BOT_ICON_CHOICES } from "@t3tools/shared/bot-icons";
-import { latestBotConversation } from "@t3tools/shared/bot-conversations";
+import { BOT_ICON_CHOICES } from "@j1code/shared/bot-icons";
+import { latestBotConversation } from "@j1code/shared/bot-conversations";
 import { BotRoutineHistory } from "./BotRoutineHistory";
 import { BotRoutinesEditor } from "./BotRoutinesEditor";
 import { useAtomValue } from "@effect/atom-react";
@@ -10,9 +10,9 @@ import {
   type EnvironmentId,
   type ServerConfig,
   type ThreadId,
-} from "@t3tools/contracts";
-import { standaloneBotWorkspace, isStandaloneBotProject } from "@t3tools/shared/bot-workspace";
-import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+} from "@j1code/contracts";
+import { standaloneBotWorkspace, isStandaloneBotProject } from "@j1code/shared/bot-workspace";
+import { resolveProjectSettings } from "@j1code/shared/projectSettings";
 import { BotIcon, PencilIcon, PinIcon, PlusIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { newBotId, newThreadId } from "../../lib/utils";

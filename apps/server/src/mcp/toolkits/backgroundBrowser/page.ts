@@ -1,4 +1,4 @@
-import { BotBrowserPage, type BotBrowserAction } from "@t3tools/contracts";
+import { BotBrowserPage, type BotBrowserAction } from "@j1code/contracts";
 import { Effect, Schema } from "effect";
 import * as NodeCrypto from "node:crypto";
 import { BackgroundBrowser } from "./runtime.ts";

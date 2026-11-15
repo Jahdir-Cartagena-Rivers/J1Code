@@ -1,5 +1,5 @@
 import * as NodeCrypto from "node:crypto";
-import { routeEndpointUrl } from "@t3tools/shared/routeEndpointUrl";
+import { routeEndpointUrl } from "@j1code/shared/routeEndpointUrl";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";

@@ -2,8 +2,8 @@ import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { EnvironmentThreadShell } from "@j1code/client-runtime/state/shell";
+import type { ScopedThreadRef } from "@j1code/contracts";
 import {
   foldWorkerChat,
   createWorkerChatLookup,
@@ -11,7 +11,7 @@ import {
   toggleWorkerChats,
   unfoldWorkerChat,
   workerChatKey,
-} from "@t3tools/client-runtime/worker-chats";
+} from "@j1code/client-runtime/worker-chats";
 import { AppText as Text } from "../../components/AppText";
 import { useThreadShells } from "../../state/entities";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";

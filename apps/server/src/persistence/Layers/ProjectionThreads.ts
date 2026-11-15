@@ -17,7 +17,7 @@ import {
   ThreadBotIdentity,
   ThreadLinkedPullRequest,
   ThreadTitleState,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 
 const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({

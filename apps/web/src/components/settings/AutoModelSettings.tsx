@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import type { EnvironmentId, ModelSelection } from "@t3tools/contracts";
+import type { EnvironmentId, ModelSelection } from "@j1code/contracts";
 import { useEffect, useState } from "react";
 import { useEnvironmentSettings, useUpdateEnvironmentSettings } from "../../hooks/useSettings";
 import { serverEnvironment } from "../../state/server";

@@ -37,8 +37,8 @@ import {
   type BrowserImportSource,
   type PreviewAppearancePreference,
   type PreviewViewportSetting,
-} from "@t3tools/contracts";
-import { PREVIEW_VIEWPORT_PRESETS } from "@t3tools/shared/previewViewport";
+} from "@j1code/contracts";
+import { PREVIEW_VIEWPORT_PRESETS } from "@j1code/shared/previewViewport";
 import { MoreVertical, Plus as PlusIcon } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 

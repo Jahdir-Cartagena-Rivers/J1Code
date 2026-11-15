@@ -1,5 +1,5 @@
-import type { EnvironmentId, SidebarProjectGroupingMode } from "@t3tools/contracts";
-import { DEFAULT_SIDEBAR_PROJECT_SORT_ORDER } from "@t3tools/contracts";
+import type { EnvironmentId, SidebarProjectGroupingMode } from "@j1code/contracts";
+import { DEFAULT_SIDEBAR_PROJECT_SORT_ORDER } from "@j1code/contracts";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/unstable/reactivity";
 import {

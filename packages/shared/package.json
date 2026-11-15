@@ -1,5 +1,5 @@
 {
-  "name": "@t3tools/shared",
+  "name": "@j1code/shared",
   "private": true,
   "license": "SEE LICENSE IN ../../LICENSE",
   "type": "module",
@@ -416,7 +416,7 @@
   "dependencies": {
     "@noble/curves": "catalog:",
     "@noble/hashes": "catalog:",
-    "@t3tools/contracts": "workspace:*",
+    "@j1code/contracts": "workspace:*",
     "effect": "catalog:",
     "jose": "catalog:",
     "yaml": "catalog:"

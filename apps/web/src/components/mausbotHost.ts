@@ -1,4 +1,4 @@
-import type { DesktopBridge } from "@t3tools/contracts";
+import type { DesktopBridge } from "@j1code/contracts";
 
 /** A remote environment must never acquire this client's folders or physical screen. */
 export function localMausbotHost(

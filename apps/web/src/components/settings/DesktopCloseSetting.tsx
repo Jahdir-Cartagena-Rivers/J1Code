@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { DesktopCloseBehavior } from "@t3tools/contracts";
+import type { DesktopCloseBehavior } from "@j1code/contracts";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SettingsRow } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";

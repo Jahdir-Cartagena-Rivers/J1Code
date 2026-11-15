@@ -1,9 +1,9 @@
-import { BotCallTurnError } from "@t3tools/contracts";
-import { BotBrowserError, type BotBrowserAction } from "@t3tools/contracts";
+import { BotCallTurnError } from "@j1code/contracts";
+import { BotBrowserError, type BotBrowserAction } from "@j1code/contracts";
 import { BackgroundBrowser } from "./mcp/toolkits/backgroundBrowser/runtime.ts";
 import { readBotBrowserPage, actOnBotBrowserPage } from "./mcp/toolkits/backgroundBrowser/page.ts";
 import { makeBotCallTurnLookup } from "./bots/callTurnLookup.ts";
-import { BotRoutineHistoryError } from "@t3tools/contracts";
+import { BotRoutineHistoryError } from "@j1code/contracts";
 import { makeRoutineRuns } from "./bots/routineRuns.ts";
 import * as Clock from "effect/Clock";
 import { ServerEnvironment as RoutingEnvironment } from "./environment/ServerEnvironment.ts";
@@ -13,11 +13,11 @@ import { makeDurableRoutingStore } from "./routing/durableRoutingStore.ts";
 import { makeEngineRouteDrain } from "./routing/engineDrain.ts";
 import { makeRouteSourceNotifier } from "./routing/sourceActivity.ts";
 import { suggestWorkingChat } from "./routing/workingChatSuggestion.ts";
-import { ManualRouteActionError } from "@t3tools/contracts";
+import { ManualRouteActionError } from "@j1code/contracts";
 import {
   sameUsageLimitCommandCoverage,
   withUsageLimitsCommands,
-} from "@t3tools/shared/usageLimits";
+} from "@j1code/shared/usageLimits";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -98,9 +98,9 @@ import {
   WORKTREE_SETUP_ACTIVITY_KIND,
   worktreeSetupActivityId,
   type WorktreeSetupSnapshot,
-} from "@t3tools/contracts";
-import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
-import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+} from "@j1code/contracts";
+import { resolveServerBackgroundActivitySettings } from "@j1code/shared/backgroundActivitySettings";
+import { resolveProjectSettings } from "@j1code/shared/projectSettings";
 import { HttpRouter, HttpServerRequest, HttpServerRespondable } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
@@ -171,7 +171,7 @@ import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import { MausbotService } from "./mausbot/Service.ts";
-import { MausbotRuntimeError } from "@t3tools/contracts";
+import { MausbotRuntimeError } from "@j1code/contracts";
 import { requiredScopeForRpcMethod, requiredScopeForDeviceList } from "./auth/RpcAuthorization.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
@@ -200,7 +200,7 @@ import * as VcsProjectConfig from "./vcs/VcsProjectConfig.ts";
 import * as PairingGrantStore from "./auth/PairingGrantStore.ts";
 import * as SessionStore from "./auth/SessionStore.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
-import * as RelayClient from "@t3tools/shared/relayClient";
+import * as RelayClient from "@j1code/shared/relayClient";
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);

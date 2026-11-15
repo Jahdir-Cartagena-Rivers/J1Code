@@ -1,8 +1,8 @@
-import { EnvironmentAuthInvalidError } from "@t3tools/contracts";
+import { EnvironmentAuthInvalidError } from "@j1code/contracts";
 import {
   RelayAuthInvalidError,
   RelayEnvironmentEndpointTimedOutError,
-} from "@t3tools/contracts/relay";
+} from "@j1code/contracts/relay";
 import { describe, expect, it } from "@effect/vitest";
 
 import {

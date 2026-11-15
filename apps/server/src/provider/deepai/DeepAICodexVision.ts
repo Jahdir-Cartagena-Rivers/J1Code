@@ -4,7 +4,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
-import { resolveSpawnCommand } from "@t3tools/shared/shell";
+import { resolveSpawnCommand } from "@j1code/shared/shell";
 
 class VisionError extends Schema.TaggedError<VisionError>()("DeepAIVisionError", {
   detail: Schema.String,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId } from "@j1code/contracts";
 
 import { groupHomeList } from "./groupedHomeList";
 import type { HomeProjectScope } from "./homeThreadList";

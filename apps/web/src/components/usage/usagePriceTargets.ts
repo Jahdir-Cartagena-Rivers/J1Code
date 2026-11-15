@@ -2,7 +2,7 @@ import type {
   EnvironmentId,
   ServerSettingsPatch,
   UsageModelPriceOverride,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 
 export interface UsagePriceTarget {
   readonly environmentId: EnvironmentId;

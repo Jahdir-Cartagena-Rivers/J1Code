@@ -1,10 +1,10 @@
-import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { scopedThreadKey, scopeThreadRef } from "@j1code/client-runtime/environment";
 import {
   type EnvironmentId,
   type PreviewEvent,
   type PreviewSessionSnapshot,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import {

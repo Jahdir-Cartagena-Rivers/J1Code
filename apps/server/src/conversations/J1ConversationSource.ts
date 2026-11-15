@@ -1,4 +1,4 @@
-import { MessageId, ThreadId, type OrchestrationThreadShell } from "@t3tools/contracts";
+import { MessageId, ThreadId, type OrchestrationThreadShell } from "@j1code/contracts";
 import { Effect, Option } from "effect";
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import type { ProjectionThreadMessageRepositoryShape } from "../persistence/Services/ProjectionThreadMessages.ts";

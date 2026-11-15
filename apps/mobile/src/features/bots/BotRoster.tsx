@@ -1,7 +1,7 @@
 import { botVoice, type BotVoice } from "../../native/botVoice";
-import { BOT_ICON_CHOICES } from "@t3tools/shared/bot-icons";
+import { BOT_ICON_CHOICES } from "@j1code/shared/bot-icons";
 import { useAtomValue } from "@effect/atom-react";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import type { EnvironmentThreadShell } from "@j1code/client-runtime/state/shell";
 import {
   BotId,
   BotRoutine,
@@ -9,10 +9,10 @@ import {
   type BotProfile,
   type EnvironmentId,
   type ServerConfig,
-} from "@t3tools/contracts";
-import { standaloneBotWorkspace, isStandaloneBotProject } from "@t3tools/shared/bot-workspace";
-import { latestBotConversation } from "@t3tools/shared/bot-conversations";
-import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+} from "@j1code/contracts";
+import { standaloneBotWorkspace, isStandaloneBotProject } from "@j1code/shared/bot-workspace";
+import { latestBotConversation } from "@j1code/shared/bot-conversations";
+import { resolveProjectSettings } from "@j1code/shared/projectSettings";
 import * as Schema from "effect/Schema";
 import { BotRoutineHistory } from "./BotRoutineHistory";
 import { BotRoutinesEditor } from "./BotRoutinesEditor";

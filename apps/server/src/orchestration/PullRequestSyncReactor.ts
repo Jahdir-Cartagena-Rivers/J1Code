@@ -1,4 +1,4 @@
-import { siblingPullRequestUrl } from "@t3tools/shared/changeRequestUrl";
+import { siblingPullRequestUrl } from "@j1code/shared/changeRequestUrl";
 import {
   CommandId,
   type PullRequestSummary,
@@ -6,14 +6,14 @@ import {
   type ThreadPullRequestLink,
   type ThreadPullRequestSnapshot,
   type ThreadPullRequestStack,
-} from "@t3tools/contracts";
-import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+} from "@j1code/contracts";
+import { makeDrainableWorker } from "@j1code/shared/DrainableWorker";
 import {
   threadPullRequestKeyOf,
   normalizeThreadPullRequestKey,
   threadPullRequestKeysEqual,
   visibleThreadPullRequests,
-} from "@t3tools/shared/threadPullRequests";
+} from "@j1code/shared/threadPullRequests";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";

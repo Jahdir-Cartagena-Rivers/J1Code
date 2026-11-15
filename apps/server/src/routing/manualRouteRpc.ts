@@ -5,7 +5,7 @@ import {
   ManualRoutePrepareInput,
   ManualRouteListInput,
   ManualRouteStatusInput,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import type { makeManualRouteBoundary } from "./manualRouteBoundary.ts";
 
 const decodePrepare = Schema.decodeUnknownSync(ManualRoutePrepareInput, {

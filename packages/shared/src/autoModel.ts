@@ -1,4 +1,4 @@
-import type { ProviderOptionSelections } from "@t3tools/contracts";
+import type { ProviderOptionSelections } from "@j1code/contracts";
 
 /** Conservative first-pass rules; uncertain requests retain the capable model. */
 export function classifyAutoModelRequest(text: string) {

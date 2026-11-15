@@ -5,7 +5,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
-import type { DesktopCloseBehavior } from "@t3tools/contracts";
+import type { DesktopCloseBehavior } from "@j1code/contracts";
 import * as Background from "../backend/DesktopBackgroundBackend.ts";
 import * as Pool from "../backend/DesktopBackendPool.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";

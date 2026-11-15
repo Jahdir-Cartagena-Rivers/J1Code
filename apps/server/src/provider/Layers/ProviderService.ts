@@ -36,12 +36,12 @@ import {
   type ProviderRuntimeEvent,
   type ProviderSession,
   type ServerSettings as ServerSettingsValue,
-} from "@t3tools/contracts";
-import { expandAssistantCitationsForProvider } from "@t3tools/shared/assistantCitations";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { causeErrorTag } from "@t3tools/shared/observability";
-import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
-import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+} from "@j1code/contracts";
+import { expandAssistantCitationsForProvider } from "@j1code/shared/assistantCitations";
+import { HostProcessPlatform } from "@j1code/shared/hostProcess";
+import { causeErrorTag } from "@j1code/shared/observability";
+import { getModelSelectionStringOptionValue } from "@j1code/shared/model";
+import { resolveProjectSettings } from "@j1code/shared/projectSettings";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";

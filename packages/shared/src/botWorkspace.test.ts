@@ -1,4 +1,4 @@
-import { BotId } from "@t3tools/contracts";
+import { BotId } from "@j1code/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import { isStandaloneBotProject, standaloneBotWorkspace } from "./botWorkspace.ts";
 

@@ -9,8 +9,8 @@ import {
   OrchestrationThreadShell,
   ThreadId,
   DEFAULT_CLIENT_SETTINGS,
-} from "@t3tools/contracts";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+} from "@j1code/contracts";
+import type { EnvironmentThreadShell } from "@j1code/client-runtime/state/shell";
 import * as Schema from "effect/Schema";
 import { act } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";

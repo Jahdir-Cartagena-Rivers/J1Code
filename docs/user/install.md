@@ -10,7 +10,7 @@ launch J1 Code and configure providers afterwards.
 
 ## Windows desktop
 
-Download the Windows x64 installer from [J1 Code Releases](https://github.com/Jahdir-Rivers/J1Code/releases/latest). Current releases are unsigned. Verify the published checksums before installing, then authenticate your provider CLIs on the machine that runs your agents.
+Download the Windows x64 installer from [J1 Code Releases](https://github.com/Jahdir-Cartagena-Rivers/J1Code/releases/latest). Current releases are unsigned. Verify the published checksums before installing, then authenticate your provider CLIs on the machine that runs your agents.
 
 Use the installer for in-app updates. Portable builds are for manual installation and have no update feed. J1 keeps its own profile separate from T3 Code.
 

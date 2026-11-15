@@ -1,6 +1,6 @@
 import * as NodeCrypto from "node:crypto";
 import { makeTaskOwnerStore } from "./taskOwnerStore.ts";
-import { ThreadId } from "@t3tools/contracts";
+import { ThreadId } from "@j1code/contracts";
 import { Clock, Effect, Layer, Option, Schema, Stream } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -9,7 +9,7 @@ import { ServerSettingsService } from "../serverSettings.ts";
 import { RoutingBoundaryPorts, makeRoutingBoundary } from "../mcp/toolkits/routing/boundary.ts";
 import { ExternalRouteEndpoints } from "./ExternalRouteEndpoints.ts";
 import { DeliveryDispatchError } from "./deliveryDispatcher.ts";
-import { routeEndpointUrl } from "@t3tools/shared/routeEndpointUrl";
+import { routeEndpointUrl } from "@j1code/shared/routeEndpointUrl";
 import type { RouteEndpoint, RouteState } from "./routeState.ts";
 import { makeDurableRoutingStore } from "./durableRoutingStore.ts";
 import { makeSnapshotRoutingAdapter } from "./snapshotRoutingAdapter.ts";

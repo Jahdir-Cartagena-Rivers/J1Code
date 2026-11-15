@@ -1,18 +1,18 @@
-import { pullRequestHostOf, type SourceControlProviderKind } from "@t3tools/contracts";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { pullRequestHostOf, type SourceControlProviderKind } from "@j1code/contracts";
+import type { EnvironmentThreadShell } from "@j1code/client-runtime/state/shell";
 import { useProjects, useServerConfigs, useThreadShells } from "~/state/entities";
 import {
   threadPullRequestKeysEqual,
   visibleThreadPullRequests,
-} from "@t3tools/shared/threadPullRequests";
+} from "@j1code/shared/threadPullRequests";
 import type {
   ContextMenuItem,
   EnvironmentId,
   PreviewSessionSnapshot,
   ProjectId,
   PullRequestState,
-} from "@t3tools/contracts";
-import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
+} from "@j1code/contracts";
+import { getTerminalLabel } from "@j1code/shared/terminalLabels";
 import {
   Bot,
   Smartphone,

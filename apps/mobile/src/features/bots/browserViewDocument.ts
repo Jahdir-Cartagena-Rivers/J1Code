@@ -1,4 +1,4 @@
-import type { BotBrowserPage } from "@t3tools/contracts";
+import type { BotBrowserPage } from "@j1code/contracts";
 /** The bundle sanitizes the page in the WebView before any website markup is rendered. */
 export function browserViewDocument(page: BotBrowserPage, script: string) {
   const data = JSON.stringify(page).replace(/</g, "\\u003c");

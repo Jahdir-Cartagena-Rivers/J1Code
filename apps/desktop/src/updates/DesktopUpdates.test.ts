@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
-import { DESKTOP_UPDATE_RESTART_MARKER_FILE } from "@t3tools/contracts";
+import { DESKTOP_UPDATE_RESTART_MARKER_FILE } from "@j1code/contracts";
 import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";

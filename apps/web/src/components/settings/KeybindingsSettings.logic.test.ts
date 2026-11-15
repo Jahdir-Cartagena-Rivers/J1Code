@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { ResolvedKeybindingsConfig } from "@t3tools/contracts";
-import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
+import type { ResolvedKeybindingsConfig } from "@j1code/contracts";
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@j1code/shared/keybindings";
 
 import {
   buildKeybindingRows,

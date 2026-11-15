@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMausbotWorkspaceState } from "../components/MausbotShell";
 import { Button } from "../components/ui/button";
-import { EnvironmentId } from "@t3tools/contracts";
+import { EnvironmentId } from "@j1code/contracts";
 
 export const Route = createFileRoute("/_chat/assistants")({
   component: WorkspaceStatus,

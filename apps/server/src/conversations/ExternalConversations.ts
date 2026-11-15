@@ -4,7 +4,7 @@ import type {
   ConversationHistoryPage,
   ConversationMessagePage,
   ConversationPrincipal,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import type { RouteEndpoint } from "../routing/routeState.ts";
 
 export type ExternalConversation = ConversationMetadata;

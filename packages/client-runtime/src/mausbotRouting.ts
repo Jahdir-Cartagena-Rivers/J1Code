@@ -4,8 +4,8 @@ import {
   type ManualRouteEndpoint,
   type ManualRouteStatus,
   type ManualRoutePrepareInput,
-} from "@t3tools/contracts";
-import { routeEndpointUrl } from "@t3tools/shared/routeEndpointUrl";
+} from "@j1code/contracts";
+import { routeEndpointUrl } from "@j1code/shared/routeEndpointUrl";
 
 export const isMausbotRoutingMethod = (method: string) =>
   ["routingList", "routingStatus", "routingApprove", "routingOpen"].includes(method);

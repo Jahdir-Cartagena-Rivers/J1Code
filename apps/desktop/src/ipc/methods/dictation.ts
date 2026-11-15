@@ -1,4 +1,4 @@
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { HostProcessPlatform } from "@j1code/shared/hostProcess";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as DesktopIpc from "../DesktopIpc.ts";

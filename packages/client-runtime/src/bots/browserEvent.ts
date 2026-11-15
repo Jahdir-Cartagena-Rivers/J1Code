@@ -1,4 +1,4 @@
-import { BotBrowserAction } from "@t3tools/contracts";
+import { BotBrowserAction } from "@j1code/contracts";
 import { Option, Schema } from "effect";
 const Event = Schema.Struct({
   type: Schema.Literal("j1-bot-browser"),

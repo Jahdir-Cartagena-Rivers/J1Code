@@ -1,4 +1,4 @@
-import type { PreviewRenderedViewportSize, PreviewViewportSetting } from "@t3tools/contracts";
+import type { PreviewRenderedViewportSize, PreviewViewportSetting } from "@j1code/contracts";
 
 import { browserViewportSettingKey } from "~/browser/browserViewportLayout";
 import { waitForHostReadiness } from "./previewAutomationHostBudget";

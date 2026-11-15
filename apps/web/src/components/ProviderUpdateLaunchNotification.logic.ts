@@ -6,11 +6,11 @@ import {
   type ProviderDriverKind,
   type ProviderInstanceId,
   type ServerProvider,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import {
   squashAtomCommandFailure,
   type AtomCommandResult,
-} from "@t3tools/client-runtime/state/runtime";
+} from "@j1code/client-runtime/state/runtime";
 
 export type ProviderUpdateCandidate = ServerProvider & {
   readonly versionAdvisory: NonNullable<ServerProvider["versionAdvisory"]> & {

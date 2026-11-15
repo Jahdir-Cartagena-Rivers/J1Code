@@ -1,7 +1,7 @@
 import {
   canonicalRepositoryKey,
   sourceControlRepositorySelector,
-} from "@t3tools/shared/sourceControl";
+} from "@j1code/shared/sourceControl";
 import {
   CommandId,
   type OrchestrationEvent,
@@ -9,8 +9,8 @@ import {
   type OrchestrationShellSnapshot,
   type ThreadId,
   type ThreadLinkedPullRequest,
-} from "@t3tools/contracts";
-import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+} from "@j1code/contracts";
+import { makeDrainableWorker } from "@j1code/shared/DrainableWorker";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";

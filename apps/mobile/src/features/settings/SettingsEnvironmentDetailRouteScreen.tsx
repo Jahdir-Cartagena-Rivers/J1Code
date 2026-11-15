@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
-import type { EnvironmentId, ServerProvider } from "@t3tools/contracts";
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import type { EnvironmentId, ServerProvider } from "@j1code/contracts";
+import { squashAtomCommandFailure } from "@j1code/client-runtime/state/runtime";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useEffect, useRef, useState } from "react";
 import { Alert, View } from "react-native";

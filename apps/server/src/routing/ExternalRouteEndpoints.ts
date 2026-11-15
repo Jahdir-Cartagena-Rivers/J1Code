@@ -7,7 +7,7 @@ import type {
   ExternalRouteHostEvent,
   ExternalRouteReceiptKey,
   ExternalRouteTransportProof,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import { Context, Effect, Layer, PubSub, Stream } from "effect";
 
 interface EndpointAdapter {

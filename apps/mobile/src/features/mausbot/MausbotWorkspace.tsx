@@ -1,11 +1,11 @@
-import { WS_METHODS, type EnvironmentId } from "@t3tools/contracts";
+import { WS_METHODS, type EnvironmentId } from "@j1code/contracts";
 import {
   callMausbotRouting,
   isMausbotRoutingMethod,
-} from "@t3tools/client-runtime/mausbot-routing";
+} from "@j1code/client-runtime/mausbot-routing";
 import { CommonActions, useNavigation } from "@react-navigation/native";
-import { createEnvironmentRpcCommand } from "@t3tools/client-runtime/state/runtime";
-import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
+import { createEnvironmentRpcCommand } from "@j1code/client-runtime/state/runtime";
+import { resolveAssetUrl } from "@j1code/client-runtime/state/assets";
 import { useLayoutEffect, useRef, useState } from "react";
 import { Modal, View } from "react-native";
 import { WebView } from "react-native-webview";

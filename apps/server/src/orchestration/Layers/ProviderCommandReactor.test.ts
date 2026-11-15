@@ -1,4 +1,4 @@
-import { BotProfile } from "@t3tools/contracts";
+import { BotProfile } from "@j1code/contracts";
 import * as Schema from "effect/Schema";
 import * as WorkspacePaths from "../../workspace/WorkspacePaths.ts";
 import { makeRoutineAdmission } from "../../bots/routineAdmission.ts";
@@ -16,8 +16,8 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   ProviderSetupError,
-} from "@t3tools/contracts";
-import { createModelSelection } from "@t3tools/shared/model";
+} from "@j1code/contracts";
+import { createModelSelection } from "@j1code/shared/model";
 import {
   ApprovalRequestId,
   BotId,
@@ -30,8 +30,8 @@ import {
   ProjectId,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
-import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
+} from "@j1code/contracts";
+import { serializeAssistantCitation } from "@j1code/shared/assistantCitations";
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
 import * as Exit from "effect/Exit";
@@ -46,7 +46,7 @@ import { it as effectIt } from "@effect/vitest";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { deriveServerPaths, ServerConfig } from "../../config.ts";
-import { TextGenerationError } from "@t3tools/contracts";
+import { TextGenerationError } from "@j1code/contracts";
 import {
   ProviderAdapterRequestError,
   ProviderWorkspaceMissingError,

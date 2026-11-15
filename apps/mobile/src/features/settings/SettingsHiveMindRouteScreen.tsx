@@ -1,8 +1,8 @@
-import { updateHiveMindConfig } from "@t3tools/contracts";
-import { formatHiveSkillRoots, parseHiveSkillRoots } from "@t3tools/client-runtime/state/hive-mind";
+import { updateHiveMindConfig } from "@j1code/contracts";
+import { formatHiveSkillRoots, parseHiveSkillRoots } from "@j1code/client-runtime/state/hive-mind";
 import type { StaticScreenProps } from "@react-navigation/native";
-import type { HiveMindConfig, HiveMindMemory, HiveMindSnapshot } from "@t3tools/contracts";
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import type { HiveMindConfig, HiveMindMemory, HiveMindSnapshot } from "@j1code/contracts";
+import { squashAtomCommandFailure } from "@j1code/client-runtime/state/runtime";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, TextInput, View } from "react-native";
 import { AppText as Text } from "../../components/AppText";
@@ -13,7 +13,7 @@ import { SettingsSection } from "./components/SettingsSection";
 import { SettingsActionRow } from "./components/SettingsActionRow";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { ScreenScrollView } from "../../components/ScreenScrollView";
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId } from "@j1code/contracts";
 
 export function SettingsHiveMindRouteScreen({
   route,

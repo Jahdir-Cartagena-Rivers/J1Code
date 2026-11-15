@@ -4,7 +4,7 @@ import {
   ProviderInstanceId,
   UsageLimitSourceId,
   type ServerProvider,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
   buildSubscriptionUsageSnapshot,

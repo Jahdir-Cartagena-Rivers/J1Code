@@ -1,7 +1,7 @@
 ﻿import { useAtomValue } from "@effect/atom-react";
-import { MessageId, type BotId, type EnvironmentId, type ThreadId } from "@t3tools/contracts";
-import { createBotCallController } from "@t3tools/shared/bot-call-controller";
-import { initialBotCallState } from "@t3tools/shared/bot-voice-conversation";
+import { MessageId, type BotId, type EnvironmentId, type ThreadId } from "@j1code/contracts";
+import { createBotCallController } from "@j1code/shared/bot-call-controller";
+import { initialBotCallState } from "@j1code/shared/bot-voice-conversation";
 import { useEffect, useRef, useState } from "react";
 import { newThreadId } from "../../lib/utils";
 import { botCallTurn } from "../../state/botCallTurn";

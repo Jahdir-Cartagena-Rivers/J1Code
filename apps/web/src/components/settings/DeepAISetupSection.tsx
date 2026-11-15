@@ -1,4 +1,4 @@
-import type { EnvironmentId, ProviderInstanceId } from "@t3tools/contracts";
+import type { EnvironmentId, ProviderInstanceId } from "@j1code/contracts";
 import { useState } from "react";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";

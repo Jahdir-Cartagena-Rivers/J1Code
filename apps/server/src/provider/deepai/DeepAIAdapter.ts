@@ -3,7 +3,7 @@ import { readNativeComputerDescriptor } from "../../mausbot/NativeComputer.ts";
 import * as Schema from "effect/Schema";
 import * as NodeCrypto from "node:crypto";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
-import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
+import { getModelSelectionStringOptionValue } from "@j1code/shared/model";
 import { DEEPAI_EFFORTS } from "./DeepAIModelCapabilities.ts";
 import * as NodePerfHooks from "node:perf_hooks";
 import {
@@ -18,7 +18,7 @@ import {
   type ProviderSession,
   type ThreadId,
   type CanonicalRequestType,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import * as Effect from "effect/Effect";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";

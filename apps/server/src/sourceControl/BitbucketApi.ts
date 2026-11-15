@@ -14,13 +14,13 @@ import {
   type SourceControlProviderAuth,
   type SourceControlRepositoryCloneUrls,
   type SourceControlRepositoryVisibility,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
-import { sanitizeBranchFragment } from "@t3tools/shared/git";
+import { sanitizeBranchFragment } from "@j1code/shared/git";
 import {
   detectSourceControlProviderFromRemoteUrl,
   isSshRemoteUrl,
-} from "@t3tools/shared/sourceControl";
+} from "@j1code/shared/sourceControl";
 
 import {
   BitbucketPullRequestListSchema,

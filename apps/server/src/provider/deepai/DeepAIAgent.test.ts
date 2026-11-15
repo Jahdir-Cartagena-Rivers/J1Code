@@ -3,7 +3,7 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import { expect, it, vi } from "vite-plus/test";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { HostProcessPlatform } from "@j1code/shared/hostProcess";
 import { createDeepAIAgent } from "./DeepAIAgent.ts";
 import type { CommandJobResult } from "./CommandJobs.ts";
 

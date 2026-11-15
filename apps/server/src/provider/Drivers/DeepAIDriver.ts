@@ -1,5 +1,5 @@
 import * as NodeOS from "node:os";
-import { ProviderDriverKind, ProviderSetupError } from "@t3tools/contracts";
+import { ProviderDriverKind, ProviderSetupError } from "@j1code/contracts";
 import * as Effect from "effect/Effect";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
@@ -24,7 +24,7 @@ import { makeDeepAIAdapter } from "../deepai/DeepAIAdapter.ts";
 import { DeepAIRequestError, makeDeepAIClient } from "../deepai/DeepAIClient.ts";
 import { makeDeepAITextGeneration } from "../deepai/DeepAITextGeneration.ts";
 
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { HostProcessPlatform } from "@j1code/shared/hostProcess";
 import { deepAIMachineDigest } from "../deepai/DeepAIMachine.ts";
 import { makeDeepAIVision } from "../deepai/DeepAIVision.ts";
 import { deepAIModelCapabilities } from "../deepai/DeepAIModelCapabilities.ts";

@@ -4,7 +4,7 @@ import type {
   OrchestrationProjectShell,
   OrchestrationThread,
   OrchestrationThreadShell,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 
 export interface EnvironmentProject extends OrchestrationProjectShell {
   readonly environmentId: EnvironmentId;

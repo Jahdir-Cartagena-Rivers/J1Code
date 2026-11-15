@@ -1,5 +1,5 @@
 {
-  "name": "@t3tools/client-runtime",
+  "name": "@j1code/client-runtime",
   "private": true,
   "license": "SEE LICENSE IN ../../LICENSE",
   "type": "module",
@@ -330,8 +330,8 @@
     "test": "vp test run"
   },
   "dependencies": {
-    "@t3tools/contracts": "workspace:*",
-    "@t3tools/shared": "workspace:*",
+    "@j1code/contracts": "workspace:*",
+    "@j1code/shared": "workspace:*",
     "effect": "catalog:",
     "mdast-util-directive": "^3.1.0",
     "micromark-extension-directive": "^4.0.0",

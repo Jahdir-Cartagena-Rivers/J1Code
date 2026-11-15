@@ -46,9 +46,9 @@ config.resolver = {
   ],
   extraNodeModules: {
     ...config.resolver?.extraNodeModules,
-    "@t3tools/mobile-third-party-licenses": generatedLicenseModuleRoot,
-    "@t3tools/mobile-device-stream": generatedDeviceStreamRoot,
-    "@t3tools/mobile-bot-browser": path.join(__dirname, ".generated", "bot-browser"),
+    "@j1code/mobile-third-party-licenses": generatedLicenseModuleRoot,
+    "@j1code/mobile-device-stream": generatedDeviceStreamRoot,
+    "@j1code/mobile-bot-browser": path.join(__dirname, ".generated", "bot-browser"),
     shiki: mobileShikiRoot,
     "@shikijs/core": resolveShikiDependencyRoot("@shikijs/core"),
     "@shikijs/engine-javascript": resolveShikiDependencyRoot("@shikijs/engine-javascript"),

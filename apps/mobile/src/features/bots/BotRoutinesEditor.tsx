@@ -1,4 +1,4 @@
-import type { BotRoutine } from "@t3tools/contracts";
+import type { BotRoutine } from "@j1code/contracts";
 import { Switch, TextInput, View } from "react-native";
 import { AppText } from "../../components/AppText";
 import { ControlPill, ControlPillMenu } from "../../components/ControlPill";

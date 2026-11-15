@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
 import * as Effect from "effect/Effect";
-import { ProviderInstanceId } from "@t3tools/contracts";
+import { ProviderInstanceId } from "@j1code/contracts";
 import { makeDeepAITextGeneration } from "./DeepAITextGeneration.ts";
 
 const fixture = vi.hoisted(() => ({

@@ -1,6 +1,6 @@
-import { Connection } from "@t3tools/client-runtime/connection";
-import { shellSnapshotLoaderLayer } from "@t3tools/client-runtime/state/shell";
-import { threadSnapshotLoaderLayer } from "@t3tools/client-runtime/state/threads";
+import { Connection } from "@j1code/client-runtime/connection";
+import { shellSnapshotLoaderLayer } from "@j1code/client-runtime/state/shell";
+import { threadSnapshotLoaderLayer } from "@j1code/client-runtime/state/threads";
 import * as Layer from "effect/Layer";
 import { Atom } from "effect/unstable/reactivity";
 

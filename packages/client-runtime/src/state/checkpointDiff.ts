@@ -3,7 +3,7 @@ import type {
   OrchestrationGetFullThreadDiffResult,
   OrchestrationGetTurnDiffResult,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@j1code/contracts";
 
 export type CheckpointDiffResult =
   | OrchestrationGetTurnDiffResult

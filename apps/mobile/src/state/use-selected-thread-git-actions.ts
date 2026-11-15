@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useMemo } from "react";
 
-import { EnvironmentProject, EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
+import { EnvironmentProject, EnvironmentThreadShell } from "@j1code/client-runtime/state/shell";
+import type { AtomCommandResult } from "@j1code/client-runtime/state/runtime";
 import {
   type GitActionRequestInput,
   type VcsActionOperation,
   type VcsRef,
-} from "@t3tools/client-runtime/state/vcs";
-import type { GitRunStackedActionResult } from "@t3tools/contracts";
+} from "@j1code/client-runtime/state/vcs";
+import type { GitRunStackedActionResult } from "@j1code/contracts";
 import {
   dedupeRemoteBranchesWithLocalMatches,
   sanitizeFeatureBranchName,
-} from "@t3tools/shared/git";
+} from "@j1code/shared/git";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
 

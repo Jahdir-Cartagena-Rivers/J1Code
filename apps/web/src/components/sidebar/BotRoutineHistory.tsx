@@ -1,4 +1,4 @@
-import type { BotId, BotRoutine, EnvironmentId } from "@t3tools/contracts";
+import type { BotId, BotRoutine, EnvironmentId } from "@j1code/contracts";
 import { botRoutineHistory } from "../../state/botRoutines";
 import { useEnvironmentQuery } from "../../state/query";
 import { Button } from "../ui/button";

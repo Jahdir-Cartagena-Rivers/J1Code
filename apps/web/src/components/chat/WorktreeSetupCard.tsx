@@ -2,8 +2,8 @@ import {
   worktreeSetupStageLabel,
   type WorktreeSetupSnapshot,
   type WorktreeSetupStage,
-} from "@t3tools/contracts";
-import { formatDuration } from "@t3tools/shared/orchestrationTiming";
+} from "@j1code/contracts";
+import { formatDuration } from "@j1code/shared/orchestrationTiming";
 import {
   CheckIcon,
   ChevronDownIcon,

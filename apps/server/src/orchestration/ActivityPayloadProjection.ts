@@ -1,11 +1,11 @@
-import { projectQuestionToolInput } from "@t3tools/shared/toolActivity";
+import { projectQuestionToolInput } from "@j1code/shared/toolActivity";
 import type {
   OrchestrationEvent,
   OrchestrationThreadActivity,
   OrchestrationThreadDetailSnapshot,
-} from "@t3tools/contracts";
-import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
-import { extractJsonObject } from "@t3tools/shared/schemaJson";
+} from "@j1code/contracts";
+import { isWorkspaceImagePreviewPath } from "@j1code/shared/filePreview";
+import { extractJsonObject } from "@j1code/shared/schemaJson";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)

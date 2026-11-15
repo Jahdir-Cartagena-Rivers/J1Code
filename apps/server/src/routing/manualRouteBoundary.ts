@@ -1,7 +1,7 @@
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as NodeCrypto from "node:crypto";
-import { AuthOrchestrationOperateScope, AuthOrchestrationReadScope } from "@t3tools/contracts";
+import { AuthOrchestrationOperateScope, AuthOrchestrationReadScope } from "@j1code/contracts";
 import type { AuthenticatedSession } from "../auth/EnvironmentAuth.ts";
 import { resolveRoute, type RouteEndpoint, type RouteState } from "./routeState.ts";
 
