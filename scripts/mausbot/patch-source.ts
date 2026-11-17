@@ -920,6 +920,13 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
     "          {matchingBots.length === 0",
     '          {j1Navigation && <div className="px-4 pb-2 text-[11px] font-medium uppercase tracking-wide text-ink-secondary">Bots</div>}\n          {matchingBots.length === 0',
   );
+  // The host keeps one sidebar toggle on every route. Reserve its space beside
+  // the phone profile button instead of drawing a second toggle over it.
+  await change(
+    "src/components/Sidebar.tsx",
+    '<div className="shrink-0" style={windowNoDragStyle}><SidebarProfileMenu iconOnly circle /></div>',
+    '<div className={cn("shrink-0", j1Navigation && "ml-10")} style={windowNoDragStyle}><SidebarProfileMenu iconOnly circle /></div>',
+  );
   await change(
     "src/components/Sidebar.tsx",
     "  const [searchOpen, setSearchOpen] = useState(false);",
@@ -1040,6 +1047,11 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
     "src/App.tsx",
     "collapseToIcons={collapseSidebar}",
     "collapseToIcons={j1Navigation ? !j1Navigation.sidebarOpen : collapseSidebar}",
+  );
+  await change(
+    "src/App.tsx",
+    "      {!calendarFocus && <button",
+    "      {!calendarFocus && !j1Navigation && <button",
   );
   await change(
     "src/App.tsx",
