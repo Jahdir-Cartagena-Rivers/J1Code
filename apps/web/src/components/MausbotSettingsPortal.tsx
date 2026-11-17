@@ -63,6 +63,21 @@ export function useMausbotSlotPortal(
           root.style.cssText = "";
           for (const name of values)
             if (name.startsWith("--")) root.style.setProperty(name, values.getPropertyValue(name));
+          if (kind === "navigation" || kind === "footer") {
+            const native = source.defaultView?.getComputedStyle(slot!);
+            for (const [token, nativeToken] of Object.entries({
+              "--sidebar": "--color-app",
+              "--sidebar-foreground": "--color-ink",
+              "--sidebar-muted-foreground": "--color-ink-secondary",
+              "--sidebar-icon-color": "--color-ink-secondary",
+              "--sidebar-row-hover": "--color-raised",
+              "--sidebar-row-active": "--color-raised",
+              "--sidebar-row-selected": "--color-raised",
+            })) {
+              const color = native?.getPropertyValue(nativeToken).trim();
+              if (color) root.style.setProperty(token, color);
+            }
+          }
           root.classList.toggle("dark", document.documentElement.classList.contains("dark"));
         };
         mirrorStyles();
@@ -73,12 +88,15 @@ export function useMausbotSlotPortal(
       observer.observe(source.body, { childList: true, subtree: true });
       const theme = new MutationObserver(() => mirrorTheme());
       theme.observe(document.documentElement, { attributes: true });
+      const nativeTheme = new MutationObserver(() => mirrorTheme());
+      nativeTheme.observe(source.documentElement, { attributes: true });
       const stylesheet = new MutationObserver(() => mirrorStyles());
       stylesheet.observe(document.head, { childList: true, subtree: true, characterData: true });
       sync();
       detach = () => {
         observer.disconnect();
         theme.disconnect();
+        nativeTheme.disconnect();
         stylesheet.disconnect();
         setTarget(null);
       };

@@ -27,6 +27,7 @@ import {
   workspaceBrowserUrls,
   workspaceScopesChanged,
 } from "./workspace-browser";
+import { WorkspaceLifecycle } from "./workspace-lifecycle";
 
 const issueWorkspace = createWorkspaceBrowserSessionCommand(connectionAtomRuntime);
 
@@ -56,24 +57,23 @@ export function SharedWorkspace(props: {
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [browserGeneration, setBrowserGeneration] = useState(0);
-  const pending = useRef<{ credential: string; navigate: boolean } | null>(null);
+  const pending = useRef<{ credential: string; navigate: boolean; generation: number } | null>(
+    null,
+  );
   const loaded = useRef(false);
   const authenticated = useRef(false);
   const lastWorkspaceUrl = useRef(destination);
   const canGoBack = useRef(false);
-  const active = useRef(true);
-  const inFlight = useRef(false);
-  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const grantedScopes = useRef<ReadonlyArray<string> | null>(null);
-  const handoffTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handoffScopes = useRef<ReadonlyArray<string> | null>(null);
   const navigateAfterAuth = useRef(false);
-  const handoffGeneration = useRef(0);
-  const finishHandoff = useCallback(() => {
-    inFlight.current = false;
-    handoffGeneration.current++;
-    if (handoffTimer.current) clearTimeout(handoffTimer.current);
-    handoffTimer.current = null;
-  }, []);
+  const connectRef = useRef<(navigate: boolean) => void>(() => {});
+  const lifecycle = useRef(
+    new WorkspaceLifecycle({
+      onHandoffTimeout: () => setError("Workspace sign-in timed out. Try again."),
+      onRefreshNeeded: () => connectRef.current(false),
+    }),
+  );
 
   useEffect(() => {
     lastWorkspaceUrl.current = destination;
@@ -82,70 +82,69 @@ export function SharedWorkspace(props: {
   }, [destination]);
 
   const flush = useCallback(() => {
-    if (!loaded.current || !pending.current || !active.current) return;
+    if (!loaded.current || !pending.current) return;
     const handoff = pending.current;
     pending.current = null;
     navigateAfterAuth.current = handoff.navigate;
-    webView.current?.injectJavaScript(workspaceBootstrapScript(baseUrl, handoff.credential, false));
+    webView.current?.injectJavaScript(
+      workspaceBootstrapScript(baseUrl, handoff.credential, false, undefined, handoff.generation),
+    );
   }, [baseUrl]);
 
   const connect = useCallback(
     async (navigate: boolean) => {
-      if (inFlight.current || !active.current) return;
-      inFlight.current = true;
-      const generation = ++handoffGeneration.current;
-      handoffTimer.current = setTimeout(() => {
-        pending.current = null;
-        finishHandoff();
-        if (active.current) setError("Workspace sign-in timed out. Try again.");
-      }, 65_000);
+      const generation = lifecycle.current.begin();
+      if (generation === null) return;
       try {
         const result = await issue({ environmentId, input: undefined });
-        if (!active.current || generation !== handoffGeneration.current) return;
+        if (!lifecycle.current.acceptIssue(generation)) return;
         if (result._tag !== "Success")
           throw new Error("Reconnect this environment to open its workspace.");
         pending.current = {
           credential: result.value.credential,
           navigate: navigate || workspaceScopesChanged(grantedScopes.current, result.value.scopes),
+          generation,
         };
-        grantedScopes.current = result.value.scopes;
+        handoffScopes.current = result.value.scopes;
         if (pending.current.navigate) setReady(false);
         flush();
       } catch (cause) {
-        if (generation !== handoffGeneration.current) return;
-        if (active.current)
+        if (lifecycle.current.acceptFailure(generation))
           setError(cause instanceof Error ? cause.message : "Workspace unavailable.");
-        finishHandoff();
       }
     },
-    [environmentId, finishHandoff, flush, issue],
+    [environmentId, flush, issue],
   );
+  connectRef.current = (navigate) => void connect(navigate);
 
   useEffect(() => {
-    active.current = true;
-    void connect(true);
+    if (AppState.currentState === "active") {
+      if (lifecycle.current.activate()) void connect(true);
+    } else lifecycle.current.background();
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") void connect(!authenticated.current);
-      else if (refreshTimer.current) clearTimeout(refreshTimer.current);
+      if (state === "active") {
+        if (lifecycle.current.foregrounded()) void connect(!authenticated.current);
+      } else {
+        pending.current = null;
+        lifecycle.current.background();
+      }
     });
     return () => {
-      active.current = false;
       pending.current = null;
-      finishHandoff();
-      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+      lifecycle.current.dispose();
       subscription.remove();
     };
-  }, [connect, finishHandoff]);
+  }, [connect]);
 
   useFocusEffect(
     useCallback(() => {
       const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
-        if (canGoBack.current) webView.current?.goBack();
-        else onOpenAppTools();
+        if (!canGoBack.current) return false;
+        webView.current?.goBack();
         return true;
       });
       return () => subscription.remove();
-    }, [onOpenAppTools]),
+    }, []),
   );
 
   return (
@@ -209,13 +208,13 @@ export function SharedWorkspace(props: {
               lastWorkspaceUrl.current = state.url;
           }}
           onContentProcessDidTerminate={() => {
-            finishHandoff();
+            lifecycle.current.invalidate();
             authenticated.current = false;
             setReady(false);
             setError("The workspace stopped. Retry to reopen it.");
           }}
           onRenderProcessGone={() => {
-            finishHandoff();
+            lifecycle.current.invalidate();
             authenticated.current = false;
             setReady(false);
             setError("The workspace stopped. Retry to reopen it.");
@@ -241,11 +240,16 @@ export function SharedWorkspace(props: {
               return;
             }
             if (message.type === "authentication-failed") {
-              finishHandoff();
-              setError("The workspace sign-in expired. Retry or reconnect this environment.");
+              if (lifecycle.current.rejectHandoff(message.handoffId)) {
+                authenticated.current = false;
+                setReady(false);
+                setError("The workspace sign-in expired. Retry or reconnect this environment.");
+              }
               return;
             }
-            finishHandoff();
+            if (!lifecycle.current.acceptAuthenticated(message.handoffId, message.expiresAt))
+              return;
+            grantedScopes.current = handoffScopes.current;
             authenticated.current = true;
             setError(null);
             if (navigateAfterAuth.current) {
@@ -254,10 +258,6 @@ export function SharedWorkspace(props: {
                 `location.replace(${JSON.stringify(lastWorkspaceUrl.current)}); true;`,
               );
             }
-            if (refreshTimer.current) clearTimeout(refreshTimer.current);
-            const delay = Date.parse(message.expiresAt) - Date.now() - 60_000;
-            if (Number.isFinite(delay) && delay > 0)
-              refreshTimer.current = setTimeout(() => void connect(false), delay);
           }}
         />
         {!ready || error ? (
@@ -275,7 +275,7 @@ export function SharedWorkspace(props: {
                 label="Retry"
                 onPress={() => {
                   pending.current = null;
-                  finishHandoff();
+                  lifecycle.current.invalidate();
                   loaded.current = false;
                   authenticated.current = false;
                   setReady(false);
@@ -287,7 +287,6 @@ export function SharedWorkspace(props: {
               />
             ) : null}
             <MaterialButton tone="text" label="Connections" onPress={onOpenConnections} />
-            <MaterialButton tone="text" label="Projects and app tools" onPress={onOpenAppTools} />
           </View>
         ) : null}
       </KeyboardAvoidingView>

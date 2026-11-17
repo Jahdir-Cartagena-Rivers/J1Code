@@ -618,6 +618,7 @@ const RootStackConfig = createNativeStackNavigator({
         contentStyle: { backgroundColor: "transparent" },
         headerBackVisible: false,
         ...getCompactBrandHeaderOptions(),
+        headerShown: false,
       },
     }),
     Thread: createNativeStackScreen({

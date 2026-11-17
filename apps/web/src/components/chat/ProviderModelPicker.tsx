@@ -4,7 +4,8 @@ import {
   type ProviderDriverKind,
   type ResolvedKeybindingsConfig,
 } from "@j1code/contracts";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
@@ -85,6 +86,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     (activeEntry?.driverKind === "opencode" || activeEntry?.driverKind === "antigravity"
       ? undefined
       : selectedInstanceOptions[0]);
+  const popupRef = useRef<HTMLDivElement | null>(null);
+  const deferSearchFocus = useMediaQuery("(max-width: 767px), (pointer: coarse)");
   const triggerTitle = selectedModel
     ? getTriggerDisplayModelName(selectedModel)
     : props.model === ANTIGRAVITY_DEFAULT_MODEL
@@ -282,6 +285,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         </span>
       </PopoverTrigger>
       <PopoverPopup
+        ref={popupRef}
+        initialFocus={deferSearchFocus ? popupRef : undefined}
         {...(props.isComposerOwned ? composerFloatingLayerProps : {})}
         align="start"
         className="before:hidden"

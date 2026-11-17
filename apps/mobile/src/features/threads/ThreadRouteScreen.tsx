@@ -251,12 +251,10 @@ function ThreadUnavailableScreen(props: {
 export function ThreadRouteScreen(props: ThreadRouteScreenProps) {
   const navigation = useNavigation();
   const { environments } = useEnvironments();
-  const { nativeToolsActive } = useAdaptiveWorkspaceLayout();
   const environmentId = firstRouteParam(props.route.params.environmentId);
   const threadId = firstRouteParam(props.route.params.threadId);
   const environment = environments.find((candidate) => candidate.environmentId === environmentId);
   const shared =
-    !nativeToolsActive &&
     !props.renderInspector &&
     !props.onReturnToThread &&
     Boolean(

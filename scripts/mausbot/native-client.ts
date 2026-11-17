@@ -35,6 +35,14 @@ function capabilities(value: unknown): DesktopCapabilities {
     throw new Error("The assistant runtime needs an update.");
   return {
     ...value,
+    // J1 owns the OS window; the embedded workspace must not add a second frame.
+    windowChrome:
+      nativeHost.platform === "darwin"
+        ? "mac-inset"
+        : nativeHost.platform === "win32"
+          ? "win-caption"
+          : "native",
+    windowFrame: false,
     screenPreview: {
       available: nativeHost.capture,
       interaction: "none",
@@ -99,6 +107,7 @@ export async function prepareNativeHost() {
 
 function install(host: Host) {
   nativeHost = host;
+  document.documentElement.dataset.j1Desktop = host.platform;
   const getCapabilities = async () => {
     const response = await fetch("/api/config");
     if (!response.ok) throw new Error("Could not read assistant capabilities.");

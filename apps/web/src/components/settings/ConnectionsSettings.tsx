@@ -3713,15 +3713,15 @@ export function ConnectionsSettings() {
             }
           />
           <SettingsRow
-            title="App tools"
-            description="Open device settings and the existing project tools."
+            title="Connection settings"
+            description="Manage the servers connected to this device."
             control={
               <Button
                 size="sm"
                 variant="outline"
                 onClick={() => openMobileWorkspacePage("open-app-tools")}
               >
-                Open app tools
+                Open connection settings
               </Button>
             }
           />

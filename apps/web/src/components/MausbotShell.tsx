@@ -19,10 +19,7 @@ import { useSidebar } from "./ui/sidebar";
 import { squashAtomCommandFailure } from "@j1code/client-runtime/state/runtime";
 import { EnvironmentId, ThreadId, MausbotApprovalModeInput } from "@j1code/contracts";
 import { routeEndpointUrl } from "@j1code/shared/routeEndpointUrl";
-import {
-  callMausbotRouting,
-  isMausbotRoutingMethod,
-} from "@j1code/client-runtime/mausbot-routing";
+import { callMausbotRouting, isMausbotRoutingMethod } from "@j1code/client-runtime/mausbot-routing";
 import { serverEnvironment } from "../state/server";
 import * as Schema from "effect/Schema";
 import { localMausbotHost } from "./mausbotHost";
@@ -78,7 +75,24 @@ function nativeOverlayClip(
   box: { left: number; top: number; width: number; height: number },
   overlays: ShellBounds["overlays"],
 ) {
+  if (
+    overlays.some(
+      (rect) =>
+        rect.left <= box.left &&
+        rect.top <= box.top &&
+        rect.left + rect.width >= box.left + box.width &&
+        rect.top + rect.height >= box.top + box.height,
+    )
+  )
+    return "inset(50%)";
   const holes = overlays.flatMap((rect) => {
+    if (
+      rect.left + rect.width <= box.left ||
+      rect.left >= box.left + box.width ||
+      rect.top + rect.height <= box.top ||
+      rect.top >= box.top + box.height
+    )
+      return [];
     const left = Math.max(0, rect.left - box.left - 8);
     const right = Math.min(box.width, rect.left + rect.width - box.left + 8);
     const top = Math.max(0, rect.top - box.top - 8);
@@ -762,7 +776,7 @@ export function MausbotShell({
   return (
     <WorkspaceState value={workspace}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {isElectron && (
+        {isElectron && !ready && (
           <WorkspacePageHeader electron aria-label="Window title bar">
             <span className="text-sm text-muted-foreground">J1 Code</span>
           </WorkspacePageHeader>
@@ -770,6 +784,7 @@ export function MausbotShell({
         <div
           ref={shell}
           className="relative flex h-full min-h-0 min-w-0 flex-1 overflow-clip"
+          data-mausbot-modal={ready && bounds?.modal ? "true" : undefined}
           data-mausbot-shell={
             initializing
               ? "loading"

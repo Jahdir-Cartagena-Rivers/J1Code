@@ -8,6 +8,9 @@
 }
 
 @custom-variant dark (&:is(.dark, .dark *));
+body:has([data-mausbot-modal="true"]) [data-sidebar-control] {
+  visibility: hidden;
+}
 @custom-variant light (&:not(.dark, .dark *));
 /* Window Controls Overlay: active when Electron exposes native titlebar control geometry. */
 @custom-variant wco (&:is(.wco, .wco *));
@@ -2287,7 +2290,7 @@ code {
 }
 .merged-j1-navigation {
   --font-weight-semibold: 500;
-  --text-sm: 13px;
+  --text-sm: 15px;
 }
 [data-merged-settings] {
   --switch-thumb-size: 20px;

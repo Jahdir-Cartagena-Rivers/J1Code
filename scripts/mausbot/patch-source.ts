@@ -4,6 +4,7 @@ import * as NodeURL from "node:url";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeUtil from "node:util";
 import { patchOpenMausImport } from "./patch-import.ts";
+import { patchMobileShell } from "./patch-mobile-shell.ts";
 
 export const MAUSBOT_SOURCE = "d818c28aa80686dc1d7db64ebeffa2a9dc468762";
 const root = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "../..");
@@ -1373,6 +1374,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
     '  if (process.connected) process.once("disconnect", gracefulShutdown);',
     '  process.on("message", (message) => {\n    if (message && typeof message === "object" && handleDesktopTrustedApprovalMessage(message)) return;\n    if (!message || typeof message !== "object" || !("type" in message) || message.type !== "j1:browser" || !("executable" in message) || typeof message.executable !== "string" || !("requestId" in message) || typeof message.requestId !== "string") return;\n    J1Browser.configure(message.executable);\n    broadcast({ kind: "config", ...configStatus() });\n    process.send?.({ type: "j1:browser-applied", requestId: message.requestId });\n  });\n  if (process.connected) process.once("disconnect", gracefulShutdown);',
   );
+  await patchMobileShell(stage, root);
 }
 
 if (

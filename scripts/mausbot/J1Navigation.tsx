@@ -191,7 +191,7 @@ export function J1ShellBridge() {
         ),
         overlays: [
           ...document.querySelectorAll(
-            '[role="menu"], [role="listbox"], [data-thread-overlay], [data-bot-menu]',
+            '[role="menu"], [role="listbox"], [data-thread-overlay], [data-bot-menu], [data-sidebar-root]',
           ),
         ]
           .map((node) => node.getBoundingClientRect())
@@ -361,44 +361,46 @@ export function J1WorkspaceSwitcher({
   const places = value.places ?? [];
   const selected = places.find((place) => place.id === value.placeId);
   return (
-    <SidebarPopoverMenu
-      ariaLabel="Choose workspace"
-      triggerTitle={selected?.label ?? "Workspace"}
-      placement="above"
-      align="end"
-      items={[
-        ...places.map((place) => ({
-          key: place.id,
-          label: place.label,
-          checked: place.id === value.placeId,
-          subtitle: place.connected ? undefined : "Disconnected",
-          onSelect: () => j1Post({ type: "place", id: place.id }),
-        })),
-        {
-          key: "connect",
-          label: "Connect to a server…",
-          separatorBefore: true,
-          onSelect: () => j1Post({ type: "settings-navigate", path: "/settings/connections" }),
-        },
-      ]}
-      triggerClassName="pointer-events-auto min-w-0"
-      renderTrigger={() => (
-        <span
-          className={
-            compact || rail
-              ? "flex size-9 items-center justify-center rounded-xl text-ink-secondary hover:bg-raised/60 hover:text-ink"
-              : `flex h-8 min-w-0 items-center gap-1.5 text-[13px] text-ink ${pill ? "rounded-full bg-raised/50 px-3" : "px-1.5"}`
-          }
-        >
-          <Laptop size={compact || rail ? 18 : 14} className="shrink-0" />
-          {!compact && !rail && (
-            <>
-              <span className="truncate">{selected?.label ?? "Workspace"}</span>
-              <ChevronDown size={11} className="shrink-0" />
-            </>
-          )}
-        </span>
-      )}
-    />
+    <div className="min-w-0 max-w-full">
+      <SidebarPopoverMenu
+        ariaLabel="Choose workspace"
+        triggerTitle={selected?.label ?? "Workspace"}
+        placement="above"
+        align="end"
+        items={[
+          ...places.map((place) => ({
+            key: place.id,
+            label: place.label,
+            checked: place.id === value.placeId,
+            subtitle: place.connected ? undefined : "Disconnected",
+            onSelect: () => j1Post({ type: "place", id: place.id }),
+          })),
+          {
+            key: "connect",
+            label: "Connect to a server…",
+            separatorBefore: true,
+            onSelect: () => j1Post({ type: "settings-navigate", path: "/settings/connections" }),
+          },
+        ]}
+        triggerClassName="pointer-events-auto min-w-0 max-w-full"
+        renderTrigger={() => (
+          <span
+            className={
+              compact || rail
+                ? "flex size-9 items-center justify-center rounded-xl text-ink-secondary hover:bg-raised/60 hover:text-ink"
+                : `flex h-8 min-w-0 items-center gap-1.5 text-[13px] text-ink ${pill ? "rounded-full bg-raised/50 px-3" : "px-1.5"}`
+            }
+          >
+            <Laptop size={compact || rail ? 18 : 14} className="shrink-0" />
+            {!compact && !rail && (
+              <>
+                <span className="truncate">{selected?.label ?? "Workspace"}</span>
+                <ChevronDown size={11} className="shrink-0" />
+              </>
+            )}
+          </span>
+        )}
+      />
+    </div>
   );
 }

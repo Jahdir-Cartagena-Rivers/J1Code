@@ -5,10 +5,12 @@ const WorkspaceHostMessage = Schema.Union([
     source: Schema.Literal("j1-workspace"),
     type: Schema.Literal("authenticated"),
     expiresAt: Schema.String,
+    handoffId: Schema.Number,
   }),
   Schema.Struct({
     source: Schema.Literal("j1-workspace"),
     type: Schema.Literal("authentication-failed"),
+    handoffId: Schema.Number,
   }),
   Schema.Struct({
     source: Schema.Literal("j1-workspace"),
@@ -95,17 +97,18 @@ export function workspaceBootstrapScript(
   credential: string,
   navigate: boolean,
   resumeUrl?: string,
+  handoffId = 0,
 ) {
   const urls = workspaceBrowserUrls(baseUrl);
   const destination =
     resumeUrl && isWorkspaceBrowserUrl(baseUrl, resumeUrl) ? resumeUrl : urls.home;
   return `(() => {
-    const config = ${JSON.stringify({ ...urls, credential, navigate, destination })};
+  const config = ${JSON.stringify({ ...urls, credential, navigate, destination, handoffId })};
     const home = new URL(config.home);
     if (location.origin !== home.origin || !(location.pathname === home.pathname.slice(0, -1) || location.pathname.startsWith(home.pathname))) return true;
     if (window.__j1WorkspaceHandoff === config.credential) return true;
     window.__j1WorkspaceHandoff = config.credential;
-    const send = (value) => window.ReactNativeWebView?.postMessage(JSON.stringify({source:"j1-workspace",...value}));
+    const send = (value) => window.ReactNativeWebView?.postMessage(JSON.stringify({source:"j1-workspace",handoffId:config.handoffId,...value}));
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 55_000);
     void fetch(config.redeem, {

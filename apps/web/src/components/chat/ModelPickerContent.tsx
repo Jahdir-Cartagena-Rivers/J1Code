@@ -36,6 +36,7 @@ import {
   shortcutLabelForCommand,
 } from "../../keybindings";
 import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
+import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { cn } from "~/lib/utils";
 import { getVirtualizedScrollFadeClassName } from "../ui/scroll-area";
 import { TooltipProvider } from "../ui/tooltip";
@@ -271,6 +272,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   const serverKeybindings = useAtomValue(primaryServerKeybindingsAtom);
   const keybindings = providedKeybindings ?? serverKeybindings;
   const updateSettings = useUpdateClientSettings();
+  const isMobile = useMediaQuery("(max-width: 767px), (pointer: coarse)");
 
   const focusSearchInput = useCallback(() => {
     searchInputRef.current?.focus({ preventScroll: true });
@@ -279,14 +281,13 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   const handleSelectInstance = useCallback(
     (instanceId: ProviderInstanceId | "favorites") => {
       setSelectedInstanceId(instanceId);
-      window.requestAnimationFrame(() => {
-        focusSearchInput();
-      });
+      if (!isMobile) window.requestAnimationFrame(focusSearchInput);
     },
-    [focusSearchInput],
+    [focusSearchInput, isMobile],
   );
 
   useLayoutEffect(() => {
+    if (isMobile) return;
     focusSearchInput();
     const frame = window.requestAnimationFrame(() => {
       focusSearchInput();
@@ -298,7 +299,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       window.cancelAnimationFrame(frame);
       window.clearTimeout(timeout);
     };
-  }, [focusSearchInput]);
+  }, [focusSearchInput, isMobile]);
 
   // Create a Set for efficient lookup. Favorites are keyed by
   // `${instanceId}:${slug}`; the storage schema widened from ProviderDriverKind

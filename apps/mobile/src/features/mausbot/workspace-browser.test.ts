@@ -112,7 +112,7 @@ describe("workspace handoff script", () => {
     expect(f.redirects).toEqual(["https://j1.example/"]);
   });
 
-  it("refreshes without navigating away from a draft", async () => {
+  it("renews an expiring session without navigating away from a draft", async () => {
     const f = fixture();
     NodeVM.runInContext(
       workspaceBootstrapScript("https://j1.example/", "refresh-handoff", false),
@@ -141,7 +141,9 @@ describe("workspace handoff script", () => {
       f.context,
     );
     await f.receipt;
-    expect(f.messages).toEqual([{ source: "j1-workspace", type: "authentication-failed" }]);
+    expect(f.messages).toEqual([
+      { source: "j1-workspace", handoffId: 0, type: "authentication-failed" },
+    ]);
     expect(f.redirects).toEqual([]);
   });
 
@@ -171,7 +173,9 @@ describe("workspace handoff script", () => {
     timeout();
     await f.receipt;
     expect(aborted).toBe(true);
-    expect(f.messages).toEqual([{ source: "j1-workspace", type: "authentication-failed" }]);
+    expect(f.messages).toEqual([
+      { source: "j1-workspace", handoffId: 0, type: "authentication-failed" },
+    ]);
     expect(f.redirects).toEqual([]);
   });
 
