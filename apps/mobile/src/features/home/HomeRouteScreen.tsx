@@ -54,14 +54,7 @@ export function HomeRouteScreen(
   // Suspension may temporarily clear connection/config snapshots. Keep the same
   // document mounted; the existing session and server still decide authorization.
   const address = lastAddress?.environmentId === selected?.environmentId ? lastAddress : null;
-  const openConnections = useCallback(
-    () =>
-      navigation.navigate("SettingsSheet", {
-        screen: "SettingsContent",
-        params: { screen: "SettingsEnvironments" },
-      }),
-    [navigation],
-  );
+  const openConnections = useCallback(() => navigation.navigate("Connections"), [navigation]);
   return (
     <>
       <NativeStackScreenOptions options={{ headerShown: false }} />
