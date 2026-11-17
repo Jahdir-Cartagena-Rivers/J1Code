@@ -2,6 +2,7 @@ import {
   AuthOrchestrationOperateScope,
   AuthTerminalOperateScope,
   AuthAccessWriteScope,
+  AuthStandardClientScopes,
   AuthOrchestrationReadScope,
   AuthRelayReadScope,
   AuthRelayWriteScope,
@@ -17,8 +18,14 @@ import {
 } from "./RpcAuthorization.ts";
 
 describe("RPC authorization scopes", () => {
-  it("requires owner scope to open the managed assistant workspace", () => {
-    expect(requiredScopeForRpcMethod(WS_METHODS.mausbotOpen)).toBe(AuthAccessWriteScope);
+  it("allows paired clients to open bots while retaining owner permission changes", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.mausbotOpen)).toBe(AuthOrchestrationOperateScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.mausbotApprovalMode)).toBe(AuthAccessWriteScope);
+  });
+  it("does not promote standard clients to environment administrators", () => {
+    expect(AuthStandardClientScopes).toContain(requiredScopeForRpcMethod(WS_METHODS.mausbotOpen));
+    expect(AuthStandardClientScopes).not.toContain(AuthAccessWriteScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.mausbotOpen)).not.toBe(AuthOrchestrationReadScope);
     expect(requiredScopeForRpcMethod(WS_METHODS.mausbotApprovalMode)).toBe(AuthAccessWriteScope);
   });
   it("separates Hive Mind reads, memory changes, and environment configuration", () => {

@@ -12,7 +12,7 @@ const root = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta
 export async function patchMausbotSource(stage: string) {
   await patchOpenMausImport(stage);
   // OpenMausBot #4874: avoid spinning while many bot turns wait for memory.
-  for (const file of ["e14bffd0-memory-queue.patch"])
+  for (const file of ["e14bffd0-memory-queue.patch", "ba3c2b7c-retry-cleanup.patch"])
     await NodeUtil.promisify(NodeChildProcess.execFile)(
       "git",
       ["apply", NodePath.join(root, "scripts/mausbot/upstream", file)],
@@ -651,10 +651,32 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
     'import { t } from "@/lib/i18n";',
     'import { t } from "@/lib/i18n";\nimport { J1SettingsLinks, J1SettingsSlot, j1SettingsSection, j1SettingsPath, j1SettingsLabel, j1OpenSettings, j1ExtraPages, j1Focusable, j1ActiveElement, j1SettingsPopupOpen } from "./J1Settings";\nimport { useJ1Navigation, j1Post, j1SettingsClosed } from "./J1Navigation";',
   );
+  // Managed settings share one readable navigation rail. Labels must be allowed
+  // to wrap without overlapping the next fixed-height row.
+  await change(
+    "src/components/SettingsModal.tsx",
+    "w-[200px] shrink-0 flex-col gap-1",
+    "w-[224px] shrink-0 flex-col gap-1",
+  );
+  await change(
+    "src/components/SettingsModal.tsx",
+    '                      "flex h-8 shrink-0 cursor-pointer items-center gap-[9px] rounded-lg px-[9px] text-left text-[13px]',
+    '                      "flex min-h-9 shrink-0 cursor-pointer items-center gap-[9px] rounded-lg px-[9px] py-1.5 text-left text-[13px] leading-5',
+  );
   await change(
     "src/components/SettingsModal.tsx",
     "  const advanced = useAdvancedMode();",
     '  const preferredAdvanced = useAdvancedMode();\n  const j1Navigation = useJ1Navigation();\n  const advanced = preferredAdvanced || Boolean(j1Navigation);\n  const j1Path = j1Navigation?.active.startsWith("/settings/") ? j1Navigation.active : null;\n  const j1Label = j1Navigation?.settingsPages?.find((page) => page.path === j1Path)?.label;',
+  );
+  await change(
+    "src/components/SettingsModal.tsx",
+    "  const visibleSections = availableSections.filter((entry) => sectionMatches(entry, q));",
+    '  const [j1MoreSettings, setJ1MoreSettings] = useState(false);\n  const secondarySections = new Set<AppSettingsSection>(["decisionModel", "imageGeneration", "import", "people", "experimental"]);\n  const visibleSections = availableSections.filter((entry) => (sectionMatches(entry, q) || Boolean(j1Navigation && j1SettingsLabel(entry.id, "").toLowerCase().includes(q))) && (!j1Navigation || j1MoreSettings || q !== "" || entry.id === section || !secondarySections.has(entry.id)));',
+  );
+  await change(
+    "src/components/SettingsModal.tsx",
+    '          {keyResultButtons("cursor-pointer flex min-h-9',
+    '          {j1Navigation && !q && <button type="button" aria-expanded={j1MoreSettings} onClick={() => setJ1MoreSettings((value) => !value)} className="min-h-9 rounded-lg px-[9px] py-1.5 text-left text-[13px] text-ink-secondary hover:bg-ink/[0.06]">{j1MoreSettings ? "Fewer settings" : "More settings"}</button>}\n          {keyResultButtons("cursor-pointer flex min-h-9',
   );
   await change(
     "src/components/SettingsModal.tsx",
@@ -891,7 +913,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
   await change(
     "src/components/ChromeRailToggle.tsx",
     "  if (!rail?.available) return null;\n  const label",
-    '  const j1 = useJ1Navigation();\n  if (j1) return <button type="button" data-rail-toggle aria-label="Toggle main sidebar" title="Toggle main sidebar" aria-expanded={j1.sidebarOpen} onClick={() => j1Post({ type: "sidebar-toggle" })} className={bar ?? SIMPLE_TOP_TOGGLE} style={style}><RailStripIcon size={bar ? 15 : 18} /></button>;\n  if (!rail?.available) return null;\n  const label',
+    "  const j1 = useJ1Navigation();\n  if (j1) return null; // The host titlebar owns the sidebar toggle.\n  if (!rail?.available) return null;\n  const label",
   );
   await change(
     "src/components/Sidebar.tsx",

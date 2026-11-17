@@ -176,7 +176,7 @@ describe("t3 pair", () => {
         // @effect-diagnostics-next-line preferSchemaOverJson:off - CLI JSON output is decoded as a presentation DTO.
         const credentials = JSON.parse(listed) as ReadonlyArray<{ readonly label?: string }>;
         assert.equal(credentials.length, 1);
-        assert.equal(credentials[0]?.label, "t3 pair");
+        assert.equal(credentials[0]?.label, "J1 Code pairing");
       }),
     ).pipe(
       Effect.provide(NodeServices.layer),

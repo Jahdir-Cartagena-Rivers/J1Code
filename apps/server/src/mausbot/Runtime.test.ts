@@ -12,6 +12,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 let owner = '';
+let pairedScope = 'admin';
 let browser = process.env.J1_MAUSBOT_LIGHTPANDA_PATH;
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', value => { owner += value; });
@@ -22,11 +23,14 @@ const server = http.createServer((req, res) => {
   res.setHeader('content-security-policy', "default-src 'self'; frame-ancestors 'none'; connect-src 'self'");
   if(req.url === '/api/edition') return res.end(JSON.stringify({edition:'oss'}));
   if(req.url === '/api/auth/pairing') {
-    if(req.headers['x-openmausbot-cli-owner'] !== owner.trim()) { res.statusCode = 403; return res.end('{}'); }
-    return res.end(JSON.stringify({code:'fixture-only-code'}));
+    if(req.headers['x-openmausbot-cli-owner'] !== owner.trim() && req.headers.authorization !== 'Bearer fixture-only-token') { res.statusCode = 403; return res.end('{}'); }
+    let body = ''; req.on('data', c => body += c);
+    req.on('end', () => { pairedScope = JSON.parse(body).scopes.includes('admin') ? 'admin' : 'client'; res.end(JSON.stringify({code:'fixture-only-code'})); }); return;
   }
-  if(req.url === '/api/auth/pair') return res.end(JSON.stringify({token:'fixture-only-token'}));
-  if(req.headers.authorization !== 'Bearer fixture-only-token') { res.statusCode = 401; return res.end('{}'); }
+  if(req.url === '/api/auth/pair') return res.end(JSON.stringify({token: pairedScope === 'admin' ? 'fixture-only-token' : 'fixture-client-token'}));
+  if(!['Bearer fixture-only-token', 'Bearer fixture-client-token'].includes(req.headers.authorization)) { res.statusCode = 401; return res.end('{}'); }
+  if(req.url === '/api/providers' && req.headers.authorization === 'Bearer fixture-client-token') { res.statusCode = 403; return res.end('{}'); }
+  if(req.url === '/api/auth/session') return res.end(JSON.stringify({scope:pairedScope}));
   if(req.url === '/api/bots/redirect') { res.statusCode = 302; res.setHeader('location','https://example.invalid'); return res.end('{}'); }
   if(req.url === '/api/bots/large') return res.end(JSON.stringify('x'.repeat(4*1024*1024)));
   if(req.url === '/api/bots/browser-path') return res.end(JSON.stringify({browser}));
@@ -67,6 +71,56 @@ async function fixture(
 }
 
 describe("managed upstream runtime", () => {
+  it("forwards paired clients with client credentials while retaining the admin route", async () => {
+    const { runtime, root } = await fixture();
+    try {
+      await runtime.start();
+      expect(
+        (
+          await runtime.forward(
+            "/api/bots",
+            "GET",
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            "paired-session",
+          )
+        ).status,
+      ).toBe(200);
+      expect(
+        await (
+          await runtime.forward(
+            "/api/auth/session",
+            "GET",
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            "paired-session",
+          )
+        ).json(),
+      ).toEqual({ scope: "client" });
+      expect(
+        (
+          await runtime.forward(
+            "/api/providers",
+            "POST",
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            "paired-session",
+          )
+        ).status,
+      ).toBe(403);
+      expect((await runtime.forward("/api/providers", "POST")).status).toBe(200);
+    } finally {
+      await runtime.stop();
+      await NodeFSP.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("binds DeepAI access to the captured child and revokes it across stop/restart", async () => {
     const secret = "parent-only-account-key";
     const { runtime, dataDir } = await fixture(undefined, {

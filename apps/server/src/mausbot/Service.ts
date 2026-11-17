@@ -13,7 +13,7 @@ import { resolveMausbotResources } from "./Resources.ts";
 import { MausbotViewGrants } from "./ViewGrants.ts";
 import { SessionStore } from "../auth/SessionStore.ts";
 import type { AuthenticatedSession } from "../auth/EnvironmentAuth.ts";
-import { AuthAccessWriteScope } from "@j1code/contracts";
+import { AuthAccessWriteScope, AuthOrchestrationOperateScope } from "@j1code/contracts";
 import type { MausbotApprovalModeInput } from "@j1code/contracts";
 import { isMausbotDesktopSession } from "./DesktopTrust.ts";
 import { MausbotHiveMemory } from "./HiveMemory.ts";
@@ -166,8 +166,10 @@ export class MausbotService extends Context.Service<
         Stream.runForEach((change) =>
           Effect.sync(() => {
             if (change.type === "clientRemoved") grants.revoke(change.sessionId);
-            else if (!change.clientSession.scopes.includes(AuthAccessWriteScope))
+            else if (!change.clientSession.scopes.includes(AuthOrchestrationOperateScope))
               grants.revoke(change.clientSession.sessionId);
+            else if (!change.clientSession.scopes.includes(AuthAccessWriteScope))
+              grants.revokeAdministrative(change.clientSession.sessionId);
           }),
         ),
         Effect.forkScoped,
@@ -319,6 +321,13 @@ export class MausbotService extends Context.Service<
         yield* Effect.addFinalizer(() => Effect.sync(remove));
         yield* externalRoutes.value.wake;
       }
+      const authorizeView = Effect.fnUntraced(function* (key: string) {
+        const now = yield* Clock.currentTimeMillis;
+        if (!grants.valid(key, now)) return false;
+        // The CLI has its own SessionStore and cannot publish into this process's stream.
+        const active = yield* sessions.listActive().pipe(Effect.catch(() => Effect.succeed([])));
+        return grants.authorize(key, now, active);
+      });
       const forward = Effect.fn("Mausbot.forward")(function* (
         url: string,
         method: string,
@@ -326,6 +335,8 @@ export class MausbotService extends Context.Service<
         body?: Uint8Array,
         viewKey?: string,
       ) {
+        if (viewKey && !(yield* authorizeView(viewKey)))
+          return yield* Effect.fail("This assistant window expired. Reopen it from J1.");
         const signal = viewKey ? grants.signal(viewKey, yield* Clock.currentTimeMillis) : undefined;
         if (viewKey && !signal)
           return yield* Effect.fail("This assistant window expired. Reopen it from J1.");
@@ -340,6 +351,7 @@ export class MausbotService extends Context.Service<
               body,
               signal,
               viewKey ? grants.frameOrigin(viewKey) : undefined,
+              viewKey ? grants.clientSession(viewKey) : undefined,
             );
           },
           catch: (error) =>
@@ -354,6 +366,8 @@ export class MausbotService extends Context.Service<
         if (!config.mausbotResourcesPath)
           return yield* Effect.fail("The Mausbot runtime is not bundled in this server build.");
         const now = yield* Clock.currentTimeMillis;
+        if (viewKey && !(yield* authorizeView(viewKey)))
+          return yield* Effect.fail("This assistant window expired. Reopen it from J1.");
         return yield* Effect.try({
           try: () => ({
             relativeUrl: viewKey
@@ -363,14 +377,12 @@ export class MausbotService extends Context.Service<
                   now,
                   session.expiresAt ? DateTime.toEpochMillis(session.expiresAt) : undefined,
                   frameOrigin,
+                  session.scopes.includes(AuthAccessWriteScope),
                 ),
           }),
           catch: (error) =>
             error instanceof Error ? error.message : "Could not open the assistant workspace.",
         });
-      });
-      const authorizeView = Effect.fnUntraced(function* (key: string) {
-        return grants.valid(key, yield* Clock.currentTimeMillis);
       });
       return MausbotService.of({
         status: Effect.sync(() => ({

@@ -206,6 +206,24 @@ const command = Effect.fn("nativeClient.command")(function* (
   return stdout.trim();
 }, Effect.scoped);
 
+/** Expo's Android --device resolver matches the AVD name, not the adb serial. */
+export const resolveExpoAndroidDevice = Effect.fn("nativeClient.resolveExpoAndroidDevice")(
+  function* (serial: string, run: typeof command = command) {
+    const output = yield* run("adb", ["-s", serial, "emu", "avd", "name"]);
+    const lines = output
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => line.trim());
+    const name = lines[0];
+    if (lines.length !== 2 || lines[1] !== "OK" || !name || !/^[\w.-]+$/.test(name)) {
+      return yield* new NativeClientError({
+        message: `Could not resolve the Expo AVD name for Android device ${serial}.`,
+      });
+    }
+    return name;
+  },
+);
+
 const fingerprint = Effect.fn("nativeClient.fingerprint")(function* (platform: NativePlatform) {
   const output = yield* command(yield* HostProcessExecutablePath, [
     "--eval",
@@ -323,6 +341,8 @@ const main = Command.make(
         ),
       ),
       build: Effect.gen(function* () {
+        const expoDevice =
+          platform === "android" ? yield* resolveExpoAndroidDevice(device) : device;
         yield* Console.error(
           "Native client is missing, stale, or unverified. Building and installing a development client...",
         );
@@ -383,7 +403,7 @@ const main = Command.make(
               "expo",
               "run:android",
               "--device",
-              device,
+              expoDevice,
               "--no-bundler",
               "--variant",
               "debug",

@@ -2,6 +2,12 @@
 // @effect-diagnostics globalTimers:off - Native streaming capabilities own their cancellation deadline outside Effect fibers.
 import * as NodeCrypto from "node:crypto";
 import * as NodeTimers from "node:timers";
+import * as DateTime from "effect/DateTime";
+import {
+  AuthAccessWriteScope,
+  AuthOrchestrationOperateScope,
+  type AuthClientSession,
+} from "@j1code/contracts";
 
 /** A view can reach only this runtime, expires quickly, and dies with its originating J1 session. */
 export class MausbotViewGrants {
@@ -9,6 +15,7 @@ export class MausbotViewGrants {
     string,
     {
       sessionId: string;
+      administrative: boolean;
       expiresAt: number;
       sessionExpiry: number;
       abort: AbortController;
@@ -23,7 +30,13 @@ export class MausbotViewGrants {
     NodeTimers.clearTimeout(grant.timer);
     grant.abort.abort();
   }
-  issue(sessionId: string, now: number, sessionExpiry = Infinity, frameOrigin?: string) {
+  issue(
+    sessionId: string,
+    now: number,
+    sessionExpiry = Infinity,
+    frameOrigin?: string,
+    administrative = true,
+  ) {
     if (frameOrigin !== undefined && !["t3code://app", "t3code-dev://app"].includes(frameOrigin)) {
       const url = new URL(frameOrigin);
       if (!["http:", "https:"].includes(url.protocol) || url.origin !== frameOrigin)
@@ -38,6 +51,7 @@ export class MausbotViewGrants {
     timer.unref();
     this.grants.set(key, {
       sessionId,
+      administrative,
       expiresAt,
       sessionExpiry,
       abort: new AbortController(),
@@ -66,11 +80,35 @@ export class MausbotViewGrants {
     grant.timer.unref();
     return `/api/mausbot/runtime/${key}/`;
   }
+  revokeAdministrative(sessionId: string) {
+    for (const [key, grant] of this.grants)
+      if (grant.sessionId === sessionId && grant.administrative) this.drop(key);
+  }
+  /** Reconcile against persisted credentials, including changes made by another process. */
+  authorize(key: string, now: number, sessions: ReadonlyArray<AuthClientSession>) {
+    if (!this.valid(key, now)) return false;
+    const grant = this.grants.get(key)!;
+    const session = sessions.find((session) => session.sessionId === grant.sessionId);
+    if (
+      !session ||
+      DateTime.toEpochMillis(session.expiresAt) <= now ||
+      !session.scopes.includes(AuthOrchestrationOperateScope) ||
+      (grant.administrative && !session.scopes.includes(AuthAccessWriteScope))
+    ) {
+      this.drop(key);
+      return false;
+    }
+    return true;
+  }
   revoke(sessionId: string) {
     for (const [key, grant] of this.grants) if (grant.sessionId === sessionId) this.drop(key);
   }
   signal(key: string, now: number) {
     return this.valid(key, now) ? this.grants.get(key)!.abort.signal : undefined;
+  }
+  clientSession(key: string) {
+    const grant = this.grants.get(key);
+    return grant && !grant.administrative ? grant.sessionId : undefined;
   }
   frameOrigin(key: string) {
     return this.grants.get(key)?.frameOrigin;

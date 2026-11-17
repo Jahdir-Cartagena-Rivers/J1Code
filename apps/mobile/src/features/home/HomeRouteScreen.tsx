@@ -36,6 +36,7 @@ import { projectEnvironment } from "../../state/projects";
 import { useEnvironments } from "../../state/environments";
 import { usePreparedConnection } from "../../state/session";
 import { SharedWorkspace } from "../mausbot/SharedWorkspace";
+import { MausbotWorkspace } from "../mausbot/MausbotWorkspace";
 import { selectWorkspaceEnvironment, workspaceConversationUrl } from "../mausbot/workspace-browser";
 import { MaterialButton } from "../../components/MaterialButton";
 
@@ -108,11 +109,37 @@ export function HomeRouteScreen(
       <View className="flex-1 bg-screen">
         {available ? (
           <MaterialButton
-            label="Back to workspace"
+            label="Back to bots & workspace"
             tone="text"
             onPress={() => setAppTools(false)}
           />
         ) : null}
+        {!available &&
+          environments
+            .filter(
+              (environment) =>
+                environment.entry.enabled &&
+                environment.serverConfig?.environment.capabilities.mausbot === true,
+            )
+            .map((environment) =>
+              environment.serverConfig?.environment.capabilities.workspaceBrowser === true ? (
+                <MaterialButton
+                  key={environment.environmentId}
+                  label={"Open bots: " + environment.label}
+                  tone="text"
+                  onPress={() => {
+                    setSelectedEnvironmentId(environment.environmentId);
+                    setAppTools(false);
+                  }}
+                />
+              ) : (
+                <MausbotWorkspace
+                  key={environment.environmentId}
+                  environmentId={environment.environmentId}
+                  label={"Bots: " + environment.label}
+                />
+              ),
+            )}
         <NativeHomeRouteScreen />
       </View>
     );

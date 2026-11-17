@@ -64,6 +64,7 @@ export class MausbotRuntime {
   private stopping: Promise<void> | undefined;
   private computer: Awaited<ReturnType<typeof startMausbotComputer>> | undefined;
   private token: string | undefined;
+  private readonly clientTokens = new Map<string, Promise<string>>();
   private deepAIBridge: DeepAIBridge | undefined;
   private origin: string | undefined;
   private browserExecutable: string;
@@ -333,6 +334,7 @@ export class MausbotRuntime {
     child.on("error", () => {
       if (this.child !== child) return;
       this.token = undefined;
+      this.clientTokens.clear();
       this.origin = undefined;
     });
     child.on("exit", () => {
@@ -343,6 +345,7 @@ export class MausbotRuntime {
       this.appliedBrowserExecutable = undefined;
       this.origin = undefined;
       this.token = undefined;
+      this.clientTokens.clear();
       const computer = this.computer;
       this.computer = undefined;
       void computer?.stop().catch(() => undefined);
@@ -526,7 +529,31 @@ export class MausbotRuntime {
     });
   }
 
-  /** J1 authorizes the owner before this transport injects its private upstream credential. */
+  private clientToken(sessionId: string, origin: string, adminToken: string) {
+    const existing = this.clientTokens.get(sessionId);
+    if (existing) return existing;
+    const pending = (async () => {
+      const opened = await this.json(origin, "/api/auth/pairing", {
+        method: "POST",
+        headers: { authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({ label: "J1 paired client", scopes: ["client"] }),
+      });
+      if (!object(opened) || typeof opened.code !== "string")
+        throw new Error("Runtime client pairing failed.");
+      const paired = await this.json(origin, "/api/auth/pair", {
+        method: "POST",
+        body: JSON.stringify({ code: opened.code, label: "J1 paired client" }),
+      });
+      if (!object(paired) || typeof paired.token !== "string")
+        throw new Error("Runtime client authentication failed.");
+      return paired.token;
+    })();
+    this.clientTokens.set(sessionId, pending);
+    void pending.catch(() => this.clientTokens.delete(sessionId));
+    return pending;
+  }
+
+  /** Standard J1 sessions retain upstream client and per-bot restrictions. */
   async forward(
     path: string,
     method: string,
@@ -534,6 +561,7 @@ export class MausbotRuntime {
     body?: Uint8Array,
     signal?: AbortSignal,
     frameOrigin?: string,
+    clientSessionId?: string,
   ) {
     const pathname = path.split("?")[0]!;
     if (
@@ -557,7 +585,10 @@ export class MausbotRuntime {
       throw new Error("Runtime upload exceeded 32 MiB.");
     if (!this.origin || !this.token) throw new Error("The Mausbot runtime is not running.");
     const origin = this.origin;
-    const token = this.token;
+    const token = clientSessionId
+      ? await this.clientToken(clientSessionId, origin, this.token)
+      : this.token;
+    if (this.origin !== origin || signal?.aborted) throw new Error("The assistant window expired.");
     return new Promise<Response>((resolve, reject) => {
       const request = NodeHttp.request(
         new URL(path, origin),
@@ -630,6 +661,7 @@ export class MausbotRuntime {
     await bridge?.close();
     const child = this.child;
     this.token = undefined;
+    this.clientTokens.clear();
     this.origin = undefined;
     const computer = this.computer;
     this.computer = undefined;

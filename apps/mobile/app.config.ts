@@ -74,21 +74,21 @@ const RELEASE_ASSETS = {
 const VARIANT_CONFIG = {
   development: {
     appName: "J1 Code Dev",
-    scheme: "t3code-dev",
+    scheme: ["j1code-dev", "t3code-dev"],
     iosBundleIdentifier: "com.j1code.mobile.dev",
     androidPackage: "com.j1code.mobile.dev",
     assets: DEVELOPMENT_ASSETS,
   },
   preview: {
     appName: "J1 Code Preview",
-    scheme: "t3code-preview",
+    scheme: ["j1code-preview", "t3code-preview"],
     iosBundleIdentifier: "com.j1code.mobile.preview",
     androidPackage: "com.j1code.mobile.preview",
     assets: PREVIEW_ASSETS,
   },
   production: {
     appName: "J1 Code",
-    scheme: "t3code",
+    scheme: ["j1code", "t3code"],
     iosBundleIdentifier: "com.j1code.mobile",
     androidPackage: "com.j1code.mobile",
     assets: RELEASE_ASSETS,
@@ -210,7 +210,8 @@ const config: ExpoConfig = {
   name: variant.appName,
   slug: "j1-code",
   platforms: ["ios", "android"],
-  scheme: variant.scheme,
+  // Keep historical deep links valid while J1 owns newly generated links.
+  scheme: [...variant.scheme],
   version: "1.3.1",
   runtimeVersion: {
     // Development manifests resolve on every launch, so avoid fingerprint's

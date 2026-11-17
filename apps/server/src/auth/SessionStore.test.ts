@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { EnvironmentId } from "@j1code/contracts";
+import { AuthAdministrativeScopes, EnvironmentId } from "@j1code/contracts";
 import { expect, it } from "@effect/vitest";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -23,6 +23,7 @@ import * as AuthSessions from "../persistence/AuthSessions.ts";
 import * as SessionStore from "./SessionStore.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
 import * as WorkspaceSessions from "./WorkspaceSessions.ts";
+import { MausbotViewGrants } from "../mausbot/ViewGrants.ts";
 
 const makeServerConfigLayer = (overrides?: Partial<ServerConfig.ServerConfig["Service"]>) =>
   Layer.effect(
@@ -784,3 +785,65 @@ it.layer(NodeServices.layer)("mobile workspace handoff", (it) => {
     ),
   );
 });
+
+it.effect(
+  "rechecks Mausbot grants against a second disk-backed session store without local events",
+  () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-mausbot-revoke-" });
+      const serverLayer = yield* makeDiskSessionStoreLayer(baseDir);
+      const cliLayer = yield* makeDiskSessionStoreLayer(baseDir);
+      const paths = yield* ServerConfig.deriveServerPaths(
+        baseDir,
+        new URL("http://127.0.0.1:5173"),
+        {
+          baseDirIsExplicit: true,
+        },
+      );
+      yield* Effect.gen(function* () {
+        const server = yield* SessionStore.SessionStore;
+        const owner = yield* server.issue();
+        const neighbor = yield* server.issue();
+        const grants = new MausbotViewGrants();
+        yield* Effect.addFinalizer(() => Effect.sync(() => grants.clear()));
+        const key = grants.issue(owner.sessionId, 0, Infinity, undefined, false).split("/")[4]!;
+        const other = grants
+          .issue(neighbor.sessionId, 0, Infinity, undefined, false)
+          .split("/")[4]!;
+        expect(grants.authorize(key, 1, yield* server.listActive())).toBe(true);
+        const signal = grants.signal(key, 1)!;
+        yield* Effect.gen(function* () {
+          const cli = yield* SessionStore.SessionStore;
+          expect(cli).not.toBe(server);
+          expect(yield* cli.revoke(owner.sessionId)).toBe(true);
+        }).pipe(Effect.provide(Layer.fresh(cliLayer)));
+        expect(grants.authorize(key, 1, yield* server.listActive())).toBe(false);
+        expect(signal.aborted).toBe(true);
+        expect(() => grants.renew(key, owner.sessionId, 1)).toThrow("expired");
+        expect(grants.authorize(other, 1, yield* server.listActive())).toBe(true);
+        expect(grants.renew(other, neighbor.sessionId, 1)).toContain(other);
+        for (const change of ["downgrade", "scope-removal", "expiry"] as const) {
+          const changed = yield* server.issue({ scopes: AuthAdministrativeScopes });
+          if (change === "expiry") yield* server.markConnected(changed.sessionId);
+          const changedKey = grants
+            .issue(changed.sessionId, 0, Infinity, undefined, change === "downgrade")
+            .split("/")[4]!;
+          expect(grants.authorize(changedKey, 1, yield* server.listActive())).toBe(true);
+          // A separate SQL connection models persisted edits without local PubSub events.
+          yield* Effect.gen(function* () {
+            const sql = yield* SqlClient.SqlClient;
+            if (change === "expiry") {
+              yield* sql`UPDATE auth_sessions SET expires_at = ${"1970-01-01T00:00:00.000Z"} WHERE session_id = ${changed.sessionId}`;
+            } else {
+              const scopes = change === "downgrade" ? '["orchestration:operate"]' : "[]";
+              yield* sql`UPDATE auth_sessions SET scopes = ${scopes} WHERE session_id = ${changed.sessionId}`;
+            }
+          }).pipe(Effect.provide(makeSqlitePersistenceLive(paths.dbPath)));
+          expect(grants.authorize(changedKey, 1, yield* server.listActive())).toBe(false);
+          expect(() => grants.renew(changedKey, changed.sessionId, 1)).toThrow("expired");
+          expect(grants.authorize(other, 1, yield* server.listActive())).toBe(true);
+        }
+      }).pipe(Effect.provide(serverLayer), Effect.scoped);
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+);

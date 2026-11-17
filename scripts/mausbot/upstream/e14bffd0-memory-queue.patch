@@ -1,4 +1,4 @@
-OpenMausBot OSS / MIT, copyright its contributors.
+OpenMausBot OSS / Apache-2.0, copyright its contributors.
 Source: https://github.com/milind-soni/OpenMausBot/commit/e14bffd0
 Backport of #4874; the pinned upstream LICENSE is distributed with the runtime.
 

@@ -33,12 +33,18 @@ const sections = {
 export const j1SettingsSection = (path: string) => sections[path as keyof typeof sections];
 export const j1SettingsPath = (section: AppSettingsSection) =>
   Object.entries(sections).find(([, value]) => value === section)?.[0];
+const sectionLabels: Partial<Record<AppSettingsSection, string>> = {
+  companion: "Servers & access",
+  engines: "AI models",
+  connections: "API providers",
+  decisionModel: "Automation models",
+  imageGeneration: "Images",
+  computer: "Browser & devices",
+  backups: "Backup & transfer",
+  activity: "Diagnostics",
+};
 export const j1SettingsLabel = (section: AppSettingsSection, original: string) =>
-  section === "computer"
-    ? "Browser, desktop & devices"
-    : section === "backups"
-      ? "Storage & backups"
-      : original;
+  sectionLabels[section] ?? original;
 const extraPages = {
   "/settings/projects": { group: "computers", icon: Folder },
   "/settings/keybindings": { group: "you", icon: Keyboard },

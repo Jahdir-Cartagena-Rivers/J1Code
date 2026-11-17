@@ -256,7 +256,7 @@ export const updateCommand = Command.make("update", {
   version: versionArgument,
 }).pipe(
   Command.withDescription(
-    "Download a newer t3 and switch this machine to it, including the background service when one is installed.",
+    "Download a newer J1 Code server and switch this machine to it, including the background service when one is installed.",
   ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {

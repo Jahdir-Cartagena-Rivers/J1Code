@@ -55,6 +55,7 @@ export function SharedWorkspace(props: {
   const issue = useAtomCommand(issueWorkspace, { reportFailure: false });
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [browserGeneration, setBrowserGeneration] = useState(0);
   const pending = useRef<{ credential: string; navigate: boolean } | null>(null);
   const loaded = useRef(false);
   const authenticated = useRef(false);
@@ -136,14 +137,16 @@ export function SharedWorkspace(props: {
     };
   }, [connect, finishHandoff]);
 
-  useEffect(() => {
-    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
-      if (canGoBack.current) webView.current?.goBack();
-      else onOpenAppTools();
-      return true;
-    });
-    return () => subscription.remove();
-  }, [onOpenAppTools]);
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (canGoBack.current) webView.current?.goBack();
+        else onOpenAppTools();
+        return true;
+      });
+      return () => subscription.remove();
+    }, [onOpenAppTools]),
+  );
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#111111" }}>
@@ -152,6 +155,7 @@ export function SharedWorkspace(props: {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <WebView
+          key={browserGeneration}
           ref={webView}
           source={source}
           style={{ flex: 1, backgroundColor: "#111111", opacity: ready ? 1 : 0 }}
@@ -203,6 +207,18 @@ export function SharedWorkspace(props: {
               new URL(state.url).pathname !== new URL(urls.pair).pathname
             )
               lastWorkspaceUrl.current = state.url;
+          }}
+          onContentProcessDidTerminate={() => {
+            finishHandoff();
+            authenticated.current = false;
+            setReady(false);
+            setError("The workspace stopped. Retry to reopen it.");
+          }}
+          onRenderProcessGone={() => {
+            finishHandoff();
+            authenticated.current = false;
+            setReady(false);
+            setError("The workspace stopped. Retry to reopen it.");
           }}
           onError={() =>
             setError("Could not load this environment. Check its connection and try again.")
@@ -264,7 +280,8 @@ export function SharedWorkspace(props: {
                   authenticated.current = false;
                   setReady(false);
                   setError(null);
-                  webView.current?.reload();
+                  // A terminated Android renderer needs a new WebView, not reload().
+                  setBrowserGeneration((generation) => generation + 1);
                   void connect(true);
                 }}
               />

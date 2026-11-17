@@ -189,7 +189,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu({
               onClick={handleSettingsClick}
             />
           )}
-          {pullRequestsSupported ? (
+          {!embedded && pullRequestsSupported ? (
             <SidebarUtilityItem
               icon={<PullRequestGlyph.pullRequest />}
               label="Pull Requests"
@@ -204,7 +204,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu({
         </>
       )}
       <SidebarHistoryRefresh />
-      <SidebarUpdatePill />
+      {!embedded && <SidebarUpdatePill />}
     </SidebarMenu>
   );
 });

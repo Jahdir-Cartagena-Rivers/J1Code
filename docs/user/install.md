@@ -103,3 +103,15 @@ For provider-specific setup and accounts, see [Codex](./providers-codex.md),
 - [Remote access](./remote-access.md): connect from another device.
 - [Running in the background](./background-service.md): keep a Linux or macOS host available.
 - [Updating J1 Code](./updating.md): update the app and connected servers.
+
+## Move a server to another device
+
+Open **Settings > Backup & transfer > Move this server** for copyable export and import commands.
+The J1 server command creates an encrypted transfer file containing settings, bot configuration,
+conversation history, attachments and credentials. Stop J1, its background service and managed bots
+throughout the export. Import into a new home directory on the target and start J1 with --home-dir
+pointing there. Keep the original server stopped because the restored server keeps its identity.
+
+Keep the password file separate from the archive. Project repositories, provider installations and
+external logins, machine services and network configuration need separate setup. Existing absolute
+paths remain unchanged; machine-protected credentials may need signing in again.

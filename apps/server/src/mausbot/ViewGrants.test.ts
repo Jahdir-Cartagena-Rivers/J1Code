@@ -14,6 +14,22 @@ describe("assistant view capabilities", () => {
     expect(() => grants.renew(key, "owner", 40 * 60_000)).toThrow("expired");
     grants.clear();
   });
+  it("keeps paired identities separate and drops admin views on scope reduction", () => {
+    const grants = new MausbotViewGrants();
+    const admin = keyOf(grants.issue("owner", 0));
+    const client = keyOf(grants.issue("paired", 0, Infinity, undefined, false));
+    expect(grants.clientSession(admin)).toBeUndefined();
+    expect(grants.clientSession(client)).toBe("paired");
+    expect(() => grants.renew(client, "other-environment-session", 1)).toThrow(
+      "another J1 session",
+    );
+    grants.revokeAdministrative("owner");
+    expect(grants.valid(admin, 1)).toBe(false);
+    expect(grants.valid(client, 1)).toBe(true);
+    grants.revoke("paired");
+    expect(grants.valid(client, 1)).toBe(false);
+    grants.clear();
+  });
   it("binds embedding to an exact host origin and rejects policy injection", () => {
     const grants = new MausbotViewGrants();
     const key = keyOf(grants.issue("owner", 0, Infinity, "https://j1.example"));

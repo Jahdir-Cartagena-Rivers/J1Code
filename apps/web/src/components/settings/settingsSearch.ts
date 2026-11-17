@@ -84,20 +84,28 @@ export interface SettingsSearchAvailability {
  * subtitles both render from this record, so each label exists once.
  */
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
-  "/settings/projects": "Project",
+  "/settings/projects": "Projects",
   "/settings/general": "General",
   "/settings/appearance": "Appearance",
-  "/settings/keybindings": "Keybindings",
-  "/settings/snap-shot": "SnapShots",
-  "/settings/providers": "Providers",
-  "/settings/integrations": "Integrations",
+  "/settings/keybindings": "Keyboard shortcuts",
+  "/settings/snap-shot": "Snapshots",
+  "/settings/providers": "AI models",
+  "/settings/integrations": "Browser & devices",
   "/settings/hive-mind": "Hive Mind",
   "/settings/source-control": "Source Control",
-  "/settings/storage": "Storage",
-  "/settings/connections": "Connections",
+  "/settings/storage": "Backup & transfer",
+  "/settings/connections": "Servers & access",
   "/settings/archived": "Archive",
 };
 
+// Keep remembered names searchable after simplifying the visible navigation.
+const SECTION_SEARCH_ALIASES: Partial<Record<SettingsPath, string>> = {
+  "/settings/connections": "connections remote access",
+  "/settings/providers": "providers model providers",
+  "/settings/integrations": "integrations computer desktop devices",
+  "/settings/storage": "storage backups",
+  "/settings/keybindings": "keybindings",
+};
 /** Anchor id of the first row bound to `command` on the Keybindings page. */
 export function keybindingSearchAnchorId<Command extends KeybindingCommand>(command: Command) {
   return `keybinding-${command}` as const;
@@ -220,6 +228,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Diff colors",
     to: "/settings/appearance",
     searchTerms: ["red green blue orange additions deletions changes counts palette colorblind"],
+  },
+  {
+    id: "server-transfer",
+    title: "Move server to another device",
+    to: "/settings/storage",
+    targetId: "server-transfer",
+    searchTerms: ["export import migrate portable setup backup restore transfer code file"],
   },
   {
     id: "chat-width",
@@ -1042,6 +1057,7 @@ export function searchSettings(
       const fields = [
         title,
         normalizeSearchText(SETTINGS_SECTION_LABELS[item.to]),
+        normalizeSearchText(SECTION_SEARCH_ALIASES[item.to] ?? ""),
         ...(item.searchTerms ?? []).map(normalizeSearchText),
       ];
       if (!queryTokens.every((token) => fields.some((field) => field.includes(token)))) return [];

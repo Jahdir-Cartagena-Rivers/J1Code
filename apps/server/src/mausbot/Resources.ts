@@ -118,7 +118,18 @@ export async function resolveMausbotResources(resources: string, cacheRoot: stri
     )
       throw new Error("Enterprise payloads cannot be installed by J1.");
     await NodeFSP.writeFile(NodePath.join(staging, ".complete"), digest, { mode: 0o600 });
-    await NodeFSP.rename(staging, target);
+    try {
+      await NodeFSP.rename(staging, target);
+    } catch (error) {
+      // Another window may publish the same verified archive while this one
+      // extracts it. Windows reports EPERM rather than EEXIST for that race.
+      // Accept only its completed hash-owned cache, never a partial directory.
+      const published = await NodeFSP.readFile(NodePath.join(target, ".complete"), "utf8").catch(
+        () => undefined,
+      );
+      if (published !== digest) throw error;
+      await NodeFSP.rm(staging, { recursive: true, force: true });
+    }
     return target;
   } catch (error) {
     await NodeFSP.rm(staging, { recursive: true, force: true });

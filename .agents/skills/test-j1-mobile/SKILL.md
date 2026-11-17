@@ -1,5 +1,5 @@
 ---
-name: test-t3-mobile
+name: test-j1-mobile
 description: Test J1 Code's native iOS and Android app through its Device panel and returned AgentDevice command. Use for mobile verification, native-client builds, Metro launch, and mobile pairing against isolated development state.
 ---
 
@@ -23,7 +23,7 @@ from the dev-runner output. Use the worktree's ignored `.t3` state. Never run
 against `~/.t3/userdata`. The Browser panel is not required for this workflow.
 
 Test with meaningful project and thread data. Read the shared
-[SQLite fixture reference](../test-t3-app/references/sqlite-fixtures.md) only
+[SQLite fixture reference](../test-j1-app/references/sqlite-fixtures.md) only
 when inspecting or seeding SQLite. Stop the test server before fixture writes.
 
 ## Launch J1 Code Dev
@@ -39,7 +39,7 @@ mobile verification includes that build step unless the user prohibits it.
 
 Start `vp run dev:client` from `apps/mobile`, or reuse a healthy Metro belonging
 to this checkout. Open its printed development-client URL with AgentDevice
-`open com.t3tools.t3code.dev <url>` and all returned target arguments.
+`open com.j1code.mobile.dev <url>` and all returned target arguments.
 The device must be able to reach both Metro and the isolated backend.
 
 ## Pair and verify
@@ -49,7 +49,7 @@ arguments stored in `agent_device_command` and the Bash array
 `agent_device_target_args`:
 
 ```bash
-.agents/skills/test-t3-mobile/scripts/pair-client.sh \
+.agents/skills/test-j1-mobile/scripts/pair-client.sh \
   <server-port> <base-dir> <device-reachable-backend-origin> \
   "$agent_device_command" "${agent_device_target_args[@]}"
 ```

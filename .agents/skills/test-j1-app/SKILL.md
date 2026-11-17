@@ -1,6 +1,6 @@
 ---
-name: test-t3-app
-description: Test J1 Code's web and desktop UI through its built-in Browser panel against isolated development state. Use for browser verification, browser pairing recovery, and test fixtures. Use test-t3-mobile for native mobile verification.
+name: test-j1-app
+description: Test J1 Code's web and desktop UI through its built-in Browser panel against isolated development state. Use for browser verification, browser pairing recovery, and test fixtures. Use test-j1-mobile for native mobile verification.
 ---
 
 # Test J1 Code web and desktop
@@ -8,7 +8,7 @@ description: Test J1 Code's web and desktop UI through its built-in Browser pane
 Use J1 Code's built-in Browser panel for verification. If its tools are absent or
 the panel reports unavailable, explain the blocker and stop verification.
 Do not install or switch to another automation system. For native mobile
-testing, use [test-t3-mobile](../test-t3-mobile/SKILL.md).
+testing, use [test-j1-mobile](../test-j1-mobile/SKILL.md).
 
 ## Start the app
 

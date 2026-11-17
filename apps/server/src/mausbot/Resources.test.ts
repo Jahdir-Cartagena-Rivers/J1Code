@@ -85,6 +85,37 @@ describe("bundled assistant resources", () => {
       await NodeFSP.rm(root, { recursive: true, force: true });
     }
   });
+  it("concurrent windows share the completed verified cache without extraction failures", async () => {
+    const { root, resources, cache } = await fixture();
+    try {
+      const paths = await Promise.all(
+        Array.from({ length: 3 }, () => resolveMausbotResources(resources, cache)),
+      );
+      expect(new Set(paths).size).toBe(1);
+      expect(await NodeFSP.readdir(cache)).toEqual([NodePath.basename(paths[0]!)]);
+      expect(await NodeFSP.readFile(NodePath.join(paths[0]!, "server/index.js"), "utf8")).toBe(
+        "// fixture",
+      );
+    } finally {
+      await NodeFSP.rm(root, { recursive: true, force: true });
+    }
+  });
+  it("does not accept or overwrite an incomplete cache at the published path", async () => {
+    const { root, resources, cache } = await fixture();
+    try {
+      const hash = NodeCrypto.createHash("sha256")
+        .update(await NodeFSP.readFile(NodePath.join(resources, "runtime.zip")))
+        .digest("hex");
+      const target = NodePath.join(cache, hash);
+      await NodeFSP.mkdir(target, { recursive: true });
+      await NodeFSP.writeFile(NodePath.join(target, ".complete"), "incomplete");
+      await expect(resolveMausbotResources(resources, cache)).rejects.toThrow();
+      expect(await NodeFSP.readFile(NodePath.join(target, ".complete"), "utf8")).toBe("incomplete");
+      expect(await NodeFSP.readdir(cache)).toEqual([hash]);
+    } finally {
+      await NodeFSP.rm(root, { recursive: true, force: true });
+    }
+  });
   it.each(["../escaped", "server/INDEX.js", "server/enterprise/index.js"])(
     "rejects unsafe or excluded payload %s without publishing it",
     async (name) => {

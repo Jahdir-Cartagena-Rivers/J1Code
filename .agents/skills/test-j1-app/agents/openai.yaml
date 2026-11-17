@@ -1,4 +1,4 @@
 interface:
   display_name: "J1 Code App Testing"
   short_description: "Test web and desktop in J1 Code's Browser panel"
-  default_prompt: "Use $test-t3-app to verify the affected web or desktop flow through J1 Code's Browser panel."
+  default_prompt: "Use $test-j1-app to verify the affected web or desktop flow through J1 Code's Browser panel."

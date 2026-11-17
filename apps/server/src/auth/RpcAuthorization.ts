@@ -23,7 +23,8 @@ type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
  * runtime failure.
  */
 export const RPC_REQUIRED_SCOPES = {
-  [WS_METHODS.mausbotOpen]: AuthAccessWriteScope,
+  // Opening an interactive bot workspace is an operation, not environment administration.
+  [WS_METHODS.mausbotOpen]: AuthOrchestrationOperateScope,
   [WS_METHODS.mausbotApprovalMode]: AuthAccessWriteScope,
   "routing.prepare": AuthOrchestrationOperateScope,
   "routing.list": AuthOrchestrationReadScope,

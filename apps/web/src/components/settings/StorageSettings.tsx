@@ -1,3 +1,4 @@
+import { ServerTransferSettings } from "./ServerTransferSettings";
 import type { StorageCleanupSettings, WorktreeCleanupRules } from "@j1code/contracts";
 import { resolveWorktreeCleanup } from "@j1code/shared/projectSettings";
 import { useState } from "react";
@@ -151,6 +152,7 @@ export function StorageSettingsPanel() {
 
   return (
     <SettingsPageContainer>
+      {!isProjectScope && <ServerTransferSettings />}
       <SettingsSection id="storage-worktrees" title="Worktrees">
         {isProjectScope && (
           <SettingsRow
