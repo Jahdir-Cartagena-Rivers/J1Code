@@ -6,6 +6,7 @@ import * as NodePath from "node:path";
 import * as NodeCrypto from "node:crypto";
 import * as NodeZlib from "node:zlib";
 import * as NodeSqlite from "node:sqlite";
+import { HostProcessPlatform } from "@j1code/shared/hostProcess";
 import { exportServerTransfer, importServerTransfer } from "./transfer.ts";
 
 describe("offline server transfer", () => {
@@ -17,9 +18,13 @@ describe("offline server transfer", () => {
       await NodeFSP.mkdir(userdata, { recursive: true });
       await NodeFSP.writeFile(NodePath.join(userdata, "state.sqlite"), "preserved database");
       const alias = NodePath.join(root, "alias");
-      await NodeFSP.symlink(userdata, alias, process.platform === "win32" ? "junction" : "dir");
+      await NodeFSP.symlink(
+        userdata,
+        alias,
+        HostProcessPlatform.defaultValue() === "win32" ? "junction" : "dir",
+      );
       const outputs = [NodePath.join(alias, "setup.j1-transfer")];
-      if (process.platform === "win32")
+      if (HostProcessPlatform.defaultValue() === "win32")
         outputs.push(NodePath.join(userdata.toUpperCase(), "setup.j1-transfer"));
       for (const output of outputs) {
         await expect(exportServerTransfer(source, output, "test-password-123")).rejects.toThrow(
