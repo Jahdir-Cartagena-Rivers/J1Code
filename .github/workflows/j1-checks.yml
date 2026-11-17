@@ -47,6 +47,15 @@ jobs:
           apps/mobile/src/features/threads/threadListV2.test.ts
       - name: Test release versioning and publication failures
         run: node --test .github/scripts/j1-release.test.cjs
+      - name: Test paired bot access and offline server transfers
+        run: >-
+          vp test run apps/server/src/auth/RpcAuthorization.test.ts
+          apps/server/src/auth/SessionStore.test.ts
+          apps/server/src/mausbot/Runtime.test.ts
+          apps/server/src/mausbot/ViewGrants.test.ts
+          apps/server/src/mausbot/Resources.test.ts
+          apps/server/src/serverTransfer/transfer.test.ts
+          apps/server/src/cli/transfer.test.ts
       - name: Test hybrid desktop automation
         run: >-
           vp test run apps/server/src/desktop/DesktopAutomation.test.ts
