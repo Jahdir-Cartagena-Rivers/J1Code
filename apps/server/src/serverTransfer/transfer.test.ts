@@ -9,6 +9,31 @@ import * as NodeSqlite from "node:sqlite";
 import { exportServerTransfer, importServerTransfer } from "./transfer.ts";
 
 describe("offline server transfer", () => {
+  it("rejects an archive inside userdata through a directory alias or Windows casing", async () => {
+    const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-transfer-alias-"));
+    try {
+      const source = NodePath.join(root, "source");
+      const userdata = NodePath.join(source, "userdata");
+      await NodeFSP.mkdir(userdata, { recursive: true });
+      await NodeFSP.writeFile(NodePath.join(userdata, "state.sqlite"), "preserved database");
+      const alias = NodePath.join(root, "alias");
+      await NodeFSP.symlink(userdata, alias, process.platform === "win32" ? "junction" : "dir");
+      const outputs = [NodePath.join(alias, "setup.j1-transfer")];
+      if (process.platform === "win32")
+        outputs.push(NodePath.join(userdata.toUpperCase(), "setup.j1-transfer"));
+      for (const output of outputs) {
+        await expect(exportServerTransfer(source, output, "test-password-123")).rejects.toThrow(
+          "outside userdata",
+        );
+        await expect(NodeFSP.stat(output)).rejects.toThrow();
+      }
+      expect(await NodeFSP.readFile(NodePath.join(userdata, "state.sqlite"), "utf8")).toBe(
+        "preserved database",
+      );
+    } finally {
+      await NodeFSP.rm(root, { recursive: true, force: true });
+    }
+  });
   it("restores a readable SQLite conversation database", async () => {
     const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-transfer-sqlite-"));
     try {

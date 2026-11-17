@@ -57,8 +57,18 @@ export async function exportServerTransfer(home: string, file: string, password:
   const root = NodePath.join(NodePath.resolve(home), "userdata");
   if ((await NodeFSP.lstat(root)).isSymbolicLink())
     throw new Error("Symlink userdata is unsupported.");
-  const output = NodePath.resolve(file);
-  if (output === root || output.startsWith(root + NodePath.sep))
+  const requestedOutput = NodePath.resolve(file);
+  const output = NodePath.join(
+    await NodeFSP.realpath(NodePath.dirname(requestedOutput)),
+    NodePath.basename(requestedOutput),
+  );
+  const relative = NodePath.relative(await NodeFSP.realpath(root), output);
+  if (
+    !relative ||
+    (relative !== ".." &&
+      !relative.startsWith(".." + NodePath.sep) &&
+      !NodePath.isAbsolute(relative))
+  )
     throw new Error("Archive must be outside userdata.");
   await assertStopped(root);
   const entries: { name: string; size: number }[] = [];

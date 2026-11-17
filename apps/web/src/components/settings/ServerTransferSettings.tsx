@@ -47,8 +47,8 @@ export function ServerTransferSettings() {
         <TransferCommand operation="export" />
         <p>
           Install the matching J1 server on the new device. Import into a new, unused home folder,
-          then start J1 with --home-dir NEW_HOME. Keep the old server stopped: its identity and
-          access permissions move with the data.
+          then start it with j1 serve --base-dir NEW_HOME. Keep the old server stopped: its identity
+          and access permissions move with the data.
         </p>
         <TransferCommand operation="import" />
         <details>
