@@ -15,6 +15,8 @@ import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
+import * as Duration from "effect/Duration";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { ServerSettingsService } from "../serverSettings.ts";
 import * as DeviceHost from "./DeviceHost.ts";
@@ -70,19 +72,37 @@ const fixture = Effect.fn("fixture")(function* (
   runtimeFailure?: NodeRuntimeUnavailableError | DeviceHost.DeviceHostError,
   inspectError = false,
   installTool?: Parameters<typeof makeWithHosts>[3],
+  androidBootResults: ReadonlyArray<{ readonly code: number; readonly stdout: string }> = [
+    { code: 0, stdout: "1\n" },
+  ],
+  platform: "android" | "ios" = "android",
 ) {
   const settings = yield* Ref.make(DEFAULT_SERVER_SETTINGS);
   const starts: string[] = [];
   const agentStarts: string[] = [];
   const agentStops: string[] = [];
   const requests: string[] = [];
+  const hostCommands: Array<readonly [string, ReadonlyArray<string>]> = [];
+  let androidBootAttempt = 0;
   let booted = false;
   let shutDown = false;
   const ready: DeviceHost.DeviceHostReady = {
     nodePath: process.execPath,
     hub: { origin: "http://device.test" },
     helpers: { serveSimAxSettings: null, serveSimCli: null },
-    run: () => Effect.succeed({ code: 0, stdout: "Pixel_API_35\n", stderr: "" }),
+    run: (command, args) =>
+      Effect.sync(() => {
+        hostCommands.push([command, args]);
+        const bootResult =
+          androidBootResults[
+            Math.min(command === "adb" ? androidBootAttempt++ : 0, androidBootResults.length - 1)
+          ];
+        return {
+          code: command === "adb" ? (bootResult?.code ?? 1) : 0,
+          stdout: command === "adb" ? (bootResult?.stdout ?? "") : "Pixel_API_35\n",
+          stderr: "",
+        };
+      }),
   };
   const host: DeviceHost.DeviceHost["Service"] = {
     ...(inspectError
@@ -192,26 +212,39 @@ const fixture = Effect.fn("fixture")(function* (
           return HttpClientResponse.fromWeb(
             request,
             Response.json({
-              simulators: [],
-              emulators: booted
-                ? [
-                    {
-                      id: "emulator-5554",
-                      name: "Pixel_API_35",
-                      platform: "android",
-                      version: "Android 15",
-                      booted: true,
-                      physical: false,
-                    },
-                  ]
-                : [],
+              simulators:
+                platform === "ios" && booted
+                  ? [
+                      {
+                        id: "Pixel_API_35",
+                        name: "Pixel_API_35",
+                        platform,
+                        version: "Android 15",
+                        booted: true,
+                        physical: false,
+                      },
+                    ]
+                  : [],
+              emulators:
+                platform === "android" && booted
+                  ? [
+                      {
+                        id: "emulator-5554",
+                        name: "Pixel_API_35",
+                        platform: "android",
+                        version: "Android 15",
+                        booted: true,
+                        physical: false,
+                      },
+                    ]
+                  : [],
             }),
           );
         }),
       ),
     ),
   );
-  return { service, starts, agentStarts, agentStops, requests, settings };
+  return { service, starts, agentStarts, agentStops, requests, hostCommands, settings };
 });
 
 describe("device setup consent", () => {
@@ -286,7 +319,7 @@ describe("device setup consent", () => {
 
   it.effect("boots a stopped Android AVD and uses its emulator serial without duplicating it", () =>
     Effect.gen(function* () {
-      const { service, requests } = yield* fixture();
+      const { service, requests, hostCommands } = yield* fixture();
       yield* service.configure({ enabled: true });
       const session = yield* service.open({
         threadId: ThreadId.make("thread-1"),
@@ -295,9 +328,89 @@ describe("device setup consent", () => {
       });
       expect(session.deviceId).toBe("emulator-5554");
       expect(requests.filter((url) => url.endsWith("/boot"))).toHaveLength(1);
+      expect(hostCommands).toContainEqual([
+        "adb",
+        ["-s", "emulator-5554", "shell", "getprop", "sys.boot_completed"],
+      ]);
       const state = yield* service.state;
       expect(state.devices.map((device) => device.id)).toEqual(["emulator-5554"]);
       expect(state.bootingDevices).toEqual([]);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("waits for Android framework boot before exposing the session", () =>
+    Effect.gen(function* () {
+      const { service, hostCommands } = yield* fixture(
+        Effect.void,
+        undefined,
+        false,
+        undefined,
+        false,
+        undefined,
+        [
+          { code: 0, stdout: "0\n" },
+          { code: 0, stdout: "1\n" },
+        ],
+      );
+      yield* service.configure({ enabled: true });
+      const opening = yield* service
+        .open({
+          threadId: ThreadId.make("delayed-boot"),
+          deviceId: "Pixel_API_35",
+          platform: "android",
+        })
+        .pipe(Effect.forkChild);
+      yield* TestClock.adjust(Duration.seconds(1));
+      expect((yield* Fiber.join(opening)).deviceId).toBe("emulator-5554");
+      expect(hostCommands.filter(([command]) => command === "adb")).toHaveLength(2);
+    }).pipe(Effect.provide(TestClock.layer()), Effect.scoped),
+  );
+
+  it.effect("fails Android open at the shared boot deadline", () =>
+    Effect.gen(function* () {
+      const { service } = yield* fixture(
+        Effect.void,
+        undefined,
+        false,
+        undefined,
+        false,
+        undefined,
+        [{ code: 1, stdout: "" }],
+      );
+      yield* service.configure({ enabled: true });
+      const opening = yield* service
+        .open({
+          threadId: ThreadId.make("failed-framework-boot"),
+          deviceId: "Pixel_API_35",
+          platform: "android",
+        })
+        .pipe(Effect.exit, Effect.forkChild);
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust(Duration.minutes(3));
+      const exit = yield* Fiber.join(opening);
+      expect(Exit.isFailure(exit)).toBe(true);
+    }).pipe(Effect.provide(TestClock.layer()), Effect.scoped),
+  );
+
+  it.effect("does not run the Android boot probe for iOS", () =>
+    Effect.gen(function* () {
+      const { service, hostCommands } = yield* fixture(
+        Effect.void,
+        undefined,
+        false,
+        undefined,
+        false,
+        undefined,
+        [{ code: 1, stdout: "" }],
+        "ios",
+      );
+      yield* service.configure({ enabled: true });
+      yield* service.open({
+        threadId: ThreadId.make("ios-boot"),
+        deviceId: "Pixel_API_35",
+        platform: "ios",
+      });
+      expect(hostCommands.some(([command]) => command === "adb")).toBe(false);
     }).pipe(Effect.scoped),
   );
 

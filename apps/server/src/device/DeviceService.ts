@@ -53,6 +53,7 @@ import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
+import * as Schedule from "effect/Schedule";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SynchronizedRef from "effect/SynchronizedRef";
@@ -73,6 +74,7 @@ export const DEVICE_HUB_ROUTE_PREFIX = "/api/device-hub";
 
 const BOOT_TIMEOUT = Duration.minutes(3);
 const SCREENSHOT_TIMEOUT = Duration.seconds(20);
+const ANDROID_BOOT_POLL_INTERVAL = Duration.seconds(1);
 
 const HubDevice = Schema.Struct({
   id: Schema.String,
@@ -645,6 +647,42 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
     return result.serial ?? result.id ?? device.id;
   });
 
+  const waitForAndroidBoot = Effect.fn("DeviceService.waitForAndroidBoot")(function* (
+    ready: DeviceReadiness,
+    device: DeviceSummary,
+  ) {
+    const check = Effect.gen(function* () {
+      const result = yield* ready.run(
+        "adb",
+        ["-s", device.id, "shell", "getprop", "sys.boot_completed"],
+        { timeoutMs: 5_000 },
+      );
+      if (result.code === 0 && result.stdout.trim() === "1") return;
+      return yield* new DeviceBootError({
+        hostId: ready.hostId,
+        deviceId: device.id,
+        reason: "timeout",
+        cause: new Error("Android framework has not finished booting."),
+      });
+    });
+    yield* check.pipe(
+      Effect.retry({
+        schedule: Schedule.spaced(ANDROID_BOOT_POLL_INTERVAL),
+      }),
+      Effect.timeout(BOOT_TIMEOUT),
+      Effect.catchTag(
+        "TimeoutError",
+        () =>
+          new DeviceBootError({
+            hostId: ready.hostId,
+            deviceId: device.id,
+            reason: "timeout",
+            cause: new Error("Android framework did not finish booting in time."),
+          }),
+      ),
+    );
+  });
+
   const open: DeviceService["Service"]["open"] = Effect.fn("DeviceService.open")(function* (input) {
     const host = yield* resolveHost(input.hostId);
     yield* ensurePlatform(host, input.platform);
@@ -695,6 +733,7 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
         ),
       );
     }
+    if (device.platform === "android") yield* waitForAndroidBoot(ready, device);
     if (hosts.get(host.id) !== host)
       return yield* new DeviceHostUnavailableError({
         hostId: host.id,
