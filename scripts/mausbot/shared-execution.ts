@@ -369,7 +369,7 @@ export const J1SharedDriver: ProviderDriver<Record<string, never>> = {
       enabled: input.enabled,
       models,
       refreshModels,
-      startupModelRefresh: refreshModels(),
+      startupModelRefresh: refreshModels().catch(() => {}),
       async snapshot() {
         try {
           const ready = (await catalog()).some(

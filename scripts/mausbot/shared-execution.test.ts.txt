@@ -24,11 +24,13 @@ let instances: Array<Awaited<ReturnType<typeof J1SharedDriver.create>>>;
 let toolResult: (value: Record<string, unknown>) => void;
 let oldSend: typeof process.send;
 let oldConnected: boolean | undefined;
+let catalogUnavailable = false;
 const event = (value: unknown) => process.emit("message", { type: "j1:execution-event", event: value }, undefined);
 const runtime = (type: string, payload: object, extra = {}) => event({ kind: "runtime", botId: "bot", threadId: "thread", turnId: "native-turn",
   event: { eventId: "event", provider: "codex", threadId: "canonical", createdAt: "2026-11-18T00:00:00Z", type, payload, ...extra } });
 
 beforeEach(() => {
+  catalogUnavailable = false;
   calls = []; instances = []; toolResult = () => {};
   tools.execute.mockClear(); tools.close.mockClear(); tools.validate.mockReset();
   oldSend = process.send; oldConnected = process.connected;
@@ -39,7 +41,8 @@ beforeEach(() => {
       ? [{ instanceId: "codex-work", driver: "codex", displayName: "Work", enabled: true, installed: true, auth: { status: "authenticated" }, models: [{ slug: "gpt-model", name: "GPT", isDefault: true }] }]
       : message.input.action === "start" ? { turnId: message.input.turnId } : {};
     if (message.input.action === "tool-result") toolResult(message.input);
-    queueMicrotask(() => process.emit("message", { type: "j1:execution-result", requestId: message.requestId, value }, undefined));
+    queueMicrotask(() => process.emit("message", { type: "j1:execution-result", requestId: message.requestId,
+      ...(catalogUnavailable && message.input.action === "catalog" ? { error: "Shared execution is unavailable." } : { value }) }, undefined));
     callback?.(null);
     return true;
   }) as typeof process.send;
@@ -57,6 +60,12 @@ async function fixture() {
 }
 
 describe("J1 shared bot adapter", () => {
+  it("stays unavailable instead of crashing startup when an older or missing parent cannot provide the catalog", async () => {
+    catalogUnavailable = true;
+    const instance = await fixture();
+    expect(await instance.snapshot()).toMatchObject({ state: "unavailable", authenticated: false });
+    expect(instance.models.options).toEqual([]);
+  });
   it("uses the exact J1 account/model and keeps bot identity, project, images and prior context", async () => {
     const instance = await fixture();
     const events: RuntimeEvent[] = [];
