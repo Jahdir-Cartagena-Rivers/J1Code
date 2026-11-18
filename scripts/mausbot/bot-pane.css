@@ -1,0 +1,13 @@
+/* Embedded bot panes have their own header; the outer J1 shell owns window controls. */
+html[data-j1-view][data-j1-desktop="win32"] [data-chathead-row] { padding-right:0; }
+html[data-j1-view] [data-chathead-row] { display:flex; flex-wrap:wrap; gap:0.5rem; min-width:0; }
+html[data-j1-view] [data-chathead-identity] { flex:1 1 12rem; max-width:100%; }
+html[data-j1-view] [data-chathead-controls] { flex:0 1 auto; flex-wrap:wrap; min-width:0; max-width:100%; margin-left:auto; }
+/* Give writing the full row; attachments and send controls share the row underneath. */
+html[data-j1-view] [data-composer-row] { flex-wrap:wrap; }
+html[data-j1-view] [data-composer-row] > .mention-editor { order:-1; flex-basis:100%; }
+html[data-j1-view] [data-composer-actions] { margin-left:auto; flex-wrap:wrap; }
+html[data-j1-view] [data-tour="composer"] textarea { min-height:4.5rem; font-size:16px; line-height:1.5; }
+html[data-j1-view] .chat-text { overflow-wrap:anywhere; }
+/* Avoid losing another fixed 82px after the transcript gutters on small panes. */
+html[data-j1-view] { --chat-bubble-pct:92%; --chat-bubble-gutter:1rem; }

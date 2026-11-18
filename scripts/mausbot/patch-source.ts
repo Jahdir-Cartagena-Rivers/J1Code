@@ -13,6 +13,10 @@ const root = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta
 /** Applies only to our disposable, pinned OSS assembly; never edits the reference checkout. */
 export async function patchMausbotSource(stage: string) {
   await patchOpenMausImport(stage);
+  const bubblePath = NodePath.join(stage, "src/components/chat-bubble.ts");
+  const bubbles = await NodeFSP.readFile(bubblePath, "utf8");
+  if (!bubbles.includes("calc(100%-82px)")) throw new Error("Pinned bubble width changed.");
+  await NodeFSP.writeFile(bubblePath, bubbles.replace("calc(100%-82px)", "calc(100%-var(--chat-bubble-gutter,82px))"));
   // OpenMausBot #4874: avoid spinning while many bot turns wait for memory.
   for (const file of ["e14bffd0-memory-queue.patch", "ba3c2b7c-retry-cleanup.patch"])
     await NodeUtil.promisify(NodeChildProcess.execFile)(
@@ -567,7 +571,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
   await change(
     "server/routes/bot-memory.ts",
     "    m = path.match(/^\\/api\\/bots\\/([\\w-]+)\\/memory$/);",
-    '    const hive = path.match(/^\\/api\\/bots\\/([\\w-]+)\\/memory\\/hive$/);\n    if (hive) {\n      if (!ownerOrAdmin(auth)) return json(res, 403, { error: "Only an owner can connect this assistant’s notes to Hive Mind." });\n      const bot = deps.bot(hive[1]);\n      if (!bot) return json(res, 404, { error: "no such bot" });\n      try {\n        if (method === "GET") return json(res, 200, await J1Memory.status(bot.id));\n        if (method !== "PUT") return json(res, 405, { error: "method not allowed" });\n        const body = z.object({ enabled: z.boolean() }).strict().parse(await readBody(req));\n        if (body.enabled && (bot.memoryEnabled === false || bot.busy)) return json(res, 409, { error: "Enable memory and wait for this assistant to finish before connecting notes." });\n        return json(res, 200, await J1Memory.select(bot.id, body.enabled, bot.threadId ?? bot.id));\n      } catch { return json(res, 409, { error: "Hive Mind could not complete the request. Local notes are preserved; check J1’s Hive Mind connection." }); }\n    }\n    m = path.match(/^\\/api\\/bots\\/([\\w-]+)\\/memory$/);',
+    '    const hive = path.match(/^\\/api\\/bots\\/([\\w-]+)\\/memory\\/hive$/);\n    if (hive) {\n      if (!ownerOrAdmin(auth)) return json(res, 403, { error: "Only an owner can connect this assistantâ€™s notes to Hive Mind." });\n      const bot = deps.bot(hive[1]);\n      if (!bot) return json(res, 404, { error: "no such bot" });\n      try {\n        if (method === "GET") return json(res, 200, await J1Memory.status(bot.id));\n        if (method !== "PUT") return json(res, 405, { error: "method not allowed" });\n        const body = z.object({ enabled: z.boolean() }).strict().parse(await readBody(req));\n        if (body.enabled && (bot.memoryEnabled === false || bot.busy)) return json(res, 409, { error: "Enable memory and wait for this assistant to finish before connecting notes." });\n        return json(res, 200, await J1Memory.select(bot.id, body.enabled, bot.threadId ?? bot.id));\n      } catch { return json(res, 409, { error: "Hive Mind could not complete the request. Local notes are preserved; check J1â€™s Hive Mind connection." }); }\n    }\n    m = path.match(/^\\/api\\/bots\\/([\\w-]+)\\/memory$/);',
   );
   await change(
     "server/index.ts",
@@ -1281,7 +1285,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
   await change(
     "server/routes/browser-viewers.ts",
     "    if (live) {",
-    '    if (live?.[2] === "native") {\n      if (!J1Browser.managed) return json(res, 404, { error: "Native browser is unavailable." });\n      if (method !== "GET" && method !== "POST") return json(res, 405, { error: "method not allowed" });\n      if (method === "POST" && !isSameOrigin(req)) return json(res, 403, { error: "forbidden: cross-origin request" });\n      const body = method === "POST" ? await readBody(req, 32_768) : undefined;\n      if (!isCurrent()) return json(res, 409, { error: "This browser session changed." });\n      try { return json(res, 200, await J1Browser.page(browser.session, body)); }\n      catch (error) { return json(res, 409, { error: error instanceof Error ? error.message : "Browser unavailable." }); }\n    }\n    if (J1Browser.managed) return json(res, 409, { error: "Use J1’s lightweight browser panel." });\n\n    if (live) {',
+    '    if (live?.[2] === "native") {\n      if (!J1Browser.managed) return json(res, 404, { error: "Native browser is unavailable." });\n      if (method !== "GET" && method !== "POST") return json(res, 405, { error: "method not allowed" });\n      if (method === "POST" && !isSameOrigin(req)) return json(res, 403, { error: "forbidden: cross-origin request" });\n      const body = method === "POST" ? await readBody(req, 32_768) : undefined;\n      if (!isCurrent()) return json(res, 409, { error: "This browser session changed." });\n      try { return json(res, 200, await J1Browser.page(browser.session, body)); }\n      catch (error) { return json(res, 409, { error: error instanceof Error ? error.message : "Browser unavailable." }); }\n    }\n    if (J1Browser.managed) return json(res, 409, { error: "Use J1â€™s lightweight browser panel." });\n\n    if (live) {',
   );
   await copy("scripts/mausbot/LightpandaPanel.tsx", "src/components/LightpandaPanel.tsx");
   const document = await NodeFSP.readFile(

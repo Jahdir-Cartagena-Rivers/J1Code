@@ -85,4 +85,8 @@ html[data-j1-desktop="win32"] [data-chathead-row] { padding-right:142px; }
 }
 `,
   );
+  await NodeFSP.appendFile(
+    NodePath.join(stage, "src/styles.css"),
+    await NodeFSP.readFile(NodePath.join(root, "scripts/mausbot/bot-pane.css"), "utf8"),
+  );
 }
