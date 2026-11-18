@@ -909,7 +909,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
   await change(
     "src/components/ChromeRailToggle.tsx",
     "import { cn }",
-    'import { j1Post, useJ1Navigation } from "./J1Navigation";\nimport { cn }',
+    'import { useJ1Navigation } from "./J1Navigation";\nimport { cn }',
   );
   await change(
     "src/components/ChromeRailToggle.tsx",

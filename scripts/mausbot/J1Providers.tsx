@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import type { InstanceInfo } from "@/state/store";
 import { J1SettingsSlot } from "./J1Settings";
 import { j1Post, useJ1Navigation } from "./J1Navigation";
+import { J1SettingsPicker } from "./J1SettingsPicker";
 
 /** One provider picker owns both native bot accounts and J1 accounts. */
 export function J1Providers({
@@ -54,11 +55,10 @@ export function J1Providers({
       <div className="px-4">
         <label className="flex flex-col gap-2 text-sm text-ink">
           Provider account
-          <select
-            className="rounded-lg border border-edge bg-surface px-3 py-2 text-ink"
+          <J1SettingsPicker
+            aria-label="Provider account"
             value={selected}
-            onChange={(event) => {
-              const value = event.target.value;
+            onSelect={(value) => {
               setSelection(value);
               if (value.startsWith("j1:"))
                 j1Post({ type: "provider-select", instanceId: value.slice(3) });
@@ -70,7 +70,7 @@ export function J1Providers({
                 {option.label}
               </option>
             ))}
-          </select>
+          </J1SettingsPicker>
         </label>
       </div>
       {instance && (
