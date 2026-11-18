@@ -51,12 +51,13 @@ if (import.meta.main) {
     options: {
       resources: { type: "string" },
       "ui-dir": { type: "string" },
+      desktop: { type: "boolean", default: false },
       help: { type: "boolean" },
     },
   });
   if (values.help) {
     process.stdout.write(
-      "node scripts/mausbot-qa.ts --resources <verified-archive-dir> --ui-dir <Maus-dist>\nKeep vite build --watch --base=./ running in the prepared Maus assembly; reload after a rebuild. J1 web uses its normal HMR. State stays in this worktree's .t3/mausbot-qa.\n",
+      "node scripts/mausbot-qa.ts --resources <verified-archive-dir> --ui-dir <Maus-dist> [--desktop]\nKeep vite build --watch --base=./ running in the prepared Maus assembly; reload after a rebuild. J1 web uses its normal HMR. State stays in this worktree's .t3/mausbot-qa. --desktop runs the native development app with isolated Electron storage.\n",
     );
   } else {
     if (!values.resources || !values["ui-dir"])
@@ -65,10 +66,24 @@ if (import.meta.main) {
     const release = await acquireQaLease(env.T3CODE_HOME);
     const child = NodeChildProcess.spawn(
       process.execPath,
-      [NodePath.join(root, "scripts/dev-runner.ts"), "dev", "--home-dir", env.T3CODE_HOME],
+      [
+        NodePath.join(root, "scripts/dev-runner.ts"),
+        values.desktop ? "dev:desktop" : "dev",
+        "--home-dir",
+        env.T3CODE_HOME,
+      ],
       {
         cwd: root,
-        env: { ...process.env, ...env },
+        env: {
+          ...process.env,
+          ...env,
+          ...(values.desktop
+            ? {
+                APPDATA: NodePath.join(env.T3CODE_HOME, "electron"),
+                T3CODE_DESKTOP_AUTO_OPEN_DEVTOOLS: "false",
+              }
+            : {}),
+        },
         stdio: "inherit",
         windowsHide: true,
       },

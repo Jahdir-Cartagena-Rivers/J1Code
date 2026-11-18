@@ -101,10 +101,12 @@ function invalidRuntimePaths(electronDir, platformPath) {
   ].filter((runtimePath) => NodeFS.existsSync(runtimePath) && !isMachO(runtimePath));
 }
 
-function runChecked(command, args) {
+function runChecked(command, args, env = {}) {
   const result = NodeChildProcess.spawnSync(command, args, {
     encoding: "utf8",
     stdio: "inherit",
+    env: { ...process.env, ...env },
+    windowsHide: true,
   });
 
   if (result.status === 0) {
@@ -129,6 +131,20 @@ function installElectronRuntime(electronDir, version) {
     ]);
     if (hostPlatform === "darwin") {
       runChecked("ditto", ["-x", "-k", zipPath, NodePath.join(electronDir, "dist")]);
+    } else if (hostPlatform === "win32") {
+      runChecked(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          "Expand-Archive -LiteralPath $env:J1_ELECTRON_ZIP -DestinationPath $env:J1_ELECTRON_DIST -Force",
+        ],
+        {
+          J1_ELECTRON_ZIP: zipPath,
+          J1_ELECTRON_DIST: NodePath.join(electronDir, "dist"),
+        },
+      );
     } else {
       runChecked("python3", [
         "-c",

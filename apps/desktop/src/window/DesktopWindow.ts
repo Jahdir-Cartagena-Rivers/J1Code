@@ -1,5 +1,6 @@
 import { windowsRelaunchDetails } from "../app/DesktopWindowsRelaunch.ts";
 import * as Clock from "effect/Clock";
+import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -315,6 +316,10 @@ function bindFirstRevealTrigger(
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
+  const autoOpenDevTools = yield* Config.Boolean("T3CODE_DESKTOP_AUTO_OPEN_DEVTOOLS").pipe(
+    Config.withDefault(true),
+    Effect.orElseSucceed(() => true),
+  );
   const assets = yield* DesktopAssets.DesktopAssets;
   const electronMenu = yield* ElectronMenu.ElectronMenu;
   const electronShell = yield* ElectronShell.ElectronShell;
@@ -842,7 +847,7 @@ export const make = Effect.gen(function* () {
     });
 
     loadApplication();
-    if (environment.isDevelopment) {
+    if (environment.isDevelopment && autoOpenDevTools) {
       window.webContents.openDevTools({ mode: "detach" });
     }
 
