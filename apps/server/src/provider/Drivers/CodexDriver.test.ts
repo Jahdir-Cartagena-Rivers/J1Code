@@ -1,4 +1,4 @@
-import { CodexInstallation } from "../CodexInstallation.ts";
+import { CodexInstallation, CodexInstallationError } from "../CodexInstallation.ts";
 import { ServerSecretStore } from "../../auth/ServerSecretStore.ts";
 import { ServerEnvironmentIdentity } from "../../environment/ServerEnvironment.ts";
 // @effect-diagnostics nodeBuiltinImport:off
@@ -33,7 +33,7 @@ import {
   ProviderVersionCache,
   resolveLatestProviderVersion,
 } from "../providerMaintenance.ts";
-import { CodexDriver } from "./CodexDriver.ts";
+import { CodexDriver, resolveDefaultCodexBinary } from "./CodexDriver.ts";
 import * as ProviderCredentialStore from "../ProviderCredentialStore.ts";
 
 const testLayer = ServerConfig.layerTest(process.cwd(), {
@@ -75,6 +75,55 @@ const noSpawn = ChildProcessSpawner.make(() =>
 const encodeCredentials = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 it.layer(testLayer)("CodexDriver", (it) => {
+  it.effect("uses an existing managed Codex only for the default launcher", () =>
+    Effect.gen(function* () {
+      let resolves = 0;
+      const installation = {
+        resolve: () => {
+          resolves += 1;
+          return Effect.succeed({
+            executablePath: "/j1/tools/codex/bin/codex",
+            source: "managed" as const,
+            version: "0.156.1",
+            managedVersionDirectory: "/j1/tools/codex/0.156.1",
+          });
+        },
+      };
+      expect(yield* resolveDefaultCodexBinary("codex", true, undefined, installation)).toBe(
+        "/j1/tools/codex/bin/codex",
+      );
+      expect(yield* resolveDefaultCodexBinary("/custom/codex", true, undefined, installation)).toBe(
+        "/custom/codex",
+      );
+      expect(
+        yield* resolveDefaultCodexBinary(
+          "codex",
+          true,
+          [{ name: "pAtH", value: "/custom/bin", sensitive: false }],
+          installation,
+        ),
+      ).toBe("codex");
+      expect(yield* resolveDefaultCodexBinary("codex", false, undefined, installation)).toBe(
+        "codex",
+      );
+      expect(resolves).toBe(1);
+    }),
+  );
+
+  it.effect("keeps the default launcher when no managed Codex is available", () =>
+    Effect.gen(function* () {
+      const installation = {
+        resolve: () =>
+          Effect.fail(
+            new CodexInstallationError({ operation: "resolve", detail: "Codex is not installed." }),
+          ),
+      };
+      expect(yield* resolveDefaultCodexBinary("codex", true, undefined, installation)).toBe(
+        "codex",
+      );
+    }),
+  );
+
   it.effect("disconnect refreshes a restored managed account while its auth flow is idle", () =>
     Effect.gen(function* () {
       const instanceId = ProviderInstanceId.make("restored-managed-account");

@@ -21,7 +21,11 @@
  *
  * @module provider/Drivers/CodexDriver
  */
-import { CodexSettings, ProviderDriverKind } from "@j1code/contracts";
+import {
+  CodexSettings,
+  ProviderDriverKind,
+  type ProviderInstanceEnvironment,
+} from "@j1code/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -75,6 +79,29 @@ import { ServerEnvironmentIdentity } from "../../environment/ServerEnvironment.t
 const decodeCodexSettings = Schema.decodeSync(CodexSettings);
 
 const DRIVER_KIND = ProviderDriverKind.make("codex");
+
+/**
+ * Keep explicit provider paths authoritative. The unconfigured `codex` command
+ * is the one case where the shared installer can safely substitute an already
+ * verified runtime when a broken PATH launcher cannot start.
+ */
+export const resolveDefaultCodexBinary = (
+  binaryPath: string,
+  enabled: boolean,
+  environment: ProviderInstanceEnvironment | undefined,
+  installation: Pick<CodexInstallation["Service"], "resolve">,
+) => {
+  const hasProviderPath = environment?.some(
+    (variable) => variable.name.toLocaleUpperCase() === "PATH",
+  );
+  if (!enabled || binaryPath !== "codex" || hasProviderPath) return Effect.succeed(binaryPath);
+  return installation.resolve().pipe(
+    Effect.map((executable) => executable.executablePath),
+    // No managed runtime is an ordinary existing-installation setup. Retain
+    // the original command so its normal provider error remains actionable.
+    Effect.orElseSucceed(() => binaryPath),
+  );
+};
 // The standalone installer lays out `<CODEX_HOME>/packages/standalone/…`;
 // CODEX_HOME is not always `~/.codex`.
 function isCodexStandaloneCommandPath(commandPath: string): boolean {
@@ -147,6 +174,7 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
       const serverSettings = yield* ServerSettingsService;
       const eventLoggers = yield* ProviderEventLoggers;
       const modelManifest = yield* ModelManifest.ModelManifest;
+      const installation = yield* CodexInstallation;
       const processEnv = mergeProviderInstanceEnvironment(environment);
       const homeLayout = yield* resolveCodexHomeLayout(config);
       const continuationIdentity = codexContinuationIdentity(homeLayout);
@@ -171,7 +199,9 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
       const effectiveConfig = {
         ...config,
         enabled,
-        binaryPath: expandHomePath(config.binaryPath),
+        binaryPath: expandHomePath(
+          yield* resolveDefaultCodexBinary(config.binaryPath, enabled, environment, installation),
+        ),
         homePath: homeLayout.effectiveHomePath ?? "",
       } satisfies CodexSettings;
       const resolveMaintenance = yield* makeCachedProviderMaintenanceResolution(
