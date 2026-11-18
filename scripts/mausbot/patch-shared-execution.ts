@@ -16,6 +16,11 @@ export async function patchSharedExecution(stage: string, root: string) {
     'ref={sidebarRef} data-sidebar-root={!phone || open ? "" : undefined} data-j1-sidebar-overlay={phone && open ? "" : undefined}',
   );
   await change(
+    "src/components/SettingsModal.tsx",
+    '<div ref={scrollRef} className="flex flex-1 flex-col gap-4 overflow-y-auto',
+    '<div ref={scrollRef} data-j1-settings-scroll className="flex flex-1 flex-col gap-4 overflow-y-auto',
+  );
+  await change(
     "src/components/AppNotices.tsx",
     '  const boatHere = boatOfferRuns(now()) && brandStatus().source !== "file";',
     '  const boatHere = !state.config?.j1Managed && boatOfferRuns(now()) && brandStatus().source !== "file";',

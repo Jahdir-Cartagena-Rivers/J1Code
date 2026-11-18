@@ -89,10 +89,13 @@ if (typeof window !== "undefined" && window.parent !== window && configuredOrigi
       return;
     }
     if (event.data.type === "settings-scroll" && Number.isFinite(event.data.delta)) {
-      document.querySelector("[data-j1-settings-slot]")?.parentElement?.scrollBy({
-        top: Math.max(-100_000, Math.min(100_000, event.data.delta)),
-        behavior: "instant",
-      });
+      document
+        .querySelector("[data-j1-settings-slot]")
+        ?.closest("[data-j1-settings-scroll], [data-settings-scroll]")
+        ?.scrollBy({
+          top: Math.max(-100_000, Math.min(100_000, event.data.delta)),
+          behavior: "instant",
+        });
       window.dispatchEvent(new Event("j1-navigation"));
       return;
     }
@@ -170,7 +173,9 @@ export function J1ShellBridge() {
       const settings = document.querySelector<HTMLElement>("[data-j1-settings-slot]");
       const settingsRect = settings?.getBoundingClientRect();
       const settingsDialog = settings?.closest('[role="dialog"]');
-      const settingsViewport = settings?.parentElement?.getBoundingClientRect();
+      const settingsViewport = settings
+        ?.closest("[data-j1-settings-scroll], [data-settings-scroll]")
+        ?.getBoundingClientRect();
       const scrollRect = slot?.closest("[data-j1-sidebar-scroll]")?.getBoundingClientRect() ?? rect;
       const message = {
         source: "j1-mausbot",
