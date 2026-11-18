@@ -352,8 +352,8 @@ export function J1Footer() {
       data-j1-navigation
       data-j1-footer-slot
       className="shrink-0"
-      // Usage and history refresh; settings and updates live in the profile menu.
-      style={{ height: 32, width: 72 }}
+      // Reserve all three host controls so the updater cannot cover Apps beside this slot.
+      style={{ height: 32, width: 108 }}
       aria-label="J1 utilities"
     />
   );
