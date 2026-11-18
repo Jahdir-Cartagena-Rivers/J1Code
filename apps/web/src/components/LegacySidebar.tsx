@@ -3,8 +3,7 @@ import { isStandaloneBotProject } from "@j1code/shared/bot-workspace";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@j1code/shared/threadPullRequests";
 import { Spinner } from "~/components/ui/spinner";
-import { useRootChatShells, WorkerChatTree } from "./WorkerChats";
-import { getRootChats } from "@j1code/client-runtime/worker-chats";
+import { getProjectRootChats, useRootChatShells, WorkerChatTree } from "./WorkerChats";
 import {
   ArchiveIcon,
   ArrowUpDownIcon,
@@ -1248,7 +1247,10 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   });
   const openPrLink = useOpenPrLink();
   const projectThreadShells = useThreadShellsForProjectRefs(project.memberProjectRefs);
-  const sidebarThreads = useMemo(() => getRootChats(projectThreadShells), [projectThreadShells]);
+  const sidebarThreads = useMemo(
+    () => getProjectRootChats(projectThreadShells),
+    [projectThreadShells],
+  );
   const sidebarThreadByKey = useMemo(
     () =>
       new Map(

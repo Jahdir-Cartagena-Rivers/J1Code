@@ -11,6 +11,11 @@ export async function patchSharedExecution(stage: string, root: string) {
     await NodeFSP.writeFile(path, source.replace(before, after));
   };
   await change(
+    "src/components/Sidebar.tsx",
+    'ref={sidebarRef} data-sidebar-root={!phone || open ? "" : undefined}',
+    'ref={sidebarRef} data-sidebar-root={!phone || open ? "" : undefined} data-j1-sidebar-overlay={phone && open ? "" : undefined}',
+  );
+  await change(
     "src/components/AppNotices.tsx",
     '  const boatHere = boatOfferRuns(now()) && brandStatus().source !== "file";',
     '  const boatHere = !state.config?.j1Managed && boatOfferRuns(now()) && brandStatus().source !== "file";',

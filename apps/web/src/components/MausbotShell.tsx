@@ -41,6 +41,7 @@ import { installMausbotFonts } from "./mausbotFonts";
 import { useMausbotFrameScroll } from "./useMausbotFrameScroll";
 import { isElectron } from "../env";
 import { WorkspacePageHeader } from "./WorkspacePageHeader";
+import { nativeOverlayClip, type FrameOverlay } from "./MausbotShell.layout";
 const decodeApprovalMode = Schema.decodeUnknownSync(MausbotApprovalModeInput);
 const settingsLabels = {
   ...SETTINGS_SECTION_LABELS,
@@ -60,7 +61,7 @@ type ProjectBounds = {
   clipBottom: number;
 };
 type ShellBounds = {
-  overlays: { left: number; top: number; width: number; height: number }[];
+  overlays: FrameOverlay[];
   left: number;
   top: number;
   projects: ProjectBounds | null;
@@ -70,39 +71,6 @@ type ShellBounds = {
   settingsCovered: boolean;
   main: { left: number; top: number; width: number; height: number } | null;
 };
-/** Leave native popovers unobstructed where their iframe overlaps a host-rendered pane. */
-function nativeOverlayClip(
-  box: { left: number; top: number; width: number; height: number },
-  overlays: ShellBounds["overlays"],
-) {
-  if (
-    overlays.some(
-      (rect) =>
-        rect.left <= box.left &&
-        rect.top <= box.top &&
-        rect.left + rect.width >= box.left + box.width &&
-        rect.top + rect.height >= box.top + box.height,
-    )
-  )
-    return "inset(50%)";
-  const holes = overlays.flatMap((rect) => {
-    if (
-      rect.left + rect.width <= box.left ||
-      rect.left >= box.left + box.width ||
-      rect.top + rect.height <= box.top ||
-      rect.top >= box.top + box.height
-    )
-      return [];
-    const left = Math.max(0, rect.left - box.left - 8);
-    const right = Math.min(box.width, rect.left + rect.width - box.left + 8);
-    const top = Math.max(0, rect.top - box.top - 8);
-    const bottom = Math.min(box.height, rect.top + rect.height - box.top + 8);
-    return right > left && bottom > top ? [`M${left} ${top}H${right}V${bottom}H${left}Z`] : [];
-  });
-  return holes.length
-    ? `path(evenodd, "M0 0H${box.width}V${box.height}H0Z${holes.join("")}")`
-    : undefined;
-}
 const WorkspaceState = createContext({
   error: "",
   busy: false,
@@ -884,6 +852,7 @@ export function MausbotShell({
                     ),
                   },
                   bounds.overlays,
+                  "navigation",
                 ),
                 // These overlays sit above the iframe backdrop; retain and dim them with it.
                 filter: bounds.modal ? "brightness(0.35)" : undefined,
@@ -927,7 +896,7 @@ export function MausbotShell({
                 left: bounds.footer.left,
                 top: bounds.footer.top,
                 width: bounds.footer.width,
-                clipPath: nativeOverlayClip(bounds.footer, bounds.overlays),
+                clipPath: nativeOverlayClip(bounds.footer, bounds.overlays, "navigation"),
                 // These overlays sit above the iframe backdrop; retain and dim them with it.
                 filter: bounds.modal ? "brightness(0.35)" : undefined,
                 pointerEvents: bounds.modal ? "none" : undefined,

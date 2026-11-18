@@ -30,7 +30,7 @@ vi.mock("~/uiStateStore", () => ({
 vi.mock("./ui/sidebar", () => ({ useSidebar: () => ({ setOpenMobile: () => {} }) }));
 vi.mock("./Sidebar.logic", () => ({ resolveThreadStatusPill: () => null }));
 
-import { WorkerChatsInChat, WorkerChatTree } from "./WorkerChats";
+import { getProjectRootChats, WorkerChatsInChat, WorkerChatTree } from "./WorkerChats";
 import { useWorkerChatStore } from "~/workerChatStore";
 
 const parent = { environmentId: EnvironmentId.make("local"), threadId: ThreadId.make("parent") };
@@ -72,6 +72,16 @@ function Surface() {
     </>
   );
 }
+
+it("does not duplicate bot conversations in lazy project rows and keeps their saved provider workers reachable", () => {
+  const bot = { ...worker(1), id: ThreadId.make("j1-mausbot:bot:thread"), parentThreadId: null };
+  const child = { ...worker(2), parentThreadId: bot.id };
+  const normal = { ...worker(3), parentThreadId: null };
+  expect(getProjectRootChats([bot, child, normal]).map((thread) => thread.id)).toEqual([
+    child.id,
+    normal.id,
+  ]);
+});
 const router = createRouter({
   routeTree: createRootRoute({ component: Surface }),
   history: createMemoryHistory(),

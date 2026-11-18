@@ -191,13 +191,21 @@ export function J1ShellBridge() {
         ),
         overlays: [
           ...document.querySelectorAll(
-            '[role="menu"], [role="listbox"], [data-thread-overlay], [data-bot-menu], [data-sidebar-root]',
+            '[role="menu"], [role="listbox"], [data-thread-overlay], [data-bot-menu], [data-j1-sidebar-overlay]',
           ),
         ]
-          .map((node) => node.getBoundingClientRect())
+          .map((node) => {
+            const { left, top, width, height } = node.getBoundingClientRect();
+            return {
+              left,
+              top,
+              width,
+              height,
+              mainOnly: node.hasAttribute("data-j1-sidebar-overlay"),
+            };
+          })
           .filter((rect) => rect.width > 0 && rect.height > 0)
-          .slice(0, 16)
-          .map(({ left, top, width, height }) => ({ left, top, width, height })),
+          .slice(0, 16),
         settings: settingsRect
           ? {
               left: settingsRect.left,

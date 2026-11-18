@@ -28,14 +28,16 @@ const EMPTY_ANCESTORS: readonly string[] = [];
 const lookupWorkerChats = createWorkerChatLookup<EnvironmentThreadShell>();
 type WorkerFileDrop = (threadRef: ScopedThreadRef, files: File[]) => void;
 
+export function getProjectRootChats(threads: readonly EnvironmentThreadShell[]) {
+  // The original bot UI owns these conversations; their canonical execution
+  // records must not create a second entry. Filter before grouping so saved
+  // provider workers remain reachable when their bot parent is shown elsewhere.
+  return getRootChats(threads.filter((thread) => !thread.id.startsWith("j1-mausbot:")));
+}
+
 export function useRootChatShells() {
   const threads = useThreadShells();
-  // The original bot UI owns these conversations; their canonical execution
-  // records must not create a second project-chat entry.
-  return useMemo(
-    () => getRootChats(threads).filter((thread) => !thread.id.startsWith("j1-mausbot:")),
-    [threads],
-  );
+  return useMemo(() => getProjectRootChats(threads), [threads]);
 }
 
 function useWorkerChats(parent: ScopedThreadRef) {

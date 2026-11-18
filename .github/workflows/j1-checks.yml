@@ -90,6 +90,7 @@ jobs:
         working-directory: apps/web
         run: >-
           vp test run --project unit src/components/WorkerChats.test.tsx
+          src/components/MausbotShell.layout.test.ts
           src/workerChatStore.test.ts
           src/components/settings/settingsSearch.test.ts src/components/Sidebar.logic.test.ts
       - name: Lint the covered code
