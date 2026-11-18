@@ -8,7 +8,7 @@ import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 /** Explicitly reread saved Claude/Codex transcripts on their owning environments. */
-export function SidebarHistoryRefresh() {
+export function SidebarHistoryRefresh({ alignRight = true }: { alignRight?: boolean } = {}) {
   const projects = useProjects();
   const importHistory = useAtomCommand(agentSessionImport, { reportFailure: false });
   const pending = useRef(false);
@@ -58,7 +58,7 @@ export function SidebarHistoryRefresh() {
   };
 
   return (
-    <SidebarMenuItem className="ml-auto shrink-0">
+    <SidebarMenuItem className={alignRight ? "ml-auto shrink-0" : "shrink-0"}>
       <Tooltip>
         <TooltipTrigger
           render={

@@ -172,7 +172,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu({
   }, [closeMobileSidebar, navigateToMainApp]);
 
   return (
-    <SidebarMenu className="flex-row items-center">
+    <SidebarMenu className={cn("flex-row items-center", embedded && "justify-end")}>
       {isOnUtilityPage ? (
         <SidebarMenuItem className="min-w-0 flex-1">
           <SidebarMenuButton onClick={handleBackClick}>
@@ -196,6 +196,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu({
               onClick={handlePullRequestsClick}
             />
           ) : null}
+          {embedded && <SidebarUpdatePill />}
           <SidebarUtilityItem
             icon={<ChartNoAxesColumnIcon />}
             label="Usage"
@@ -203,8 +204,8 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu({
           />
         </>
       )}
-      <SidebarHistoryRefresh />
-      <SidebarUpdatePill />
+      <SidebarHistoryRefresh alignRight={!embedded || isOnUtilityPage} />
+      {(!embedded || isOnUtilityPage) && <SidebarUpdatePill />}
     </SidebarMenu>
   );
 });
