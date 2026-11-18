@@ -7,6 +7,7 @@ import {
 } from "@j1code/contracts";
 import { ServerProviderUpdateError } from "@j1code/contracts";
 import * as Cause from "effect/Cause";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -23,6 +24,7 @@ import { SpawnExecutableResolution } from "@j1code/shared/shell";
 import { ProviderRegistry, type ProviderRegistryShape } from "./Services/ProviderRegistry.ts";
 import * as ModelManifest from "./ModelManifest.ts";
 import * as ProviderMaintenanceRunner from "./providerMaintenanceRunner.ts";
+import { CodexUpdateRecovery, CodexUpdateRecoveryError } from "./CodexUpdateRecovery.ts";
 import {
   makeProviderMaintenanceCapabilities,
   ProviderVersionCache,
@@ -222,6 +224,10 @@ const makeTestRunner = (
       ranges: [],
     })),
   },
+  recovery: CodexUpdateRecovery["Service"] = {
+    prepare: (command) =>
+      Effect.succeed({ command, publish: Effect.void, commit: Effect.void, close: Effect.void }),
+  },
 ) =>
   Effect.service(ProviderMaintenanceRunner.ProviderMaintenanceRunner).pipe(
     Effect.provide(
@@ -229,6 +235,7 @@ const makeTestRunner = (
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(ProviderRegistry, registry),
+            Layer.succeed(CodexUpdateRecovery, recovery),
             Layer.succeed(ModelManifest.ModelManifest, {
               current: Effect.succeed(manifest),
               refresh: Effect.succeed(manifest),
@@ -876,10 +883,10 @@ describe("providerMaintenanceRunner", () => {
       readonly shell: boolean | string | undefined;
     }> = [];
     return Effect.gen(function* () {
-      const { registry } = yield* makeRegistry(baseProvider);
+      const { registry } = yield* makeRegistry(baseOpenCodeProvider);
       const runner = yield* makeTestRunner(registry);
 
-      const result = yield* runner.updateProvider(CODEX_DRIVER);
+      const result = yield* runner.updateProvider(OPENCODE_DRIVER);
 
       // On win32, resolveSpawnCommand resolves `npm` to the `.cmd` shim and
       // routes the spawn through cmd.exe (shell: true), escaping every arg.
@@ -892,11 +899,11 @@ describe("providerMaintenanceRunner", () => {
       assert.match(call.command, /npm\.cmd/i);
       assert.strictEqual(call.shell, true);
       // Args are escaped for cmd.exe shell mode (each quoted) but still carry
-      // the original install command (`install -g @openai/codex@latest`) in order.
+      // the original install command (`install -g opencode-ai@latest`) in order.
       assert.strictEqual(call.args.length, 3);
       assert.match(call.args[0] ?? "", /install/);
       assert.match(call.args[1] ?? "", /-g/);
-      assert.match(call.args[2] ?? "", /@openai\/codex@latest/);
+      assert.match(call.args[2] ?? "", /opencode-ai@latest/);
       assert.strictEqual(result.providers[0]?.updateState?.status, "succeeded");
     }).pipe(
       Effect.provide(
@@ -1020,3 +1027,83 @@ it.effect("refuses incompatible latest versions and unapproved or unpinnable tar
     ),
   );
 });
+
+for (const scenario of ["success", "failure", "unhealthy", "cancel", "backup-failure"] as const) {
+  it.effect(`protects the Windows Codex update transaction (${scenario})`, () =>
+    Effect.gen(function* () {
+      const events: string[] = [];
+      const started = yield* Deferred.make<void>();
+      const { registry, providersRef } = yield* makeRegistry();
+      const runner = makeTestRunner(registry, undefined, {
+        prepare: (command) =>
+          scenario === "backup-failure"
+            ? Effect.fail(new CodexUpdateRecoveryError({ message: "Recovery copy failed" }))
+            : Effect.succeed({
+                command,
+                publish: Effect.sync(() => {
+                  events.push("publish");
+                }),
+                commit: Effect.sync(() => {
+                  events.push("commit");
+                }),
+                close: Effect.sync(() => {
+                  events.push("close");
+                }),
+              }).pipe(
+                Effect.tap(() =>
+                  Effect.sync(() => {
+                    events.push("backup");
+                  }),
+                ),
+              ),
+      });
+      const run = runner.pipe(
+        Effect.flatMap((updater) => updater.updateProvider(CODEX_DRIVER)),
+        Effect.provide(
+          Layer.mergeAll(
+            Layer.succeed(HostProcessPlatform, "win32"),
+            Layer.succeed(SpawnExecutableResolution, (command) =>
+              command === "npm" ? "C:/fake/npm.cmd" : undefined,
+            ),
+            latestVersionHttpClient("0.0.0"),
+            mockSpawnerLayer(() => {
+              events.push("spawn");
+              return {
+                exitCode:
+                  scenario === "cancel"
+                    ? Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never))
+                    : (scenario === "unhealthy"
+                        ? Ref.set(providersRef, [{ ...baseProvider, installed: false }])
+                        : Effect.void
+                      ).pipe(
+                        Effect.as(ChildProcessSpawner.ExitCode(scenario === "failure" ? 1 : 0)),
+                      ),
+              };
+            }),
+          ),
+        ),
+      );
+      if (scenario === "cancel") {
+        const fiber = yield* Effect.forkChild(run);
+        yield* Deferred.await(started);
+        yield* Fiber.interrupt(fiber);
+      } else {
+        const result = yield* run;
+        assert.strictEqual(
+          result.providers[0]?.updateState?.status,
+          scenario === "success" ? "succeeded" : scenario === "unhealthy" ? "unchanged" : "failed",
+        );
+      }
+      assert.deepStrictEqual(
+        events,
+        scenario === "backup-failure"
+          ? []
+          : scenario === "success"
+            ? ["backup", "spawn", "publish", "commit", "close"]
+            : scenario === "unhealthy"
+              ? ["backup", "spawn", "publish", "close"]
+              : ["backup", "spawn", "close"],
+      );
+    }).pipe(Effect.scoped),
+  );
+}

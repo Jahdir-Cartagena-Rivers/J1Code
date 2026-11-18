@@ -142,6 +142,7 @@ import {
   AntigravityInstallationError,
 } from "./provider/AntigravityInstallation.ts";
 import { CodexInstallation } from "./provider/CodexInstallation.ts";
+import { CodexUpdateRecovery } from "./provider/CodexUpdateRecovery.ts";
 import type { ProviderInstance } from "./provider/ProviderDriver.ts";
 import * as ProviderSessionDirectory from "./provider/Services/ProviderSessionDirectory.ts";
 import { ProviderAdapterRequestError } from "./provider/Errors.ts";
@@ -830,6 +831,15 @@ const buildAppUnderTest = (options?: {
             getInstance: () => Effect.undefined,
             listInstances: Effect.succeed([]),
             ...options?.layers?.providerInstanceRegistry,
+          }),
+          Layer.mock(CodexUpdateRecovery)({
+            prepare: (command) =>
+              Effect.succeed({
+                command,
+                publish: Effect.void,
+                commit: Effect.void,
+                close: Effect.void,
+              }),
           }),
           Layer.mock(CodexInstallation)({
             managedDirectory: "unused-test-codex-runtime",

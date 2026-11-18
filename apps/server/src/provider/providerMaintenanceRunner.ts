@@ -8,6 +8,7 @@ import {
   type ServerProviderUpdateState,
 } from "@j1code/contracts";
 import { resolveSpawnCommand } from "@j1code/shared/shell";
+import { HostProcessPlatform } from "@j1code/shared/hostProcess";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
@@ -22,6 +23,7 @@ import { HttpClient } from "effect/unstable/http";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import * as ModelManifest from "./ModelManifest.ts";
+import { CodexUpdateRecovery } from "./CodexUpdateRecovery.ts";
 import { resolveProviderCompatibility } from "./providerCompatibility.ts";
 import { ProviderRegistry } from "./Services/ProviderRegistry.ts";
 import { makeProviderMaintenanceCommandCoordinator } from "./providerMaintenanceCommandCoordinator.ts";
@@ -223,6 +225,8 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const httpClient = yield* HttpClient.HttpClient;
   const versionCache = yield* ProviderVersionCache;
+  const platform = yield* HostProcessPlatform;
+  const recovery = yield* CodexUpdateRecovery;
   const runMaintenanceCommand = (update: ProviderMaintenanceCommandAction) =>
     runProviderMaintenanceCommandWithSpawner({
       spawner,
@@ -420,7 +424,19 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
                 }),
               );
             }
-            const result = yield* runMaintenanceCommand(command);
+            const transaction =
+              platform === "win32" &&
+              provider === "codex" &&
+              /^npm-global(?::|$)/.test(command.lockKey)
+                ? yield* Effect.acquireRelease(recovery.prepare(command), (backup) =>
+                    backup.close.pipe(
+                      Effect.andThen(providerRegistry.refreshInstance(instanceId)),
+                      Effect.asVoid,
+                      Effect.orDie,
+                    ),
+                  )
+                : null;
+            const result = yield* runMaintenanceCommand(transaction?.command ?? command);
             const finishedAt = yield* nowIso;
             if (result.timedOut || result.exitCode !== 0) {
               return yield* finish(
@@ -435,6 +451,7 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
             }
 
             // Homebrew's "latest" moves once the upgrade lands; read it again.
+            if (transaction) yield* transaction.publish;
             const verified = yield* providerRegistry.getProviderMaintenanceCapabilitiesForInstance(
               instanceId,
               provider,
@@ -460,6 +477,7 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
             const stillOutdated =
               targetVersion === undefined &&
               verifiedProviders.some((verifiedProvider) => isOutdatedProvider(verifiedProvider));
+            if (!couldNotVerify && !stillOutdated && transaction) yield* transaction.commit;
             return yield* finish(
               makeUpdateState({
                 status: couldNotVerify || stillOutdated ? "unchanged" : "succeeded",
@@ -492,7 +510,10 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
           },
         );
 
-        return yield* runCommandAndVerify().pipe(Effect.catchCause(recordFailedUpdate));
+        return yield* runCommandAndVerify().pipe(
+          Effect.scoped,
+          Effect.catchCause(recordFailedUpdate),
+        );
       },
     );
 
