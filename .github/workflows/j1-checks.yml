@@ -93,6 +93,15 @@ jobs:
           src/components/MausbotShell.layout.test.ts
           src/workerChatStore.test.ts
           src/components/settings/settingsSearch.test.ts src/components/Sidebar.logic.test.ts
+      - name: Test inline handoff folds and the sidebar updater
+        run: >-
+          vp test run apps/web/src/components/chat/routeRequestFolds.test.ts
+          apps/web/src/components/chat/MessagesTimeline.logic.test.ts
+          apps/mobile/src/lib/threadActivity.test.ts
+          packages/shared/src/routeRequestAnchors.test.ts
+          apps/web/src/components/chat/RouteRequestControl.test.tsx
+          apps/web/src/components/sidebar/SidebarUpdatePill.test.tsx
+          apps/web/src/components/desktopUpdate.logic.test.ts
       - name: Lint the covered code
         run: >-
           vp lint scripts/build-desktop-artifact.ts scripts/build-desktop-artifact.test.ts
