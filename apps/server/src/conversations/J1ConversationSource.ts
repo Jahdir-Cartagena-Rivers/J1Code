@@ -15,7 +15,9 @@ export function makeJ1ConversationSource(
   const metadata = (thread: OrchestrationThreadShell): ExternalConversation => ({
     endpoint: { environmentId, projectId: thread.projectId, threadId: thread.id },
     title: thread.title,
-    url: `/${encodeURIComponent(environmentId)}/${encodeURIComponent(thread.id)}`,
+    url: thread.id.startsWith("j1-mausbot:")
+      ? `/assistants?environmentId=${encodeURIComponent(environmentId)}&botId=${encodeURIComponent(thread.id.split(":")[1]!)}&conversation=${encodeURIComponent(thread.id.split(":")[2]!)}`
+      : `/${encodeURIComponent(environmentId)}/${encodeURIComponent(thread.id)}`,
     runtimeMode: thread.runtimeMode,
     providerInstanceId: thread.modelSelection.instanceId,
     activeTurnId: thread.session?.activeTurnId ?? null,
@@ -41,7 +43,9 @@ export function makeJ1ConversationSource(
         const snapshot = yield* snapshots.getShellSnapshot();
         const text = query.trim();
         if (text.length > 200) return yield* Effect.fail(failure());
-        const active = snapshot.threads.filter((thread) => thread.archivedAt === null);
+        const active = snapshot.threads.filter(
+          (thread) => thread.archivedAt === null && !thread.id.startsWith("j1-mausbot:"),
+        );
         const titles = active
           .filter((thread) => thread.title.toLocaleLowerCase().includes(text.toLocaleLowerCase()))
           .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))

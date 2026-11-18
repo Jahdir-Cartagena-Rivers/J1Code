@@ -100,6 +100,7 @@ export class ServerConfig extends Context.Service<
     readonly lightpandaExecutablePath?: string | undefined;
     readonly mausbotResourcesPath?: string | undefined;
     readonly mausbotDevUiDir?: string | undefined;
+    readonly mausbotDevServerDir?: string | undefined;
     readonly resourceMonitorPath?: string | undefined;
     readonly autoBootstrapProjectFromCwd: boolean;
     readonly logWebSocketEvents: boolean;

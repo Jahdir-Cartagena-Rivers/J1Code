@@ -99,6 +99,7 @@ import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
+import { botExecutionContext } from "../../mausbot/ExecutionContext.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 const isModelSelection = Schema.is(ModelSelection);
@@ -1056,7 +1057,9 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         (entry) => entry.enableAgentBrowserAccess !== undefined,
       );
       const deviceOverridden = entries.some((entry) => entry.enableAgentDeviceAccess !== undefined);
-      const desktopOverridden = entries.some((entry) => entry.enableAgentDesktopAccess !== undefined);
+      const desktopOverridden = entries.some(
+        (entry) => entry.enableAgentDesktopAccess !== undefined,
+      );
       const environment = {
         browser: settings.enableAgentBrowserAccess,
         device: settings.enableAgentDeviceAccess,
@@ -2070,6 +2073,16 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       }
     }
 
+    const botContext = botExecutionContext(parsed.threadId);
+    if (botContext?.prompt) {
+      const combined = `${botContext.prompt}\n\n${inputTextWithAttachmentContext ?? ""}`;
+      if (combined.length > PROVIDER_SEND_TURN_MAX_INPUT_CHARS)
+        return yield* toValidationError(
+          "ProviderService.sendTurn",
+          "Bot context exceeds the provider input limit.",
+        );
+      inputTextWithAttachmentContext = combined;
+    }
     const input = {
       ...parsed,
       ...(parsed.attachments !== undefined || attachments.length ? { attachments } : {}),

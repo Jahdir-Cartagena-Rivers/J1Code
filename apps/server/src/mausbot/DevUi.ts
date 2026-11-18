@@ -10,3 +10,12 @@ export function resolveMausbotDevUiDir(value: string | undefined, devUrl: URL | 
     throw new Error("J1_MAUSBOT_DEV_UI_DIR must be an absolute directory.");
   return NodePath.normalize(directory);
 }
+
+export function resolveMausbotDevServerDir(value: string | undefined, devUrl: URL | undefined) {
+  const directory = value?.trim();
+  if (!directory) return undefined;
+  if (!devUrl) throw new Error("J1_MAUSBOT_DEV_SERVER_DIR requires a J1 development server.");
+  if (!NodePath.isAbsolute(directory))
+    throw new Error("J1_MAUSBOT_DEV_SERVER_DIR must be an absolute directory.");
+  return NodePath.normalize(directory);
+}

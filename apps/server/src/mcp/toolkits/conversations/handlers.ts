@@ -2,8 +2,13 @@ import { Effect } from "effect";
 import { ExternalConversations } from "../../../conversations/ExternalConversations.ts";
 import { requireMcpCapability } from "../../McpInvocationContext.ts";
 import { ConversationsToolkit } from "./tools.ts";
+import { botExecutionContext } from "../../../mausbot/ExecutionContext.ts";
 
 export const conversationPrincipal = requireMcpCapability("agents").pipe(
+  Effect.filterOrFail(
+    (scope) => !botExecutionContext(scope.threadId),
+    () => "Use this bot's selected conversation tools through bot_tools and bot_call.",
+  ),
   Effect.map((scope) => ({
     kind: "j1" as const,
     environmentId: scope.environmentId,

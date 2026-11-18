@@ -52,6 +52,7 @@ import { AgentsToolkitHandlersLive } from "./toolkits/agents/handlers.ts";
 import { AgentsToolkit } from "./toolkits/agents/tools.ts";
 import { ConversationsToolkit } from "./toolkits/conversations/tools.ts";
 import { ConversationsToolkitHandlers } from "./toolkits/conversations/handlers.ts";
+import { BotToolkitRegistration } from "./toolkits/bot/register.ts";
 import { HomeToolkit } from "./toolkits/home/tools.ts";
 import { HomeToolkitHandlersLive } from "./toolkits/home/handlers.ts";
 import { HiveMindToolkitHandlersLive } from "./toolkits/hiveMind/handlers.ts";
@@ -737,6 +738,7 @@ export const layer = Layer.mergeAll(
   PullRequestsToolkitRegistrationLive,
   AgentsToolkitRegistrationLive,
   McpServer.toolkit(ConversationsToolkit).pipe(Layer.provide(ConversationsToolkitHandlers)),
+  BotToolkitRegistration,
   HiveMindToolkitRegistrationLive,
   DeviceToolkitRegistrationLive,
   DesktopToolkitRegistrationLive,

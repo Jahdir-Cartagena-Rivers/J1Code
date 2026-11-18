@@ -1,0 +1,37 @@
+import { describe, expect, it, beforeEach } from "vitest";
+import { rmSync } from "node:fs";
+import { DATA_DIR } from "./config.ts";
+import { Store } from "./store.ts";
+import { setupEngineeringTeam } from "./j1-engineering.ts";
+const selection = { instanceId: "j1-shared", model: "codex:gpt-model" };
+describe("engineering department", () => {
+  beforeEach(() => {
+    if (!DATA_DIR.includes("omb-test-home-")) throw new Error("Expected the isolated test home.");
+    rmSync(DATA_DIR, { recursive: true, force: true });
+  });
+  it("folds the existing builder into Ada, keeps its identity and history, and creates all four roles once", () => {
+    const store = new Store(() => selection);
+    const chief = store.createBot({ name: "Head Admin", soul: "General manager" });
+    const builder = store.createBot({ name: "J1 Code Project Builder", soul: "Existing builder responsibilities" });
+    store.patchBot(builder.id, { resumeCursors: { codex: "original-native-session" }, approvalMode: "full" });
+    const result = setupEngineeringTeam(store, builder.id);
+    expect(result.botIds).toHaveLength(4);
+    expect(store.bot(builder.id)).toMatchObject({ name: "Ada", threadId: builder.threadId, approvalMode: "full", resumeCursors: { codex: "original-native-session" } });
+    expect(store.bot(builder.id)?.soul).toContain("Existing builder responsibilities");
+    expect(store.bots.filter(bot => bot.section === "Engineering").map(bot => bot.name).sort()).toEqual(["Ada", "Lin", "Pixel", "Rigel"]);
+    expect(store.bot(chief.id)).toMatchObject({ name: "Head Admin", soul: "General manager" });
+    expect(store.groups.find(group => group.id === result.roomId)).toMatchObject({ memberIds: result.botIds, defaultResponder: { kind: "member", botId: builder.id } });
+    expect(setupEngineeringTeam(store, builder.id)).toEqual(result);
+    expect(new Store(() => selection).bot(builder.id)?.name).toBe("Ada");
+  });
+  it("refuses a different lead and preserves another account until it is explicitly selected", () => {
+    const store = new Store(() => selection);
+    const builder = store.createBot({ name: "Builder" });
+    setupEngineeringTeam(store, builder.id);
+    const other = store.createBot({ name: "Other builder" });
+    expect(() => setupEngineeringTeam(store, other.id)).toThrow("different lead");
+    const native = store.createBot({ name: "Native account", modelSelection: { instanceId: "codex-work", model: "gpt-model" } });
+    expect(() => setupEngineeringTeam(store, native.id)).toThrow("shared provider");
+    expect(store.bot(native.id)?.name).toBe("Native account");
+  });
+});

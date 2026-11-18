@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from "react";
-import type { InstanceInfo } from "@/state/store";
+import { useEffect, useState, type ReactNode } from "react";
+import { api, type InstanceInfo } from "@/state/store";
 import { J1SettingsSlot } from "./J1Settings";
 import { j1Post, useJ1Navigation } from "./J1Navigation";
 import { J1SettingsPicker } from "./J1SettingsPicker";
@@ -18,14 +18,32 @@ export function J1Providers({
 }) {
   const navigation = useJ1Navigation();
   const [selection, setSelection] = useState("");
-  const native = instances.filter((instance) => instance.driverKind !== "j1-deepai");
+  const [sharedIds, setSharedIds] = useState<string[]>([]);
+  useEffect(() => {
+    let current = true;
+    if (!navigation || !instances.length) return;
+    void api<Array<{ nativeId: string }>>("/api/j1/provider-links").then(
+      (links) => {
+        if (current && Array.isArray(links)) setSharedIds(links.map((link) => link.nativeId));
+      },
+      () => {},
+    );
+    return () => {
+      current = false;
+    };
+  }, [navigation, instances]);
+  const native = instances.filter(
+    (instance) =>
+      !["j1-deepai", "j1-shared"].includes(instance.driverKind) &&
+      !sharedIds.includes(instance.instanceId),
+  );
   const host = navigation?.providers ?? [];
   const options = [
+    ...host.map((instance) => ({ id: `j1:${instance.id}`, label: instance.label })),
     ...native.map((instance) => ({
       id: `bot:${instance.instanceId}`,
-      label: `${instance.displayName} · Bots`,
+      label: `${instance.displayName} · Native account`,
     })),
-    ...host.map((instance) => ({ id: `j1:${instance.id}`, label: instance.label })),
   ];
   const hostSelection = host.find((item) => item.selected)?.id;
   const selected =

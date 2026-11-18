@@ -6,6 +6,7 @@ import * as Schema from "effect/Schema";
 import type { DeliveryRequest } from "../../../routing/deliveryDispatcher.ts";
 import type { RouteEndpoint, RouteState } from "../../../routing/routeState.ts";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";
+import { botExecutionContext } from "../../../mausbot/ExecutionContext.ts";
 
 const Text = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100_000));
 export const Endpoint = Schema.Struct({ environmentId: Text, projectId: Text, threadId: Text });
@@ -96,6 +97,10 @@ const visible = (state: RouteState, endpoint: RouteEndpoint) =>
 
 export const currentEndpoint = Effect.gen(function* () {
   const scope = yield* McpInvocationContext;
+  if (botExecutionContext(scope.threadId))
+    return yield* Effect.fail(
+      "Use this bot's selected routing tools through bot_tools and bot_call to preserve its source and receipts.",
+    );
   if (!scope.capabilities.has("agents"))
     return yield* Effect.fail("Routing unavailable for this session.");
   const ports = yield* RoutingBoundaryPorts;

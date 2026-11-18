@@ -31,14 +31,17 @@ export async function acquireQaLease(home: string) {
 }
 
 /** Reuses one verified archive and serves watch output without making another ZIP or QA profile. */
-export async function mausbotQaEnvironment(resources: string, uiDir: string) {
+export async function mausbotQaEnvironment(resources: string, uiDir: string, serverDir?: string) {
   const archiveDir = await NodeFSP.realpath(resources);
   const output = await NodeFSP.realpath(uiDir);
   await NodeFSP.access(NodePath.join(archiveDir, "runtime.zip"));
   await NodeFSP.access(NodePath.join(output, "index.html"));
+  const server = serverDir ? await NodeFSP.realpath(serverDir) : undefined;
+  if (server) await NodeFSP.access(NodePath.join(server, "index.js"));
   return {
     J1_MAUSBOT_RESOURCES: archiveDir,
     J1_MAUSBOT_DEV_UI_DIR: output,
+    ...(server ? { J1_MAUSBOT_DEV_SERVER_DIR: server } : {}),
     T3CODE_HOME: NodePath.join(root, ".t3", "mausbot-qa"),
     PATH: [NodePath.join(root, "node_modules", ".bin"), process.env.PATH ?? ""].join(
       NodePath.delimiter,
@@ -51,18 +54,23 @@ if (import.meta.main) {
     options: {
       resources: { type: "string" },
       "ui-dir": { type: "string" },
+      "server-dir": { type: "string" },
       desktop: { type: "boolean", default: false },
       help: { type: "boolean" },
     },
   });
   if (values.help) {
     process.stdout.write(
-      "node scripts/mausbot-qa.ts --resources <verified-archive-dir> --ui-dir <Maus-dist> [--desktop]\nKeep vite build --watch --base=./ running in the prepared Maus assembly; reload after a rebuild. J1 web uses its normal HMR. State stays in this worktree's .t3/mausbot-qa. --desktop runs the native development app with isolated Electron storage.\n",
+      "node scripts/mausbot-qa.ts --resources <verified-archive-dir> --ui-dir <Maus-dist> [--server-dir <Maus-dist-server>] [--desktop]\nKeep vite build --watch --base=./ running in the prepared Maus assembly; reload after a rebuild. --server-dir uses the assembly's rebuilt server without another runtime archive (restart QA after rebuilding it). J1 web uses its normal HMR. State stays in this worktree's .t3/mausbot-qa. --desktop runs the native development app with isolated Electron storage.\n",
     );
   } else {
     if (!values.resources || !values["ui-dir"])
       throw new Error("Supply --resources and --ui-dir; use --help for the development workflow.");
-    const env = await mausbotQaEnvironment(values.resources, values["ui-dir"]);
+    const env = await mausbotQaEnvironment(
+      values.resources,
+      values["ui-dir"],
+      values["server-dir"],
+    );
     const release = await acquireQaLease(env.T3CODE_HOME);
     const child = NodeChildProcess.spawn(
       process.execPath,

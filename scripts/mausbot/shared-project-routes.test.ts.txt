@@ -1,0 +1,42 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Store } from "./store.ts";
+import { createBotSettingsRoutes } from "./routes/bot-settings.ts";
+const bridge = vi.hoisted(() => ({ call: vi.fn() }));
+vi.mock("./drivers/j1-shared-client.ts", () => ({ sharedExecutionRequest: bridge.call }));
+beforeEach(() => {
+  bridge.call.mockReset();
+  bridge.call.mockImplementation(async (input: { action: string }) => input.action === "binding" ? { locked: false } : [{ id: "career", title: "Career Moves" }, { id: "j1", title: "J1 Code" }]);
+});
+async function request(store: Store, body: unknown, scopes = ["admin"]) {
+  let result: { status: number; value: unknown } | undefined;
+  const route = createBotSettingsRoutes({ store } as Parameters<typeof createBotSettingsRoutes>[0]);
+  await route({ req: {}, res: {}, url: new URL("http://localhost/api/j1/thread-project"), path: "/api/j1/thread-project", method: "PATCH",
+    auth: { scopes }, readBody: async () => body, json: (_res: unknown, status: number, value: unknown) => { result = { status, value }; return true; },
+  } as unknown as Parameters<typeof route>[0]);
+  return result;
+}
+describe("bot thread project binding", () => {
+  it("binds one existing thread without changing the bot's other threads or account", async () => {
+    const store = new Store(() => ({ instanceId: "j1-shared", model: "codex:gpt-model" }));
+    const bot = store.createBot({ name: "Project worker" });
+    const beforeModel = structuredClone(bot.modelSelection);
+    const result = await request(store, { botId: bot.id, threadId: bot.threadId, projectId: "career" });
+    expect(result?.status).toBe(200);
+    expect(store.taskByThread(bot.id, bot.threadId)?.j1ProjectId).toBe("career");
+    expect(store.projectBotForTask(bot.id, bot.threadId)?.j1ProjectId).toBe("career");
+    expect(store.bot(bot.id)?.j1ProjectId).toBeUndefined();
+    expect(store.bot(bot.id)?.modelSelection).toEqual(beforeModel);
+  });
+  it("rejects non-admin, missing threads, invalid projects and changes to an existing execution session", async () => {
+    const store = new Store(() => ({ instanceId: "j1-shared", model: "codex:gpt-model" }));
+    const bot = store.createBot({ name: "Restricted binding" });
+    const body = { botId: bot.id, threadId: bot.threadId, projectId: "career" };
+    expect((await request(store, body, []))?.status).toBe(403);
+    expect(bridge.call).not.toHaveBeenCalled();
+    expect((await request(store, { ...body, threadId: "another-bots-thread" }))?.status).toBe(404);
+    expect((await request(store, { ...body, projectId: "invented" }))?.status).toBe(400);
+    bridge.call.mockImplementation(async () => ({ locked: true, projectId: "j1" }));
+    expect((await request(store, body))?.status).toBe(409);
+    expect(store.taskByThread(bot.id, bot.threadId)?.j1ProjectId).toBeUndefined();
+  });
+});

@@ -4,7 +4,7 @@ import { AgentHistoryLive } from "./project/AgentHistoryLive.ts";
 
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { EnvironmentHttpApi, ProviderDriverKind, type RepositoryIdentity } from "@j1code/contracts";
+import { EnvironmentHttpApi, type RepositoryIdentity } from "@j1code/contracts";
 import type { RelayManagedEndpointRuntimeConfig } from "@j1code/contracts/relay";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -23,6 +23,7 @@ import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as HostPowerMonitor from "./background/HostPowerMonitor.ts";
 import * as ServerConfig from "./config.ts";
 import { MausbotService } from "./mausbot/Service.ts";
+import { MausbotExecution } from "./mausbot/Execution.ts";
 import { HiveMindService } from "./hiveMind/HiveMindService.ts";
 import {
   otlpTracesProxyRouteLayer,
@@ -629,6 +630,7 @@ export const makeRoutesLayer = Layer.mergeAll(
 ).pipe(
   Layer.provide(HiveMindService.layer),
   Layer.provide(MausbotService.layer),
+  Layer.provide(MausbotExecution.layer),
   Layer.provide(ExternalConversationsLive),
   Layer.provide(BackgroundBrowserLive),
   // Both transports consume the same service instance, so caches single-flight across clients

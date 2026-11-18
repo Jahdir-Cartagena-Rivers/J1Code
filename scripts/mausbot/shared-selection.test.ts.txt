@@ -1,0 +1,27 @@
+import { describe, expect, it } from "vitest";
+import { sharedSelection, sharedAccountLinks } from "./j1-shared-selection.ts";
+import type { SharedCatalogRow } from "./drivers/j1-shared-client.ts";
+const configs = { codex: { driver: "codex", config: {} } };
+const catalog: SharedCatalogRow[] = [{ instanceId: "codex", driver: "codex", nativeDefault: "codex", enabled: true, installed: true, auth: { status: "authenticated" }, models: [{ slug: "gpt-model", name: "GPT" }] }];
+const selection = { instanceId: "codex", model: "gpt-model", effort: "high" as const };
+describe("shared account migration", () => {
+  it("keeps the exact default account, model and effort and is idempotent", () => {
+    const migrated = sharedSelection(selection, configs, catalog, "full");
+    expect(migrated).toEqual({ ...selection, instanceId: "j1-shared", model: "codex:gpt-model" });
+    expect(sharedSelection(migrated, configs, catalog)).toBe(migrated);
+    expect(sharedAccountLinks(configs, catalog)).toEqual([{ nativeId: "codex", accountId: "codex" }]);
+  });
+  it("does not silently change custom accounts, endpoints, models or native permissions", () => {
+    for (const configured of [
+      { codex: { driver: "codex", environment: { CODEX_HOME: "other-account" } } },
+      { codex: { driver: "codex", config: { cli: "custom-codex" } } },
+      { codex: { driver: "codex", config: { managed: {} } } },
+      { codex: { driver: "codex", enabled: false } },
+    ]) expect(sharedSelection(selection, configured, catalog)).toBe(selection);
+    expect(sharedSelection(selection, configs, [{ ...catalog[0]!, nativeDefault: undefined }])).toBe(selection);
+    expect(sharedSelection(selection, configs, [{ ...catalog[0]!, models: [] }])).toBe(selection);
+    expect(sharedSelection(selection, configs, catalog, "custom")).toBe(selection);
+    expect(sharedSelection(selection, configs, catalog, "full", { deny: ["native:Shell"] })).toBe(selection);
+    expect(sharedAccountLinks({ codex: { driver: "codex", environment: { CODEX_HOME: "private" } } }, catalog)).toEqual([]);
+  });
+});

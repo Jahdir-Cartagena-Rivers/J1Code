@@ -30,7 +30,12 @@ type WorkerFileDrop = (threadRef: ScopedThreadRef, files: File[]) => void;
 
 export function useRootChatShells() {
   const threads = useThreadShells();
-  return useMemo(() => getRootChats(threads), [threads]);
+  // The original bot UI owns these conversations; their canonical execution
+  // records must not create a second project-chat entry.
+  return useMemo(
+    () => getRootChats(threads).filter((thread) => !thread.id.startsWith("j1-mausbot:")),
+    [threads],
+  );
 }
 
 function useWorkerChats(parent: ScopedThreadRef) {

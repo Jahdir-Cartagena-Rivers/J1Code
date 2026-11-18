@@ -39,6 +39,7 @@ import * as ProviderCredentialStore from "../provider/ProviderCredentialStore.ts
 import { makeDeepAIClient } from "../provider/deepai/DeepAIClient.ts";
 import { deepAIMachineDigest } from "../provider/deepai/DeepAIMachine.ts";
 import { resolveProviderInstanceEnabled } from "@j1code/contracts";
+import { MausbotExecution } from "./Execution.ts";
 
 const decodeHostInvocation = Schema.decodeUnknownEffect(
   Schema.Union([MausbotConversationInvocation, MausbotRoutingInvocation, ExternalRouteHostEvent]),
@@ -101,6 +102,7 @@ export class MausbotService extends Context.Service<
 
       const path = yield* Path.Path;
       const settings = yield* ServerSettingsService;
+      const execution = yield* MausbotExecution;
       const sessions = yield* SessionStore;
       const conversations = yield* ExternalConversations;
       const environmentId = yield* (yield* ServerEnvironment).getEnvironmentId;
@@ -239,10 +241,14 @@ export class MausbotService extends Context.Service<
               },
               resources: expanded,
               ...(config.devUrl && config.mausbotDevUiDir ? { uiDir: config.mausbotDevUiDir } : {}),
+              ...(config.devUrl && config.mausbotDevServerDir
+                ? { serverDir: config.mausbotDevServerDir }
+                : {}),
               dataDir: path.join(config.baseDir, "userdata", "mausbot"),
               lightpandaExecutablePath: browserExecutable(current.lightpandaExecutablePath),
               memory: (input, active) => hiveMemory.handle(input, active),
               conversationCall: handleConversation,
+              execution,
             });
             return runtime;
           }),

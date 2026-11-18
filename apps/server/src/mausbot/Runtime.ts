@@ -25,8 +25,18 @@ export interface MausbotRuntimeOptions {
   readonly platform: NodeJS.Platform;
   readonly memory?: (input: unknown, current: () => boolean) => Promise<unknown>;
   readonly conversationCall?: (input: unknown, current: () => boolean) => Promise<unknown>;
+  readonly execution?: {
+    call(
+      input: unknown,
+      current: () => boolean,
+      emit: (event: unknown) => void,
+      owner: string,
+    ): Promise<unknown>;
+    disconnect(owner: string): Promise<void>;
+  };
   readonly resources: string;
   readonly uiDir?: string | undefined;
+  readonly serverDir?: string | undefined;
   readonly dataDir: string;
   readonly executable?: string;
   readonly lightpandaExecutablePath?: string;
@@ -66,6 +76,7 @@ export class MausbotRuntime {
   private token: string | undefined;
   private readonly clientTokens = new Map<string, Promise<string>>();
   private deepAIBridge: DeepAIBridge | undefined;
+  private executionOwner: string | undefined;
   private origin: string | undefined;
   private browserExecutable: string;
   private appliedBrowserExecutable: string | undefined;
@@ -210,7 +221,10 @@ export class MausbotRuntime {
   }
 
   private async launch() {
-    const entry = NodePath.join(this.options.resources, "server", "index.js");
+    const entry = NodePath.join(
+      this.options.serverDir ?? NodePath.join(this.options.resources, "server"),
+      "index.js",
+    );
     await NodeFSP.access(entry);
     if (this.options.uiDir) await NodeFSP.access(NodePath.join(this.options.uiDir, "index.html"));
     try {
@@ -249,6 +263,8 @@ export class MausbotRuntime {
       },
     });
     const { stdin, stdout, stderr } = child;
+    const executionOwner = NodeCrypto.randomUUID();
+    this.executionOwner = executionOwner;
     if (!stdin || !stdout || !stderr) {
       child.kill();
       await bridge?.close();
@@ -269,6 +285,38 @@ export class MausbotRuntime {
     const memoryRequests = new Map<string, { cancelled: boolean }>();
     child.on("message", (message) => {
       this.approvals?.receive(privatePort, message);
+      if (
+        object(message) &&
+        message.type === "j1:execution-request" &&
+        typeof message.requestId === "string"
+      ) {
+        const requestId = message.requestId;
+        const current = () => this.child === child && child.connected;
+        const reply = (result: object) => {
+          if (current())
+            // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Captured child IPC, not a browser Window.
+            privatePort.postMessage({ type: "j1:execution-result", requestId, ...result });
+        };
+        if (requestId.length > 100 || !this.options.execution) {
+          reply({ error: "Shared execution is unavailable." });
+          return;
+        }
+        void this.options.execution
+          .call(
+            message.input,
+            current,
+            (event) => {
+              // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Captured child IPC, not a browser Window.
+              if (current()) privatePort.postMessage({ type: "j1:execution-event", event });
+            },
+            executionOwner,
+          )
+          .then(
+            (value) => reply({ value }),
+            (error) => reply({ error: String(error) }),
+          );
+        return;
+      }
       if (
         object(message) &&
         (message.type === "j1:hive-cancel" || message.type === "j1:conversation-host-cancel") &&
@@ -328,6 +376,7 @@ export class MausbotRuntime {
     stderr.setEncoding("utf8");
     stderr.resume();
     child.once("exit", () => {
+      void this.options.execution?.disconnect(executionOwner).catch(() => {});
       void bridge?.close().catch(() => {});
       if (this.deepAIBridge === bridge) this.deepAIBridge = undefined;
     });
@@ -567,6 +616,7 @@ export class MausbotRuntime {
     if (
       !path.startsWith("/") ||
       path.startsWith("//") ||
+      // oxlint-disable-next-line no-control-regex -- Reject every encoded or literal control/space in a runtime path.
       /[\\\x00-\x20#]|%2e|%2f|%5c|(?:^|\/)\.\.(?:\/|$)/i.test(pathname)
     )
       throw new Error("Invalid runtime path.");
@@ -656,6 +706,7 @@ export class MausbotRuntime {
   }
 
   private async stopChild() {
+    if (this.executionOwner) await this.options.execution?.disconnect(this.executionOwner);
     const bridge = this.deepAIBridge;
     this.deepAIBridge = undefined;
     await bridge?.close();

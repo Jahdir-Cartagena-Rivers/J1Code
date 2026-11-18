@@ -7,6 +7,7 @@ import {
 } from "@j1code/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import { botExecutionContext } from "../mausbot/ExecutionContext.ts";
 
 export type McpCapability = "preview" | "device" | "desktop" | "pull-requests" | "agents";
 
@@ -49,7 +50,9 @@ export const requireMcpCapability = <const C extends McpCapability>(
 ): Effect.Effect<McpInvocationScope, McpCapabilityError<C>, McpInvocationContext> =>
   McpInvocationContext.pipe(
     Effect.filterOrFail(
-      (invocation) => invocation.capabilities.has(capability),
+      (invocation) =>
+        invocation.capabilities.has(capability) &&
+        !botExecutionContext(invocation.threadId)?.restrictedTools,
       // The conditional type narrows what the literal argument decided at runtime.
       (invocation) => missingCapability(invocation, capability) as McpCapabilityError<C>,
     ),

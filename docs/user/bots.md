@@ -9,3 +9,9 @@ Local notes remain the default. In a bot’s Memory settings, **Hive Mind extend
 Previous custom J1 bot profiles and their conversation history remain saved while that roster and its scheduled routines are retired from use.
 
 Bots and project chats can search saved conversations, read matching messages and link to the original conversation. They can also [forward requests](composer.md#routing-requests-between-conversations) to an existing work owner. Cross-engine forwarding currently supports unrestricted Full access profiles; mappings for other permission profiles are not yet implemented, so those requests remain pending.
+
+Choose **J1 shared providers** in a bot's model picker to use the same configured accounts and execution services as project chats. Compatible default accounts move automatically while keeping their models, instructions, conversations and permission modes. Custom accounts and native tool restrictions stay on their existing engine until a compatible shared configuration is selected.
+
+In the bot's Identity settings, **J1 project for this thread** attaches a project’s folder, instructions, files and memory to that bot thread. Each thread keeps its own project. Start a new thread to work on another project after a session has begun.
+
+To combine the J1 Project Builder with the engineering department, open its Identity settings and choose **Set up engineering team**. Its saved identity and conversations become Ada’s lead role. Lin, Pixel, Rigel and an Engineering Room are added once. Head Admin stays the general manager; you can give engineering work directly to the department.

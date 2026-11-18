@@ -164,6 +164,13 @@ export async function stageMausbot(
     );
     for (const name of ["LICENSE", "NOTICE"])
       await NodeFSP.copyFile(NodePath.join(stage, name), NodePath.join(destination, name));
+    await NodeFSP.mkdir(NodePath.join(destination, "licenses/openmausbot-teams"), {
+      recursive: true,
+    });
+    await NodeFSP.copyFile(
+      NodePath.join(stage, "engineering-team.LICENSE"),
+      NodePath.join(destination, "licenses/openmausbot-teams/LICENSE"),
+    );
     await NodeFSP.writeFile(
       NodePath.join(destination, "SOURCE.txt"),
       `OpenMausBot OSS source: https://github.com/milind-soni/OpenMausBot/tree/${MAUSBOT_SOURCE}\nJ1 adaptation is included in j1-adaptation and published with J1 Code source.\n`,

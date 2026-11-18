@@ -22,7 +22,7 @@ import { Argument, Flag } from "effect/unstable/cli";
 
 import { readBootstrapEnvelope } from "../bootstrap.ts";
 import * as ServerConfig from "../config.ts";
-import { resolveMausbotDevUiDir } from "../mausbot/DevUi.ts";
+import { resolveMausbotDevUiDir, resolveMausbotDevServerDir } from "../mausbot/DevUi.ts";
 import { expandHomePath, resolveBaseDir } from "../os-jank.ts";
 
 const modeFlag = Flag.Literals("mode", ServerConfig.RuntimeMode.literals).pipe(
@@ -388,6 +388,10 @@ export const resolveServerConfig = (
       Option.getOrUndefined(yield* Config.String("J1_MAUSBOT_DEV_UI_DIR").pipe(Config.option)),
       devUrl,
     );
+    const mausbotDevServerDir = resolveMausbotDevServerDir(
+      Option.getOrUndefined(yield* Config.String("J1_MAUSBOT_DEV_SERVER_DIR").pipe(Config.option)),
+      devUrl,
+    );
     const host = Option.getOrElse(
       resolveOptionPrecedence(
         normalizedFlags.host,
@@ -462,6 +466,7 @@ export const resolveServerConfig = (
       desktopTelemetryControlFd,
       lightpandaExecutablePath: bootstrap?.lightpandaExecutablePath,
       ...(mausbotDevUiDir ? { mausbotDevUiDir } : {}),
+      ...(mausbotDevServerDir ? { mausbotDevServerDir } : {}),
       mausbotResourcesPath:
         bootstrap?.mausbotResourcesPath ??
         Option.getOrUndefined(yield* Config.String("J1_MAUSBOT_RESOURCES").pipe(Config.option)),

@@ -1,0 +1,32 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it, vi } from "vitest";
+import { Store } from "./store.ts";
+import { DATA_DIR } from "./config.ts";
+import { sharedSelection } from "./j1-shared-selection.ts";
+const selection = { instanceId: "codex", model: "gpt-model" };
+const map = (value: typeof selection, mode: string) => sharedSelection(value,
+  { codex: { driver: "codex" } }, [{ instanceId: "codex", driver: "codex", nativeDefault: "codex", enabled: true, installed: true, auth: { status: "authenticated" }, models: [{ slug: "gpt-model", name: "GPT" }] }], mode);
+describe("durable shared execution migration", () => {
+  it("preserves identities, native cursor, history and per-thread custom permission boundaries across restart", () => {
+    const store = new Store(() => selection);
+    const bot = store.createBot({ name: "Original builder", soul: "Keep my role" });
+    store.patchBot(bot.id, { approvalMode: "full", resumeCursors: { codex: "original-cli-session" } });
+    store.patchTask(bot.id, bot.threadId, { approvalMode: "custom" });
+    store.migrateJ1SharedSelections(map);
+    expect(store.bot(bot.id)).toMatchObject({ id: bot.id, soul: "Keep my role", modelSelection: { instanceId: "j1-shared", model: "codex:gpt-model" }, resumeCursors: { codex: "original-cli-session" }, approvalMode: "full" });
+    expect(store.taskByThread(bot.id, bot.threadId)).toMatchObject({ modelSelection: selection, approvalMode: "custom", resumeCursors: { codex: "original-cli-session" } });
+    const persisted = readFileSync(join(DATA_DIR, "bots.json"), "utf8");
+    expect(new Store(() => selection).bot(bot.id)?.id).toBe(bot.id);
+    store.migrateJ1SharedSelections(map);
+    expect(readFileSync(join(DATA_DIR, "bots.json"), "utf8")).toBe(persisted);
+  });
+  it("does not publish changed selections when persistence fails", () => {
+    const store = new Store(() => selection);
+    const bot = store.createBot({ name: "Untouched" });
+    vi.spyOn(store as unknown as { saveBots(): void }, "saveBots").mockImplementation(() => { throw new Error("Disk unavailable"); });
+    expect(() => store.migrateJ1SharedSelections(map)).toThrow("Disk unavailable");
+    expect(store.bot(bot.id)?.modelSelection).toEqual(selection);
+    vi.restoreAllMocks();
+  });
+});

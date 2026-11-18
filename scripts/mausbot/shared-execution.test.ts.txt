@@ -1,0 +1,177 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { RuntimeEvent, SendTurnInput } from "../contracts.ts";
+const tools = vi.hoisted(() => ({
+  execute: vi.fn(async () => ({ ok: true, text: "Original bot tool result" })),
+  close: vi.fn(async () => {}),
+  validate: vi.fn(),
+}));
+vi.mock("./chat-mcp-tools.ts", () => ({
+  mountChatTools: vi.fn(async () => ({
+    definitions: [{ type: "function", function: { name: "agents_team_post", description: "Post to the engineering room", parameters: { type: "object" } } }],
+    ...tools,
+    view: () => ({ title: "Team post", input: { text: "Ready" }, ask: true }),
+  })),
+}));
+import { J1SharedDriver, decodeSharedModel, encodeSharedModel } from "./j1-shared.ts";
+
+const request = { instanceId: "j1-shared", displayName: "J1", enabled: true, environment: {}, config: {} };
+const turn: SendTurnInput = { botId: "bot", threadId: "thread", j1BotName: "Ada", j1ProjectId: "project",
+  text: "Build the change", model: encodeSharedModel("codex-work", "gpt-model"), system: "Bot's saved instructions",
+  approvalMode: "ask", cwd: "C:/workspace", images: [], transcript: [{ role: "user", text: "Prior instruction" }],
+};
+let calls: Array<Record<string, unknown>>;
+let instances: Array<Awaited<ReturnType<typeof J1SharedDriver.create>>>;
+let toolResult: (value: Record<string, unknown>) => void;
+let oldSend: typeof process.send;
+let oldConnected: boolean | undefined;
+const event = (value: unknown) => process.emit("message", { type: "j1:execution-event", event: value }, undefined);
+const runtime = (type: string, payload: object, extra = {}) => event({ kind: "runtime", botId: "bot", threadId: "thread", turnId: "native-turn",
+  event: { eventId: "event", provider: "codex", threadId: "canonical", createdAt: "2026-11-18T00:00:00Z", type, payload, ...extra } });
+
+beforeEach(() => {
+  calls = []; instances = []; toolResult = () => {};
+  tools.execute.mockClear(); tools.close.mockClear(); tools.validate.mockReset();
+  oldSend = process.send; oldConnected = process.connected;
+  Object.defineProperty(process, "connected", { value: true, configurable: true });
+  process.send = ((message: { requestId: string; input: Record<string, unknown> }, callback?: (error: Error | null) => void) => {
+    calls.push(message.input);
+    const value = message.input.action === "catalog"
+      ? [{ instanceId: "codex-work", driver: "codex", displayName: "Work", enabled: true, installed: true, auth: { status: "authenticated" }, models: [{ slug: "gpt-model", name: "GPT", isDefault: true }] }]
+      : message.input.action === "start" ? { turnId: message.input.turnId } : {};
+    if (message.input.action === "tool-result") toolResult(message.input);
+    queueMicrotask(() => process.emit("message", { type: "j1:execution-result", requestId: message.requestId, value }, undefined));
+    callback?.(null);
+    return true;
+  }) as typeof process.send;
+});
+afterEach(async () => {
+  for (const instance of instances) await instance.dispose();
+  process.send = oldSend;
+  Object.defineProperty(process, "connected", { value: oldConnected, configurable: true });
+});
+async function fixture() {
+  const instance = await J1SharedDriver.create(request);
+  instances.push(instance);
+  await instance.startupModelRefresh;
+  return instance;
+}
+
+describe("J1 shared bot adapter", () => {
+  it("uses the exact J1 account/model and keeps bot identity, project, images and prior context", async () => {
+    const instance = await fixture();
+    const events: RuntimeEvent[] = [];
+    instance.adapter.onEvent((event) => events.push(event));
+    const result = await instance.adapter.sendTurn({ ...turn, images: [{ path: "C:/image.png", mime: "image/png", bytes: 10 }] });
+    expect(calls.find((call) => call.action === "start")).toMatchObject({ botId: "bot", threadId: "thread", botName: "Ada", projectId: "project", instanceId: "codex-work", model: "gpt-model", system: turn.system, transcript: turn.transcript, images: [{ path: "C:/image.png" }], sharedContinuation: false, approvalMode: "ask" });
+    runtime("turn.started", {});
+    runtime("content.delta", { streamKind: "assistant_text", delta: "Result" });
+    runtime("item.completed", { itemType: "assistant_message", data: { text: "Result" } });
+    runtime("turn.completed", { state: "completed" });
+    expect(events.find((event) => event.type === "session.started")).toMatchObject({ sessionId: "j1-shared:bot:thread" });
+    expect(events.filter((event) => event.type !== "session.started").every((event) => event.turnId === result.turnId)).toBe(true);
+    expect(events.at(-1)).toMatchObject({ type: "turn.completed", ok: true });
+    expect(events.filter((event) => event.type === "item.completed" && event.itemType === "assistant_text")).toEqual([expect.objectContaining({ text: "Result" })]);
+    expect(instance.adapter.hasSession("thread")).toBe(false);
+  });
+
+  it("waits for actual provider input admission and persists complete output even without deltas", async () => {
+    const instance = await fixture();
+    const events: RuntimeEvent[] = [];
+    instance.adapter.onEvent((event) => events.push(event));
+    const sent = vi.fn();
+    await instance.adapter.sendTurn({ ...turn, onInputSent: sent });
+    expect(sent).not.toHaveBeenCalled();
+    runtime("turn.started", {});
+    expect(sent).toHaveBeenCalledTimes(1);
+    runtime("item.completed", { itemType: "assistant_message", data: { text: "Complete answer" } }, { itemId: "answer" });
+    runtime("turn.completed", { state: "completed" });
+    expect(events.find((event) => event.type === "session.started")).toMatchObject({ sessionId: "j1-shared:bot:thread" });
+    expect(events.find((event) => event.type === "item.completed")).toMatchObject({ itemType: "assistant_text", text: "Complete answer" });
+  });
+
+  it("retains the original bot tool approval gate and a denial never executes the tool", async () => {
+    const instance = await fixture();
+    let finishAsk!: (event: Extract<RuntimeEvent, { type: "request.opened" }>) => void;
+    const ask = new Promise<Extract<RuntimeEvent, { type: "request.opened" }>>((resolve) => { finishAsk = resolve; });
+    instance.adapter.onEvent((event) => { if (event.type === "request.opened") finishAsk(event); });
+    await instance.adapter.sendTurn(turn);
+    const response = new Promise<Record<string, unknown>>((resolve) => { toolResult = resolve; });
+    event({ kind: "tool-call", botId: "bot", threadId: "thread", requestId: "tool-request", name: "agents_team_post", arguments: { text: "Ready" } });
+    const card = await ask;
+    expect(tools.execute).not.toHaveBeenCalled();
+    expect(await instance.adapter.respondToRequest("thread", card.requestId!, { behavior: "deny" })).toBe("rejected");
+    expect((await response).value).toMatchObject({ ok: false });
+    expect(tools.execute).not.toHaveBeenCalled();
+  });
+
+  it("executes an approved tool once through the same source-bound connection", async () => {
+    const instance = await fixture();
+    let finishAsk!: (event: RuntimeEvent) => void;
+    const ask = new Promise<RuntimeEvent>((resolve) => { finishAsk = resolve; });
+    instance.adapter.onEvent((event) => { if (event.type === "request.opened") finishAsk(event); });
+    await instance.adapter.sendTurn(turn);
+    const response = new Promise<Record<string, unknown>>((resolve) => { toolResult = resolve; });
+    event({ kind: "tool-call", botId: "neighbor", threadId: "thread", requestId: "wrong", name: "agents_team_post", arguments: {} });
+    expect(tools.validate).not.toHaveBeenCalled();
+    event({ kind: "tool-call", botId: "bot", threadId: "thread", requestId: "right", name: "agents_team_post", arguments: { text: "Ready" } });
+    const card = await ask;
+    await instance.adapter.respondToRequest("thread", card.requestId!, { behavior: "allow" });
+    expect((await response).value).toMatchObject({ ok: true });
+    expect(tools.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes provider approvals back to the exact request and preserves continuation identity", async () => {
+    const instance = await fixture();
+    await instance.adapter.sendTurn({ ...turn, resumeCursor: "j1-shared:bot:thread" });
+    expect(calls.find((call) => call.action === "start")).toMatchObject({ sharedContinuation: true });
+    runtime("request.opened", { requestType: "command", detail: "Run the command" }, { requestId: "approval" });
+    await instance.adapter.respondToRequest("thread", "approval", { behavior: "deny" });
+    expect(calls.at(-1)).toMatchObject({ action: "respond", botId: "bot", threadId: "thread", requestId: "approval", decision: "decline" });
+    await instance.adapter.interruptTurn("thread");
+    expect(calls.at(-1)).toMatchObject({ action: "interrupt", botId: "bot", threadId: "thread" });
+  });
+
+  it("refuses unsupported guest/custom/native restrictions before launching a shared turn", async () => {
+    const instance = await fixture();
+    await expect(instance.adapter.sendTurn({ ...turn, guestConfined: true })).rejects.toThrow("guest");
+    await expect(instance.adapter.sendTurn({ ...turn, approvalMode: "custom" })).rejects.toThrow("permission");
+    await expect(instance.adapter.sendTurn({ ...turn, toolScope: { deny: ["native:Shell"] } })).rejects.toThrow("restrictions");
+    expect(calls.some((call) => call.action === "start")).toBe(false);
+  });
+
+  it("cancels the original native tool immediately when interrupted", async () => {
+    const instance = await fixture();
+    let started!: (signal: AbortSignal) => void;
+    const running = new Promise<AbortSignal>(resolve => { started = resolve; });
+    tools.execute.mockImplementationOnce(async (...args: unknown[]) => {
+      const signal = args[2] as AbortSignal;
+      started(signal);
+      await new Promise<void>(resolve => signal.addEventListener("abort", () => resolve(), { once: true }));
+      return { ok: false, text: "Cancelled" };
+    });
+    await instance.adapter.sendTurn({ ...turn, approvalMode: "full" });
+    event({ kind: "tool-call", botId: "bot", threadId: "thread", requestId: "cancelled", name: "agents_team_post", arguments: {} });
+    const signal = await running;
+    await instance.adapter.interruptTurn("thread");
+    expect(signal.aborted).toBe(true);
+  });
+
+  it("round-trips provider/model ids without confusing punctuation with another account", () => {
+    expect(decodeSharedModel(encodeSharedModel("account:2", "provider/model:version"))).toEqual({ instanceId: "account:2", model: "provider/model:version" });
+    expect(() => decodeSharedModel("legacy-model")).toThrow("account");
+  });
+
+  it("shows startup and provider failures in the bot conversation instead of ending with an empty answer", async () => {
+    const instance = await fixture();
+    const events: RuntimeEvent[] = [];
+    instance.adapter.onEvent((event) => events.push(event));
+    await instance.adapter.sendTurn(turn);
+    runtime("turn.completed", { state: "failed", errorMessage: "CLI unavailable" });
+    expect(events).toEqual(expect.arrayContaining([expect.objectContaining({ type: "runtime.error", message: "CLI unavailable" }), expect.objectContaining({ type: "turn.completed", ok: false })]));
+    expect(instance.adapter.hasSession("thread")).toBe(false);
+    await instance.adapter.sendTurn(turn);
+    runtime("session.exited", { reason: "CLI crashed" });
+    expect(instance.adapter.hasSession("thread")).toBe(false);
+    expect(events.at(-1)).toMatchObject({ type: "turn.completed", ok: false });
+  });
+});
