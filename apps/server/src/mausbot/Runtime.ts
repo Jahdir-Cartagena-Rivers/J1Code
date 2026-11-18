@@ -67,6 +67,8 @@ function object(value: unknown): value is Record<string, unknown> {
 }
 
 /** Owns only its captured child and a J1-local data directory, never the installed Mausbot profile. */
+export const MAUSBOT_REQUEST_BODY_LIMIT = 32 * 1024 * 1024;
+
 export class MausbotRuntime {
   private readonly options: MausbotRuntimeOptions;
   private child: NodeChildProcess.ChildProcess | undefined;
@@ -631,7 +633,7 @@ export class MausbotRuntime {
       throw new Error("This runtime authentication route is private to J1.");
     if ((method === "GET" || method === "HEAD") && body?.byteLength)
       throw new Error("Read requests cannot contain a body.");
-    if ((body?.byteLength ?? 0) > 32 * 1024 * 1024)
+    if ((body?.byteLength ?? 0) > MAUSBOT_REQUEST_BODY_LIMIT)
       throw new Error("Runtime upload exceeded 32 MiB.");
     if (!this.origin || !this.token) throw new Error("The Mausbot runtime is not running.");
     const origin = this.origin;

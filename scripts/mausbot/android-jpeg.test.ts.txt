@@ -1,0 +1,39 @@
+﻿import { describe, expect, it, vi } from "vitest";
+import { imageAttachmentFromFile, intakeFiles } from "./composer-attachments";
+
+describe("Android picker JPEGs", () => {
+  it.each(["", "application/octet-stream", "image/jpg", "image/pjpeg", "image/jpeg"])(
+    "uploads JPEGs reported as %j with canonical MIME",
+    async (type) => {
+      const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({
+        path: "/private/attachments/upload.jpg", mime: "image/jpeg", bytes: 4,
+      }));
+      try {
+        const file = new File([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], "Screenshot.JPG", { type });
+        const result = await intakeFiles([file], {
+          allowImages: true, getPath: () => "", uploadImage: imageAttachmentFromFile,
+        });
+        expect(result.problems).toEqual([]);
+        expect(result.attachments).toEqual([
+          expect.objectContaining({ kind: "image", name: "Screenshot.jpg", mime: "image/jpeg" }),
+        ]);
+        expect(fetch).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+          headers: { "content-type": "image/jpeg" },
+        }));
+      } finally {
+        fetch.mockRestore();
+      }
+    },
+  );
+
+  it("rejects a generic file with a misleading JPEG extension before uploading", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch");
+    try {
+      const file = new File(["not a JPEG"], "Screenshot.jpg", { type: "application/octet-stream" });
+      await expect(imageAttachmentFromFile(file)).rejects.toThrow("JPEG image");
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+});

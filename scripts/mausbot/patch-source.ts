@@ -33,6 +33,58 @@ export async function patchMausbotSource(stage: string) {
   };
   const copy = (from: string, to: string) =>
     NodeFSP.copyFile(NodePath.join(root, from), NodePath.join(stage, to));
+  await change(
+    "src/lib/composer-attachments.ts",
+    `export function isImageFile(file: { type: string; size?: number }): boolean {
+  return (
+    file.type.startsWith("image/") &&
+    ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(file.type.split(";")[0]!.trim().toLowerCase())
+  );
+}`,
+    `function attachmentImageMime(file: { type: string; name?: string }): string | null {
+  const mime = file.type.split(";", 1)[0]!.trim().toLowerCase();
+  if (["image/png", "image/jpeg", "image/gif", "image/webp"].includes(mime)) return mime;
+  if (mime === "image/jpg" || mime === "image/pjpeg") return "image/jpeg";
+  // Android file providers can return an empty or generic MIME for screenshots.
+  if ((mime === "" || mime === "application/octet-stream") && /\\.jpe?g$/i.test(file.name ?? "")) {
+    return "image/jpeg";
+  }
+  return null;
+}
+
+export function isImageFile(file: { type: string; name?: string; size?: number }): boolean {
+  return attachmentImageMime(file) !== null;
+}`,
+  );
+  await change(
+    "src/lib/composer-attachments.ts",
+    `  if (!isImageFile(file)) return null;
+  if (file.size > IMAGE_MAX_BYTES) throw new AttachError(file.name, IMAGE_MAX_BYTES);
+  const mime = file.type.split(";", 1)[0]!.trim().toLowerCase();`,
+    `  const mime = attachmentImageMime(file);
+  if (!mime) return null;
+  if (file.size > IMAGE_MAX_BYTES) throw new AttachError(file.name, IMAGE_MAX_BYTES);`,
+  );
+  await change(
+    "src/lib/composer-attachments.ts",
+    `  if (!isImageFile(file)) return null;
+  if (file.size > IMAGE_MAX_BYTES) throw new AttachError(file.name, IMAGE_MAX_BYTES);
+  const bytes = new Uint8Array(await file.arrayBuffer());`,
+    `  const mime = attachmentImageMime(file);
+  if (!mime) return null;
+  if (file.size > IMAGE_MAX_BYTES) throw new AttachError(file.name, IMAGE_MAX_BYTES);
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (mime === "image/jpeg" && file.type.split(";", 1)[0]!.trim().toLowerCase() !== mime &&
+      (bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff)) {
+    throw new Error("The selected file is not a JPEG image.");
+  }`,
+  );
+  await change(
+    "src/lib/composer-attachments.ts",
+    'headers: { "content-type": file.type },',
+    'headers: { "content-type": mime },',
+  );
+  await copy("scripts/mausbot/android-jpeg.test.ts.txt", "src/lib/j1-android-jpeg.test.ts");
   await NodeFSP.mkdir(NodePath.join(stage, "server/j1"), { recursive: true });
   await copy(
     "apps/server/src/provider/AuthorizationInstructions.ts",

@@ -212,7 +212,7 @@ const config: ExpoConfig = {
   platforms: ["ios", "android"],
   // Keep historical deep links valid while J1 owns newly generated links.
   scheme: [...variant.scheme],
-  version: "1.3.1",
+  version: "1.3.2",
   runtimeVersion: {
     // Development manifests resolve on every launch, so avoid fingerprint's
     // expensive native-project calculation there. Preview and production stay
@@ -269,6 +269,7 @@ const config: ExpoConfig = {
   android: {
     icon: variant.assets.appIcon,
     package: variant.androidPackage,
+    ...(APP_VARIANT === "development" ? { versionCode: 2 } : {}),
     ...(repoEnv.T3CODE_ANDROID_GOOGLE_SERVICES_FILE
       ? { googleServicesFile: repoEnv.T3CODE_ANDROID_GOOGLE_SERVICES_FILE }
       : {}),

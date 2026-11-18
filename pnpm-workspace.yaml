@@ -109,6 +109,10 @@ minimumReleaseAgeExclude:
   - "@earendil-works/pi-tui@1.5.1"
 
 overrides:
+  # Security fixes for locked transitive dependencies.
+  seroval: 1.6.2
+  proxy-addr: 2.0.8
+  shell-quote: 1.11.0
   # Keep jsdom's optional peer consistent so Vite+ has one test-runner instance.
   "@exodus/bytes>@noble/hashes": "1.8.0"
   # Earlier React Navigation declarations create a circular type alias in TypeScript 7.

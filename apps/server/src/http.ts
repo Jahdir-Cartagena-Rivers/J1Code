@@ -7,6 +7,7 @@ import {
 } from "@j1code/contracts";
 import { isDevProxiedPath } from "@j1code/shared/devProxy";
 import { decodeOtlpTraceRecords } from "@j1code/shared/observability";
+import * as ByteSize from "effect/ByteSize";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -29,6 +30,7 @@ import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 import { OtlpTracer, OtlpSerialization } from "effect/unstable/observability";
 
 import * as ServerConfig from "./config.ts";
+import { MAUSBOT_REQUEST_BODY_LIMIT } from "./mausbot/Runtime.ts";
 import { MausbotService } from "./mausbot/Service.ts";
 import { ASSET_ROUTE_PREFIX, resolveAsset } from "./assets/AssetAccess.ts";
 import { githubMediaResponse } from "./assets/GitHubMediaFetch.ts";
@@ -326,9 +328,19 @@ export const mausbotRouteLayer = Layer.unwrap(
           return HttpServerResponse.empty({ status: 204 });
         }
         if (!view) return HttpServerResponse.empty({ status: 404 });
-        const bytes = ["GET", "HEAD"].includes(request.method)
-          ? undefined
-          : new Uint8Array(yield* request.arrayBuffer);
+        let bytes: Uint8Array | undefined;
+        if (request.method !== "GET" && request.method !== "HEAD") {
+          if (Number(request.headers["content-length"]) > MAUSBOT_REQUEST_BODY_LIMIT) {
+            return HttpServerResponse.text("Runtime upload exceeded 32 MiB.", { status: 413 });
+          }
+          const body = yield* request.arrayBuffer.pipe(
+            Effect.provideService(
+              HttpServerRequest.MaxBodySize,
+              ByteSize.bytes(MAUSBOT_REQUEST_BODY_LIMIT),
+            ),
+          );
+          bytes = new Uint8Array(body);
+        }
         return yield* runtime
           .forward(
             view[2]! + url.search,
