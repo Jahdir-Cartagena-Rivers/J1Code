@@ -11,3 +11,11 @@ html[data-j1-view] [data-tour="composer"] textarea { min-height:4.5rem; font-siz
 html[data-j1-view] .chat-text { overflow-wrap:anywhere; }
 /* Avoid losing another fixed 82px after the transcript gutters on small panes. */
 html[data-j1-view] { --chat-bubble-pct:92%; --chat-bubble-gutter:1rem; }
+/* On phones, metadata belongs below the text instead of shrinking it in the same row. */
+@media (max-width: 767.98px) {
+  html[data-j1-view] [data-message-row] > div:first-child { flex-wrap:wrap; }
+  html[data-j1-view] [data-message-row] [data-chat-bubble] { order:0; flex-shrink:0; min-width:0; }
+  html[data-j1-view] [data-message-row] > div:first-child > :is([data-testid="message-actions"], span) { order:1; }
+  html[data-j1-view] [data-message-row] > div:first-child::after { content:""; order:0; flex-basis:100%; }
+  html[data-j1-view] main { min-height:0; }
+}
