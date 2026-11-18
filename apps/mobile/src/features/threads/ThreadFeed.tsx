@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { parseProjectChatLink } from "@j1code/shared/projectChatLinks";
 import {
   WorktreeWorkingHeader,
@@ -2799,6 +2800,11 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           {info.item.type === "message" &&
           (info.item.message.role === "user" || info.item.message.role === "assistant")
             ? props.renderRouteRequests?.(info.item.message.id)
+            : null}
+          {info.item.type === "turn-fold" && !info.item.expanded
+            ? info.item.hiddenMessageIds?.map((id) => (
+                <Fragment key={id}>{props.renderRouteRequests?.(id)}</Fragment>
+              ))
             : null}
           {props.worktreeSetup && info.index === setupAnchorIndex ? (
             <WorktreeSetupCard key={props.threadId} {...props.worktreeSetup} />

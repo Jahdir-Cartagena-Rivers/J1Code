@@ -178,6 +178,7 @@ export type ThreadFeedEntry =
     }
   | {
       readonly type: "turn-fold";
+      readonly hiddenMessageIds?: readonly string[];
       readonly id: string;
       readonly createdAt: string;
       readonly turnId: TurnId;
@@ -1816,13 +1817,17 @@ export function deriveThreadFeedPresentation(
     const fold = foldsByAnchorId.get(entry.id);
     if (fold) {
       const expanded = expandedTurnIds.has(fold.turnId);
+      const hiddenMessageIds = sourceFeed.flatMap((item) =>
+        item.type === "message" && fold.hiddenEntryIds.has(item.id) ? [item.message.id] : [],
+      );
       let row = turnFoldRowsCache.get(entry);
       if (
         !row ||
         row.turnId !== fold.turnId ||
         row.createdAt !== fold.createdAt ||
         row.label !== fold.label ||
-        row.expanded !== expanded
+        row.expanded !== expanded ||
+        (row.hiddenMessageIds ?? []).join("\0") !== hiddenMessageIds.join("\0")
       ) {
         row = {
           type: "turn-fold",
@@ -1830,6 +1835,7 @@ export function deriveThreadFeedPresentation(
           createdAt: fold.createdAt,
           turnId: fold.turnId,
           label: fold.label,
+          hiddenMessageIds,
           expanded,
         };
         turnFoldRowsCache.set(entry, row);

@@ -393,6 +393,7 @@ export type MessagesTimelineRow =
     }
   | {
       kind: "turn-fold";
+      hiddenMessageIds?: readonly string[];
       id: string;
       createdAt: string;
       turnId: TurnId;
@@ -1148,6 +1149,11 @@ export function deriveMessagesTimelineRows(input: {
         createdAt: anchoredTurnFold.createdAt,
         turnId: anchoredTurnFold.turnId,
         label: anchoredTurnFold.label,
+        hiddenMessageIds: input.timelineEntries.flatMap((entry) =>
+          entry.kind === "message" && anchoredTurnFold.hiddenEntryIds.has(entry.id)
+            ? [entry.message.id]
+            : [],
+        ),
         expanded: input.expandedTurnIds?.has(anchoredTurnFold.turnId) ?? false,
       });
     }
@@ -1627,7 +1633,12 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
 
     case "turn-fold": {
       const bf = b as typeof a;
-      return a.createdAt === bf.createdAt && a.label === bf.label && a.expanded === bf.expanded;
+      return (
+        a.createdAt === bf.createdAt &&
+        a.label === bf.label &&
+        a.expanded === bf.expanded &&
+        (a.hiddenMessageIds ?? []).join("\0") === (bf.hiddenMessageIds ?? []).join("\0")
+      );
     }
 
     case "context-compaction": {
