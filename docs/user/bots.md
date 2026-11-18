@@ -14,4 +14,4 @@ Choose **J1 shared providers** in a bot's model picker to use the same configure
 
 In the bot's Identity settings, **J1 project for this thread** attaches a project’s folder, instructions, files and memory to that bot thread. Each thread keeps its own project. Start a new thread to work on another project after a session has begun.
 
-To combine the J1 Project Builder with the engineering department, open its Identity settings and choose **Set up engineering team**. Its saved identity and conversations become Ada’s lead role. Lin, Pixel, Rigel and an Engineering Room are added once. Head Admin stays the general manager; you can give engineering work directly to the department.
+In a bot's Identity settings, choose **Set up engineering team** to keep the existing bot and its conversations while adding backend, client, and QA roles and a shared team room.
