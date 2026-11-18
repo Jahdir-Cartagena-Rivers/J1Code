@@ -643,10 +643,12 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
     'import { useEffect, useRef, useState } from "react";',
     'import { useEffect, useRef, useState } from "react";\nimport { useJ1Navigation, j1Post } from "./J1Navigation";',
   );
+  // J1's original sidebar updater owns the bundled app. Do not offer a
+  // second menu shortcut or enable the standalone bot updater in merged mode.
   await change(
     "src/components/SidebarProfileMenu.tsx",
     "  const serverUpdate = useServerUpdateItem(!window.ogb?.updater);\n  const update = desktopUpdate ?? serverUpdate;",
-    '  const j1Navigation = useJ1Navigation();\n  const serverUpdate = useServerUpdateItem(!window.ogb?.updater && !j1Navigation);\n  const update: UpdateEntry | null = j1Navigation ? { phase: "idle", pending: false, label: "J1 Code updates", item: { key: "update", label: "J1 Code updates", icon: <RefreshCw size={14} />, onSelect: () => j1Post({ type: "settings-navigate", path: "/settings/general", hash: "about" }) } } : desktopUpdate ?? serverUpdate;',
+    "  const j1Navigation = useJ1Navigation();\n  const serverUpdate = useServerUpdateItem(!window.ogb?.updater && !j1Navigation);\n  const update = j1Navigation ? null : desktopUpdate ?? serverUpdate;",
   );
   await change(
     "src/components/SettingsModal.tsx",

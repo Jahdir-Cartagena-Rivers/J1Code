@@ -1744,11 +1744,12 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "turn-fold" ? <TurnFoldTimelineRow row={row} /> : null}
       {row.kind === "context-compaction" ? <ContextCompactionTimelineRow row={row} /> : null}
       {row.kind === "message" && row.message.role === "user" ? <UserTimelineRow row={row} /> : null}
-      {row.kind === "message" && row.message.role === "user" ? (
-        <RouteRequestAnchor messageId={row.message.id} />
-      ) : null}
       {row.kind === "message" && row.message.role === "assistant" ? (
         <AssistantTimelineRow row={row} />
+      ) : null}
+      {row.kind === "message" &&
+      (row.message.role === "user" || row.message.role === "assistant") ? (
+        <RouteRequestAnchor messageId={row.message.id} />
       ) : null}
       {row.kind === "message" && row.message.role === "reasoning" ? (
         <ReasoningTimelineRow row={row} />

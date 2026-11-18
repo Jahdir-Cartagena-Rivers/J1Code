@@ -204,7 +204,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu({
         </>
       )}
       <SidebarHistoryRefresh />
-      {!embedded && <SidebarUpdatePill />}
+      <SidebarUpdatePill />
     </SidebarMenu>
   );
 });

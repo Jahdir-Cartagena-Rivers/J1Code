@@ -193,6 +193,7 @@ it("keeps unavailable destination proposals disabled while retaining their link"
 it("keeps cards in the original message row as receipts and later messages arrive", async () => {
   const messages = [
     { id: "original", role: "user", createdAt: "2026-11-04T10:00:00Z" },
+    { id: "handoff", role: "assistant", createdAt: "2026-11-04T10:00:30Z" },
     { id: "followup", role: "user", createdAt: "2026-11-04T11:00:00Z" },
   ];
   const first = {
@@ -212,16 +213,19 @@ it("keeps cards in the original message row as receipts and later messages arriv
       {(render) => (
         <>
           <article data-anchor="original">{render("original")}</article>
+          <article data-anchor="handoff">{render("handoff")}</article>
           <article data-anchor="followup">{render("followup")}</article>
         </>
       )}
     </RouteRequestControl>
   );
   await act(async () => root.render(mount(1)));
-  expect(container.querySelector('[data-anchor="original"]')?.textContent).toContain(
+  expect(container.querySelector('[data-anchor="handoff"]')?.textContent).toContain(
     "Approve and send",
   );
   expect(container.querySelector('[data-anchor="followup"]')?.textContent).toBe("");
+  expect(container.querySelector('[data-anchor="original"]')?.textContent).toBe("");
+  expect(container.querySelectorAll("[data-route-request-id]")).toHaveLength(1);
   expect(commands.list).toHaveBeenCalledTimes(1);
   commands.list.mockResolvedValue({
     _tag: "Success",
@@ -235,7 +239,7 @@ it("keeps cards in the original message row as receipts and later messages arriv
     ],
   });
   await act(async () => root.render(mount(2)));
-  expect(container.querySelector('[data-anchor="original"]')?.textContent).toContain("Completed");
+  expect(container.querySelector('[data-anchor="handoff"]')?.textContent).toContain("Completed");
   expect(container.querySelector('[data-anchor="followup"]')?.textContent).toBe("");
   expect(commands.prepare).not.toHaveBeenCalled();
 });

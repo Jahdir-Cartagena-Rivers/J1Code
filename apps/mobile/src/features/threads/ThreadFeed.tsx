@@ -2796,7 +2796,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             skills: props.skills,
             onUseArtifactTemplate: props.onUseArtifactTemplate,
           })}
-          {info.item.type === "message" && info.item.message.role === "user"
+          {info.item.type === "message" &&
+          (info.item.message.role === "user" || info.item.message.role === "assistant")
             ? props.renderRouteRequests?.(info.item.message.id)
             : null}
           {props.worktreeSetup && info.index === setupAnchorIndex ? (

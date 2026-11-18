@@ -12,13 +12,13 @@ it("anchors to the source turn and ignores later receipts or followups", () => {
     createdAt: "2026-11-04T10:02:00Z",
     payload: { requestId: "r" },
   };
-  expect(routeRequestAnchors([request], messages, [notice]).get("r")).toBe("first");
+  expect(routeRequestAnchors([request], messages, [notice]).get("r")).toBe("reply");
   expect(
     routeRequestAnchors([request], messages, [
       { ...notice, createdAt: "2026-11-04T11:02:00Z" },
       notice,
     ]).get("r"),
-  ).toBe("first");
+  ).toBe("reply");
 });
 it("does not attach older cards to an unrelated paginated message", () => {
   expect(
@@ -41,7 +41,7 @@ it("matches legacy request text and preserves records without notices", () => {
   expect(routeRequestAnchors([{ requestId: "legacy", summary }], users, []).get("legacy")).toBe(
     "legacy",
   );
-  expect(routeRequestAnchors([{ requestId: "unknown" }], users, []).get("unknown")).toBe("first");
+  expect(routeRequestAnchors([{ requestId: "unknown" }], users, []).get("unknown")).toBe("reply");
   expect(routeRequestAnchors([{ requestId: "empty" }], [], []).size).toBe(0);
 });
 
@@ -55,5 +55,38 @@ it("does not move a card to a later followup quoting its summary", () => {
     routeRequestAnchors([{ requestId: "r", summary }], later, [
       { kind: "routing.updated", createdAt: "2026-11-04T10:02:00Z", payload: { requestId: "r" } },
     ]).get("r"),
+  ).toBe("reply");
+});
+
+it("places each handoff after its commentary and never moves on completion", () => {
+  const history = [
+    ...messages,
+    { id: "handoff", role: "assistant", createdAt: "2026-11-04T10:01:30Z" },
+    { id: "result", role: "assistant", createdAt: "2026-11-04T10:03:00Z" },
+  ];
+  const notice = {
+    kind: "routing.updated",
+    createdAt: "2026-11-04T10:02:00Z",
+    payload: { requestId: "r" },
+  };
+  const completed = { ...notice, createdAt: "2026-11-04T11:30:00Z" };
+  expect(routeRequestAnchors([{ requestId: "r" }], history, [completed, notice]).get("r")).toBe(
+    "handoff",
+  );
+});
+
+it("uses the first reply when the route precedes commentary without leaking to another turn", () => {
+  const notice = {
+    kind: "routing.updated",
+    createdAt: "2026-11-04T10:00:30Z",
+    payload: { requestId: "r" },
+  };
+  expect(routeRequestAnchors([{ requestId: "r" }], messages, [notice]).get("r")).toBe("reply");
+  expect(
+    routeRequestAnchors(
+      [{ requestId: "r" }],
+      messages.filter((m) => m.id !== "reply"),
+      [notice],
+    ).get("r"),
   ).toBe("first");
 });

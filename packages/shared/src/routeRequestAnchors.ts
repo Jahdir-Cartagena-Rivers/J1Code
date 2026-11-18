@@ -46,7 +46,22 @@ export function routeRequestAnchors(
         : undefined;
     const message =
       exact ?? (time ? users.findLast((message) => message.createdAt <= time) : users[0]);
-    if (message) anchors.set(request.requestId, message.id);
+    if (!message) continue;
+    const nextUser = users.find((user) => user.createdAt > message.createdAt);
+    const replies = messages
+      .filter(
+        (reply) =>
+          reply.role === "assistant" &&
+          reply.createdAt >= message.createdAt &&
+          (!nextUser || reply.createdAt < nextUser.createdAt),
+      )
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    // Keep the receipt with the handoff commentary, rather than above the
+    // entire assistant turn. Legacy records stay in their original turn.
+    const reply = time
+      ? (replies.findLast((reply) => reply.createdAt <= time) ?? replies[0])
+      : replies[0];
+    anchors.set(request.requestId, reply?.id ?? message.id);
   }
   return anchors;
 }
