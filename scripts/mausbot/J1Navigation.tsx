@@ -191,7 +191,7 @@ export function J1ShellBridge() {
         ),
         overlays: [
           ...document.querySelectorAll(
-            '[role="menu"], [role="listbox"], [data-thread-overlay], [data-bot-menu], [data-j1-sidebar-overlay]',
+            '[role="menu"], [role="listbox"], [aria-modal="true"], [data-thread-overlay], [data-bot-menu], [data-j1-sidebar-overlay]',
           ),
         ]
           .map((node) => {
