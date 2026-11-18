@@ -68,6 +68,16 @@ export async function stageMausbot(
       return execute(corepack, ["pnpm", ...args], stage);
     };
     await pnpm(["install", "--frozen-lockfile", "--ignore-scripts", "--filter", "openmausbot"]);
+    await pnpm([
+      "exec",
+      "vitest",
+      "run",
+      "server/drivers/j1-shared.test.ts",
+      "server/j1-shared-selection.test.ts",
+      "server/j1-shared-store.test.ts",
+      "server/j1-shared-project-routes.test.ts",
+      "server/j1-engineering.test.ts",
+    ]);
     await pnpm(["exec", "vite", "build", "--base=./"]);
     await execute(process.execPath, ["scripts/bundle-server.mjs"], stage);
     if (platform === "win32")

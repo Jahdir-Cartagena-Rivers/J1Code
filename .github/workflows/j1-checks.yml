@@ -47,6 +47,14 @@ jobs:
           apps/mobile/src/features/threads/threadListV2.test.ts
       - name: Test release versioning and publication failures
         run: node --test .github/scripts/j1-release.test.cjs
+      - name: Test shared bot execution and interrupted Codex update recovery
+        run: >-
+          vp test run apps/server/src/mausbot/Execution.test.ts
+          apps/server/src/mausbot/ExecutionAccounts.test.ts
+          apps/server/src/mcp/McpInvocationContext.test.ts
+          apps/server/src/mcp/toolkits/bot/handlers.test.ts
+          apps/server/src/provider/codexNpmRecovery.test.ts
+          apps/server/src/provider/providerMaintenanceRunner.test.ts
       - name: Test paired bot access and offline server transfers
         run: >-
           vp test run apps/server/src/auth/RpcAuthorization.test.ts
