@@ -8,8 +8,8 @@ import { patchMobileShell } from "./patch-mobile-shell.ts";
 import { patchLegacySettingsWindow, patchSettingsWindow } from "./patch-settings-window.ts";
 import { patchSharedExecution } from "./patch-shared-execution.ts";
 
-export const MAUSBOT_SOURCE = "d818c28aa80686dc1d7db64ebeffa2a9dc468762";
 const MAUSBOT_V0182 = "140172d88382a97e1c3420d55f3df8ba472a9cfe";
+export const MAUSBOT_SOURCE = MAUSBOT_V0182;
 const root = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "../..");
 
 /** Applies only to our disposable, pinned OSS assembly; never edits the reference checkout. */
