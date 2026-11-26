@@ -21,7 +21,11 @@ import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { useTheme } from "~/hooks/useTheme";
 import { useWorkspaceMutationRefresh } from "~/hooks/useWorkspaceMutationRefresh";
-import { useFileContextMenu, type FileContextMenuAction } from "~/fileContextMenu";
+import {
+  resolveFileContextMenuAbsolutePath,
+  useFileContextMenu,
+  type FileContextMenuAction,
+} from "~/fileContextMenu";
 import { readLocalApi } from "~/localApi";
 import { T3_PIERRE_ICONS } from "~/pierre-icons";
 import { PIERRE_TREE_UNSAFE_CSS, pierreTreeStyle } from "~/pierre-tree-theme";
@@ -206,12 +210,14 @@ export default function FileBrowserPanel({
         : { x: anchorRect.left, y: anchorRect.bottom };
       const fileTarget = { environmentId, filePath: relativePath, workspaceRoot: cwd };
       const fileMenuItems = fileContextMenu.buildItems(fileTarget);
+      const absolutePath = resolveFileContextMenuAbsolutePath(fileTarget);
       // The app menu owns focus; the tree's outside-click handler would dismiss it before click.
       context.close({ restoreFocus: !pointerIsFresh });
       void settlePromise(async () => {
         const clicked = await api.contextMenu.show(
           [
             ...fileMenuItems,
+            ...(absolutePath ? [{ id: "copy-path", label: "Copy full path" }] : []),
             { id: "copy-mention", label: "Copy mention" },
             { id: "add-to-chat", label: "Add to chat" },
           ],
@@ -225,13 +231,15 @@ export default function FileBrowserPanel({
           await fileContextMenu.activate(clicked as FileContextMenuAction, fileTarget);
           return;
         }
-        if (clicked === "copy-mention") {
+        const clipboardText =
+          clicked === "copy-path" ? absolutePath : clicked === "copy-mention" ? mention : null;
+        if (clipboardText !== null) {
           try {
-            await writeTextToClipboard(mention);
+            await writeTextToClipboard(clipboardText);
           } catch (error) {
             toastManager.add({
               type: "error",
-              title: "Failed to copy mention",
+              title: clicked === "copy-path" ? "Failed to copy path" : "Failed to copy mention",
               description: error instanceof Error ? error.message : "An error occurred.",
             });
           }
