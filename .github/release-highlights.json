@@ -1,0 +1,10 @@
+{
+  "since": "v1.96.0",
+  "highlights": [
+    "Use bots, project chats, saved worker chats, and team coordination in one workspace.",
+    "Continue engineering work across conversations with shared execution and clearer handoffs.",
+    "Recover from interrupted Codex updates while keeping the previous working installation available.",
+    "Improve first-run setup and keep saved settings links and worker chat controls working.",
+    "Improve Android bot image uploads and the shared compact workspace."
+  ]
+}

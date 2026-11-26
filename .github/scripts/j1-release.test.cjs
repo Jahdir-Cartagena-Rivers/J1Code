@@ -13,12 +13,18 @@ const {
   artifactNames,
   validateArtifacts,
   assertPublishable,
-  publishRelease,
+  publishRelease: publish,
+  readReleaseHighlights,
+  validateReleaseNotes,
+  validatePublicText,
 } = require("./j1-release.cjs");
 
 const version = "1.11.0";
 const sha = "a".repeat(40);
 const repository = "example/J1Code";
+const highlights = ["Updates remain available after reconnecting."];
+const initial = { since: null, highlights };
+const publishRelease = (...args) => publish(...args, initial);
 
 function releaseView(release) {
   if (!release) {
@@ -32,6 +38,7 @@ function releaseView(release) {
     isPrerelease: release.prerelease,
     assets: release.assets,
     url: release.html_url,
+    body: release.body,
   });
 }
 
@@ -78,73 +85,67 @@ test("titles use only J1 versions while historical tags and filenames remain com
   assert.throws(() => artifactNames("../1.23.0"));
 });
 
-test("changelogs compare with the previous published J1 version across the migration", () => {
+test("curated notes retain attribution and migrated comparison links without exposing commit subjects", () => {
   const releases = [
-    { tag_name: "v1.24.0", draft: true },
-    { tag_name: "v1.23.0" },
-    { tag_name: "j1-code-0.0.44-j1.22" },
-    { tag_name: "v1.99.0", prerelease: true },
-    { tag_name: "unrelated" },
-    { tag_name: "j1-code-0.0.44-j1.9" },
+    { tag_name: "v1.24.0", draft: true }, { tag_name: "v1.23.0" },
+    { tag_name: "j1-code-0.0.44-j1.22" }, { tag_name: "v1.99.0", prerelease: true },
+    { tag_name: "unrelated" }, { tag_name: "j1-code-0.0.44-j1.9" },
   ];
   assert.equal(previousReleaseTag(releases, "1.23.0"), "j1-code-0.0.44-j1.22");
   assert.equal(previousReleaseTag(releases, "1.24.0"), "v1.23.0");
-  assert.equal(previousReleaseTag(releases, "0.0.44-j1.22"), "j1-code-0.0.44-j1.9");
-  const calls = [];
-  const fakeGh = (args) => {
-    calls.push(args);
-    if (args[1].includes("/releases?")) return JSON.stringify([releases]);
-    return JSON.stringify([
-      {
-        status: "ahead",
-        commits: [
-          {
-            sha,
-            commit: { message: "fix: preserve updates\n\nDetails" },
-            author: { login: "maintainer" },
-          },
-        ],
-      },
-    ]);
-  };
-  const notes = releaseNotes(repository, "1.23.0", sha, fakeGh);
-  assert.match(
-    notes,
-    /## What's Changed\n\n\* fix: preserve updates by @maintainer in \[aaaaaaa\]/,
-  );
+  const curated = { since: "j1-code-0.0.44-j1.22", highlights };
+  const fakeGh = (args) => args[1].includes("/releases?") ? JSON.stringify([releases]) : JSON.stringify([
+    { status: "ahead", commits: [
+      { sha, commit: { message: "test: private local worktree verification" }, author: { login: "maintainer" } },
+      { sha: "b".repeat(40), commit: { message: "ci: internal-only" }, author: { login: "dependabot[bot]" } },
+    ] },
+  ]);
+  const notes = releaseNotes(repository, "1.23.0", sha, fakeGh, curated);
+  assert.match(notes, /\* Updates remain available after reconnecting\./);
+  assert.match(notes, /\*\*Contributors\*\*: @maintainer, @dependabot\[bot\]/);
   assert.ok(notes.includes("compare/j1-code-0.0.44-j1.22...v1.23.0"));
-  assert.ok(calls[1][1].includes(`j1-code-0.0.44-j1.22...${sha}`));
-  assert.ok(!notes.includes("Details"));
-  assert.throws(
-    () =>
-      releaseNotes(repository, "1.23.0", sha, (args) =>
-        args[1].includes("/releases?")
-          ? JSON.stringify([releases])
-          : JSON.stringify([{ status: "diverged", commits: [] }]),
-      ),
-    /ancestor/,
-  );
+  assert.ok(!/private|worktree|internal-only/.test(notes));
+  assert.equal(validateReleaseNotes(notes, repository, "1.23.0"), notes);
+  assert.throws(() => releaseNotes(repository, "1.23.0", sha, fakeGh, initial), /previous release/);
+  assert.throws(() => releaseNotes(repository, "1.23.0", sha, (args) => args[1].includes("/releases?")
+    ? JSON.stringify([releases]) : JSON.stringify([{ status: "diverged", commits: [] }]), curated), /ancestor/);
 });
 
-test("describes a build alone when a rewritten history shares no ancestor with the last release", () => {
-  const releases = [{ tag_name: "v1.22.0", draft: false, prerelease: false }];
-  const notes = releaseNotes(repository, "1.23.0", sha, (args) => {
-    if (args[1].includes("/releases?")) return JSON.stringify([releases]);
+test("no-ancestor fallback and network failures keep their distinct behavior", () => {
+  const fakeGh = (args) => {
+    if (args[1].includes("/releases?")) return JSON.stringify([[{ tag_name: "v1.22.0" }]]);
     if (args[1].includes("/compare/")) {
-      const error = new Error("compare failed");
-      error.stderr = "gh: No common ancestor between v1.22.0 and the build. (HTTP 404)";
-      throw error;
+      const error = new Error("compare failed"); error.stderr = "No common ancestor"; throw error;
     }
-    return JSON.stringify({ sha, commit: { message: "feat: after rewrite" }, author: null });
-  });
-  assert.match(notes, /\* feat: after rewrite in \[aaaaaaa\]/);
-  assert.ok(notes.includes(`commits/v1.23.0`));
-  assert.throws(() =>
-    releaseNotes(repository, "1.23.0", sha, (args) => {
-      if (args[1].includes("/releases?")) return JSON.stringify([releases]);
-      throw new Error("network down");
-    }),
-  );
+    return JSON.stringify({ sha, commit: { message: "private subject" }, author: null });
+  };
+  const curated = { since: "v1.22.0", highlights };
+  const notes = releaseNotes(repository, "1.23.0", sha, fakeGh, curated);
+  assert.ok(notes.includes("commits/v1.23.0"));
+  assert.ok(!notes.includes("private subject"));
+  assert.throws(() => releaseNotes(repository, "1.23.0", sha, () => { throw new Error("network down"); }, curated), /network down/);
+});
+
+test("rejects private paths, secrets, rosters and internal narrative without echoing them", () => {
+  for (const text of ["Saved C:\\Users\\Somebody\\private.txt", "Saved C:/Users/Somebody/private.txt", "/home/somebody/data", "file:///etc/private", "\\\\host\\share", "Passed 38 tests", "CI passed", "QA report", "Engineering Room roster", "@TeamLead assigned work", "Verification report", "token=synthetic-secret", "github_pat_" + "x".repeat(30), "Changes\n## Verification"]) {
+    assert.throws(() => validatePublicText(text), (error) => !error.message.includes(text));
+  }
+  assert.equal(validatePublicText("Device approvals remain available after reconnecting."), "Device approvals remain available after reconnecting.");
+});
+
+test("requires explicit nonempty curated input and rejects malformed or extra fields", (t) => {
+  const { directory } = fixture(t); const file = path.join(directory, "highlights.json");
+  for (const value of [{}, { since: null, highlights: [] }, { ...initial, privateReport: "hidden" }, { ...initial, since: "../private" }, { ...initial, highlights: ["CI passed"] }]) {
+    fs.writeFileSync(file, JSON.stringify(value)); assert.throws(() => readReleaseHighlights(file));
+  }
+  fs.writeFileSync(file, JSON.stringify(initial)); assert.deepEqual(readReleaseHighlights(file), initial);
+  assert.throws(() => readReleaseHighlights(file + "-missing"));
+});
+
+test("release body validation rejects appended manual sections, wrong links and forged attribution", () => {
+  const clean = `## What's Changed\n\n* ${highlights[0]}\n\n**Full Changelog**: https://github.com/${repository}/commits/v${version}\n`;
+  for (const body of [clean + "\n## Verification\nPrivate details", clean.replace(highlights[0], "QA passed"), clean.replace(repository, "other/repo"), clean.replace("**Full Changelog**", "**Contributors**: @good [private](file:///tmp/key)\n\n**Full Changelog**")])
+    assert.throws(() => validateReleaseNotes(body, repository, version));
 });
 
 test("validates the complete Windows and matching Linux update set", (t) => {
@@ -238,6 +239,7 @@ test("publishes a complete pending-tag draft and leaves published retries unchan
         draft: true,
         assets: [],
         html_url: "https://example.test/release",
+        body: fs.readFileSync(args[args.indexOf("--notes-file") + 1], "utf8"),
       };
     if (args[1] === "upload")
       release.assets = args
@@ -262,6 +264,10 @@ test("publishes a complete pending-tag draft and leaves published retries unchan
     publishRelease(directory, version, { GITHUB_REPOSITORY: repository, GITHUB_SHA: sha }, fakeGh),
     "https://example.test/release",
   );
+  assert.ok(!calls.some((args) => args[0] === "release" && args[1] !== "view"));
+  release.body += "\n## Verification\nInternal details";
+  calls.length = 0;
+  assert.throws(() => publishRelease(directory, version, { GITHUB_REPOSITORY: repository, GITHUB_SHA: sha }, fakeGh), /changelog/);
   assert.ok(!calls.some((args) => args[0] === "release" && args[1] !== "view"));
 });
 
