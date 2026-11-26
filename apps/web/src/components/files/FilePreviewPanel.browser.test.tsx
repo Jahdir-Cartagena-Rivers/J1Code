@@ -330,6 +330,30 @@ describe("rendered Markdown task saves", () => {
     expect(state.writeFile).not.toHaveBeenCalled();
   });
 
+  it("renders Markdown beyond the initial read without enabling saves", async () => {
+    using _settings = setup();
+    state.assetUrl = {
+      _tag: "Success",
+      url: "/assets/tasks.md",
+      expiresAt: Number.MAX_SAFE_INTEGER,
+    };
+    const fetchOriginal = globalThis.fetch.bind(globalThis);
+    using fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (new URL(url, location.href).pathname === "/assets/tasks.md") {
+        return Promise.resolve(new Response("- [ ] Keep the rest of this file\n\n## Full download\n"));
+      }
+      return fetchOriginal(input, init);
+    });
+    await using screen = await render(markdownPreview(true));
+    await expect.element(screen.getByRole("heading", { name: "Full download" })).toBeVisible();
+    const checkbox = screen.container.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    expect(checkbox.disabled).toBe(true);
+    await act(async () => checkbox.click());
+    expect(state.writeFile).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalled();
+  });
+
   it("still toggles and saves tasks from a complete read", async () => {
     using _settings = setup();
     await using screen = await render(markdownPreview(false));

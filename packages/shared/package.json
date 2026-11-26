@@ -503,6 +503,10 @@
       "types": "./src/markdownFrontmatter.ts",
       "import": "./src/markdownFrontmatter.ts"
     },
+    "./markdownChunks": {
+      "types": "./src/markdownChunks.ts",
+      "import": "./src/markdownChunks.ts"
+    },
     "./markdownTaskList": {
       "types": "./src/markdownTaskList.ts",
       "import": "./src/markdownTaskList.ts"

@@ -97,6 +97,7 @@ import { FileExplorerPane } from "./FileExplorerPane";
 import { FileBreadcrumbs } from "./FileBreadcrumbs";
 import { breadcrumbPathOf, retainedBreadcrumbTrail, trailChildOf } from "./filePath";
 import { FileMarkdownPreview } from "./FileMarkdownPreview";
+import { FULL_TEXT_MAX_BYTES } from "./largeTextProtocol";
 import {
   type FileCommentAnnotationEntry,
   type FileCommentAnnotationGroup,
@@ -1562,7 +1563,7 @@ export default function FilePreviewPanel({
       !isMedia &&
       !renderBrowserFile &&
       file.data?.truncated &&
-      (draft || isMarkdown || isMermaid || isHtml) ? (
+      (draft || (isHostFile && isMarkdown) || isMermaid || isHtml) ? (
         <div className="shrink-0 border-b border-warning/20 bg-warning-surface px-3 py-1.5 text-2xs text-warning-foreground">
           Preview limited to the first 1 MB of a {file.data.byteLength.toLocaleString()} byte file.
         </div>
@@ -1644,7 +1645,7 @@ export default function FilePreviewPanel({
             file.data?.truncated &&
             !isDocument &&
             !draft &&
-            !isMarkdown &&
+            !(isHostFile && isMarkdown) &&
             !isMermaid &&
             !isHtml ? (
             <WorkspaceLargeTextPreview
@@ -1658,6 +1659,11 @@ export default function FilePreviewPanel({
               revealLine={revealLine}
               revealRequestId={revealRequestId}
               wordWrap={wordWrap}
+              markdown={
+                renderMarkdown
+                  ? { cwd, preview: file.data.contents, sizeBytes: file.data.byteLength }
+                  : undefined
+              }
             />
           ) : relativePath &&
             absolutePath &&
@@ -1801,6 +1807,7 @@ export default function FilePreviewPanel({
 }
 
 const LargeTextViewer = lazy(() => import("./LargeTextViewer"));
+const LargeMarkdownFilePreview = lazy(() => import("./LargeMarkdownFilePreview"));
 export function WorkspaceLargeTextPreview(props: {
   environmentId: EnvironmentId;
   threadRef: ScopedThreadRef;
@@ -1811,6 +1818,7 @@ export function WorkspaceLargeTextPreview(props: {
   revealLine: number | null;
   revealRequestId: number;
   wordWrap: boolean;
+  markdown?: { readonly cwd: string; readonly preview: string; readonly sizeBytes: number } | undefined;
 }) {
   const resource = {
     _tag: "media-file",
@@ -1846,19 +1854,51 @@ export function WorkspaceLargeTextPreview(props: {
   if (assetUrl._tag === "Success" && loaded?.revision !== contentRevision) {
     setLoaded({ revision: contentRevision, url: assetUrl.url });
   }
+  const markdownSample = props.markdown && (
+    <ScrollArea className="min-h-0 flex-1" onKeyDown={selectRenderedContentOnSelectAll}>
+      <div className="px-6 pt-3 text-xs text-muted-foreground">Showing the beginning of the file.</div>
+      <FileMarkdownPreview
+        text={props.markdown.preview}
+        cwd={props.markdown.cwd}
+        relativePath={props.name}
+        threadRef={props.threadRef}
+        workspaceMutationId={props.workspaceMutationId}
+      />
+    </ScrollArea>
+  );
   if (assetUrl._tag === "Failure")
     return (
-      <FileSurfaceFailure
-        message="Unable to load file preview."
-        onRetry={() => {
-          setRevision((value) => value + 1);
-          void refreshAssetUrl().catch(showError);
-        }}
-      />
+      <>
+        <FileSurfaceFailure
+          message="Unable to load file preview."
+          onRetry={() => {
+            setRevision((value) => value + 1);
+            void refreshAssetUrl().catch(showError);
+          }}
+        />
+        {markdownSample}
+      </>
     );
   if (assetUrl._tag !== "Success" || loaded === null)
-    return <div className="p-6 text-xs text-muted-foreground">Loading…</div>;
+    return markdownSample ?? <div className="p-6 text-xs text-muted-foreground">Loading…</div>;
   const src = `${loaded.url}${loaded.url.includes("?") ? "&" : "?"}revision=${encodeURIComponent(loaded.revision)}`;
+  const sourceViewer = (
+    <LargeTextViewer
+      key={`${src}:${revision}`}
+      name={props.name}
+      copyContents={copyContents}
+      onRetry={() => {
+        void refreshAssetUrl()
+          .then(() => setRevision((value) => value + 1))
+          .catch(showError);
+      }}
+      src={src}
+      delimiter={props.delimiter}
+      revealLine={props.revealLine}
+      revealRequestId={props.revealRequestId}
+      wordWrap={props.wordWrap}
+    />
+  );
   return (
     <>
       <div className={FILE_SURFACE_SUBHEADER_CLASS}>
@@ -1900,21 +1940,18 @@ export function WorkspaceLargeTextPreview(props: {
         </FileSurfaceAction>
       </div>
       <Suspense fallback={<div className="p-6 text-xs text-muted-foreground">Loading…</div>}>
-        <LargeTextViewer
-          key={`${src}:${revision}`}
-          name={props.name}
-          copyContents={copyContents}
-          onRetry={() => {
-            void refreshAssetUrl()
-              .then(() => setRevision((value) => value + 1))
-              .catch(showError);
-          }}
-          src={src}
-          delimiter={props.delimiter}
-          revealLine={props.revealLine}
-          revealRequestId={props.revealRequestId}
-          wordWrap={props.wordWrap}
-        />
+        {props.markdown && props.markdown.sizeBytes <= FULL_TEXT_MAX_BYTES ? (
+          <LargeMarkdownFilePreview
+            src={src}
+            cwd={props.markdown.cwd}
+            preview={props.markdown.preview}
+            relativePath={props.name}
+            threadRef={props.threadRef}
+            workspaceMutationId={props.workspaceMutationId}
+            copyContents={copyContents}
+            sourceFallback={sourceViewer}
+          />
+        ) : sourceViewer}
       </Suspense>
     </>
   );
