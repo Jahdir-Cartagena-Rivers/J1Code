@@ -191,9 +191,17 @@ describe("attachment preview classification", () => {
   ])("classifies %s (%s) as %s", (name, mimeType, expected) => {
     expect(filePreviewKind({ name, mimeType })).toBe(expected);
   });
-  it("rejects binary and invalid UTF-8 data", () => {
+  it("rejects binary data and invalid text encodings", () => {
     expect(() => decodeFilePreviewText(new Uint8Array([65, 0, 66]))).toThrow("binary");
     expect(() => decodeFilePreviewText(new Uint8Array([255]))).toThrow("UTF-8");
+  });
+  it("decodes a GBK prefix and a GB18030 four-byte character", () => {
+    const bytes = new Uint8Array([0xd6, 0xd0, 0xce, 0xc4, 0x95, 0x30, 0x85, 0x32]);
+    expect(decodeFilePreviewText(bytes)).toEqual({ text: "中文🙂", truncated: false });
+    expect(decodeFilePreviewText(bytes.subarray(0, 7), true)).toEqual({
+      text: "中文",
+      truncated: true,
+    });
   });
   it.each(["doc", "xls", "ppt", "7z", "rar"])(
     "retains the binary fallback for %s, which opencode does not render",

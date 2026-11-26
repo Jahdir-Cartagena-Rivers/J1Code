@@ -49,7 +49,7 @@ function ArchiveFile(props: { readonly path: string; readonly bytes: Uint8Array<
       return null;
     }
   })();
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Create an object URL for the extracted image and revoke it when the entry changes or unmounts.
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Create an object URL for the extracted image and revoke it when the entry changes or unmounts.
   useEffect(() => {
     if (kind !== "image") return;
     const extension = props.path.slice(props.path.lastIndexOf("."));
@@ -66,7 +66,7 @@ function ArchiveFile(props: { readonly path: string; readonly bytes: Uint8Array<
     return url ? <PreviewImage key={url} src={url} name={props.path} /> : <FileSurfaceLoading />;
   if (!text)
     return (
-      <FileSurfaceFailure message="Only UTF-8 text and images can be opened inside an archive." />
+      <FileSurfaceFailure message="Only supported text files and images can be opened inside an archive." />
     );
   return (
     <>
@@ -111,7 +111,7 @@ export default function BinaryViewer(props: {
     }, 15_000);
     workerRef.current?.postMessage(request);
   };
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Own the binary fetch, archive or database worker, message subscription, and request timeout for this file.
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Own the binary fetch, archive or database worker, message subscription, and request timeout for this file.
   useEffect(() => {
     const controller = new AbortController();
     const worker = new Worker(new URL("./binaryPreview.worker.ts", import.meta.url), {

@@ -172,15 +172,18 @@ export function decodeFilePreviewText(bytes: Uint8Array, truncated = false) {
   const bounded = bytes.subarray(0, FILE_TEXT_PREVIEW_MAX_BYTES);
   if (bounded.some((byte) => byte === 0))
     throw new Error("This file contains binary data and cannot be shown as text.");
-  const decoder = new TextDecoder("utf-8", { fatal: true });
-  try {
-    return {
-      text: decoder.decode(bounded, { stream: truncated || bytes.length > bounded.length }),
-      truncated: truncated || bytes.length > bounded.length,
-    };
-  } catch {
-    throw new Error("This file is not UTF-8 text. Open it in another app to view its contents.");
+  const isTruncated = truncated || bytes.length > bounded.length;
+  for (const encoding of ["utf-8", "gb18030"]) {
+    try {
+      const text = new TextDecoder(encoding, { fatal: true }).decode(bounded, {
+        stream: isTruncated,
+      });
+      return { text, truncated: isTruncated };
+    } catch {
+      // Try the next encoding when the bytes or the runtime cannot decode this one.
+    }
   }
+  throw new Error("This file could not be decoded as UTF-8 or GB18030 text.");
 }
 
 export const WORKSPACE_BROWSER_PREVIEW_EXTENSIONS = [".htm", ".html", ".pdf"] as const;

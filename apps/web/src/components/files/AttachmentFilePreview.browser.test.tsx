@@ -1714,6 +1714,16 @@ it("keeps a workspace PDF's page, offset and zoom when a new revision reloads it
   }
 });
 
+it("opens GB18030 file bytes in the read-only preview", async () => {
+  const file = new Blob([new Uint8Array([0xd6, 0xd0, 0xce, 0xc4, 0x95, 0x30, 0x85, 0x32])], {
+    type: "application/octet-stream",
+  });
+  await using screen = await render(
+    <AttachmentFilePreview name="notes.txt" mimeType={file.type} sizeBytes={file.size} file={file} />,
+  );
+  await expect.element(screen.getByText("中文🙂", { exact: true })).toBeVisible();
+});
+
 it("unwraps one text attachment without turning off the word wrap setting", async () => {
   const file = new Blob(["a long line"], { type: "text/plain" });
   await using screen = await render(
