@@ -168,7 +168,8 @@ export const make = Effect.gen(function* () {
       }
 
       const itemOption: Electron.MenuItemConstructorOptions = {
-        label: item.label,
+        // Electron interprets a single ampersand as a mnemonic marker.
+        label: item.label.replaceAll("&", "&&"),
         enabled: !item.disabled,
         ...(typeof item.checked === "boolean" ? { type: "checkbox", checked: item.checked } : {}),
       };
