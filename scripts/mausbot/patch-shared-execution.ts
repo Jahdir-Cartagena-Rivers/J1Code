@@ -3074,17 +3074,26 @@ async function resumeSavedJ1Turn(auth: RequestAuth, botId: string, threadId: str
 
 async function beginTurn(`,
   );
+  if (settingsWindow) {
+    await change(
+      "server/host/place-move.ts",
+      "  fresh?: boolean;\n  previousSurface?: Surface;",
+      "  fresh?: boolean;\n  previousSurface?: Surface;\n  j1Shared?: true;\n  j1ChoiceId?: string;",
+    );
+  } else {
+    await change(
+      "server/index.ts",
+      "  mounted?: Surface;\n  selected?: Surface;\n  previousSurface?: Surface;\n}>();",
+      "  mounted?: Surface;\n  selected?: Surface;\n  j1Shared?: true;\n  j1ChoiceId?: string;\n  previousSurface?: Surface;\n}>();",
+    );
+  }
+  const markFreshComputer = settingsWindow ? " source.fresh = fresh;" : "";
   await change(
     "server/index.ts",
-    "  mounted?: Surface;\n  selected?: Surface;\n  previousSurface?: Surface;\n}>();",
-    "  mounted?: Surface;\n  selected?: Surface;\n  j1Shared?: true;\n  j1ChoiceId?: string;\n  previousSurface?: Surface;\n}>();",
-  );
-  await change(
-    "server/index.ts",
-    "  if (source.selected) return source.selected === surface;\n  source.selected = surface;\n  source.previousSurface = store.taskByThread(bot.id, bot.threadId)?.surface;\n  return true;",
+    `  if (source.selected) return source.selected === surface;\n  source.selected = surface;${markFreshComputer}\n  source.previousSurface = store.taskByThread(bot.id, bot.threadId)?.surface;\n  return true;`,
     `  const previousSurface = store.taskByThread(bot.id, bot.threadId)?.surface;
   if (source.j1Shared) {
-    if (bot.modelSelection.instanceId !== "j1-shared") return false;
+    if (!source.source || bot.modelSelection.instanceId !== "j1-shared") return false;
     const anchor = store.activePath(turn.threadId).findLast(row => row.role === "user" && row.kind === "text");
     if (!anchor || anchor.id !== source.source.id || !anchor.j1CoordinatorRootId || anchor.requestCancelled ||
         directTurnGenerationByThread.get(turn.threadId) !== turn.generation ||
@@ -3107,14 +3116,14 @@ async function beginTurn(`,
     if (bot.modelSelection.instanceId === "j1-shared") return false;
     if (source.selected) return source.selected === surface;
   }
-  source.selected = surface;
+  source.selected = surface;${markFreshComputer}
   source.previousSurface = previousSurface;
   return true;`,
   );
   await change(
     "server/index.ts",
     "    store.patchTask(bot.id, threadId, { surface, surfaceSource: \"auto\" });\n    const text =",
-    `    const sourceRow = store.activePath(threadId).find(row => row.id === selection.source.id);
+    `    const sourceRow = selection.source && store.activePath(threadId).find(row => row.id === selection.source?.id);
     const selected = sourceRow?.j1ComputerSelections?.at(-1);
     if ((selection.j1Shared || bot.modelSelection.instanceId === "j1-shared") &&
         (bot.modelSelection.instanceId !== "j1-shared" || !selected || selected.id !== selection.j1ChoiceId ||
@@ -3135,8 +3144,8 @@ async function beginTurn(`,
   );
   await change(
     "server/index.ts",
-    "      threadId: node.threadId, cardContinuation: true,\n      ...(ownRequest?.messageId",
-    '      threadId: node.threadId, cardContinuation: true,\n      ...(node.executions > 1 && (composed.turn === "rerun" || (composed.turn === "answered" && (node.answer?.startsWith("j1-private-answers:") || node.answer?.startsWith("j1-setup-status:")))) ? { j1NativeAssignment: { root: true, nodeId: node.id, requestId: node.id, execution: node.executions, dispatch: composed.turn === "rerun" ? "rerun" : "resume", restarts: node.restarts } } : {}),\n      ...(ownRequest?.messageId',
+    `      threadId: node.threadId, cardContinuation: true,${settingsWindow ? ' continuesRun: composed.turn !== "first",' : ""}\n      ...(ownRequest?.messageId`,
+    `      threadId: node.threadId, cardContinuation: true,${settingsWindow ? ' continuesRun: composed.turn !== "first",' : ""}\n      ...(node.executions > 1 && (composed.turn === "rerun" || (composed.turn === "answered" && (node.answer?.startsWith("j1-private-answers:") || node.answer?.startsWith("j1-setup-status:")))) ? { j1NativeAssignment: { root: true, nodeId: node.id, requestId: node.id, execution: node.executions, dispatch: composed.turn === "rerun" ? "rerun" : "resume", restarts: node.restarts } } : {}),\n      ...(ownRequest?.messageId`,
   );
   await change(
     "server/index.ts",
@@ -3153,10 +3162,11 @@ async function beginTurn(`,
     "if (source) computerSelectionTurns.set(threadId, { generation: dispatchClaimId, botId: bot.id, source, text, dataContext: opts?.dataContext });",
     "if (source) computerSelectionTurns.set(threadId, { generation: dispatchClaimId, botId: bot.id, source, text,\n      dataContext: opts?.dataContext, ...(instanceId === \"j1-shared\" ? { j1Shared: true } : {}) });",
   );
+  const goalContinuation = settingsWindow ? ' continuesRun: composed.turn !== "first",' : "";
   await change(
     "server/index.ts",
-    "          threadId: node.threadId, cardContinuation: true, commsDepth: MAX_COMMS_DEPTH,",
-    "          threadId: node.threadId, cardContinuation: true, commsDepth: MAX_COMMS_DEPTH,\n          ...(node.mode === \"consult\" && composed.turn === \"first\" ? { j1ConsultationText: brief } : {}),\n          ...((node.parentId && composed.turn === \"first\" && !node.restart && node.executions === 1) || (node.executions > 1 && (composed.turn === \"resume\" || composed.turn === \"rerun\" || (composed.turn === \"answered\" &&\n            ((node.parentId && actingPeople.roomAuthority(node.id)) || (node.answer?.startsWith(\"j1-private-answers:\") || node.answer?.startsWith(\"j1-setup-status:\")))))) ? { j1NativeAssignment: { root: !node.parentId, nodeId: node.id, requestId: request.id, execution: node.executions, dispatch: composed.turn === \"answered\" ? \"resume\" : composed.turn, restarts: node.restarts } } : {}),",
+    `          threadId: node.threadId, cardContinuation: true, commsDepth: MAX_COMMS_DEPTH,${goalContinuation}`,
+    `          threadId: node.threadId, cardContinuation: true, commsDepth: MAX_COMMS_DEPTH,${goalContinuation}\n          ...(node.mode === "consult" && composed.turn === "first" ? { j1ConsultationText: brief } : {}),\n          ...((node.parentId && composed.turn === "first" && !node.restart && node.executions === 1) || (node.executions > 1 && (composed.turn === "resume" || composed.turn === "rerun" || (composed.turn === "answered" &&\n            ((node.parentId && actingPeople.roomAuthority(node.id)) || (node.answer?.startsWith("j1-private-answers:") || node.answer?.startsWith("j1-setup-status:")))))) ? { j1NativeAssignment: { root: !node.parentId, nodeId: node.id, requestId: request.id, execution: node.executions, dispatch: composed.turn === "answered" ? "resume" : composed.turn, restarts: node.restarts } } : {}),`,
   );
   await change(
     "server/index.ts",
@@ -3203,28 +3213,53 @@ async function beginTurn(`,
       store.activePath(threadId).some(row => incidentIds.includes(row.id) && row.peerAsk?.incident));
   if (opts?.j1Resume || incidentCandidate || ((opts?.j1NativeAssignment || opts?.j1NativeComputerSelection) && instanceId === "j1-shared")) j1ResumeGenerations.add(resourceOwner);`,
   );
-  await change(
-    "server/index.ts",
-    '      if (failed && bot) void quotaSwitch.turnFailed(bot, event, internal);',
-    '      const endingOwner = turnResourceOwners.get(event.threadId);\n      if (failed && bot && (!endingOwner || !j1ResumeGenerations.has(endingOwner))) void quotaSwitch.turnFailed(bot, event, internal);',
-  );
+  const resumeOwner = "const endingOwner = turnResourceOwners.get(event.threadId);";
+  const switchUnownedFailure = "failed && bot && (!endingOwner || !j1ResumeGenerations.has(endingOwner))";
+  if (settingsWindow) {
+    await change(
+      "server/index.ts",
+      "let directSettled = () => {}; const settledDirect",
+      `${resumeOwner}\n      let directSettled = () => {}; const settledDirect`,
+    );
+    await change(
+      "server/index.ts",
+      "if (failed && bot) { const settledAll = Promise.all([settledDirect,",
+      `if (${switchUnownedFailure}) { const settledAll = Promise.all([settledDirect,`,
+    );
+  } else {
+    await change(
+      "server/index.ts",
+      '      if (failed && bot) void quotaSwitch.turnFailed(bot, event, internal);',
+      `      ${resumeOwner}\n      if (${switchUnownedFailure}) void quotaSwitch.turnFailed(bot, event, internal);`,
+    );
+  }
   await change(
     "server/index.ts",
     "  const continuation = Boolean(opts?.cardContinuation || opts?.computerSelectionContinuation);",
     "  const continuation = Boolean(opts?.cardContinuation || opts?.computerSelectionContinuation || opts?.j1Resume);",
   );
-  await change(
-    "server/index.ts",
-    "      const contextReset = selection.compacted > 0 && record?.id !== task.appliedCompactionId;",
-    "      const contextReset = !opts?.j1Resume && !opts?.j1NativeComputerSelection && selection.compacted > 0 && record?.id !== task.appliedCompactionId;",
-  );
-  await change(
-    "server/index.ts",
-    '}); if (followed) store.patchTask(bot.id, threadId, { cwd: followed, resumeCursors: {} });',
-    `});
-      if (followed && (opts?.j1Resume || opts?.j1NativeComputerSelection)) throw new Error("The saved continuation uses a different working folder.");
+  const rejectFolderChange = 'if (followed && (opts?.j1Resume || opts?.j1NativeComputerSelection)) throw new Error("The saved continuation uses a different working folder.");';
+  if (settingsWindow) {
+    await change(
+      "server/index.ts",
+      "      const resuming = resumePlan({ task, instanceId, strictResume, compacted: selection.compacted,",
+      `      ${rejectFolderChange}
+      const resuming = resumePlan({ task, instanceId, strictResume, compacted: opts?.j1Resume || opts?.j1NativeComputerSelection ? 0 : selection.compacted,`,
+    );
+  } else {
+    await change(
+      "server/index.ts",
+      "      const contextReset = selection.compacted > 0 && record?.id !== task.appliedCompactionId;",
+      "      const contextReset = !opts?.j1Resume && !opts?.j1NativeComputerSelection && selection.compacted > 0 && record?.id !== task.appliedCompactionId;",
+    );
+    await change(
+      "server/index.ts",
+      '}); if (followed) store.patchTask(bot.id, threadId, { cwd: followed, resumeCursors: {} });',
+      `});
+      ${rejectFolderChange}
       if (followed) store.patchTask(bot.id, threadId, { cwd: followed, resumeCursors: {} });`,
-  );
+    );
+  }
   await change(
     "server/index.ts",
     "      if (autoPinAllowed()) {\n        const claimSlot = autoVmClaims.get(threadId);\n        const pinsAtClaim = claimSlot?.owner.generation === resourceOwner.generation;\n        const used = pinsAtClaim ? null : mountedComputer ?? (integrations.browser ? \"browser\" : null);\n        if (used) store.patchTask(bot.id, threadId, { surface: used, surfaceSource: \"auto\" });\n      }\n      const computerSelection = computerSelectionTurns.get(threadId);\n      if (computerSelection) computerSelection.mounted = mountedComputer ?? (integrations.browser ? \"browser\" : undefined);\n      recordTurnPlace(bot.id, threadId, plan.computer === undefined && mountedComputer === \"local\" && integrations.browser ? \"browser\" : mountedComputer ?? (integrations.browser ? \"browser\" : null));",
@@ -3445,44 +3480,58 @@ async function beginTurn(`,
       const privateCoordinator = nativeAssignment && !(nativeAssignment.root && nativeAssignment.dispatch === "first");
       const startupRecovery = !resume && !privateCoordinator && (opts?.automaticRecoveryIndex ?? 0) < startupBackups(liveBot ?? bot, cfg.automaticRecovery).length;`,
   );
+  const modernInput = 'withTurnClock(clock, withRecalled(recalled, (posted?.text ?? "") + attachmentsForBox(dispatchContext.turnText, cwd, { botId: bot.id, threadId }) + shareNote.text + devsReports.note(threadId, Boolean(integrations.agents)) + (CLOUD_HOME ? idleReclaimNote(DATA_DIR, threadId) : "") + settingNudges.note(threadId, { tools: Boolean(integrations.agents) && personLine && !opts?.unattended, owner: phones.turnOwner({ botId: bot.id, threadId, generation: dispatchClaimId }) !== null && !cloudGuestDriven(threadId), model: `${instanceId}/${model}` })))';
+  const directTurnInput = settingsWindow ? modernInput : "withTurnClock(clock, withRecalled(recalled, attachmentsForBox(dispatchContext.turnText, cwd) + shareNote.text + devsReports.note(threadId, Boolean(integrations.agents))))";
   await change(
     "server/index.ts",
     "      const dispatch = await guardTurnDispatch(shareNote.after(savedSteps.dispatch.sendTurn(instance,",
     `      const verifiedAssignment = nativeAssignment && "verifiedAssignment" in nativeAssignment ? nativeAssignment.verifiedAssignment : undefined;
       const liveInputText = chosen ? providerText : privateCoordinator ? verifiedAssignment ?? userTurnText : resume ? resume.incidentNote?.text ?? "" :
-        withTurnClock(clock, withRecalled(recalled, attachmentsForBox(dispatchContext.turnText, cwd) + shareNote.text + devsReports.note(threadId, Boolean(integrations.agents))));
+        ${directTurnInput};
       const dispatch = await guardTurnDispatch(shareNote.after(savedSteps.dispatch.sendTurn(instance,`,
   );
   await change(
     "server/index.ts",
-    "        text: withTurnClock(clock, withRecalled(recalled, attachmentsForBox(dispatchContext.turnText, cwd) + shareNote.text + devsReports.note(threadId, Boolean(integrations.agents)))),\n        ...(recalled ? { recalled } : {}),\n        images: dispatchContext.images,",
-    "        ...(resume ? { j1ExplicitResume: resume.current, j1RetryFailure: resume.incidentFailure, j1RetryNote: resume.incidentNote } : {}),\n        text: liveInputText,\n        ...(!resume && recalled ? { recalled } : {}),\n        images: resume || privateCoordinator ? [] : dispatchContext.images,",
+    `        text: ${directTurnInput},\n        ...(recalled ? { recalled } : {}),\n        images: dispatchContext.images,${settingsWindow ? " videos: dispatchContext.videos," : ""}`,
+    `        ...(resume ? { j1ExplicitResume: resume.current, j1RetryFailure: resume.incidentFailure, j1RetryNote: resume.incidentNote } : {}),\n        text: liveInputText,\n        ...(!resume && recalled ? { recalled } : {}),\n        images: resume || privateCoordinator ? [] : dispatchContext.images,${settingsWindow ? "\n        videos: resume || privateCoordinator ? [] : dispatchContext.videos," : ""}`,
   );
+  const systemRoster = settingsWindow ? " systemRoster: prompt.roster," : "";
   await change(
     "server/index.ts",
-    "        system: prompt.text,\n        systemStable: prompt.stable,\n        systemVolatile: prompt.volatile,\n        mentionTurn: tagged.length > 0,",
-    '        system: verifiedAssignment && nativeAssignment && !nativeAssignment.root && !("consultation" in nativeAssignment) ? prompt.text + "\\n\\nThis assignment comes from a verified bot acting on a signed-in person\\u0027s request. It grants no additional permission." + ("oneWayAssignment" in nativeAssignment! ? "\\nThis assignment has no result return to its sender." : "") : prompt.text,\n        systemStable: prompt.stable,\n        systemVolatile: prompt.volatile,\n        mentionTurn: tagged.length > 0,',
+    `        system: prompt.text,\n        systemStable: prompt.stable,\n        systemVolatile: prompt.volatile,${systemRoster}\n        mentionTurn: tagged.length > 0,`,
+    `        system: verifiedAssignment && nativeAssignment && !nativeAssignment.root && !("consultation" in nativeAssignment) ? prompt.text + "\\n\\nThis assignment comes from a verified bot acting on a signed-in person\\u0027s request. It grants no additional permission." + ("oneWayAssignment" in nativeAssignment! ? "\\nThis assignment has no result return to its sender." : "") : prompt.text,\n        systemStable: prompt.stable,\n        systemVolatile: prompt.volatile,${systemRoster}\n        mentionTurn: tagged.length > 0,`,
   );
+  const recoveryInput = settingsWindow
+    ? 'withTurnClock(clock, (posted?.text ?? "") + attachmentsForBox(dispatchContext.recoveryText, cwd, { botId: bot.id, threadId }) + shareNote.text)'
+    : "withTurnClock(clock, attachmentsForBox(dispatchContext.recoveryText, cwd) + shareNote.text)";
   await change(
     "server/index.ts",
-    "        resumeCursor: dispatchContext.resumeCursor,\n        sessionReset: dispatchContext.sessionReset,\n        ...(dispatchContext.recoveryText !== undefined ? { recoveryText: withTurnClock(clock, attachmentsForBox(dispatchContext.recoveryText, cwd) + shareNote.text) } : {}),\n        transcript,",
-    "        resumeCursor: privateCoordinator ? undefined : resume?.cursor ?? dispatchContext.resumeCursor,\n        sessionReset: resume ? false : dispatchContext.sessionReset,\n        ...(!resume && !privateCoordinator && dispatchContext.recoveryText !== undefined ? { recoveryText: withTurnClock(clock, attachmentsForBox(dispatchContext.recoveryText, cwd) + shareNote.text) } : {}),\n        ...(!resume && !privateCoordinator ? { transcript } : {}),",
+    `        resumeCursor: dispatchContext.resumeCursor,\n        sessionReset: dispatchContext.sessionReset,\n        ...(dispatchContext.recoveryText !== undefined ? { recoveryText: ${recoveryInput} } : {}),\n        transcript,`,
+    `        resumeCursor: privateCoordinator ? undefined : resume?.cursor ?? dispatchContext.resumeCursor,\n        sessionReset: resume ? false : dispatchContext.sessionReset,\n        ...(!resume && !privateCoordinator && dispatchContext.recoveryText !== undefined ? { recoveryText: ${recoveryInput} } : {}),\n        ...(!resume && !privateCoordinator ? { transcript } : {}),`,
   );
+  const fallbackInput = settingsWindow ? "enginePrestart.note(instance.instanceId, input, personLine && !automated)" : "input";
+  const fallbackCallback = settingsWindow ? "}), (input) => " : "}, (input) => ";
   await change(
     "server/index.ts",
-    "}, (input) => quickFallback.sendTurn(instance, input, route.quickModel",
-    "}, (input) => resume || privateCoordinator ? instance.adapter.sendTurn(input) : quickFallback.sendTurn(instance, input, route.quickModel",
+    `${fallbackCallback}quickFallback.sendTurn(instance, ${fallbackInput}, route.quickModel`,
+    `${fallbackCallback}resume || privateCoordinator ? instance.adapter.sendTurn(input) : quickFallback.sendTurn(instance, ${fallbackInput}, route.quickModel`,
   );
+  const canUseProviderFallback = '!incidentCandidate && !opts?.j1IncidentRetry && !opts?.j1Resume && !((opts?.j1NativeAssignment || opts?.j1NativeComputerSelection) && instanceId === "j1-shared")';
+  const upstreamMayRecover = settingsWindow
+    ? "claimed && !outOfProcesses((e as Error).message);"
+    : "e instanceof TurnNotStartedError &&\n        directTurnClaimIsCurrent";
   await change(
     "server/index.ts",
-    "      const mayRecover = e instanceof TurnNotStartedError &&\n        directTurnClaimIsCurrent",
-    "      const mayRecover = !incidentCandidate && !opts?.j1IncidentRetry && !opts?.j1Resume && !((opts?.j1NativeAssignment || opts?.j1NativeComputerSelection) && instanceId === \"j1-shared\") && e instanceof TurnNotStartedError &&\n        directTurnClaimIsCurrent",
+    `      const mayRecover = ${upstreamMayRecover}`,
+    `      const mayRecover = ${canUseProviderFallback} && ${upstreamMayRecover}`,
   );
-  await change(
-    "server/index.ts",
-    '        if (!mayRecover) e = new DirectTurnSetupCancelled("turn stopped during provider setup");',
-    '        if (!mayRecover && ((!incidentCandidate && !opts?.j1IncidentRetry && !opts?.j1Resume && !((opts?.j1NativeAssignment || opts?.j1NativeComputerSelection) && instanceId === "j1-shared")) || !directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId))) e = new DirectTurnSetupCancelled("turn stopped during provider setup");',
-  );
+  if (!settingsWindow) {
+    await change(
+      "server/index.ts",
+      '        if (!mayRecover) e = new DirectTurnSetupCancelled("turn stopped during provider setup");',
+      `        if (!mayRecover && ((${canUseProviderFallback}) || !directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId))) e = new DirectTurnSetupCancelled("turn stopped during provider setup");`,
+    );
+  }
   await change(
     "src/components/Composer.tsx",
     'import { useComposerDictation } from "@/lib/use-composer-dictation";',
@@ -3544,10 +3593,12 @@ async function beginTurn(`,
         }
       }`,
   );
+  const additionalMascotFields = settingsWindow ? ' | "mascotBodyColor" | "mascotMaterial"' : "";
+  const botInterface = `export interface Bot extends DefaultBotFields, Pick<WireBot, "mascotFaceColor"${additionalMascotFields} | "access" | "yourAccess" | "onlyPeopleAdded"> {`;
   await change(
     "src/state/store.tsx",
-    'export interface Bot extends DefaultBotFields, Pick<WireBot, "mascotFaceColor" | "access" | "yourAccess" | "onlyPeopleAdded"> {',
-    'export interface Bot extends DefaultBotFields, Pick<WireBot, "mascotFaceColor" | "access" | "yourAccess" | "onlyPeopleAdded"> {\n  j1ProjectId?: string;',
+    botInterface,
+    `${botInterface}\n  j1ProjectId?: string;`,
   );
   for (const file of [
     "src/components/bot-settings/useBotSettingsDerived.ts",
@@ -3564,15 +3615,17 @@ async function beginTurn(`,
     'import { J1ProjectBinding } from "./J1ProjectBinding";',
     'import { J1ProjectBinding } from "./J1ProjectBinding";\nimport { J1EngineeringTeam } from "./J1EngineeringTeam";',
   );
+  const identityComponent = settingsWindow ? "MovingIdentitySection" : "IdentitySection";
   await change(
     "src/components/BotSettingsDialog.tsx",
-    "          <IdentitySection\n            bot={bot}",
-    "          <>\n          <J1EngineeringTeam bot={bot} />\n          <J1ProjectBinding bot={bot} />\n          <IdentitySection\n            bot={bot}",
+    `          <${identityComponent}\n            bot={bot}`,
+    `          <>\n            <J1EngineeringTeam bot={bot} />\n            <J1ProjectBinding bot={bot} />\n            <${identityComponent}\n            bot={bot}`,
   );
+  const identityLastProp = settingsWindow ? "activeState={derived.activeState}" : "mascotMotion={derived.mascotMotion}";
   await change(
     "src/components/BotSettingsDialog.tsx",
-    "            mascotMotion={derived.mascotMotion}\n          />",
-    "            mascotMotion={derived.mascotMotion}\n          />\n          </>",
+    `            ${identityLastProp}\n          />`,
+    `            ${identityLastProp}\n          />\n          </>`,
   );
   await change("server/composio.ts",
     "const linkResponseSchema = z.object({ redirect_url: z.string().optional() });",
@@ -3607,11 +3660,12 @@ export async function cardAccountActive(cfg: AppConfig, link: CardAccountLink): 
 export async function authorizeService(cfg: AppConfig, slug: string, requestedAlias?: string | null, as?: BrokerAccess,
   capture?: (link: CardAccountLink) => void, authConfigHash?: string) {`,
   );
+  const connectionsChanged = settingsWindow ? "\n  connectionsChanged(cfg, as);" : "";
   await change("server/composio.ts",
-    `  const apiKey = as ? null : projectApiKey(cfg);
+    `  const apiKey = as ? null : projectApiKey(cfg);${connectionsChanged}
   if (!apiKey) {
     const request: RequestInit = { method: "POST" };`,
-    `  const apiKey = as ? null : projectApiKey(cfg);
+    `  const apiKey = as ? null : projectApiKey(cfg);${connectionsChanged}
   const cardScope = capture && cardAccountScope(cfg);
   if (!apiKey) {
     if (capture) throw inputError("This connection request requires a project-owned account link.", 409);
@@ -3729,14 +3783,37 @@ function maybeResumeConnectors(threadId: string, resumeKey: string) {`,
   if (cards.every((message) => message.connector?.resumed)) return true;
   const labels = cards.map((message) => message.connector!.label);`,
   );
-  await change("server/index.ts",
-    `        maybeResumeConnectors(threadId, resumeKey);
+  if (settingsWindow) {
+    await change("server/host/connector-cards.ts",
+      "requireActive: () => void): Promise<ConnectorCardAnswer>",
+      "requireActive: () => void, record?: (target: { botId: string; threadId: string }, resumeKey: string, messageIds: string[], authConfigs: readonly (string | undefined)[]) => void): Promise<ConnectorCardAnswer>",
+    );
+    await change("server/host/connector-cards.ts",
+      "    if (!nothingToSignIn) deps.maybeResume(threadId, resumeKey);",
+      `    if (!nothingToSignIn) {
+      requireActive();
+      record?.({ botId, threadId }, resumeKey, messageIds, items.map(item => item.authConfigId));
+      deps.maybeResume(threadId, resumeKey);
+    }`,
+    );
+    await change("server/index.ts",
+      "connectorCardRequests.request(internalCapability, await readInternalBody(), requireActiveInternalCapability);",
+      `connectorCardRequests.request(internalCapability, await readInternalBody(), requireActiveInternalCapability,
+          ({ botId, threadId }, resumeKey, messageIds, authConfigs) => {
+            if (botId === internalCapability.botId && threadId === internalCapability.threadId)
+              j1RecordAppConnectorGroup(internalCapability, resumeKey, messageIds, authConfigs);
+          });`,
+    );
+  } else {
+    await change("server/index.ts",
+      `        maybeResumeConnectors(threadId, resumeKey);
         return json(res, 200, { messageIds,`,
-    `        if (botId === internalCapability.botId && threadId === internalCapability.threadId)
+      `        if (botId === internalCapability.botId && threadId === internalCapability.threadId)
           j1RecordAppConnectorGroup(internalCapability, resumeKey, messageIds, items.map(item => item.authConfigId));
         maybeResumeConnectors(threadId, resumeKey);
         return json(res, 200, { messageIds,`,
-  );
+    );
+  }
   await change("server/index.ts",
     "      if (m[3] === \"authorize\" && method === \"POST\") { const refused = managedPolicy.appRefusal(connector.slug);",
     `      const app = message.j1AppConnector;
@@ -3750,10 +3827,13 @@ function maybeResumeConnectors(threadId: string, resumeKey: string) {`,
         return json(res, 409, { error: "The original connection request is no longer current." });
       if (m[3] === "authorize" && method === "POST") { const refused = managedPolicy.appRefusal(connector.slug);`,
   );
+  const addedConnectionHealth = settingsWindow
+    ? ' connectionHealth.added("app", connector.slug, auth.kind === "session" ? auth.session.email ?? null : null);'
+    : "";
   await change("server/index.ts",
     `        store.patchMessage(threadId, message.id, { connector: { ...connector, alias, status: "authorizing", error: undefined, dismissed: false } });
         try {
-          const started = await composio.authorizeService(cfg, connector.slug, alias); void routineHolds?.connections("added"); return json(res, 200, started);`,
+          const started = await composio.authorizeService(cfg, connector.slug, alias); void routineHolds?.connections("added");${addedConnectionHealth} return json(res, 200, started);`,
     `        if (app && ((alias ?? "").toLowerCase() !== (connector.alias ?? "").toLowerCase() || appSettled))
           return json(res, 409, { error: "The original account request cannot be changed." });
         if (app && (j1AppStarting.has(appKey) || (j1AppLinks.get(appKey)?.expires ?? 0) > Date.now()))
@@ -3778,7 +3858,7 @@ function maybeResumeConnectors(threadId: string, resumeKey: string) {`,
             j1AppLinks.set(appKey, { account: link, person: app.person, sessionId: session.id,
               flowId: randomUUID(), expires: Date.now() + 10 * 60_000 });
           }
-          void routineHolds?.connections("added"); return json(res, 200, started);`,
+          void routineHolds?.connections("added");${addedConnectionHealth} return json(res, 200, started);`,
   );
   await change("server/index.ts",
     `      if (m[3] === "status" && method === "GET") {
