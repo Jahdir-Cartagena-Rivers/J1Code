@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeAssert from "node:assert/strict";
+import * as NodePath from "node:path";
 import { vi } from "vite-plus/test";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -54,7 +55,7 @@ const isNativeProofError = Schema.is(MausbotNativeProofError);
 
 const input = (threadId = "thread-one"): ExecutionV2StartInput => ({
   action: "start", botId: "bot-one", threadId, turnId: "turn-one", botName: "Saved bot", title: "Original task",
-  instanceId: ProviderInstanceId.make("codex-personal"), model: "selected-model", cwd: "C:/workspace",
+  instanceId: ProviderInstanceId.make("codex-personal"), model: "selected-model", cwd: NodePath.resolve("workspace"),
   text: "Continue the original task", system: "Keep the original objective", sharedContinuation: false,
   restrictedTools: true, guestConfined: false, approvalMode: "ask", images: [],
   tools: [{ name: "bot_call", inputSchema: { type: "object" } }],
