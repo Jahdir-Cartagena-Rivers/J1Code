@@ -325,6 +325,9 @@ function getWindowTitleBarOptions(
   shouldUseDarkColors: boolean,
   platform: NodeJS.Platform,
 ): WindowTitleBarOptions {
+  // Windows must be movable even while the renderer is blank or waiting for the backend.
+  if (platform === "win32") return {};
+
   if (platform === "darwin") {
     return {
       titleBarStyle: "hiddenInset",
@@ -1098,7 +1101,7 @@ export const make = Effect.gen(function* () {
       minimizable: false,
       maximizable: false,
       fullscreenable: false,
-      frame: false,
+      frame: environment.platform === "win32",
       center: true,
       show: false,
       skipTaskbar: false,

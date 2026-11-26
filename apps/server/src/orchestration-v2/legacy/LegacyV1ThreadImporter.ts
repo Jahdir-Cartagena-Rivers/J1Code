@@ -696,6 +696,8 @@ const make = Effect.gen(function* () {
   });
 
   // All imported shells must exist before linking them. Buffer family updates until commit.
+  // Use the thread's event stream for parent lookup. The version index otherwise
+  // scans all legacy events for every imported root during startup.
   const reconcileWorkerLineage = (changed: Set<ThreadId>, now: DateTime.Utc) =>
     eventSink.withProviderBatch(Effect.gen(function* () {
       const rows = yield* sql<{
@@ -722,7 +724,7 @@ const make = Effect.gen(function* () {
             SELECT CASE WHEN COUNT(DISTINCT json_extract(event.payload_json,
               '$.activity.payload.parentThreadId')) = 1
               THEN MIN(json_extract(event.payload_json, '$.activity.payload.parentThreadId')) END
-            FROM orchestration_events event
+            FROM orchestration_events event INDEXED BY idx_orch_events_stream_sequence
             WHERE event.stream_id = projection.thread_id AND event.aggregate_kind = 'thread'
               AND event.application_event_version = 1 AND event.event_type = 'thread.activity-appended'
               AND CASE WHEN json_valid(event.payload_json) THEN

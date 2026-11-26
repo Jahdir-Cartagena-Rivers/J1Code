@@ -501,6 +501,40 @@ const captureOne = DesktopSnapShotId.make("11111111-1111-4111-8111-111111111111"
 const captureTwo = DesktopSnapShotId.make("22222222-2222-4222-8222-222222222222");
 
 describe("DesktopWindow", () => {
+  it.effect.each(["main", "splash"] as const)(
+    "uses Windows native chrome for the %s window independently of its renderer",
+    (kind) =>
+      Effect.gen(function* () {
+        const fake = makeFakeBrowserWindow();
+        const createCount = yield* Ref.make(0);
+        const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+        const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
+        yield* Effect.gen(function* () {
+          const window = yield* DesktopWindow.DesktopWindow;
+          if (kind === "splash") {
+            yield* window.showConnectingSplash;
+          } else {
+            yield* window.handleBackendReady(new URL("http://127.0.0.1:3773"));
+          }
+          assert.lengthOf(createdWindowOptions, 1);
+          const [options] = createdWindowOptions;
+          assert.notEqual(options?.frame, false);
+          assert.isUndefined(options?.titleBarStyle);
+          assert.isUndefined(options?.titleBarOverlay);
+        }).pipe(
+          Effect.provide(
+            layerTest({
+              window: fake.window,
+              createCount,
+              mainWindow,
+              platform: "win32",
+              createdWindowOptions,
+            }),
+          ),
+        );
+      }),
+  );
+
   it.effect("keeps the outer portable executable and J1 identity in Windows relaunch details", () =>
     Effect.gen(function* () {
       const fake = makeFakeBrowserWindow();
@@ -1468,7 +1502,7 @@ describe("DesktopWindow", () => {
         window: overlay.window,
         createCount: yield* Ref.make(0),
         mainWindow: yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none()),
-        platform: "win32",
+        platform: "linux",
         appearanceWindows: [
           { window: framed.window, titleBarOverlay: false },
           { window: overlay.window, titleBarOverlay: true },
