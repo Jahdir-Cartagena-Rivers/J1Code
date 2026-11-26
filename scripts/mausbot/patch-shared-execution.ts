@@ -2,28 +2,36 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 
 /** All replacements are pinned; an upstream layout change fails the assembly. */
-export async function patchSharedExecution(stage: string, root: string) {
+export async function patchSharedExecution(stage: string, root: string, { settingsWindow = false } = {}) {
   const change = async (file: string, before: string, after: string) => {
-    const path = NodePath.join(stage, file);
+    const movedProtocolFile =
+      settingsWindow && (file === "shared/wire.ts" || file === "shared/runtime-events.ts");
+    const path = NodePath.join(stage, movedProtocolFile ? `packages/phone-protocol/src/${NodePath.basename(file)}` : file);
     const source = (await NodeFSP.readFile(path, "utf8")).replaceAll("\r\n", "\n");
     if (source.split(before).length !== 2)
       throw new Error(`Pinned shared execution source changed: ${file}`);
     await NodeFSP.writeFile(path, source.replace(before, after));
   };
+  const sidebarRoot = settingsWindow
+    ? 'ref={sidebarRef} data-look="sidebar" data-sidebar-root={!phone || open ? "" : undefined}'
+    : 'ref={sidebarRef} data-sidebar-root={!phone || open ? "" : undefined}';
   await change(
     "src/components/Sidebar.tsx",
-    'ref={sidebarRef} data-sidebar-root={!phone || open ? "" : undefined}',
-    'ref={sidebarRef} data-sidebar-root={!phone || open ? "" : undefined} data-j1-sidebar-overlay={phone && open ? "" : undefined}',
+    sidebarRoot,
+    `${sidebarRoot} data-j1-sidebar-overlay={phone && open ? "" : undefined}`,
   );
-  await change(
-    "src/components/SettingsModal.tsx",
-    '<div ref={scrollRef} className="flex flex-1 flex-col gap-4 overflow-y-auto',
-    '<div ref={scrollRef} data-j1-settings-scroll className="flex flex-1 flex-col gap-4 overflow-y-auto',
-  );
+  if (!settingsWindow) {
+    await change(
+      "src/components/SettingsModal.tsx",
+      '<div ref={scrollRef} className="flex flex-1 flex-col gap-4 overflow-y-auto',
+      '<div ref={scrollRef} data-j1-settings-scroll className="flex flex-1 flex-col gap-4 overflow-y-auto',
+    );
+  }
+  const sponsorGate = settingsWindow ? "sponsorsHere && " : "";
   await change(
     "src/components/AppNotices.tsx",
-    '  const boatHere = boatOfferRuns(now()) && brandStatus().source !== "file";',
-    '  const boatHere = !state.config?.j1Managed && boatOfferRuns(now()) && brandStatus().source !== "file";',
+    `  const boatHere = ${sponsorGate}boatOfferRuns(now()) && brandStatus().source !== "file";`,
+    `  const boatHere = !state.config?.j1Managed && ${sponsorGate}boatOfferRuns(now()) && brandStatus().source !== "file";`,
   );
   await change(
     "src/components/BoatOffer.tsx",
@@ -98,15 +106,19 @@ export async function patchSharedExecution(stage: string, root: string) {
     `let j1Catalog = process.send ? await sharedCatalog().catch(() => []) : [];
 const firstEngineRead = holdUntilFirstEngineRead();`,
   );
+  const registryImport = settingsWindow
+    ? 'import { ENGINE_LIST_REUSE_MS, engineMemory, enginesByUse, probeGate, ProviderRegistry } from "./harness/registry.ts";'
+    : 'import { ENGINE_LIST_REUSE_MS, engineMemory, enginesByUse, ProviderRegistry } from "./harness/registry.ts";';
   await change(
     "server/index.ts",
-    'import { ENGINE_LIST_REUSE_MS, engineMemory, enginesByUse, ProviderRegistry } from "./harness/registry.ts";',
-    'import { sharedCatalog, onSharedExecution, sharedExecutionRequest } from "./drivers/j1-shared-client.ts";\nimport { decodeSharedModel, nativeResumeCursor, registerSavedBotEnrollmentReader, savedHistoryForTurn, savedIncidentReports } from "./drivers/j1-shared.ts";\nimport { approvalModeFor as savedEnrollmentApprovalMode } from "../shared/approval-mode.ts";\nimport { sharedSelection } from "./j1-shared-selection.ts";\nimport { ENGINE_LIST_REUSE_MS, engineMemory, enginesByUse, ProviderRegistry } from "./harness/registry.ts";',
+    registryImport,
+    `import { sharedCatalog, onSharedExecution, sharedExecutionRequest } from "./drivers/j1-shared-client.ts";\nimport { decodeSharedModel, nativeResumeCursor, registerSavedBotEnrollmentReader, savedHistoryForTurn, savedIncidentReports } from "./drivers/j1-shared.ts";\nimport { approvalModeFor as savedEnrollmentApprovalMode } from "../shared/approval-mode.ts";\nimport { sharedSelection } from "./j1-shared-selection.ts";\n${registryImport}`,
   );
+  const nativeDefaultSelection = `selectDefaultModelSelection(selectableInstances${settingsWindow ? "<SelectableInstance>" : ""}(instances ?? await registry.describe()), saved ?? undefined, selectionContext)`;
   await change(
     "server/index.ts",
-    "  return selectDefaultModelSelection(selectableInstances(instances ?? await registry.describe()), saved ?? undefined, selectionContext);",
-    "  return sharedSelection(selectDefaultModelSelection(selectableInstances(instances ?? await registry.describe()), saved ?? undefined, selectionContext), providerConfigs(), j1Catalog);",
+    `  return ${nativeDefaultSelection};`,
+    `  return sharedSelection(${nativeDefaultSelection}, providerConfigs(), j1Catalog);`,
   );
   await change(
     "server/index.ts",
@@ -226,10 +238,13 @@ const outsideLineage = createOutsideLineage({`,
     "export interface WireBot extends DefaultBotFields, BotAccessFields {",
     "export interface WireBot extends DefaultBotFields, BotAccessFields {\n  j1ProjectId?: string;",
   );
+  const wireTask = settingsWindow
+    ? "export interface WireTask extends InboxTask, HandoffStatusField {"
+    : "export interface WireTask extends InboxTask {";
   await change(
     "shared/wire.ts",
-    "export interface WireTask extends InboxTask {",
-    "export interface WireTask extends InboxTask {\n  j1ProjectId?: string;",
+    wireTask,
+    `${wireTask}\n  j1ProjectId?: string;`,
   );
   await change(
     "server/store.ts",
@@ -289,10 +304,13 @@ const outsideLineage = createOutsideLineage({`,
     "    if (refused) throw new Error(refused);\n    const chief = peerName(input.chief.name);",
     "    if (refused) throw new Error(refused);\n    if (await deps.retrySharedIncident?.(input)) return;\n    const chief = peerName(input.chief.name);",
   );
+  const chiefNotices = settingsWindow
+    ? "const { reportIncident, incidentRefused, retryThread } = createChiefNotices({"
+    : "const { reportIncident, reportEscalation, incidentRefused, retryThread } = createChiefNotices({";
   await change(
     "server/index.ts",
-    "const { reportIncident, reportEscalation, incidentRefused, retryThread } = createChiefNotices({",
-    `const { reportIncident, reportEscalation, incidentRefused, retryThread } = createChiefNotices({
+    chiefNotices,
+    `${chiefNotices}
   retrySharedIncident: async ({ chief, chiefThreadId, bot, threadId, unattended, note }) => {
     if (store.projectBotForTask(bot.id, threadId)?.modelSelection.instanceId !== "j1-shared") return false;
     const saved = savedJ1Resume(bot.id, threadId);
@@ -355,10 +373,11 @@ const outsideLineage = createOutsideLineage({`,
     "{ threadId: input.threadId, unattended: input.unattended, peerAsk: {",
     "{ threadId: input.threadId, unattended: input.unattended, j1IncidentRetry: true, peerAsk: {",
   );
+  const roomFinalTurn = settingsWindow ? "${finalTurnBlock(spoken)}" : "";
   await change(
     "server/index.ts",
-    "  const roomTail = `\\n\\n(Reply to the conversation above as ${bot.name}.)${learnBlock}${heldReplay.block}${cardContinuation ? `\\n\\n${cardContinuation}` : \"\"}${coordinationReminder}${liveRosterBlock}`;",
-    "  const roomInstructionsBeforeHistory = `\\n\\n(Reply to the conversation above as ${bot.name}.)${operation?.j1ParkedAnswer ? \"\" : learnBlock}`;\n  const roomInstructionsAfterHistory = `${cardContinuation ? `\\n\\n${cardContinuation}` : \"\"}${coordinationReminder}${liveRosterBlock}`;\n  const roomTail = roomInstructionsBeforeHistory + heldReplay.block + roomInstructionsAfterHistory;",
+    "  const roomTail = `\\n\\n(Reply to the conversation above as ${bot.name}.)${learnBlock}${heldReplay.block}${cardContinuation ? `\\n\\n${cardContinuation}` : \"\"}${coordinationReminder}${liveRosterBlock}" + roomFinalTurn + "`;",
+    "  const roomInstructionsBeforeHistory = `\\n\\n(Reply to the conversation above as ${bot.name}.)${operation?.j1ParkedAnswer ? \"\" : learnBlock}`;\n  const roomInstructionsAfterHistory = `${cardContinuation ? `\\n\\n${cardContinuation}` : \"\"}${coordinationReminder}${liveRosterBlock}" + roomFinalTurn + "`;\n  const roomTail = roomInstructionsBeforeHistory + heldReplay.block + roomInstructionsAfterHistory;",
   );
   await change(
     "server/index.ts",
@@ -372,8 +391,8 @@ const outsideLineage = createOutsideLineage({`,
   );
   await change(
     "server/index.ts",
-    '      const heldContext = { source: verdict?.source, permission };',
-    `      const heldContext = { source: verdict?.source, permission };
+    'const heldContext = { source: verdict?.source, permission };',
+    `const heldContext = { source: verdict?.source, permission };
       const roomGeneration = activeInternalGenerationByThread.get(event.threadId);
       const roomRequests = group && !permission && event.provider === "j1-shared" && event.turnId && roomGeneration
         ? [...(groupTurnOperations.get(group.id) ?? [])].filter(operation => operation.threadId === event.threadId &&
@@ -1163,10 +1182,12 @@ function acceptJ1ParkedRoomAnswer(auth: RequestAuth, threadId: string, requestId
     '    const posted = store.appendMessage(threadId, { role: "user", kind: "text", text, replyToId: asked.id,',
     '    if (asked.j1RoomQuestion?.privateBotId && asked.j1RoomQuestion.cardIds) {\n      const saved = store.messagesFor(threadId).find(message => message.id === asked.id);\n      return { status: 202, message: saved ?? asked };\n    }\n    const posted = store.appendMessage(threadId, { role: "user", kind: "text", text, replyToId: asked.id,',
   );
+  const liveAnswer = settingsWindow ? "(handedOn || ownChat)" : "handedOn";
   await change(
     "server/host/ask-cards.ts",
-    '    if (origin === threadId && !(handedOn && deps.live(threadId, requestId))) return null;',
-    '    if (origin === threadId && !(handedOn && deps.live(threadId, requestId)) &&\n      !(asked.j1RoomQuestion?.privateBotId && asked.j1RoomQuestion.cardIds)) return null;',
+    `    if (origin === threadId && !(${liveAnswer} && deps.live(threadId, requestId))) return null;`,
+    `    if (origin === threadId && !(${liveAnswer} && deps.live(threadId, requestId)) &&
+      !(asked.j1RoomQuestion?.privateBotId && asked.j1RoomQuestion.cardIds)) return null;`,
   );
   await change(
     "server/index.ts",
@@ -1263,10 +1284,14 @@ function acceptJ1ParkedRoomAnswer(auth: RequestAuth, threadId: string, requestId
     'onSettled?(name: string, phase: McpSignInPhase, owner: string): void;',
     'onSettled?(name: string, phase: McpSignInPhase, owner: string, flowId: string): void;',
   );
+  const settleMcpHealth = 'if (phase === "succeeded") connectionHealth.connectedAgain({ kind: "mcp", id: name });';
+  const settleMcpCard = settingsWindow
+    ? `{ ${settleMcpHealth} mcpSignInCards.settled(name, phase, owner); }`
+    : 'mcpSignInCards.settled(name, phase, owner)';
   await change(
     "server/index.ts",
-    '  onSettled: (name, phase, owner) => mcpSignInCards.settled(name, phase, owner),',
-    '  onSettled: (name, phase, owner, flowId) => mcpSignInCards.settled(name, phase, owner, flowId),',
+    `  onSettled: (name, phase, owner) => ${settleMcpCard},`,
+    `  onSettled: (name, phase, owner, flowId) => ${settleMcpCard.replace("mcpSignInCards.settled(name, phase, owner)", "mcpSignInCards.settled(name, phase, owner, flowId)")},`,
   );
   await change(
     "server/index.ts",
@@ -1413,14 +1438,26 @@ function acceptJ1ParkedRoomAnswer(auth: RequestAuth, threadId: string, requestId
     '  const current = store.messagesFor(args.threadId).find((item) => item.id === resolved.messageId);\n  if (current?.card?.teamSetupRequest?.result',
     '  const current = store.messagesFor(args.threadId).find((item) => item.id === resolved.messageId);\n  if (current?.j1RoomSetup && !resolved.duplicate && reviewerAuth?.kind === "session" && sessions.isLive(reviewerAuth.session.id))\n    j1SaveRoomSetupDecision(args.threadId, current.id, cardAnswererFor(reviewerAuth));\n  if (current?.card?.teamSetupRequest?.result',
   );
+  const legacyCardAnswer = '  if (coordinator.answerNode(node.id, text)) return true;';
+  const modernCardAnswer = '  return coordinator.answerNode(node.id, text);';
+  const genericCardAnswer = settingsWindow
+    ? modernCardAnswer
+    : legacyCardAnswer;
   await change(
     "server/index.ts",
-    '  if (coordinator.answerNode(node.id, text)) return true;',
-    '  if (node.cards?.some(id => store.messagesFor(threadId).some(row => row.id === id && row.j1RoomSetup))) return j1SettleRoomSetup(node);\n  if (node.cards?.some(id => store.messagesFor(threadId).some(row => row.id === id && row.j1SetupWake))) return j1SettleSetupWake(node);\n  if (j1UsesPrivateQuestionBridge(node) || node.cards?.some(id => store.messagesFor(threadId).some(row => row.id === id && row.j1RoomQuestion))) return false;\n  if (coordinator.answerNode(node.id, text)) return true;',
+    genericCardAnswer,
+    `  if (node.cards?.some(id => store.messagesFor(threadId).some(row => row.id === id && row.j1RoomSetup))) return j1SettleRoomSetup(node);
+  if (node.cards?.some(id => store.messagesFor(threadId).some(row => row.id === id && row.j1SetupWake))) return j1SettleSetupWake(node);
+  if (j1UsesPrivateQuestionBridge(node) || node.cards?.some(id => store.messagesFor(threadId).some(row => row.id === id && row.j1RoomQuestion))) return false;
+${genericCardAnswer}`,
   );
+  const roomWasResumed = settingsWindow ? ', composed.turn !== "first"' : "";
   await change(
     "server/index.ts",
-    '  return runRoomNode(node, group, bot, signal, undefined, (operation, result, coordination) =>\n    runGroupMemberTurn(group.id, node.threadId, bot.id, 0, new Set(), composed.text, error => { result.stopReason = error; }, () => operation.cancelled,\n      () => groupProviderHandshakeStarted(operation), () => groupProviderHandshakeSettled(operation), undefined,\n      { roomHandoffId: node.id, systemInstructions: "", followMentions: true, result, coordination, ...(node.goalRunId ? { goalRunId: node.goalRunId } : {}) }, operation));',
+    `  return runRoomNode(node, group, bot, signal, undefined, (operation, result, coordination) =>
+    runGroupMemberTurn(group.id, node.threadId, bot.id, 0, new Set(), composed.text, error => { result.stopReason = error; }, () => operation.cancelled,
+      () => groupProviderHandshakeStarted(operation), () => groupProviderHandshakeSettled(operation), undefined,
+      { roomHandoffId: node.id, systemInstructions: "", followMentions: true, result, coordination, ...(node.goalRunId ? { goalRunId: node.goalRunId } : {}) }, operation)${roomWasResumed});`,
     `  return runRoomNode(node, group, bot, signal, undefined, (operation, result, coordination) => {
     j1ClaimParkedRoomAnswers(node, composed, operation);
     if (operation.j1ParkedSetup) operation.requestMessageId = operation.j1ParkedSetup.sourceId;
@@ -1429,7 +1466,7 @@ function acceptJ1ParkedRoomAnswer(auth: RequestAuth, threadId: string, requestId
       () => groupProviderHandshakeStarted(operation), () => groupProviderHandshakeSettled(operation), undefined,
       { roomHandoffId: node.id, systemInstructions: "", followMentions: !(operation.j1ParkedAnswer || operation.j1ParkedSetup), result, coordination,
         ...(node.goalRunId ? { goalRunId: node.goalRunId } : {}) }, operation);
-  });`,
+  }${roomWasResumed});`,
   );
   await change(
     "server/index.ts",
@@ -1671,8 +1708,8 @@ async function runGroupGoalStep(args: {`,
   );
   await change(
     "server/host/acting-person.ts",
-    "    const thread = deps.store.messagesFor(threadId);",
-    "    if (deps.informationOnly?.(threadId, generation ?? deps.direct(threadId)?.generation ?? \"\")) return null;\n    const thread = deps.store.messagesFor(threadId);",
+    "    const thread = deps.store.messagesFor(threadId);\n    if (deps.store.groupByThread(threadId)) {",
+    "    if (deps.informationOnly?.(threadId, generation ?? deps.direct(threadId)?.generation ?? \"\")) return null;\n    const thread = deps.store.messagesFor(threadId);\n    if (deps.store.groupByThread(threadId)) {",
   );
   await change(
     "server/host/acting-person.ts",
@@ -1694,40 +1731,48 @@ async function runGroupGoalStep(args: {`,
     "const fileSchema = z.object({",
     'const j1RoomAuthority = z.object({ rootId: z.string(), sourceThreadId: z.string(), sourceMessageId: z.string(),\n  sourceHash: z.string(), senderId: z.string(), memberId: z.string(), groupId: z.string().optional(), threadId: z.string(),\n  assignmentHash: z.string(), approvalGranted: z.boolean(), reply: z.enum(["resume", "poll", "none"]), mode: z.enum(["notify", "consult"]).optional(),\n  upstream: z.object({ nodeId: z.string(), generation: z.string(), turnId: z.string(), startedAt: z.number().int(),\n    hash: z.string(), result: z.object({ execution: z.number().int(), startedAt: z.number().int(), hash: z.string() }).optional(), restart: z.object({ priorGeneration: z.string(), priorTurnId: z.string(), execution: z.number().int(), restarts: z.number().int(), priorStartedAt: z.number().int(), reconciledAt: z.number().int(), startedAt: z.number().int(), rootResultHash: z.string().optional() }).optional(), resume: z.object({ execution: z.number().int(), startedAt: z.number().int(), answerHash: z.string() }).optional() }).optional() });\nexport type J1RoomAuthority = z.infer<typeof j1RoomAuthority>;\n\nconst fileSchema = z.object({',
   );
+  const persistedLends = settingsWindow ? ", lends: z.literal(true).optional()" : "";
+  const lendsField = settingsWindow ? "; lends?: true" : "";
+  const lendsParameter = settingsWindow ? ", lends = false" : "";
+  const lendsValue = settingsWindow ? ", ...(lends ? { lends: true as const } : {})" : "";
   await change(
     "server/host/acting-person.ts",
-    'work: z.record(z.string().regex(WORK), z.object({ person: z.string().regex(PERSON), at: z.number().int().nonnegative() })),',
-    'work: z.record(z.string().regex(WORK), z.object({ person: z.string().regex(PERSON), at: z.number().int().nonnegative(),\n    room: j1RoomAuthority.optional() })),',
+    `work: z.record(z.string().regex(WORK), z.object({ person: z.string().regex(PERSON), at: z.number().int().nonnegative()${persistedLends} })),`,
+    `work: z.record(z.string().regex(WORK), z.object({ person: z.string().regex(PERSON), at: z.number().int().nonnegative()${persistedLends},
+    room: j1RoomAuthority.optional() })),`,
   );
   await change(
     "server/host/acting-person.ts",
-    "#work = new Map<string, { person: string; at: number }>();",
-    "#work = new Map<string, { person: string; at: number; room?: J1RoomAuthority }>();",
+    `#work = new Map<string, { person: string; at: number${lendsField} }>();`,
+    `#work = new Map<string, { person: string; at: number${lendsField}; room?: J1RoomAuthority }>();`,
   );
   await change(
     "server/host/acting-person.ts",
-    "record(workId: string, person: string | null): void {",
-    "record(workId: string, person: string | null, room?: J1RoomAuthority): void {",
+    `record(workId: string, person: string | null${lendsParameter}): void {`,
+    `record(workId: string, person: string | null${lendsParameter}, room?: J1RoomAuthority): void {`,
   );
   await change(
     "server/host/acting-person.ts",
-    "this.#work.set(workId, { person, at: now });",
-    "this.#work.set(workId, { person, at: now, ...(room ? { room } : {}) });",
+    `this.#work.set(workId, { person, at: now${lendsValue} });`,
+    `this.#work.set(workId, { person, at: now${lendsValue}, ...(room ? { room } : {}) });`,
   );
   await change(
     "server/host/acting-person.ts",
     'console.warn(`handed-on work: could not save',
-    'if (room) this.#work.set(workId, { person, at: now });\n      console.warn(`handed-on work: could not save',
+    `if (room) this.#work.set(workId, { person, at: now${lendsValue} });\n      console.warn(\`handed-on work: could not save`,
   );
   await change(
     "server/host/acting-person.ts",
-    "get(workId: string): { person: string; at: number } | undefined {",
-    "get(workId: string): { person: string; at: number; room?: J1RoomAuthority } | undefined {",
+    `get(workId: string): { person: string; at: number${lendsField} } | undefined {`,
+    `get(workId: string): { person: string; at: number${lendsField}; room?: J1RoomAuthority } | undefined {`,
   );
+  const handOnLending = settingsWindow ? ", lends = false, lender?: string" : "";
+  const fallbackLender = settingsWindow ? " ?? (lends && lender && unnamedAlone(turn.threadId, turn.generation) ? lender : null)" : "";
+  const recordLending = settingsWindow ? ", lends" : "";
   await change(
     "server/host/acting-person.ts",
-    'handOn(turn: { threadId: string; generation: string }, work: { id: string; rootId: string }): void {\n      const person = requester(turn.threadId, turn.generation);\n      deps.handed.record(work.id, person);',
-    'handOn(turn: { threadId: string; generation: string }, work: { id: string; rootId: string }, room?: J1RoomAuthority): void {\n      const person = requester(turn.threadId, turn.generation);\n      deps.handed.record(work.id, person, room);',
+    `handOn(turn: { threadId: string; generation: string }, work: { id: string; rootId: string }${handOnLending}): void {\n      const person = requester(turn.threadId, turn.generation)${fallbackLender};\n      deps.handed.record(work.id, person${recordLending});`,
+    `handOn(turn: { threadId: string; generation: string }, work: { id: string; rootId: string }${handOnLending}, room?: J1RoomAuthority): void {\n      const person = requester(turn.threadId, turn.generation)${fallbackLender};\n      deps.handed.record(work.id, person${recordLending}, room);`,
   );
   await change(
     "server/host/acting-person.ts",
@@ -2480,10 +2525,13 @@ function j1ResultWakeHash(wake: NonNullable<ReturnType<typeof j1ParentResultProo
 
 function runRoomRootTurn(node:`,
   );
+  const handOnOrigin = settingsWindow
+    ? "actingPeople.handOn(internalCapability, node, lends, CLOUD_HOME ? undefined : OWN_SERVER_LENDER"
+    : "if (!duplicate) actingPeople.handOn(internalCapability, node";
   await change(
     "server/index.ts",
-    "if (!duplicate) actingPeople.handOn(internalCapability, node);",
-    "if (!duplicate) actingPeople.handOn(internalCapability, node, captureJ1RoomAuthority(internalCapability, node, internalSender.id));",
+    `${handOnOrigin});`,
+    `${handOnOrigin}, captureJ1RoomAuthority(internalCapability, node, internalSender.id));`,
   );
   await change(
     "server/coordinator.ts",
@@ -2535,7 +2583,7 @@ function runRoomRootTurn(node:`,
   );
   await change(
     "server/index.ts",
-    '      return runRoomNode(node, group, bot, signal, parent, (operation, result, coordination) =>\n        runGroupMemberTurn(group.id, node.threadId, bot.id, MAX_COMMS_DEPTH, new Set(),\n          undefined, error => { result.stopReason = error; }, () => operation.cancelled,\n          () => groupProviderHandshakeStarted(operation), () => groupProviderHandshakeSettled(operation),\n          { claimed: true }, { roomHandoffId: node.id, resumed, systemInstructions, turnInstructions: brief, turnNote: composed.note, turnRestartNote: composed.restartNote, liveRoster, followMentions: false, result, coordination }, operation));',
+    `      return runRoomNode(node, group, bot, signal, parent, (operation, result, coordination) =>\n        runGroupMemberTurn(group.id, node.threadId, bot.id, MAX_COMMS_DEPTH, new Set(),\n          undefined, error => { result.stopReason = error; }, () => operation.cancelled,\n          () => groupProviderHandshakeStarted(operation), () => groupProviderHandshakeSettled(operation),\n          { claimed: true }, { roomHandoffId: node.id, resumed, systemInstructions, turnInstructions: brief, turnNote: composed.note, turnRestartNote: composed.restartNote, liveRoster, followMentions: false, result, coordination }, operation)${roomWasResumed});`,
     `      return runRoomNode(node, group, bot, signal, parent, (operation, result, coordination) => {
         j1ClaimParkedRoomAnswers(node, composed, operation);
         return runGroupMemberTurn(group.id, node.threadId, bot.id, MAX_COMMS_DEPTH, new Set(),\n          undefined, error => { result.stopReason = error; }, () => operation.cancelled,\n          () => groupProviderHandshakeStarted(operation), () => groupProviderHandshakeSettled(operation),
@@ -2551,11 +2599,12 @@ function runRoomRootTurn(node:`,
               registry.get(bot.modelSelection.instanceId)?.driverKind === "j1-shared") ? {}
               : { turnInstructions: brief, turnNote: composed.note, turnRestartNote: composed.restartNote, liveRoster }),
             followMentions: false, result, coordination }, operation);
-      });`,
+      }${roomWasResumed});`,
   );
+  const roomDispatchStart = settingsWindow ? "linkLimits.input(roomLinkLimited, instance, {" : "{";
   await change(
     "server/index.ts",
-    "    guardTurnDispatch(roomShareNote.after(instance.adapter.sendTurn({",
+    `    guardTurnDispatch(roomShareNote.after(instance.adapter.sendTurn(${roomDispatchStart}`,
     `    const restartNode = (orchestration?.j1RestartRoomHandoff || orchestration?.j1ResultRoomHandoff) && orchestration.roomHandoffId
       ? coordinator.node(orchestration.roomHandoffId) : undefined;
     if (instance.driverKind !== "j1-shared" && operation?.j1ParkedSetup)
@@ -2843,7 +2892,7 @@ function runRoomRootTurn(node:`,
             ...(childRestart ? { childRestart } : {}), ...(parentResultWake ? { parentResultWake } : {}) } };
       };
     })() : undefined;
-    guardTurnDispatch(roomShareNote.after(instance.adapter.sendTurn({`,
+    guardTurnDispatch(roomShareNote.after(instance.adapter.sendTurn(${roomDispatchStart}`,
   );
   await change(
     "server/index.ts",
@@ -2889,10 +2938,20 @@ function runRoomRootTurn(node:`,
     "        ...roomSession.send,\n        threadId,",
     "        ...roomSession.send,\n        ...(roomMemberRead ? { j1RoomTurn: true as const, j1RoomMemberRead: roomMemberRead, ...(orchestration?.roomHandoffId && coordinator.node(orchestration.roomHandoffId)?.mode === \"consult\" ? { j1Consultation: true as const } : {}), j1ProjectId: readyBot.j1ProjectId } : {}),\n        threadId,",
   );
+  const turnAttachments = settingsWindow ? "images: turnImages, videos: turnVideos," : "images: turnImages,";
+  const replaceTurnAttachments = settingsWindow ? "[] : turnImages,\n        videos: preserveRoomAttachments ? turnVideos : []," : "[] : turnImages,";
+  const restrictedRoomAttachments = 'operation?.j1ParkedAnswer || operation?.j1ParkedSetup || (roomMemberRead && (orchestration?.j1ResultRoomHandoff || orchestration?.j1RestartRoomHandoff || (orchestration?.j1FirstRoomHandoff && operation?.handedFor)))';
+  if (settingsWindow) {
+    await change(
+      "server/index.ts",
+      `    guardTurnDispatch(roomShareNote.after(instance.adapter.sendTurn(${roomDispatchStart}`,
+      `    const preserveRoomAttachments = !(${restrictedRoomAttachments});\n    guardTurnDispatch(roomShareNote.after(instance.adapter.sendTurn(${roomDispatchStart}`,
+    );
+  }
   await change(
     "server/index.ts",
-    "        images: turnImages,\n        approvalMode: turnApprovalMode,",
-    "        images: operation?.j1ParkedAnswer || operation?.j1ParkedSetup || (roomMemberRead && (orchestration?.j1ResultRoomHandoff || orchestration?.j1RestartRoomHandoff ||\n          (orchestration?.j1FirstRoomHandoff && operation?.handedFor))) ? [] : turnImages,\n        approvalMode: turnApprovalMode,",
+    `        ${turnAttachments}\n        approvalMode: turnApprovalMode,`,
+    `        images: ${settingsWindow ? "!preserveRoomAttachments" : restrictedRoomAttachments} ? ${replaceTurnAttachments}\n        approvalMode: turnApprovalMode,`,
   );
   await change(
     "shared/wire.ts",
@@ -2909,15 +2968,19 @@ function runRoomRootTurn(node:`,
     '  const pushAssistantText = (text: string, turnId: string | undefined) => {',
     '  const pushAssistantText = (text: string, turnId: string | undefined, j1ProviderMessageId?: string) => {',
   );
+  const nativeAssistantItemId = settingsWindow
+    ? ', ...(event.type === "item.completed" && event.itemId ? { itemId: event.itemId } : {})'
+    : "";
   await change(
     "server/index.ts",
-    '    pushMessage({ role: "bot", kind: "text", text: spoken.text, turnId });',
-    '    pushMessage({ role: "bot", kind: "text", text: spoken.text, turnId, ...(j1ProviderMessageId ? { j1ProviderMessageId } : {}) });',
+    `    pushMessage({ role: "bot", kind: "text", text: spoken.text, turnId${nativeAssistantItemId} });`,
+    `    pushMessage({ role: "bot", kind: "text", text: spoken.text, turnId${nativeAssistantItemId}, ...(j1ProviderMessageId ? { j1ProviderMessageId } : {}) });`,
   );
+  const visibleAssistantText = settingsWindow ? "shown" : "event.text";
   await change(
     "server/index.ts",
-    "        pushAssistantText(event.text, event.turnId);",
-    '        pushAssistantText(event.text, event.turnId, event.provider === "j1-shared" ? event.itemId : undefined);',
+    `pushAssistantText(${visibleAssistantText}, event.turnId);`,
+    `pushAssistantText(${visibleAssistantText}, event.turnId, event.provider === "j1-shared" ? event.itemId : undefined);`,
   );
   await change(
     "server/index.ts",
@@ -2956,10 +3019,12 @@ function runRoomRootTurn(node:`,
     }
     m = path.match(/^\\/api\\/bots\\/([\\w-]+)\\/interrupt$/);`,
   );
+  const botApiRetry = settingsWindow ? "botApiRetry: botApi.retry, " : "";
+  const runOwners = settingsWindow ? "runOwners, runActor, " : "";
   await change(
     "server/index.ts",
-    "  acceptDirectSend, directSendRefusal, startTurn, usageTriggerFor, messageSender, cloudGuestSendRefusal, cloudThreadRefusal, resolveAccessRequest:",
-    "  acceptDirectSend, directSendRefusal, startTurn, usageTriggerFor, messageSender, cloudGuestSendRefusal, cloudThreadRefusal, ...(process.send ? { j1Resume: resumeSavedJ1Turn } : {}), resolveAccessRequest:",
+    `  acceptDirectSend, directSendRefusal, startTurn, ${botApiRetry}usageTriggerFor, messageSender, cloudGuestSendRefusal, cloudThreadRefusal, ${runOwners}resolveAccessRequest:`,
+    `  acceptDirectSend, directSendRefusal, startTurn, ${botApiRetry}usageTriggerFor, messageSender, cloudGuestSendRefusal, cloudThreadRefusal, ${runOwners}...(process.send ? { j1Resume: resumeSavedJ1Turn } : {}), resolveAccessRequest:`,
   );
   await change(
     "server/index.ts",

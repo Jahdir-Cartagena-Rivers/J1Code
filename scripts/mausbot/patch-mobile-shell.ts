@@ -2,7 +2,7 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 
 /** Applies after the shared J1 bridge, to the same disposable pinned assembly. */
-export async function patchMobileShell(stage: string, root: string) {
+export async function patchMobileShell(stage: string, root: string, { settingsWindow = false } = {}) {
   const change = async (file: string, before: string, after: string) => {
     const path = NodePath.join(stage, file);
     const source = (await NodeFSP.readFile(path, "utf8")).replaceAll("\r\n", "\n");
@@ -19,35 +19,36 @@ export async function patchMobileShell(stage: string, root: string) {
     "  const framed = windowFramed(capabilities);",
     "  const framed = !j1Navigation && windowFramed(capabilities);",
   );
-  await change(
-    "src/App.tsx",
-    "      <WindowFrameBar notifications={notificationTray} />",
-    "      {!j1Navigation && <WindowFrameBar notifications={notificationTray} />}",
-  );
-  await NodeFSP.copyFile(
-    NodePath.join(root, "scripts/mausbot/J1SettingsPicker.tsx"),
-    NodePath.join(stage, "src/components/J1SettingsPicker.tsx"),
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    'import { Select } from "./Select";',
-    'import { Select } from "./Select";\nimport { J1SettingsPicker } from "./J1SettingsPicker";',
-  );
-  const settingsPath = NodePath.join(stage, "src/components/SettingsModal.tsx");
-  const settings = await NodeFSP.readFile(settingsPath, "utf8");
-  const selector = settings.match(
-    /            <Select className="min-w-0 sm:hidden"\s+aria-label=\{t\("settings.title"\)\}\s+value=\{j1Path[\s\S]*?            <\/Select>/,
-  )?.[0];
-  if (!selector) throw new Error("Pinned settings section picker changed.");
-  await change(
-    "src/components/SettingsModal.tsx",
-    selector,
-    selector
-      .replace("<Select", "<J1SettingsPicker")
-      .replace("</Select>", "</J1SettingsPicker>")
-      .replace("onChange={(event)", "onSelect={(value)")
-      .replaceAll("event.target.value", "value"),
-  );
+  const nativeFrame = settingsWindow
+    ? "<WindowFrameBar notifications={notificationTray} sidebarUpdate={!advanced && sidebarShown} />"
+    : "<WindowFrameBar notifications={notificationTray} />";
+  await change("src/App.tsx", `      ${nativeFrame}`, `      {!j1Navigation && ${nativeFrame}}`);
+  if (!settingsWindow) {
+    await NodeFSP.copyFile(
+      NodePath.join(root, "scripts/mausbot/J1SettingsPicker.tsx"),
+      NodePath.join(stage, "src/components/J1SettingsPicker.tsx"),
+    );
+    await change(
+      "src/components/SettingsModal.tsx",
+      'import { Select } from "./Select";',
+      'import { Select } from "./Select";\nimport { J1SettingsPicker } from "./J1SettingsPicker";',
+    );
+    const settingsPath = NodePath.join(stage, "src/components/SettingsModal.tsx");
+    const settings = await NodeFSP.readFile(settingsPath, "utf8");
+    const selector = settings.match(
+      /            <Select className="min-w-0 sm:hidden"\s+aria-label=\{t\("settings.title"\)\}\s+value=\{j1Path[\s\S]*?            <\/Select>/,
+    )?.[0];
+    if (!selector) throw new Error("Pinned settings section picker changed.");
+    await change(
+      "src/components/SettingsModal.tsx",
+      selector,
+      selector
+        .replace("<Select", "<J1SettingsPicker")
+        .replace("</Select>", "</J1SettingsPicker>")
+        .replace("onChange={(event)", "onSelect={(value)")
+        .replaceAll("event.target.value", "value"),
+    );
+  }
 
   const barPath = NodePath.join(stage, "src/components/SidebarPhoneBar.tsx");
   const bar = await NodeFSP.readFile(barPath, "utf8");

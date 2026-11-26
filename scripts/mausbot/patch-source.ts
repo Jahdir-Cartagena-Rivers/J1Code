@@ -5,6 +5,7 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeUtil from "node:util";
 import { patchOpenMausImport } from "./patch-import.ts";
 import { patchMobileShell } from "./patch-mobile-shell.ts";
+import { patchLegacySettingsWindow, patchSettingsWindow } from "./patch-settings-window.ts";
 import { patchSharedExecution } from "./patch-shared-execution.ts";
 
 export const MAUSBOT_SOURCE = "d818c28aa80686dc1d7db64ebeffa2a9dc468762";
@@ -748,188 +749,8 @@ ${installPoint}`,
     `  const update = ${updateSource};`,
     `  const update = j1Navigation ? null : ${updateSource};`,
   );
-  await change(
-    "src/components/SettingsModal.tsx",
-    'import { t } from "@/lib/i18n";',
-    'import { t } from "@/lib/i18n";\nimport { J1SettingsLinks, J1SettingsSlot, j1SettingsSection, j1SettingsPath, j1SettingsLabel, j1OpenSettings, j1ExtraPages, j1Focusable, j1ActiveElement, j1SettingsPopupOpen } from "./J1Settings";\nimport { useJ1Navigation, j1Post, j1SettingsClosed } from "./J1Navigation";',
-  );
-  // Managed settings share one readable navigation rail. Labels must be allowed
-  // to wrap without overlapping the next fixed-height row.
-  await change(
-    "src/components/SettingsModal.tsx",
-    "w-[200px] shrink-0 flex-col gap-1",
-    "w-[224px] shrink-0 flex-col gap-1",
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    '                      "flex h-8 shrink-0 cursor-pointer items-center gap-[9px] rounded-lg px-[9px] text-left text-[13px]',
-    '                      "flex min-h-9 shrink-0 cursor-pointer items-center gap-[9px] rounded-lg px-[9px] py-1.5 text-left text-[13px] leading-5',
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    "  const advanced = useAdvancedMode();",
-    '  const preferredAdvanced = useAdvancedMode();\n  const j1Navigation = useJ1Navigation();\n  const advanced = preferredAdvanced || Boolean(j1Navigation);\n  const j1Path = j1Navigation?.active.startsWith("/settings/") ? j1Navigation.active : null;\n  const j1Label = j1Navigation?.settingsPages?.find((page) => page.path === j1Path)?.label;',
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    "  const visibleSections = availableSections.filter((entry) => sectionMatches(entry, q));",
-    '  const [j1MoreSettings, setJ1MoreSettings] = useState(false);\n  const secondarySections = new Set<AppSettingsSection>(["decisionModel", "imageGeneration", "import", "people", "experimental"]);\n  const visibleSections = availableSections.filter((entry) => (sectionMatches(entry, q) || Boolean(j1Navigation && j1SettingsLabel(entry.id, "").toLowerCase().includes(q))) && (!j1Navigation || j1MoreSettings || q !== "" || entry.id === section || !secondarySections.has(entry.id)));',
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    '          {keyResultButtons("cursor-pointer flex min-h-9',
-    '          {j1Navigation && !q && <button type="button" aria-expanded={j1MoreSettings} onClick={() => setJ1MoreSettings((value) => !value)} className="min-h-9 rounded-lg px-[9px] py-1.5 text-left text-[13px] text-ink-secondary hover:bg-ink/[0.06]">{j1MoreSettings ? "Fewer settings" : "More settings"}</button>}\n          {keyResultButtons("cursor-pointer flex min-h-9',
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    '        dispatch({ type: "toggleAppSettings", open: false });',
-    '        j1SettingsClosed(); dispatch({ type: "toggleAppSettings", open: false });',
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    '  const close = () => dispatch({ type: "toggleAppSettings", open: false });',
-    '  const close = () => { j1SettingsClosed(); dispatch({ type: "toggleAppSettings", open: false }); };',
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    '  const openSection = (id: AppSettingsSection) => dispatch({ type: "toggleAppSettings", open: true, section: id });',
-    '  const openSection = (id: AppSettingsSection) => { if (j1Navigation) j1OpenSettings(id); dispatch({ type: "toggleAppSettings", open: true, section: id }); };',
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    '          {keyResultButtons("cursor-pointer flex min-h-9',
-    '          {keyResultButtons("cursor-pointer flex min-h-9',
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    "              value={section}",
-    "              value={j1Path && !j1SettingsSection(j1Path) ? `j1:${j1Path}` : section}",
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    "                openSection(event.target.value as AppSettingsSection);",
-    '                if (event.target.value.startsWith("j1:")) { j1Post({ type: "settings-navigate", path: event.target.value.slice(3) }); return; }\n                openSection(event.target.value as AppSettingsSection);',
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    "              {sectionLabelKey ? t(sectionLabelKey) : null}",
-    "              {j1Path && !j1SettingsSection(j1Path) ? j1Label : sectionLabelKey ? j1Navigation ? j1SettingsLabel(section, t(sectionLabelKey)) : t(sectionLabelKey) : null}",
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    "            <LicenseExpiryBanner config={state.config} />\n            {renderSection(section)}",
-    '            {(j1Path === "/settings/appearance" || j1Path === "/settings/integrations") && <J1SettingsSlot />}\n            {(!j1Path || Boolean(j1SettingsSection(j1Path))) && !(j1Navigation && section === "companion") && <><LicenseExpiryBanner config={state.config} />{renderSection(section)}</>}\n            {j1Path === "/settings/keybindings" && <><TalkShortcutRow /><SendKeyRow /></>}\n            {j1Path && j1Path !== "/settings/appearance" && j1Path !== "/settings/integrations" && !(j1Path === "/settings/providers" && j1Navigation?.providers) && <J1SettingsSlot />}',
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    "            if (entries.length === 0) return null;",
-    "            if (entries.length === 0 && !j1ExtraPages(j1Navigation?.settingsPages, group.id).length) return null;",
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    "                ))}\n              </div>",
-    "                ))}\n                <J1SettingsLinks query={query} group={group.id} />\n              </div>",
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    "      const focusable = Array.from(\n        dialog.querySelectorAll<HTMLElement>(\n          'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex=\"-1\"])',\n        ),\n      ).filter((element) => element.checkVisibility());",
-    "      const focusable = j1Focusable(dialog);",
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    "      const active = document.activeElement;",
-    "      const active = j1ActiveElement();",
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    "!dialog.contains(active)",
-    "!dialog.contains(active?.getRootNode() instanceof ShadowRoot ? (active.getRootNode() as ShadowRoot).host : active)",
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    '      if (event.key === "Escape") {',
-    '      if (event.key === "Escape" && j1SettingsPopupOpen(dialog)) return;\n      if (event.key === "Escape") {',
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    "  const q = query.trim().toLowerCase();",
-    "  useEffect(() => { if (j1Navigation && !j1Path && j1SettingsPath(section)) j1OpenSettings(section); }, [j1Navigation, j1Path, section]);\n  const q = query.trim().toLowerCase();",
-  );
-  for (const row of [
-    "ThemeRow",
-    "ChatWidthRow",
-    "AdvancedModeRow",
-    "OpenAtLoginRow",
-    "UpdatesConsentRow",
-    "UpdatesRow",
-    "DiagnosticsRow",
-    "AutomaticRecoverySettings",
-    "ThreadCleanupSettings",
-    "AttachmentStorageSettings",
-    "TalkShortcutRow",
-    "SendKeyRow",
-  ]) {
-    await change(
-      "src/components/SettingsModal.tsx",
-      `            <${row} />`,
-      `            {!j1Navigation && <${row} />}`,
-    );
-  }
-  await change(
-    "src/components/SettingsModal.tsx",
-    "                    {entries.map(({ id, labelKey }) => (\n                      <option key={id} value={id}>{t(labelKey)}</option>\n                    ))}",
-    "                    {entries.map(({ id, labelKey }) => (\n                      <option key={id} value={id}>{j1Navigation ? j1SettingsLabel(id, t(labelKey)) : t(labelKey)}</option>\n                    ))}\n                    {j1ExtraPages(j1Navigation?.settingsPages, group.id).map((page) => <option key={page.path} value={`j1:${page.path}`}>{page.label}</option>)}",
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    "{remoteActive && <AdvancedModeRow />}",
-    "{remoteActive && !j1Navigation && <AdvancedModeRow />}",
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    "                    {t(labelKey)}",
-    "                    {j1Navigation ? j1SettingsLabel(id, t(labelKey)) : t(labelKey)}",
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    '      case "backups": return <AdminOnly><WorkspaceBackupSettings /><CompanyBackupSettings /></AdminOnly>;',
-    '      case "backups": return <AdminOnly>{j1Navigation && <><AutomaticRecoverySettings /><ThreadCleanupSettings /><AttachmentStorageSettings /></>}<WorkspaceBackupSettings /><CompanyBackupSettings /></AdminOnly>;',
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    "        return <><BuiltInBrowserRow /><ServerSitesRow /><BrowserProfilesRow /><AdminOnly><LocalComputerSection /></AdminOnly></>;",
-    "        return <>{!j1Navigation && <><BuiltInBrowserRow /><ServerSitesRow /><BrowserProfilesRow /></>}<AdminOnly><LocalComputerSection /></AdminOnly></>;",
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    '    if (nextVisibleSection) dispatch({ type: "toggleAppSettings", open: true, section: nextVisibleSection });',
-    '    if (nextVisibleSection && !j1Path) dispatch({ type: "toggleAppSettings", open: true, section: nextVisibleSection });',
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    "  }, [dispatch, nextVisibleSection]);",
-    "  }, [dispatch, nextVisibleSection, j1Path]);",
-  );
-  await change(
-    "src/components/SkinPicker.tsx",
-    'import { Check } from "lucide-react";',
-    'import { Check } from "lucide-react";\nimport { useJ1Navigation } from "./J1Navigation";',
-  );
-  await change(
-    "src/components/SkinPicker.tsx",
-    "  const active = resolveSkin(useSkinChoice());",
-    '  const active = resolveSkin(useSkinChoice());\n  const merged = Boolean(useJ1Navigation());\n  if (merged) return active === "halloween" ? <DressUpRow /> : null;',
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    '            <Card title={t("settings.skin.title")} subtitle={t("settings.skin.subtitle")}>\n              <SkinPicker />\n            </Card>',
-    '            {j1Navigation ? <SkinPicker /> : <Card title={t("settings.skin.title")} subtitle={t("settings.skin.subtitle")}>\n              <SkinPicker />\n            </Card>}',
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    "            <FontRow />",
-    "            {!j1Navigation && <FontRow />}",
-  );
+  if (latestSource) await patchSettingsWindow(change);
+  else await patchLegacySettingsWindow(change);
   await change(
     "src/lib/interface-mode.ts",
     'import { hasPriorRun } from "./prior-run";',
@@ -947,10 +768,13 @@ ${installPoint}`,
     "export function readAdvancedMode(): boolean {\n  if (hostAdvanced) return true;",
   );
   await copy("scripts/mausbot/host-interface.test.ts.txt", "src/lib/j1-host-interface.test.ts");
+  const sidebarDeclaration = latestSource
+    ? "export const Sidebar = memo(function Sidebar({"
+    : "export function Sidebar({";
   await change(
     "src/components/Sidebar.tsx",
-    "export function Sidebar({",
-    'import { J1Navigation, useJ1Navigation, j1Post } from "./J1Navigation";\nexport function Sidebar({',
+    sidebarDeclaration,
+    `import { J1Navigation, useJ1Navigation, j1Post } from "./J1Navigation";\n${sidebarDeclaration}`,
   );
   await copy("scripts/mausbot/bot-drop-box.ts", "src/lib/j1-bot-drop-box.ts");
   await change(
@@ -982,6 +806,18 @@ ${installPoint}`,
   );
   // A manually arranged merged roster must not jump when a bot starts working.
   // Group chiefs participate in their group's saved order just like other bots.
+  if (latestSource) {
+    await change(
+      "src/components/Sidebar.tsx",
+      " = sidebarBotRows(saved, floats, false);",
+      ` = sidebarBotRows(j1Navigation ? {
+    ...saved,
+    sectionChiefs: [],
+    sectionedBots: [...saved.sectionedBots, ...saved.sectionChiefs].sort((a, b) =>
+      state.bots.findIndex((bot) => bot.id === a.id) - state.bots.findIndex((bot) => bot.id === b.id)),
+  } : saved, floats, false);`,
+    );
+  } else {
   await change(
     "src/components/Sidebar.tsx",
     "  const { primary, unsectionedChief, pinnedBots, sectionChiefs, sectionedBots, unsectionedBots } = { ...saved, ...activeBotsFirst(saved, (bot) => {",
@@ -997,6 +833,7 @@ ${installPoint}`,
     "sectioned: saved.sectionedBots, departments: sectionNames",
     "sectioned: mergedSaved.sectionedBots, departments: sectionNames",
   );
+  }
   await change(
     "src/components/DesktopWorkspaceSwitcher.tsx",
     "import { track }",
@@ -1034,11 +871,19 @@ ${installPoint}`,
     "  const [searchOpen, setSearchOpen] = useState(false);",
     "  const j1Navigation = useJ1Navigation();\n  const [searchOpen, setSearchOpen] = useState(false);",
   );
-  await change(
-    "src/components/Sidebar.tsx",
-    "          <MovedBotRows bots={state.bots} /><SearchResults",
-    "          <J1Navigation />\n          <MovedBotRows bots={state.bots} /><SearchResults",
-  );
+  if (latestSource) {
+    await change(
+      "src/components/Sidebar.tsx",
+      '<OtherPlaceLine query={query} icons={density === "icons"} /><MovedBotRows bots={state.bots} /><MovedToMyCloudRow bots={state.bots} /><SearchResults',
+      '<J1Navigation />{!j1Navigation && <OtherPlaceLine query={query} icons={density === "icons"} />}<MovedBotRows bots={state.bots} />{!j1Navigation && <MovedToMyCloudRow bots={state.bots} />}<SearchResults',
+    );
+  } else {
+    await change(
+      "src/components/Sidebar.tsx",
+      "          <MovedBotRows bots={state.bots} /><SearchResults",
+      "          <J1Navigation />\n          <MovedBotRows bots={state.bots} /><SearchResults",
+    );
+  }
   await change(
     "src/components/Sidebar.tsx",
     "      <GlassScroller className=",
@@ -1091,9 +936,14 @@ ${installPoint}`,
   );
   await change(
     "src/components/Sidebar.tsx",
-    'simpleRow ? "text-[14px] font-medium leading-5" : "text-[15px] font-semibold leading-5"',
-    'merged ? "text-[13px] font-medium leading-5" : simpleRow ? "text-[14px] font-medium leading-5" : "text-[15px] font-semibold leading-5"',
+    latestSource
+      ? '"flex min-w-0 grow items-center gap-1.5 truncate text-ink", "text-[14px] font-medium leading-5"'
+      : 'simpleRow ? "text-[14px] font-medium leading-5" : "text-[15px] font-semibold leading-5"',
+    latestSource
+      ? '"flex min-w-0 grow items-center gap-1.5 truncate text-ink", merged ? "text-[13px] font-medium leading-5" : "text-[14px] font-medium leading-5"'
+      : 'merged ? "text-[13px] font-medium leading-5" : simpleRow ? "text-[14px] font-medium leading-5" : "text-[15px] font-semibold leading-5"',
   );
+  if (!latestSource) {
   await change(
     "src/components/SettingsModal.tsx",
     "{visibleSections.length === 0 && (",
@@ -1109,15 +959,19 @@ ${installPoint}`,
     'section === id ? "bg-ink/[0.08]"',
     '(!j1Path || j1SettingsSection(j1Path) === id) && section === id ? "bg-ink/[0.08]"',
   );
+  }
   await change(
     "src/components/CommandPalette.tsx",
     'import { t } from "@/lib/i18n";',
     'import { t } from "@/lib/i18n";\nimport { useJ1Navigation, j1Post } from "./J1Navigation";',
   );
+  const paletteState = latestSource
+    ? "  const [open, setOpen] = useState(false);"
+    : "  const { state, dispatch } = useStore();";
   await change(
     "src/components/CommandPalette.tsx",
-    "  const { state, dispatch } = useStore();",
-    "  const { state, dispatch } = useStore();\n  const j1Navigation = useJ1Navigation();",
+    paletteState,
+    `${paletteState}\n  const j1Navigation = useJ1Navigation();`,
   );
   await change(
     "src/components/CommandPalette.tsx",
@@ -1140,10 +994,13 @@ ${installPoint}`,
     "  const { state, dispatch } = useStore();",
     '  const { state, dispatch } = useStore();\n  const j1Navigation = useJ1Navigation();\n  const j1ShowingProject = Boolean(j1Navigation && !["/", "/assistants"].includes(j1Navigation.active));',
   );
+  const appFrame = latestSource
+    ? "<WindowFrameBar notifications={notificationTray} sidebarUpdate={!advanced && sidebarShown} />"
+    : "<WindowFrameBar notifications={notificationTray} />";
   await change(
     "src/App.tsx",
-    "      <WindowFrameBar notifications={notificationTray} />",
-    "      <J1ShellBridge /><J1SearchBridge /><J1SettingsBridge />\n      <WindowFrameBar notifications={notificationTray} />",
+    `      ${appFrame}`,
+    `      <J1ShellBridge /><J1SearchBridge /><J1SettingsBridge />\n      ${appFrame}`,
   );
   await change(
     "src/App.tsx",
@@ -1155,10 +1012,21 @@ ${installPoint}`,
     "      {!calendarFocus && <button",
     "      {!calendarFocus && !j1Navigation && <button",
   );
+  const syncDrawerFromJ1 = latestSource
+    ? `
+  useEffect(() => {
+    if (!j1Navigation || !matchMedia("(max-width: 767px)").matches) return;
+    if (j1ShowingProject || !j1Navigation.mobileOpen) hideDrawer();
+    else openDrawer();
+  }, [j1Navigation?.mobileOpen, j1ShowingProject, openDrawer, hideDrawer]);`
+    : '\n  useEffect(() => { if (j1Navigation && matchMedia("(max-width: 767px)").matches) setDrawerOpen(j1Navigation.mobileOpen); }, [j1Navigation?.mobileOpen]);\n  useEffect(() => { if (j1Navigation && !["/", "/assistants"].includes(j1Navigation.active)) setDrawerOpen(false); }, [j1Navigation?.active]);';
+  const drawerDeclaration = latestSource
+    ? "    view: state.activeView, pluginsOpen: state.pluginsOpen, settingsOpen: state.settingsOpen });"
+    : "  const [drawerOpen, setDrawerOpen] = useState(false);";
   await change(
     "src/App.tsx",
-    "  const [drawerOpen, setDrawerOpen] = useState(false);",
-    '  const [drawerOpen, setDrawerOpen] = useState(false);\n  useEffect(() => { if (j1Navigation && matchMedia("(max-width: 767px)").matches) setDrawerOpen(j1Navigation.mobileOpen); }, [j1Navigation?.mobileOpen]);\n  useEffect(() => { if (j1Navigation && !["/", "/assistants"].includes(j1Navigation.active)) setDrawerOpen(false); }, [j1Navigation?.active]);\n  useEffect(() => { j1Post({ type: "sidebar", open: drawerOpen }); }, [drawerOpen]);',
+    drawerDeclaration,
+    `${drawerDeclaration}${syncDrawerFromJ1}\n  useEffect(() => { j1Post({ type: "sidebar", open: drawerOpen }); }, [drawerOpen]);`,
   );
   await change(
     "src/App.tsx",
@@ -1175,10 +1043,11 @@ ${installPoint}`,
     "      {state.settingsOpen && bot && (",
     "      {!j1ShowingProject && state.settingsOpen && bot && (",
   );
+  const roomPanel = latestSource ? "!state.forkPanel && roomPanelOpen && group" : "roomPanelOpen && group";
   await change(
     "src/App.tsx",
-    "      {roomPanelOpen && group && (",
-    "      {!j1ShowingProject && roomPanelOpen && group && (",
+    `      {${roomPanel} && (`,
+    `      {!j1ShowingProject && ${roomPanel} && (`,
   );
   await change(
     "src/App.tsx",
@@ -1217,8 +1086,8 @@ ${installPoint}`,
   await copy("apps/web/src/assets/deepai-mark.png", "src/assets/j1-deepai-mark.png");
   await change(
     "src/components/ProviderIcons.tsx",
-    'import { useState } from "react";',
-    'import { useState } from "react";\nimport deepAIMark from "../assets/j1-deepai-mark.png";',
+    'import { cn } from "@/lib/cn";',
+    'import { cn } from "@/lib/cn";\nimport deepAIMark from "../assets/j1-deepai-mark.png";',
   );
   await change(
     "src/components/ProviderIcons.tsx",
@@ -1317,8 +1186,8 @@ ${installPoint}`,
 
   await change(
     "server/host/browser.ts",
-    'import { existsSync } from "node:fs";',
-    'import * as J1Browser from "../j1/native-browser.ts";\nimport { existsSync } from "node:fs";',
+    'import { join } from "node:path";',
+    'import * as J1Browser from "../j1/native-browser.ts";\nimport { join } from "node:path";',
   );
   await change(
     "server/host/browser.ts",
@@ -1335,10 +1204,22 @@ ${installPoint}`,
     "function browserReady(profile: string | undefined): boolean {",
     "function browserReady(profile: string | undefined): boolean {\n    if (J1Browser.managed) return J1Browser.ready;",
   );
+  const browserIntegration = "async function browserIntegration(botId: string, profile: string | undefined, turn?: { threadId: string; generation: string }, audience = browserAudience(turn?.threadId)";
+  const browserIntegrationDeclaration = latestSource
+    ? `${browserIntegration}, options: { opening?: string | null } = {}) {`
+    : `${browserIntegration}) {`;
   await change(
     "server/host/browser.ts",
-    "async function browserIntegration(botId: string, profile: string | undefined, turn?: { threadId: string; generation: string }, audience = browserAudience(turn?.threadId)) {",
-    'async function browserIntegration(botId: string, profile: string | undefined, turn?: { threadId: string; generation: string }, audience = browserAudience(turn?.threadId)) {\n    if (J1Browser.managed) {\n      if (!J1Browser.ready) return null;\n      const session = currentBrowserSession(botId, profile, audience);\n      const env: Record<string, string> = {};\n      const spec = { command: J1Browser.command, args: [], env };\n      usedBrowserSessions.set(session, spec);\n      return { profile: "", session, spec, integration: turn ? turnIntegration(botId, session, turn) : spec };\n    }',
+    browserIntegrationDeclaration,
+    `${browserIntegrationDeclaration}
+    if (J1Browser.managed) {
+      if (!J1Browser.ready) return null;
+      const session = currentBrowserSession(botId, profile, audience);
+      const env: Record<string, string> = {};
+      const spec = { command: J1Browser.command, args: [], env };
+      usedBrowserSessions.set(session, spec);
+      return { profile: "", session, spec, integration: turn ? turnIntegration(botId, session, turn) : spec };
+    }`,
   );
   await change(
     "server/host/browser.ts",
@@ -1395,8 +1276,8 @@ ${installPoint}`,
   );
   await change(
     "src/components/BrowserPanel.tsx",
-    'import { useCallback, useEffect, useRef, useState } from "react";',
-    'import { LightpandaPanel } from "./LightpandaPanel";\nimport { useCallback, useEffect, useRef, useState } from "react";',
+    'import { api, useStore, type Bot } from "@/state/store";',
+    'import { api, useStore, type Bot } from "@/state/store";\nimport { LightpandaPanel } from "./LightpandaPanel";',
   );
   await change(
     "src/components/BrowserPanel.tsx",
@@ -1415,15 +1296,21 @@ ${installPoint}`,
     "const unsubscribe = window.ogb?.onCapabilitiesChanged?.(",
     "const unsubscribe = subscribeNativeCapabilities(",
   );
+  const configDecoder = latestSource
+    ? 'import { configStatusFromFrame, type ConfigStatusFrame } from "@/lib/config-status-frame";'
+    : "export function configStatusFromFrame(";
   await change(
     "src/state/store.tsx",
-    "export function configStatusFromFrame(",
-    'import { publishNativeCapabilities } from "../j1-native-client";\nexport function configStatusFromFrame(',
+    configDecoder,
+    `import { publishNativeCapabilities } from "../j1-native-client";\n${configDecoder}`,
   );
+  const configDispatch = latestSource
+    ? "forgetSharedSession();"
+    : "\n          rawDispatch({";
   await change(
     "src/state/store.tsx",
-    '        case "config":\n          rawDispatch({',
-    '        case "config":\n          publishNativeCapabilities(frame);\n          rawDispatch({',
+    `        case "config":${latestSource ? " " : ""}${configDispatch}`,
+    `        case "config":\n          publishNativeCapabilities(frame);${latestSource ? "\n          " : ""}${configDispatch}`,
   );
   await change(
     "src/state/store.tsx",
@@ -1465,18 +1352,19 @@ ${installPoint}`,
     "async function readyLocalVmForTurn(botId: string, target: LocalVmTarget, isCurrent = () => true) {",
     'async function readyLocalVmForTurn(botId: string, target: LocalVmTarget, isCurrent = () => true) {\n  if (J1Browser.managed) throw new Error("Container desktops are not included in this J1 runtime. Choose This computer to use native tools.");',
   );
+  const shutdownRegistration = latestSource ? installPoint : "  process.on(signal, gracefulShutdown);\n}";
   await change(
     "server/index.ts",
-    "  process.on(signal, gracefulShutdown);\n}",
-    '  process.on(signal, gracefulShutdown);\n}\nif (process.send) {\n  process.on("message", (message) => { if (message && typeof message === "object" && "type" in message && message.type === "j1:shutdown") gracefulShutdown(); });\n  if (process.connected) process.once("disconnect", gracefulShutdown);\n  else gracefulShutdown();\n}',
+    shutdownRegistration,
+    `${shutdownRegistration}\nif (process.send) {\n  process.on("message", (message) => { if (message && typeof message === "object" && "type" in message && message.type === "j1:shutdown") gracefulShutdown(); });\n  if (process.connected) process.once("disconnect", gracefulShutdown);\n  else gracefulShutdown();\n}`,
   );
   await change(
     "server/index.ts",
     '  if (process.connected) process.once("disconnect", gracefulShutdown);',
     '  process.on("message", (message) => {\n    if (message && typeof message === "object" && handleDesktopTrustedApprovalMessage(message)) return;\n    if (!message || typeof message !== "object" || !("type" in message) || message.type !== "j1:browser" || !("executable" in message) || typeof message.executable !== "string" || !("requestId" in message) || typeof message.requestId !== "string") return;\n    J1Browser.configure(message.executable);\n    broadcast({ kind: "config", ...configStatus() });\n    process.send?.({ type: "j1:browser-applied", requestId: message.requestId });\n  });\n  if (process.connected) process.once("disconnect", gracefulShutdown);',
   );
-  await patchMobileShell(stage, root);
-  await patchSharedExecution(stage, root);
+  await patchMobileShell(stage, root, { settingsWindow: latestSource });
+  await patchSharedExecution(stage, root, { settingsWindow: latestSource });
 }
 
 if (
