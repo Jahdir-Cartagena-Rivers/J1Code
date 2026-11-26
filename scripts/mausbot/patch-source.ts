@@ -450,21 +450,22 @@ function j1InputSent(threadId: string, generation: string, turnId: string) {
     '(tool.name !== "memory_update" && tool.name !== "memory_log")',
     '(tool.name !== "memory_update" && tool.name !== "memory_log" && !J1_HIVE_TOOL_NAMES.has(tool.name))',
   );
-  await change(
-    "server/index.ts",
-    "text: memorySystemPrompt(bot.id, { managedWrites: agentsMounted,",
-    'text: (agentsMounted ? hiveProviderPrompt(toolScopeForTurn(bot.id), bot.memoryEnabled !== false) : "") + memorySystemPrompt(bot.id, { managedWrites: agentsMounted,',
-  );
-  await change(
-    "server/index.ts",
-    "text: memorySystemPrompt(teamHost.layer(bot.id, threadId),",
-    'text: (integrations.agents ? hiveProviderPrompt(toolScopeForTurn(bot.id), bot.memoryEnabled !== false) : "") + memorySystemPrompt(teamHost.layer(bot.id, threadId),',
-  );
-  await change(
-    "server/index.ts",
-    "const roomMemory = memorySystemPrompt(",
-    'const roomMemory = (integrations.agents ? hiveProviderPrompt(toolScopeForTurn(bot.id), bot.memoryEnabled !== false) : "") + memorySystemPrompt(',
-  );
+  const hiveGuide = (mounted: string) =>
+    `(${mounted} ? hiveProviderPrompt(toolScopeForTurn(bot.id), bot.memoryEnabled !== false) : "") + `;
+  const memoryRules = latestSource ? "memoryRulesPrompt" : "memorySystemPrompt";
+  const directMemory = `${memoryRules}(bot.id, { managedWrites: agentsMounted,`;
+  await change("server/index.ts", `text: ${directMemory}`, `text: ${hiveGuide("agentsMounted")}${directMemory}`);
+  const threadMemory = latestSource
+    ? "memoryRulesPrompt(teamHost.layer(bot.id, threadId), memoryOpts)"
+    : "memorySystemPrompt(teamHost.layer(bot.id, threadId),";
+  await change("server/index.ts", `text: ${threadMemory}`, `text: ${hiveGuide("integrations.agents")}${threadMemory}`);
+  if (latestSource) {
+    const roomRules = "memoryRulesPrompt(teamHost.layer(bot.id, threadId), roomMemoryOpts)";
+    await change("server/index.ts", `text: ${roomRules}`, `text: ${hiveGuide("integrations.agents")}${roomRules}`);
+  } else {
+    await change("server/index.ts", "const roomMemory = memorySystemPrompt(",
+      `const roomMemory = ${hiveGuide("integrations.agents")}memorySystemPrompt(`);
+  }
   const codexMountTest = await NodeFSP.readFile(
     NodePath.join(root, "scripts/mausbot/codex-hive-mount.test.ts.txt"),
     "utf8",
@@ -480,7 +481,9 @@ function j1InputSent(threadId: string, generation: string, turnId: string) {
   ).replaceAll("\r\n", "\n");
   const rowsStart = threadRoutes.indexOf("      const rows: ThreadRow[] = [];");
   const rowsEnd = threadRoutes.indexOf(
-    "      return json(res, 200, { threads: rows.slice(0, 100) });",
+    latestSource
+      ? '      const asked = Number(url.searchParams.get("page"));'
+      : "      return json(res, 200, { threads: rows.slice(0, 100) });",
     rowsStart,
   );
   if (rowsStart < 0 || rowsEnd < 0)
@@ -494,7 +497,7 @@ function j1InputSent(threadId: string, generation: string, turnId: string) {
   await change(
     "server/routes/internal-threads.ts",
     "type ThreadState =",
-    `export function internalThreadRows(deps: Parameters<typeof createInternalThreadRoutes>[0]): ThreadRow[] {\n  const { store, coordinator, from } = deps;\n${rowsBody}\n  return rows.slice(0, 100);\n}\n\ntype ThreadState =`,
+    `export function internalThreadRows(deps: Parameters<typeof createInternalThreadRoutes>[0]): ThreadRow[] {\n  const { store, coordinator, from } = deps;\n${rowsBody}\n  return rows;\n}\n\ntype ThreadState =`,
   );
   await change(
     "server/index.ts",
@@ -547,22 +550,25 @@ function j1InputSent(threadId: string, generation: string, turnId: string) {
   );
   const threadDeps = `{
         store, coordinator, from: internalSender, fromThreadId: internalCapability.threadId,
-        ownsThread: (botId, threadId) => Boolean(connectorThread(botId, threadId)),
+        ownsThread: (botId, threadId) => Boolean(connectorThread(botId, threadId)),${latestSource ? " mainThreadTasks," : ""}
         shown: (id) => !proactive.fence.confines(id) && !botApiThread(id) && (CLOUD_TEAM ? teamHost.readableFrom(internalCapability.threadId)(id) : cloudLendingView(internalCapability) ? cloudOwnerOnlyThread(id) : true),
-        threadBusy, queuedThreadPosition, queuedReason: queuedStatus,
+        threadBusy, queuedThreadPosition, queuedReason: queuedStatus,${latestSource ? " readBody: readInternalBody," : ""}
       }`;
   await change(
     "server/index.ts",
     `createInternalThreadRoutes(${threadDeps})`,
-    "createInternalThreadRoutes(j1HistoryThreadDeps(internalCapability, internalSender))",
+    `createInternalThreadRoutes(j1HistoryThreadDeps(internalCapability, internalSender${latestSource ? ", readInternalBody" : ""}))`,
   );
+  const installPoint = latestSource
+    ? 'for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => gracefulShutdown());'
+    : 'for (const signal of ["SIGINT", "SIGTERM"] as const) {';
   await change(
     "server/index.ts",
-    'for (const signal of ["SIGINT", "SIGTERM"] as const) {',
+    installPoint,
     `function j1HistoryCapability(who: HistoryPrincipal) {
   return who.kind === "mausbot" ? [...internalCapabilities.values()].find(cap => cap.kind === "agents" && cap.botId === who.botId && cap.threadId === who.threadId && cap.generation === who.generation && internalCapabilityIsActive(cap)) : undefined;
 }
-function j1HistoryThreadDeps(internalCapability: InternalCapability, internalSender: BotRecord): Parameters<typeof createInternalThreadRoutes>[0] { return ${threadDeps}; }
+function j1HistoryThreadDeps(internalCapability: InternalCapability, internalSender: BotRecord${latestSource ? ', readInternalBody: () => Promise<unknown> = async () => { throw new Error("Thread lookup has no request body"); }' : ""}): Parameters<typeof createInternalThreadRoutes>[0] { return ${threadDeps}; }
 function j1RoutingTarget(endpoint: { threadId: string }) {
   const match = /^mausbot:([\\w-]{1,120}):([\\w-]{1,120})$/.exec(endpoint.threadId);
   if (!match) return null;
@@ -609,12 +615,12 @@ installConversationQueries(createConversationQueries({
     if (!who || who.kind === "j1") return store.bots.filter(bot => !bot.hidden).flatMap(bot => store.tasks(bot.id).filter(task => !proactive.fence.confines(task.threadId) && !botApiThread(task.threadId)).map(task => ({ botId: bot.id, threadId: task.threadId, title: task.title })));
     const cap = j1HistoryCapability(who);
     const bot = store.bot(who.botId);
-    return cap && bot && connectorThread(bot.id, cap.threadId) ? internalThreadRows(j1HistoryThreadDeps(cap, bot)) : [];
+    return cap && bot && connectorThread(bot.id, cap.threadId) ? internalThreadRows(j1HistoryThreadDeps(cap, bot)).slice(0, 100) : [];
   },
   generation: id => activeInternalGenerationByThread.get(id),
   waiting: id => coordinator.awaitingAnswer(id) || Boolean(openPersonCard(id)),
 }));
-for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
+${installPoint}`,
   );
   await copy(
     "scripts/mausbot/HiveMemorySection.tsx",
@@ -683,16 +689,26 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
     "import { useSimpleModePromptSeen }",
     'import { useJ1Navigation } from "./J1Navigation";\nimport { useSimpleModePromptSeen }',
   );
-  await change(
-    "src/components/AppNotices.tsx",
-    "  const simpleDue = !useSimpleModePromptSeen();",
-    "  const simpleSeen = useSimpleModePromptSeen();\n  const merged = useJ1Navigation();\n  const simpleDue = !merged && !simpleSeen;",
-  );
-  await change(
-    "src/components/SidebarProfileMenu.tsx",
-    "        onConnect: connectTo,\n        onGetApp: () => setPhoneAppOpen(true),",
-    '        onConnect: (destination) => j1Navigation ? j1Post({ type: "settings-navigate", path: "/settings/connections" }) : connectTo(destination),\n        onGetApp: () => j1Navigation ? j1Post({ type: "settings-navigate", path: "/settings/connections" }) : setPhoneAppOpen(true),',
-  );
+  if (latestSource) {
+    await change(
+      "src/components/AppNotices.tsx",
+      "  const simpleDue = SIMPLE_ONLY ? newLookDue : advancedBack || !promptSeen;",
+      "  const merged = useJ1Navigation();\n  const simpleDue = !merged && (SIMPLE_ONLY ? newLookDue : advancedBack || !promptSeen);",
+    );
+  } else {
+    await change(
+      "src/components/AppNotices.tsx",
+      "  const simpleDue = !useSimpleModePromptSeen();",
+      "  const simpleSeen = useSimpleModePromptSeen();\n  const merged = useJ1Navigation();\n  const simpleDue = !merged && !simpleSeen;",
+    );
+  }
+  if (!latestSource) {
+    await change(
+      "src/components/SidebarProfileMenu.tsx",
+      "        onConnect: connectTo,\n        onGetApp: () => setPhoneAppOpen(true),",
+      '        onConnect: (destination) => j1Navigation ? j1Post({ type: "settings-navigate", path: "/settings/connections" }) : connectTo(destination),\n        onGetApp: () => j1Navigation ? j1Post({ type: "settings-navigate", path: "/settings/connections" }) : setPhoneAppOpen(true),',
+    );
+  }
   await change(
     "src/components/SidebarProfileMenu.tsx",
     "    onAbout: () => setAboutOpen(true),",
@@ -723,8 +739,14 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {`,
   // second menu shortcut or enable the standalone bot updater in merged mode.
   await change(
     "src/components/SidebarProfileMenu.tsx",
-    "  const serverUpdate = useServerUpdateItem(!window.ogb?.updater);\n  const update = desktopUpdate ?? serverUpdate;",
-    "  const j1Navigation = useJ1Navigation();\n  const serverUpdate = useServerUpdateItem(!window.ogb?.updater && !j1Navigation);\n  const update = j1Navigation ? null : desktopUpdate ?? serverUpdate;",
+    "  const serverUpdate = useServerUpdateItem(!window.ogb?.updater);",
+    "  const j1Navigation = useJ1Navigation();\n  const serverUpdate = useServerUpdateItem(!window.ogb?.updater && !j1Navigation);",
+  );
+  const updateSource = latestSource ? "desktopUpdate ?? elsewhereUpdate ?? serverUpdate" : "desktopUpdate ?? serverUpdate";
+  await change(
+    "src/components/SidebarProfileMenu.tsx",
+    `  const update = ${updateSource};`,
+    `  const update = j1Navigation ? null : ${updateSource};`,
   );
   await change(
     "src/components/SettingsModal.tsx",
