@@ -470,7 +470,8 @@ function deriveTitle(source: AgentSessionSource, text: string): string | undefin
     WAKE_ENVELOPE,
     "$1",
   );
-  return request.trim().split("\n")[0]?.slice(0, 100).trim() || undefined;
+  const line = request.trim().split("\n")[0] ?? "";
+  return line.slice(0, 100).replace(/[\uD800-\uDBFF]$/u, "").trim() || undefined;
 }
 
 // Pi keeps abandoned branches in the file; its active branch runs from the last entry to the root.

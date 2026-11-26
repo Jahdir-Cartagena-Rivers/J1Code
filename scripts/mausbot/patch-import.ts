@@ -3,32 +3,35 @@ import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 
 /** Extend the pinned app's existing import and restore flow rather than copying live profile databases. */
-export async function patchOpenMausImport(stage: string) {
+export async function patchOpenMausImport(stage: string, { useNativeBackupVersion = false } = {}) {
   const change = async (file: string, before: string, after: string) => {
     const path = NodePath.join(stage, file);
     const source = (await NodeFSP.readFile(path, "utf8")).replaceAll("\r\n", "\n");
     if (source.split(before).length !== 2) throw new Error(`Pinned import source changed: ${file}`);
     await NodeFSP.writeFile(path, source.replace(before, after));
   };
-  await NodeFSP.mkdir(NodePath.join(stage, "server/j1"), { recursive: true });
-  for (const [from, to] of [
-    ["backup-compatibility.ts", "backup-compatibility.ts"],
-    ["backup-compatibility.test.ts.txt", "backup-compatibility.test.ts"],
-  ])
-    await NodeFSP.copyFile(
-      NodeURL.fileURLToPath(new URL(from, import.meta.url)),
-      NodePath.join(stage, "server/j1", to),
+  if (!useNativeBackupVersion) {
+    await NodeFSP.mkdir(NodePath.join(stage, "server/j1"), { recursive: true });
+    for (const [from, to] of [
+      ["backup-compatibility.ts", "backup-compatibility.ts"],
+      ["backup-compatibility.test.ts.txt", "backup-compatibility.test.ts"],
+    ]) {
+      await NodeFSP.copyFile(
+        NodeURL.fileURLToPath(new URL(from, import.meta.url)),
+        NodePath.join(stage, "server/j1", to),
+      );
+    }
+    await change(
+      "server/workspace-backup-http.ts",
+      "import { randomUUID }",
+      'import { OPENMAUS_BACKUP_COMPATIBILITY_VERSION } from "./j1/backup-compatibility.ts";\nimport { randomUUID }',
     );
-  await change(
-    "server/workspace-backup-http.ts",
-    "import { randomUUID }",
-    'import { OPENMAUS_BACKUP_COMPATIBILITY_VERSION } from "./j1/backup-compatibility.ts";\nimport { randomUUID }',
-  );
-  await change(
-    "server/workspace-backup-http.ts",
-    "currentAppVersion: options.appVersion",
-    "currentAppVersion: OPENMAUS_BACKUP_COMPATIBILITY_VERSION",
-  );
+    await change(
+      "server/workspace-backup-http.ts",
+      "currentAppVersion: options.appVersion",
+      "currentAppVersion: OPENMAUS_BACKUP_COMPATIBILITY_VERSION",
+    );
+  }
   await NodeFSP.copyFile(
     NodeURL.fileURLToPath(new URL("./OpenMausImportDialog.tsx", import.meta.url)),
     NodePath.join(stage, "src/components/OpenMausImportDialog.tsx"),
@@ -37,21 +40,59 @@ export async function patchOpenMausImport(stage: string) {
     NodeURL.fileURLToPath(new URL("./openmaus-import.test.ts.txt", import.meta.url)),
     NodePath.join(stage, "src/components/openmaus-import.test.ts"),
   );
-  await change(
-    "src/components/WorkspaceBackupSettings.tsx",
-    "export function WorkspaceBackupSettings() {",
-    "export function WorkspaceBackupSettings({ importOnly = false }: { importOnly?: boolean } = {}) {",
-  );
-  await change(
-    "src/components/WorkspaceBackupSettings.tsx",
-    '<Card title={t("backup.export")} subtitle={t("backup.passwordHint")}>',
-    '{!importOnly && <Card title={t("backup.export")} subtitle={t("backup.passwordHint")}>',
-  );
-  await change(
-    "src/components/WorkspaceBackupSettings.tsx",
-    '</Card>\n            <Card title={t("backup.import")}',
-    '</Card>}\n            <Card title={t("backup.import")}',
-  );
+  const backupSettings = "src/components/WorkspaceBackupSettings.tsx";
+  const backupSource = await NodeFSP.readFile(NodePath.join(stage, backupSettings), "utf8");
+  const rowLayout = "export function WorkspaceBackupSettings({ layout = BOTH_ROWS }:";
+  const usesBackupRows = backupSource.includes(rowLayout);
+  if (usesBackupRows) {
+    await change(
+      backupSettings,
+      `${rowLayout} { layout?: (rows: BackupRows) => ReactNode } = {}) {`,
+      "export function WorkspaceBackupSettings({ importOnly = false, layout = importOnly ? ({ importRow }) => <SettingsRows>{importRow}</SettingsRows> : BOTH_ROWS }: { importOnly?: boolean; layout?: (rows: BackupRows) => ReactNode } = {}) {",
+    );
+    // The J1 import chooser already owns a dialog and keyboard focus.
+    await change(
+      backupSettings,
+      "const BOTH_ROWS =",
+      'const InlineImport = ({ children }: { children: ReactNode }) => <div className="flex flex-col gap-4">{children}</div>;\nconst BOTH_ROWS =',
+    );
+    await change(
+      backupSettings,
+      "const [importing, setImporting] = useState(false);",
+      "const [importing, setImporting] = useState(importOnly);\n  const ImportDialog = importOnly ? InlineImport : SettingsDialog;",
+    );
+    await change(
+      backupSettings,
+      'importRow: <SettingRow title={t("backup.import")} subtitle={t("backup.importShort")}>',
+      'importRow: importOnly && importing ? null : <SettingRow title={t("backup.import")} subtitle={t("backup.importShort")}>',
+    );
+    await change(
+      backupSettings,
+      '<SettingsDialog title={t("backup.import")} onClose={closeImport}>',
+      '<ImportDialog title={t("backup.import")} onClose={closeImport}>',
+    );
+    await change(
+      backupSettings,
+      '        </>}\n      </SettingsDialog>',
+      '        </>}\n      </ImportDialog>',
+    );
+  } else {
+    await change(
+      backupSettings,
+      "export function WorkspaceBackupSettings() {",
+      "export function WorkspaceBackupSettings({ importOnly = false }: { importOnly?: boolean } = {}) {",
+    );
+    await change(
+      backupSettings,
+      '<Card title={t("backup.export")} subtitle={t("backup.passwordHint")}>',
+      '{!importOnly && <Card title={t("backup.export")} subtitle={t("backup.passwordHint")}>',
+    );
+    await change(
+      backupSettings,
+      '</Card>\n            <Card title={t("backup.import")}',
+      '</Card>}\n            <Card title={t("backup.import")}',
+    );
+  }
   await change(
     "src/components/ImportSettings.tsx",
     "import { GrokBotMark }",
@@ -59,9 +100,16 @@ export async function patchOpenMausImport(stage: string) {
   );
   await change(
     "src/components/ImportSettings.tsx",
-    "      <GrokImportSection />",
-    "      <OpenMausImportSection />\n      <GrokImportSection />",
+    "\n      <GrokImportSection />",
+    "\n      <OpenMausImportSection />\n      <GrokImportSection />",
   );
+  if (usesBackupRows) {
+    await change(
+      "src/components/ImportSettings.tsx",
+      "\n        <GrokImportSection />",
+      "\n        <OpenMausImportSection />\n        <GrokImportSection />",
+    );
+  }
   const settings = NodePath.join(stage, "src/components/ImportSettings.tsx");
   await NodeFSP.appendFile(
     settings,

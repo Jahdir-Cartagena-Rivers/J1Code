@@ -8,17 +8,22 @@ import { patchMobileShell } from "./patch-mobile-shell.ts";
 import { patchSharedExecution } from "./patch-shared-execution.ts";
 
 export const MAUSBOT_SOURCE = "d818c28aa80686dc1d7db64ebeffa2a9dc468762";
+const MAUSBOT_V0182 = "140172d88382a97e1c3420d55f3df8ba472a9cfe";
 const root = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "../..");
 
 /** Applies only to our disposable, pinned OSS assembly; never edits the reference checkout. */
-export async function patchMausbotSource(stage: string) {
-  await patchOpenMausImport(stage);
+export async function patchMausbotSource(stage: string, sourceRef = MAUSBOT_SOURCE) {
+  const latestSource = sourceRef === MAUSBOT_V0182;
+  await patchOpenMausImport(stage, { useNativeBackupVersion: latestSource });
   const bubblePath = NodePath.join(stage, "src/components/chat-bubble.ts");
   const bubbles = await NodeFSP.readFile(bubblePath, "utf8");
   if (!bubbles.includes("calc(100%-82px)")) throw new Error("Pinned bubble width changed.");
   await NodeFSP.writeFile(bubblePath, bubbles.replace("calc(100%-82px)", "calc(100%-var(--chat-bubble-gutter,82px))"));
-  // OpenMausBot #4874: avoid spinning while many bot turns wait for memory.
-  for (const file of ["e14bffd0-memory-queue.patch", "ba3c2b7c-retry-cleanup.patch"])
+  // v0.1.182 already contains both upstream fixes.
+  const backports = latestSource
+    ? []
+    : ["e14bffd0-memory-queue.patch", "ba3c2b7c-retry-cleanup.patch"];
+  for (const file of backports)
     await NodeUtil.promisify(NodeChildProcess.execFile)(
       "git",
       ["apply", NodePath.join(root, "scripts/mausbot/upstream", file)],
@@ -104,13 +109,14 @@ export function isImageFile(file: { type: string; name?: string; size?: number }
     '\nexport const REPLY_HABITS_PROMPT = BASE_REPLY_HABITS_PROMPT + "\\n\\n" + AUTHORIZATION_INSTRUCTIONS;\n',
   );
   await change(
-    "shared/outbound.ts",
+    latestSource ? "packages/phone-protocol/src/outbound.ts" : "shared/outbound.ts",
     "  if (AGENTS_X_READS.test(name)) return false;",
     "  if (AGENTS_X_READS.test(name)) return false;\n  // J1 validates this return channel against the two original route participants.\n  if (/^(?:mcp__agents__|agents__|agents_)?reply_to_route$/.test(name)) return false;",
   );
   await copy("scripts/mausbot/routing-feedback.test.ts.txt", "server/j1/routing-feedback.test.ts");
   // Preserve upstream checksum/version gates without PowerShell's non-terminating extraction errors.
-  await change(
+  if (!latestSource) {
+    await change(
     "scripts/prepare-cua-win.mjs",
     `  await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
     "Expand-Archive -LiteralPath $env:OMB_CUA_ARCHIVE -DestinationPath $env:OMB_CUA_EXTRACT"], {
@@ -124,14 +130,16 @@ export function isImageFile(file: { type: string; name?: string; size?: number }
     timeout: 60_000,
     windowsHide: true,
   });`,
-  );
+    );
+  }
   await NodeFSP.mkdir(NodePath.join(stage, "server/j1"), { recursive: true });
   await change(
     "src/state/config-status.ts",
     "export interface ConfigStatus {",
     "export interface ConfigStatus {\n  j1Managed?: boolean;",
   );
-  await change("src/state/store.tsx", '  "xai" | "mistral"', '  "j1Managed" | "xai" | "mistral"');
+  const configFrame = latestSource ? "src/lib/config-status-frame.ts" : "src/state/store.tsx";
+  await change(configFrame, '"xai" | "mistral"', '"j1Managed" | "xai" | "mistral"');
   // Managed J1 sessions use Lightpanda. Upstream Chrome switches and profiles
   // cannot affect that backend; keep their saved values for standalone imports.
   await change(
@@ -155,7 +163,7 @@ export function isImageFile(file: { type: string; name?: string; size?: number }
     "  const { saving, error, save } = useConfigSave();\n  if (state.config?.j1Managed) return null;\n\n  return (\n    <SettingRow",
   );
   await change(
-    "src/state/store.tsx",
+    configFrame,
     "    ...(frame.cloudHome ? { cloudHome: true } : {}),",
     "    j1Managed: frame.j1Managed, ...(frame.cloudHome ? { cloudHome: true } : {}),",
   );
@@ -208,10 +216,11 @@ export function isImageFile(file: { type: string; name?: string; size?: number }
   await copy("scripts/mausbot/TranscriptApproval.tsx", "src/components/TranscriptApproval.tsx");
   await copy("scripts/mausbot/J1RouteCard.tsx", "src/components/J1RouteCard.tsx");
   await copy("scripts/mausbot/route-card.test.ts.txt", "src/components/j1-route-card.test.ts");
+  const messagePick = 'export interface Message extends Pick<import("../../shared/wire").WireMessage, ';
   await change(
     "src/state/store.tsx",
-    '"widget" | "app" | "fromApp"',
-    '"j1RouteId" | "j1RouteRevision" | "widget" | "app" | "fromApp"',
+    messagePick,
+    `${messagePick}"j1RouteId" | "j1RouteRevision" | `,
   );
   await change("src/components/AskCard.tsx", "ELEVATED_CARD, ELEVATED_FLOAT", "ELEVATED_CARD");
   await change("src/components/AskCard.tsx", "  stays = false,\n", "");
@@ -222,7 +231,9 @@ export function isImageFile(file: { type: string; name?: string; size?: number }
   );
   await change(
     "src/components/AskCard.tsx",
-    "stays ? `sticky top-[60px] bottom-[72px] z-10 ${ELEVATED_FLOAT}` : ELEVATED_CARD",
+    latestSource
+      ? "stays ? `sticky top-[var(--glass-top,60px)] bottom-[72px] z-10 ${ELEVATED_FLOAT}` : ELEVATED_CARD"
+      : "stays ? `sticky top-[60px] bottom-[72px] z-10 ${ELEVATED_FLOAT}` : ELEVATED_CARD",
     "ELEVATED_CARD",
   );
   await change(
@@ -230,16 +241,22 @@ export function isImageFile(file: { type: string; name?: string; size?: number }
     'import { PendingApprovalActions, PendingApprovalPanel, pendingApprovals } from "./PendingApproval";',
     'import { pendingApprovals } from "./PendingApproval";',
   );
-  await change("src/components/Composer.tsx", "ELEVATED_CARD, ELEVATED_FLOAT", "ELEVATED_FLOAT");
   await change(
     "src/components/Composer.tsx",
-    "  const approvalBot = group\n    ? members?.find((member) => member.id === approval?.message.from?.botId) ??\n      members?.find((member) => member.id === groupBusyBotId)\n    : state.bots.find((one) => one.id === approval?.message.inbox?.from.botId) ?? bot;\n",
+    latestSource ? "ELEVATED_CARD, ELEVATED_COMPOSER, ELEVATED_FLOAT" : "ELEVATED_CARD, ELEVATED_FLOAT",
+    latestSource ? "ELEVATED_COMPOSER, ELEVATED_FLOAT" : "ELEVATED_FLOAT",
+  );
+  await change(
+    "src/components/Composer.tsx",
+    latestSource
+      ? "  const asker = useStoreSelector((s) => s.bots.find((one) => one.id === approval?.message.inbox?.from.botId)), approvalBot = group\n    ? members?.find((member) => member.id === approval?.message.from?.botId) ??\n      members?.find((member) => member.id === groupBusyBotId)\n    : asker ?? bot;\n"
+      : "  const approvalBot = group\n    ? members?.find((member) => member.id === approval?.message.from?.botId) ??\n      members?.find((member) => member.id === groupBusyBotId)\n    : state.bots.find((one) => one.id === approval?.message.inbox?.from.botId) ?? bot;\n",
     "",
   );
   await change(
     "src/components/Composer.tsx",
     `        {approval && (
-          <div className={cn("mb-2 overflow-hidden rounded-[24px]", ELEVATED_CARD)}>
+          <div className={cn("mb-2 overflow-hidden rounded-[${latestSource ? 18 : 24}px]", ELEVATED_CARD)}>
             <PendingApprovalPanel
               key={approval.requestId}
               pending={approval}
@@ -285,10 +302,13 @@ export function isImageFile(file: { type: string; name?: string; size?: number }
     "<ApprovalCard bot={memberOf(m.from?.botId)} message={m} threadId={group.threadId} />",
     '{pendingApprovals([m]).length ? <TranscriptApproval message={m} botId={m.from?.botId ?? group.busyBotId ?? ""} threadId={group.threadId} groupId={group.id} /> : <ApprovalCard bot={memberOf(m.from?.botId)} message={m} threadId={group.threadId} />}',
   );
+  const wireMessage = latestSource
+    ? "export interface WireMessage extends ServerTextLine, HelperIntroField, SetupCardFields, WaitLineField, CheckBackLineField, HandoffStatusField, BugReportField {"
+    : "export interface WireMessage extends ServerTextLine, HelperIntroField, SetupCardFields, WaitLineField, BugReportField {";
   await change(
-    "shared/wire.ts",
-    "export interface WireMessage extends ServerTextLine, HelperIntroField, SetupCardFields, WaitLineField, BugReportField {",
-    "export interface WireMessage extends ServerTextLine, HelperIntroField, SetupCardFields, WaitLineField, BugReportField {\n  j1RouteId?: string;\n  j1RouteRevision?: number;\n  j1IncomingRoute?: { requestId: string; fingerprint: string; attemptId: string; state: 'sending' | 'rejected' | 'admitted' | 'applied' | 'uncertain'; generation?: string; providerTurnId?: string; environmentId?: string };",
+    latestSource ? "packages/phone-protocol/src/wire.ts" : "shared/wire.ts",
+    wireMessage,
+    `${wireMessage}\n  j1RouteId?: string;\n  j1RouteRevision?: number;\n  j1IncomingRoute?: { requestId: string; fingerprint: string; attemptId: string; state: 'sending' | 'rejected' | 'admitted' | 'applied' | 'uncertain'; generation?: string; providerTurnId?: string; environmentId?: string };`,
   );
   await copy("scripts/mausbot/conversations.test.ts.txt", "server/j1/conversations.test.ts");
   await copy("scripts/mausbot/agents-conversations.ts", "server/j1/agents-conversations.ts");

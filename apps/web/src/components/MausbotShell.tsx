@@ -26,7 +26,7 @@ import * as Schema from "effect/Schema";
 import { localMausbotHost } from "./mausbotHost";
 import { registerMausbotSearch } from "./mausbotSearch";
 import { openCommandPalette } from "../commandPaletteBus";
-import { randomUUID } from "../lib/utils";
+import { isWindowsPlatform, randomUUID } from "../lib/utils";
 import { SETTINGS_SECTION_LABELS, searchSettings } from "./settings/settingsSearch";
 import { useAvailableSettingsSearchItems } from "./settings/useAvailableSettingsSearchItems";
 import { useNavigateToMainApp } from "./sidebar/mainAppLocation";
@@ -478,7 +478,10 @@ export function MausbotShell({
         return;
       }
       const resolved = resolveAssetUrl(base, result.value.relativeUrl);
-      if (!resolved) return;
+      if (!resolved) {
+        setError("The assistant runtime returned an invalid address.");
+        return;
+      }
       const url = new URL(resolved);
       url.hash = new URLSearchParams({ "j1-origin": location.origin }).toString();
       setBounds(null);
@@ -781,12 +784,8 @@ export function MausbotShell({
   return (
     <WorkspaceState value={workspace}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {isElectron && !ready && (
-          <WorkspacePageHeader electron aria-label="Window title bar">
-            <span className="ml-[var(--workspace-titlebar-content-left)] text-sm text-muted-foreground">
-              J1 Code
-            </span>
-          </WorkspacePageHeader>
+        {isElectron && !isWindowsPlatform(navigator.platform) && !ready && (
+          <WorkspacePageHeader electron aria-label="Window title bar" />
         )}
         <div
           ref={shell}
@@ -835,15 +834,7 @@ export function MausbotShell({
               style={{ visibility: ready ? "visible" : "hidden" }}
             />
           )}
-          {!ready && !initializing && sidebar}
-          {initializing && (
-            <div
-              role="status"
-              className="absolute inset-0 z-30 flex items-center justify-center bg-background text-sm text-muted-foreground"
-            >
-              Opening workspace…
-            </div>
-          )}
+          {!ready && sidebar}
           {projectPortal &&
             sidebarOpen &&
             createPortal(
@@ -981,12 +972,17 @@ export function MausbotShell({
                         ? "hidden"
                         : "visible",
                   }
-                : initializing
-                  ? { visibility: "hidden" }
-                  : undefined
+                : undefined
             }
           >
-            {settingsPortal && settingsHosted ? (
+            {pathname === "/assistants" && initializing ? (
+              <div
+                role="status"
+                className="flex flex-1 items-center justify-center text-sm text-muted-foreground"
+              >
+                Opening bots…
+              </div>
+            ) : settingsPortal && settingsHosted ? (
               createPortal(
                 <PortalContainer value={settingsPortal ?? undefined}>{children}</PortalContainer>,
                 settingsPortal,
