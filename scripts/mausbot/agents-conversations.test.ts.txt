@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { availableTools, catalogProfileFromEnv } from "../drivers/agents-catalog.ts";
-import { callTool, type ToolCallContext } from "../drivers/agents-call.ts";
+import { callTool } from "../drivers/agents-call.ts";
 
 const endpoint = { environmentId: "local", projectId: "project", threadId: "real-j1-chat" };
 function fixture() {
   const apiResponse = vi.fn(async () => ({ ok: true, status: 200, body: { messages: [{ id: "original", text: "Saved text" }] } }));
-  const context: ToolCallContext = {
+  const context = {
     botId: "own-bot", threadId: "own-thread", depth: 0, externalRuntime: false, sharedComputers: false,
     client: { api: async () => ({}), apiResponse },
   };

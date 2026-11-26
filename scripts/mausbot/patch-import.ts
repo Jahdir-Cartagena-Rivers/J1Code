@@ -119,7 +119,7 @@ export function OpenMausImportSection() {
   return <section data-import-section="openmaus" className="rounded-xl bg-card p-4">
     <div className="text-[15px] font-medium text-ink">Import from OpenMaus</div>
     <p className="mt-1 text-[13px] text-ink-secondary">Bring your bots, conversation history, memories, routines, and files from an OpenMaus workspace backup.</p>
-    <button type="button" onClick={() => setOpen(true)} className={cn(buttonClass, "mt-3")}>Import from OpenMaus</button>
+    <button type="button" onClick={() => setOpen(true)} className={cn(${usesBackupRows ? "BUTTON" : "buttonClass"}, "mt-3")}>Import from OpenMaus</button>
     {open && <OpenMausImportDialog onClose={() => setOpen(false)} />}
   </section>;
 }

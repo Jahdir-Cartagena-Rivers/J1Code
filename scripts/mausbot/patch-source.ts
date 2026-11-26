@@ -598,7 +598,8 @@ store.onChange(change => {
   if (change.type !== "bot" && change.type !== "thread" && change.type !== "thread.deleted" && change.type !== "bot.deleted" && change.type !== "message" && change.type !== "message.patch") return;
   // Streamed text cannot release an approval or change turn admission.
   if ((change.type === "message" || change.type === "message.patch") && change.message.kind !== "options" && !change.message.card && !change.message.j1IncomingRoute) return;
-  const threadIds = "threadId" in change ? [change.threadId] : store.tasks(change.botId).map(task => task.threadId);
+  const threadIds = "threadId" in change && typeof change.threadId === "string" ? [change.threadId]
+    : "botId" in change && typeof change.botId === "string" ? store.tasks(change.botId).map(task => task.threadId) : [];
   let changed = false;
   for (const threadId of threadIds) {
     const bot = store.botByThread(threadId) ?? store.bots.find(bot => store.taskByThread(bot.id, threadId));
@@ -676,6 +677,12 @@ ${installPoint}`,
     NodePath.join(stage, "electron/capabilities.cjs"),
     NodePath.join(stage, "server/j1/desktop-capabilities.cjs"),
   );
+  if (latestSource) {
+    await NodeFSP.copyFile(
+      NodePath.join(stage, "electron/cua-hyprland.cjs"),
+      NodePath.join(stage, "server/j1/cua-hyprland.cjs"),
+    );
+  }
   await NodeFSP.writeFile(
     NodePath.join(stage, "server/j1/desktop-capabilities.d.cts"),
     "export function desktopCapabilities(options: Record<string, unknown>): Record<string, unknown>;\n",

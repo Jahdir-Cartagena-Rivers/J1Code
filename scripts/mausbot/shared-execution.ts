@@ -558,7 +558,7 @@ export const J1SharedDriver: ProviderDriver<Record<string, never>> = {
         const cursor = payload.resumeCursor;
         const messageId = turn.input.j1SavedHistoryAnchor?.messageId;
         const anchored = typeof cursor === "string" && messageId ? cursor + "~" + messageId : undefined;
-        const sessionId = anchored && nativeResumeCursor(anchored, turn.input.botId, turn.input.threadId)
+        const sessionId = anchored && turn.input.botId && nativeResumeCursor(anchored, turn.input.botId, turn.input.threadId)
           ? anchored : typeof cursor === "string" ? cursor : "j1-shared:" + turn.input.botId + ":" + turn.input.threadId;
         send({
           type: "session.started",

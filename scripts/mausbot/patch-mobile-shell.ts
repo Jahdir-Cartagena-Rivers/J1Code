@@ -23,11 +23,11 @@ export async function patchMobileShell(stage: string, root: string, { settingsWi
     ? "<WindowFrameBar notifications={notificationTray} sidebarUpdate={!advanced && sidebarShown} />"
     : "<WindowFrameBar notifications={notificationTray} />";
   await change("src/App.tsx", `      ${nativeFrame}`, `      {!j1Navigation && ${nativeFrame}}`);
+  await NodeFSP.copyFile(
+    NodePath.join(root, "scripts/mausbot/J1SettingsPicker.tsx"),
+    NodePath.join(stage, "src/components/J1SettingsPicker.tsx"),
+  );
   if (!settingsWindow) {
-    await NodeFSP.copyFile(
-      NodePath.join(root, "scripts/mausbot/J1SettingsPicker.tsx"),
-      NodePath.join(stage, "src/components/J1SettingsPicker.tsx"),
-    );
     await change(
       "src/components/SettingsModal.tsx",
       'import { Select } from "./Select";',

@@ -15,6 +15,12 @@ vi.mock("./chat-mcp-tools.ts", () => ({
 }));
 import { J1SharedDriver, decodeSharedModel, encodeSharedModel, nativeResumeCursor, savedHistoryForTurn, savedIncidentReports } from "./j1-shared.ts";
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
+}
+
 const request = { instanceId: "j1-shared", displayName: "J1", enabled: true, environment: {}, config: {} };
 const turn: SendTurnInput = { botId: "bot", threadId: "thread", j1BotName: "Ada", j1ProjectId: "project",
   text: "Build the change", model: encodeSharedModel("codex-work", "gpt-model"), system: "Bot's saved instructions",
@@ -75,7 +81,7 @@ describe("J1 shared bot adapter", () => {
     const result = await instance.adapter.sendTurn({ ...turn, j1Consultation: true });
     expect(calls.find(call => call.action === "start")?.tools).toEqual([]);
     expect(mountChatTools).not.toHaveBeenCalled();
-    const denied = Promise.withResolvers<Record<string, unknown>>();
+    const denied = deferred<Record<string, unknown>>();
     toolResult = denied.resolve;
     event({ kind: "tool-call", botId: "bot", threadId: "thread", turnId: currentTurnId(), requestId: "consultation-tool",
       name: "agents_team_post", arguments: { text: "Blocked" } });
@@ -131,7 +137,7 @@ describe("J1 shared bot adapter", () => {
       selected: "browser", previousSurface: "local", sourceSurface: "local" } as const;
     const source = { id: "original-user", role: "user" as const, kind: "text", at: 10, text: "My request",
       j1CoordinatorRootId: choice.sourceGeneration, j1ComputerSelections: [choice],
-      attachments: [{ path: "/api/attachments/original.txt", kind: "file", mime: "text/plain" }] };
+      attachments: [{ path: "/api/attachments/original.txt", kind: "file" as const, mime: "text/plain" }] };
     const reply = { id: "settled-reply", kind: "text", role: "bot" as const, at: 11, text: "Choose a computer",
       j1ProviderMessageId: "saved-reply" };
     const anchor = { messageId: source.id, promptText: "Continue using the selected browser", currentImages: [],
@@ -365,8 +371,8 @@ describe("J1 shared bot adapter", () => {
     event({ ...owner, kind: "failed", message: "Unscoped setup failure" });
     expect(instance.adapter.hasSession("thread")).toBe(true);
 
-    const started = Promise.withResolvers<AbortSignal>();
-    const reply = Promise.withResolvers<Record<string, unknown>>();
+    const started = deferred<AbortSignal>();
+    const reply = deferred<Record<string, unknown>>();
     toolResult = reply.resolve;
     tools.execute.mockImplementationOnce(async (...args: unknown[]) => {
       const signal = args[2] as AbortSignal;

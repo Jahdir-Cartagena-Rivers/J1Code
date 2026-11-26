@@ -387,7 +387,7 @@ const outsideLineage = createOutsideLineage({`,
   await change(
     "shared/wire.ts",
     "  goalRun?: GroupGoalRunCardData;",
-    "  j1RoomQuestion?: { nodeId: string; turnId: string; sourceMessageId: string; generation?: string; execution?: number; restartCount?: number; cardIds?: string[]; requestIds?: string[]; handoffHash?: string; privateBotId?: string; goal?: { runId: string; cardId: string; step: number; memberId: string; coordinator: boolean } };\n  j1RoomAnswer?: { person: string; decisionHash?: string };\n  j1Credential?: { botId: string; threadId: string; person: string; actionHash: string; saveId?: string; state?: \"saved\" | \"cancelled\" };\n  j1SignInAck?: { botId: string; threadId: string; person: string; actionHash: string; state?: \"acknowledged\" | \"cancelled\" };\n  j1AppConnector?: { botId: string; threadId: string; person: string; resumeKey: string; cardIds: string[]; scope: string; targetHash: string; authConfigHash?: string; flowId?: string };\n  j1McpOAuth?: { botId: string; threadId: string; requestId: string; server: string; scope: string; person: string; flowId?: string };\n  j1RoomSetup?: { roomId: string; memberId: string; operationId: string; nodeId: string; execution: number; generation: string; turnId: string; sourceId: string; sourceHash: string; handoffHash?: string; person: string; actionHash: string; family?: \"mcp\" | \"oauth\" | \"app\" | \"signin\" | \"credential\"; decision?: { state: \"applied\" | \"denied\" | \"cancelled\" | \"failed\" | \"acknowledged\" | \"saved\"; hash: string } };\n  j1RoomSetupCards?: string[];\n  j1SetupWake?: { nodeId: string; execution: number; generation: string; turnId: string; sourceId: string; scopeHash: string; cardIds: string[]; batchIds?: string[]; actionHash: string; family?: \"mcp\" | \"oauth\" | \"app\" | \"signin\" | \"credential\"; reviewPerson?: string; reviewHash?: string; state?: \"applied\" | \"denied\" | \"cancelled\" | \"failed\" };\n  j1HandoffStarts?: { nodeId: string; execution: number; generation: string; turnId: string; resultHash?: string; rootAnswerHash?: string; rootRestartHash?: string; rootQuestion?: true; issuedAt?: number }[];\n  goalRun?: GroupGoalRunCardData;",
+    "  j1RoomQuestion?: { nodeId: string; turnId: string; sourceMessageId: string; generation?: string; execution?: number; restartCount?: number; cardIds?: string[]; requestIds?: string[]; handoffHash?: string; privateBotId?: string; goal?: { runId: string; cardId: string; step: number; memberId: string; coordinator: boolean } };\n  j1RoomAnswer?: { person: string; decisionHash?: string };\n  j1Credential?: { botId: string; threadId: string; person: string; actionHash: string; saveId?: string; state?: \"saved\" | \"cancelled\" };\n  j1SignInAck?: { botId: string; threadId: string; person: string; actionHash: string; state?: \"acknowledged\" | \"cancelled\" };\n  j1AppConnector?: { botId: string; threadId: string; person: string; resumeKey: string; cardIds: string[]; scope: string; targetHash: string; authConfigHash?: string; flowId?: string };\n  j1McpOAuth?: { botId: string; threadId: string; requestId: string; server: string; scope: string; person: string; flowId?: string };\n  j1RoomSetup?: { roomId: string; memberId: string; operationId: string; nodeId: string; execution: number; generation: string; turnId: string; sourceId: string; sourceHash: string; handoffHash?: string; person: string; actionHash: string; family?: \"mcp\" | \"oauth\" | \"app\" | \"signin\" | \"credential\"; decision?: { state: \"applied\" | \"denied\" | \"cancelled\" | \"failed\" | \"acknowledged\" | \"saved\"; hash: string } };\n  j1RoomSetupCards?: string[];\n  j1SetupWake?: { nodeId: string; execution: number; generation: string; turnId: string; sourceId: string; scopeHash: string; cardIds: string[]; batchIds?: string[]; actionHash: string; family?: \"mcp\" | \"oauth\" | \"app\" | \"signin\" | \"credential\"; reviewPerson?: string; reviewHash?: string; state?: \"applied\" | \"denied\" | \"cancelled\" | \"failed\" | \"acknowledged\" | \"saved\" };\n  j1HandoffStarts?: { nodeId: string; execution: number; generation: string; turnId: string; resultHash?: string; rootAnswerHash?: string; rootRestartHash?: string; rootQuestion?: true; issuedAt?: number }[];\n  goalRun?: GroupGoalRunCardData;",
   );
   await change(
     "server/index.ts",
@@ -429,7 +429,7 @@ const outsideLineage = createOutsideLineage({`,
     const source = questions[0]?.j1RoomQuestion;
     if (source) {
       const authority = j1PrivateAuthority(node, node.executions, "running");
-      const rootStart = !node.parentId && j1PrivateRootStart(node, node.executions);
+      const rootStart = node.parentId ? undefined : j1PrivateRootStart(node, node.executions);
       const cardIds = questions.map(row => row.id);
       const requestIds = questions.map(row => row.card!.requestId!);
       if (!authority || authority.chainHash !== source.handoffHash || authority.rowId !== source.sourceMessageId ||
@@ -1002,7 +1002,7 @@ function j1ParkedRoomCards(node: HandoffView, execution: number, expectedIds?: r
       (expectedIds && JSON.stringify(ids) !== JSON.stringify(expectedIds.filter(id =>
         rows.some(row => row.id === id))))) return null;
   if (node.parentId || privateTask) {
-    const start = !node.parentId && j1PrivateRootStart(node, execution);
+    const start = node.parentId ? undefined : j1PrivateRootStart(node, execution);
     if (!node.parentId && (!start?.rootQuestion || start.generation !== source.generation || start.turnId !== source.turnId)) return null;
     const authority = source.handoffHash && (verifiedHandoff ?? (privateTask
       ? j1PrivateAuthority(node, node.executions, node.status)
@@ -1815,6 +1815,38 @@ async function runGroupGoalStep(args: {`,
             }) })
           : "admitted" });`,
   );
+  if (settingsWindow) {
+    await change(
+      "server/coordinator.ts",
+      'export interface HandoffView {',
+      'export interface HandoffView {\n  approvalGranted: boolean;',
+    );
+    await change(
+      "server/runtime-coordinator.ts",
+      "lastProgressAt: a.lastActivityAt, kind: kindOf(groupId, parent), restarts: a.restarts,",
+      "lastProgressAt: a.lastActivityAt, approvalGranted: a.approved ?? false, kind: kindOf(groupId, parent), restarts: a.restarts,",
+    );
+    await change(
+      "server/host/share-answer.test.ts",
+      'result: "", reported: false, executions: 1, kind: "work", restarts: 0, mode: "consult", reply: "resume",',
+      'result: "", reported: false, executions: 1, approvalGranted: false, kind: "work", restarts: 0, mode: "consult", reply: "resume",',
+    );
+    await change(
+      "server/move-waits.test.ts",
+      'kind: "work", restarts: 0, mode: "work", reply: "resume", ...fields,',
+      'approvalGranted: false, kind: "work", restarts: 0, mode: "work", reply: "resume", ...fields,',
+    );
+    await change(
+      "server/team-connections.ts",
+      'onSettled: (name: string, phase: McpSignInPhase, owner: string) => {',
+      'onSettled: (name: string, phase: McpSignInPhase, owner: string, flowId: string) => {',
+    );
+    await change(
+      "server/team-connections.ts",
+      "this.options.onSettled?.(name, phase, owner);",
+      "this.options.onSettled?.(name, phase, owner, flowId);",
+    );
+  }
   await change(
     "server/coordinator.ts",
     "  sharedRequest(node: HandoffView):",
@@ -2020,10 +2052,10 @@ function j1HandedResumeAnswers(node: HandoffView, authority: { chainHash: string
   return (cards && j1ParkedRoomAnswers(cards)) || undefined;
 }
 
-function captureJ1RoomAuthority(turn: { threadId: string; generation: string; roomHandoffId?: string }, node: HandoffView, senderId: string) {
+function captureJ1RoomAuthority(turn: { threadId: string; generation: string; roomHandoffId?: string }, node: HandoffView, senderId: string): import("./host/acting-person.ts").J1RoomAuthority | undefined {
   const monitored = node.reply === "resume" || node.reply === "poll";
-  const mode = node.mode === "notify" && node.reply === "none" ? "notify"
-    : node.mode === "consult" && monitored ? "consult" : undefined;
+  const mode = node.mode === "notify" && node.reply === "none" ? "notify" as const
+    : node.mode === "consult" && monitored ? "consult" as const : undefined;
   if (!node.parentId || (!mode && (node.mode !== "work" || !monitored))) return undefined;
   const parent = coordinator.node(node.parentId);
   const person = actingPeople.requester(turn.threadId, turn.generation);
@@ -2551,7 +2583,7 @@ function runRoomRootTurn(node:`,
   childRestartEvents(id: string) {
     this.ready();
     const node = this.store.get(id);
-    if (!node || (!node.parentId && node.origin?.kind !== "user") ||
+    if (!node || (!node.parentId && node.origin?.kind !== "${settingsWindow ? "person" : "user"}") ||
         node.goalRunId || node.restarts < 1 || node.executions < 2) return undefined;
     const lineage: NonNullable<ReturnType<Coordinator["childRestartEvents"]>> = [];
     let execution = 0;
@@ -3356,9 +3388,9 @@ async function beginTurn(`,
         const wantsRestart = Boolean(rootRestart) || (hasPrivateScope && liveNode?.restart === "rerun" &&
           (dispatch === "rerun" || dispatch === "resume"));
         const wantsResults = (hasPrivateScope || root) && dispatch === "resume" && Boolean(liveNode && j1WantsParentResult(liveNode));
-        const readPrivateHandoff = () => hasPrivateScope &&
+        const readPrivateHandoff = () => hasPrivateScope ?
           (readJ1RoomHandoff(nodeId, threadId, undefined, bot.id, execution, "running", wantsRestart, wantsResults) ??
-            j1ExternalConsultation(nodeId, threadId, undefined, bot.id));
+            j1ExternalConsultation(nodeId, threadId, undefined, bot.id)) : undefined;
 
         const privateHandoff = readPrivateHandoff();
         if (liveNode?.mode === "consult" && (!privateHandoff || dispatch !== "first" || !opts?.j1ConsultationText))
@@ -3908,33 +3940,60 @@ function maybeResumeConnectors(threadId: string, resumeKey: string) {`,
         if (app) j1AppLinks.delete(appKey);
         store.patchMessage(threadId, message.id, { connector: { ...connector, dismissed: true } });`,
   );
+  const signInSettleParams = settingsWindow ? ", saved?: undefined, note?: unknown" : "";
+  const signInNote = settingsWindow ? ", undefined, body.note" : "";
+  const inputSignInSettle = `  settle(botId: string, threadId: string, messageId: string, outcome: SignInOutcome${signInSettleParams}): Answer;`;
   await change("server/routes/sign-in-cards.ts",
-    "  settle(botId: string, threadId: string, messageId: string, outcome: SignInOutcome): Answer;",
-    `  settle(botId: string, threadId: string, messageId: string, outcome: SignInOutcome): Answer;
+    inputSignInSettle,
+    `${inputSignInSettle}
   acknowledge?(botId: string, threadId: string, messageId: string, outcome: SignInOutcome, auth: RequestAuth): Answer | undefined;`,
   );
   await change("server/routes/sign-in-cards.ts",
-    "    const result = deps.threadVisible(auth, threadId) ? deps.settle(m[1]!, threadId, m[2]!, m[3] === \"done\" ? \"done\" : \"cancelled\") : HIDDEN;",
+    `    const result = deps.threadVisible(auth, threadId) ? deps.settle(m[1]!, threadId, m[2]!, m[3] === "done" ? "done" : "cancelled"${signInNote}) : HIDDEN;`,
     `    const outcome = m[3] === "done" ? "done" : "cancelled";
     const result = deps.threadVisible(auth, threadId)
-      ? (deps.acknowledge?.(m[1]!, threadId, m[2]!, outcome, auth) ?? deps.settle(m[1]!, threadId, m[2]!, outcome)) : HIDDEN;`,
+      ? (deps.acknowledge?.(m[1]!, threadId, m[2]!, outcome, auth) ?? deps.settle(m[1]!, threadId, m[2]!, outcome${signInNote})) : HIDDEN;`,
   );
   await change("server/host/sign-in-settle.ts",
     "      if (message.kind !== \"signin\" || !card || card.stopped || !signInWaits(card) || (only && !only.includes(message.id))) continue;",
     "      if (message.kind !== \"signin\" || message.j1SignInAck || !card || card.stopped || !signInWaits(card) || (only && !only.includes(message.id))) continue;",
   );
+  const preserveHandoff = settingsWindow ? "isHandoff(card) || " : "";
   await change("server/host/sign-in-settle.ts",
-    "      if (message.kind !== \"signin\" || !card || message.at < since || card.stopped || !signInWaits(card)) return;",
-    "      if (message.kind !== \"signin\" || message.j1SignInAck || !card || message.at < since || card.stopped || !signInWaits(card)) return;",
+    `      if (message.kind !== "signin" || !card || ${preserveHandoff}message.at < since || card.stopped || !signInWaits(card)) return;`,
+    `      if (message.kind !== "signin" || message.j1SignInAck || !card || ${preserveHandoff}message.at < since || card.stopped || !signInWaits(card)) return;`,
   );
   await change("server/host/sign-in-settle.ts",
     '    const card = message.signIn;\n    if (card.superseded)',
     '    if (message.j1SignInAck) return { status: 409, body: { error: "The sign-in request needs its owner to answer." } };\n    const card = message.signIn;\n    if (card.superseded)',
   );
+  const signInExpiry = settingsWindow ? " expire," : "";
   await change("server/host/sign-in-settle.ts",
-    "  return { settle, answerInChat, answeredElsewhere, verified };",
-    "  return { settle, answerInChat, answeredElsewhere, verified, handPlaceBack };",
+    `  return { settle,${signInExpiry} answerInChat, answeredElsewhere, verified };`,
+    `  return { settle,${signInExpiry} answerInChat, answeredElsewhere, verified, handPlaceBack };`,
   );
+  if (settingsWindow) {
+    await change("server/host/handoff-requests.ts",
+      "ask: SignInAsk): Promise<SignInAsked>",
+      "ask: SignInAsk, origin?: { requireActive(): void; recordSignIn(messageId: string): void }): Promise<SignInAsked>",
+    );
+    await change("server/host/handoff-requests.ts",
+      "    const message = deps.store.appendMessage(threadId, {",
+      "    origin?.requireActive();\n    const message = deps.store.appendMessage(threadId, {",
+    );
+    await change("server/host/handoff-requests.ts",
+      "    // A handoff stacks with the others; a site sign-in replaces the open one for its site.",
+      `    if (!instruction) origin?.recordSignIn(message.id);
+    // A handoff stacks with the others; a site sign-in replaces the open one for its site.`,
+    );
+    await change("server/index.ts",
+      "request: (body) => handoffRequests.request(internalSender, internalCapability.threadId, body),",
+      `request: (body) => handoffRequests.request(internalSender, internalCapability.threadId, body, {
+          requireActive: requireActiveInternalCapability,
+          recordSignIn: messageId => j1RecordSignInProducer(internalCapability, messageId),
+        }),`,
+    );
+  } else {
   await change("server/index.ts",
     "function requestSignIn(from: BotRecord, threadId: string, rawSite: unknown, rawReason: unknown):",
     "function requestSignIn(from: BotRecord, threadId: string, rawSite: unknown, rawReason: unknown, capability?: InternalCapability):",
@@ -3948,6 +4007,7 @@ function maybeResumeConnectors(threadId: string, resumeKey: string) {`,
     "request: (site, reason) => requestSignIn(internalSender, internalCapability.threadId, site, reason),",
     "request: (site, reason) => requestSignIn(internalSender, internalCapability.threadId, site, reason, internalCapability),",
   );
+  }
   await change("server/index.ts",
     "createSignInCardRoutes({ settle: signInSettle.settle,",
     "createSignInCardRoutes({ settle: signInSettle.settle, acknowledge: j1AcknowledgeSignIn,",
@@ -3968,7 +4028,7 @@ function maybeResumeConnectors(threadId: string, resumeKey: string) {`,
   if (expected === "browser")
     return bot.browser !== false && builtInBrowserEnabled(cfg)
       ? currentBrowserSession(botId, bot.browserProfile, teamHost.browserAudience(threadId)) : undefined;
-  if (expected === "local") return signInControlKey(bot, threadId, expected);
+  if (expected === "local") return ${settingsWindow ? "sharedVm.signInKey" : "signInControlKey"}(bot, threadId, expected);
   if (expected === "vm") return localVmTargetForStatus(botId, threadId).key;
   return inheritedTeamComputer(bot)?.id;
 }
@@ -4043,7 +4103,7 @@ function j1AcknowledgeSignIn(botId: string, threadId: string, cardId: string, ou
     : j1SavePrivateMcpSetupDecision(threadId, cardId, reviewer, acknowledgement);
   const reread = saved && signInMessage(botId, threadId, cardId);
   if (!reread || reread.j1SignInAck?.state !== state || signInOutcome(reread.signIn ?? {}) !== outcome) return invalid();
-  signInSettle.handPlaceBack(currentBot, threadId, cardId, place);
+  signInSettle.handPlaceBack(currentBot, threadId, cardId, place${settingsWindow ? ", true" : ""});
   const resumed = operation.groupId ? j1SettleRoomSetup(operation) : j1SettleSetupWake(operation);
   return { status: 200, body: { [outcome]: true, resumed } };
 }
@@ -4060,8 +4120,9 @@ const signInSettle = createSignInSettle({`,
   );
   await change("server/index.ts",
     "request: (body) => secretCards.requestCredential(internalSender, internalCapability.threadId, body)",
-    `request: (body) => {
-        const result = secretCards.requestCredential(internalSender, internalCapability.threadId, body);
+    `request: ${settingsWindow ? "async " : ""}(body) => {
+        const result = ${settingsWindow ? "await " : ""}secretCards.requestCredential(internalSender, internalCapability.threadId, body);
+        ${settingsWindow ? "requireActiveInternalCapability();" : ""}
         if (result.status === 201 && typeof result.body.messageId === "string")
           j1RecordCredentialProducer(internalCapability, result.body.messageId);
         return result;
@@ -4193,6 +4254,16 @@ export interface SecretCardsDeps {`,
     "function saveCustomSecret(botId: string, threadId: string, messageId: string, raw: unknown):",
     "function saveCustomSecret(botId: string, threadId: string, messageId: string, raw: unknown, auth?: RequestAuth):",
   );
+  if (settingsWindow) {
+    await change("server/host/secret-cards.ts",
+      "function openCustomCard(botId: string, threadId: string, messageId: string):",
+      "function openCustomCard(botId: string, threadId: string, messageId: string, auth?: RequestAuth):",
+    );
+    await change("server/host/secret-cards.ts",
+      "raw: unknown, auth?: RequestAuth): { status: number; body: Record<string, unknown> } {\n    const message = openCustomCard(botId, threadId, messageId);",
+      "raw: unknown, auth?: RequestAuth): { status: number; body: Record<string, unknown> } {\n    const message = openCustomCard(botId, threadId, messageId, auth);",
+    );
+  }
   await change("server/host/secret-cards.ts",
     "    if (!custom(secret)) return { status: 400, body: { ...userError(\"serverError.secret.settingsCard\") } };",
     `    if (!custom(secret)) return { status: 400, body: { ...userError("serverError.secret.settingsCard") } };
@@ -4200,9 +4271,21 @@ export interface SecretCardsDeps {`,
       return { status: 409, body: { error: "The original credential request is no longer current." } };`,
   );
   await change("server/host/secret-cards.ts",
-    "    if (!resumeSecretCard(botId, threadId, message.id, \"provided\")) return { status: 409, body: { ...userError(\"serverError.secret.unavailableLower\") } };",
-    "    if (!resumeSecretCard(botId, threadId, message.id, \"provided\", auth)) return { status: 409, body: { ...userError(\"serverError.secret.unavailableLower\") } };",
+    `      console.warn(\`secret card: could not keep a secret: \${error instanceof Error ? error.message : String(error)}\`);
+      return { status: 500, body: { ...userError("serverError.secret.notKeptSafely") } };
+    }
+    if (!resumeSecretCard(botId, threadId, message.id, "provided")) return { status: 409, body: { ...userError("serverError.secret.unavailableLower") } };`,
+    `      console.warn(\`secret card: could not keep a secret: \${error instanceof Error ? error.message : String(error)}\`);
+      return { status: 500, body: { ...userError("serverError.secret.notKeptSafely") } };
+    }
+    if (!resumeSecretCard(botId, threadId, message.id, "provided", auth)) return { status: 409, body: { ...userError("serverError.secret.unavailableLower") } };`,
   );
+  if (settingsWindow) {
+    await change("server/host/secret-cards.ts",
+      "    const card = message.secret!;\n    const asked = vaultNameKey(card.label);",
+      "    if (message.j1Credential) return [];\n    const card = message.secret!;\n    const asked = vaultNameKey(card.label);",
+    );
+  }
   await change("server/host/secret-cards.ts",
     "function resumeSecretCard(botId: string, threadId: string, messageId: string, outcome: \"provided\" | \"dismissed\") {",
     "function resumeSecretCard(botId: string, threadId: string, messageId: string, outcome: \"provided\" | \"dismissed\", auth?: RequestAuth) {",
@@ -4356,6 +4439,17 @@ export class SecretVault {`,
     "saveFile(owner: SecretOwner, messageId: string, value: string, home: SecretFileHome): string {",
     "saveFile(owner: SecretOwner, messageId: string, value: string, home: SecretFileHome, bindIdentity = false): string {",
   );
+  const deliveryFileName = settingsWindow ? "name" : "messageId";
+  if (settingsWindow) {
+    await change("server/secret-vault.ts",
+      "    const saved = this.writeFile(owner, messageId, value, home);",
+      "    const saved = this.writeFile(owner, messageId, value, home, bindIdentity);",
+    );
+    await change("server/secret-vault.ts",
+      "private writeFile(owner: SecretOwner, name: string, value: string, home: SecretFileHome): { file: string; until: number } {",
+      "private writeFile(owner: SecretOwner, name: string, value: string, home: SecretFileHome, bindIdentity = false): { file: string; until: number; bound?: BoundSecretFile } {",
+    );
+  }
   await change("server/secret-vault.ts",
     `    privateFolder(home.host, "all");
     const folder = join(home.host, SECRET_FOLDER);`,
@@ -4364,12 +4458,18 @@ export class SecretVault {`,
     const folder = join(root, SECRET_FOLDER);`,
   );
   await change("server/secret-vault.ts",
-    `    const file = join(threadFolder, messageId);
+    `    const file = join(threadFolder, ${deliveryFileName});
     rmSync(file, { force: true });`,
     `    const rootInfo = bindIdentity ? lstatSync(root, { bigint: true }) : undefined;
-    const file = join(threadFolder, messageId);
+    const file = join(threadFolder, ${deliveryFileName});
     if (!bindIdentity) rmSync(file, { force: true });`,
   );
+  const persistVaultDelivery = settingsWindow
+    ? "    this.hold(value, until);\n    return { file: shown, until };"
+    : "    this.byCard.set(messageId, { file: shown, until });";
+  const bindVaultDelivery = settingsWindow
+    ? "    this.hold(value, until);\n    return { file: shown, until, ...(bound ? { bound } : {}) };"
+    : "    this.byCard.set(messageId, { file: shown, until, ...(bound ? { bound } : {}) });";
   await change("server/secret-vault.ts",
     `    try {
       writeSync(fd, value);
@@ -4377,9 +4477,9 @@ export class SecretVault {`,
     } finally {
       closeSync(fd);
     }
-    const shown = home.shown === home.host ? file : [home.shown, SECRET_FOLDER, owner.threadId, messageId].join("/");
+    const shown = home.shown === home.host ? file : [home.shown, SECRET_FOLDER, owner.threadId, ${deliveryFileName}].join("/");
     const until = this.now() + SECRET_FILE_TTL_MS;
-    this.byCard.set(messageId, { file: shown, until });`,
+    ${persistVaultDelivery.trimStart()}`,
     `    let bound: BoundSecretFile | undefined;
     try {
       if (rootInfo && (!sameDirectory(rootInfo, lstatSync(root, { bigint: true })) ||
@@ -4396,10 +4496,10 @@ export class SecretVault {`,
     } finally {
       closeSync(fd);
     }
-    const shown = home.shown === home.host ? join(home.host, SECRET_FOLDER, owner.threadId, messageId)
-      : [home.shown, SECRET_FOLDER, owner.threadId, messageId].join("/");
+    const shown = home.shown === home.host ? join(home.host, SECRET_FOLDER, owner.threadId, ${deliveryFileName})
+      : [home.shown, SECRET_FOLDER, owner.threadId, ${deliveryFileName}].join("/");
     const until = this.now() + SECRET_FILE_TTL_MS;
-    this.byCard.set(messageId, { file: shown, until, ...(bound ? { bound } : {}) });`,
+${bindVaultDelivery}`,
   );
   await change("server/secret-vault.ts",
     "  savedFor(messageId: string): SavedSecret | null {",
@@ -4421,8 +4521,11 @@ export class SecretVault {`,
     `import { canonicalSecretRoot } from "../secret-vault.ts";
 import { userError }`,
   );
+  const customCardDocumentation = settingsWindow
+    ? "  /** Hands a custom card's value over as its delivery says, and marks when; never touches the card's other fields."
+    : "  /** Keeps a custom card's value where its delivery says, and marks when; never touches the card's other fields. */";
   await change("server/host/secret-cards.ts",
-    "  /** Keeps a custom card's value where its delivery says, and marks when; never touches the card's other fields. */",
+    customCardDocumentation,
     `  function credentialFileHome(botId: string, threadId: string, secret: SecretRequestCardData): SecretFileHome | null {
     if (secret.vm) return vmFileHome(botId, secret.vm);
     const folder = deps.layerFolder(botId, threadId);
@@ -4443,19 +4546,30 @@ import { userError }`,
     return home ? vault.fileVersion(message.id, home) : undefined;
   }
 
-  /** Keeps a custom card's value where its delivery says, and marks when; never touches the card's other fields. */`,
+  ${customCardDocumentation.trimStart()}`,
   );
-  await change("server/host/secret-cards.ts",
-    `      const home = (secret.vm ? vmFileHome(botId, secret.vm) : null) ?? { host: deps.layerFolder(botId, threadId), shown: deps.layerFolder(botId, threadId) };
+  if (settingsWindow) {
+    await change("server/host/secret-cards.ts",
+      "      vault.saveFile(owner, message.id, value, fileHome(botId, threadId, secret.vm));",
+      `      const home = message.j1Credential
+        ? credentialFileHome(botId, threadId, secret)
+        : fileHome(botId, threadId, secret.vm);
+      if (!home) throw new Error("The credential delivery root is unavailable.");
+      vault.saveFile(owner, message.id, value, home, Boolean(message.j1Credential));`,
+    );
+  } else {
+    await change("server/host/secret-cards.ts",
+      `      const home = (secret.vm ? vmFileHome(botId, secret.vm) : null) ?? { host: deps.layerFolder(botId, threadId), shown: deps.layerFolder(botId, threadId) };
       vault.saveFile(owner, message.id, value, home);`,
-    `      const resolved = credentialFileHome(botId, threadId, secret);
+      `      const resolved = credentialFileHome(botId, threadId, secret);
       if (!resolved && message.j1Credential) throw new Error("The credential delivery root is unavailable.");
       const fallback = () => {
         const folder = deps.layerFolder(botId, threadId);
         return { host: folder, shown: folder };
       };
       vault.saveFile(owner, message.id, value, resolved ?? fallback(), Boolean(message.j1Credential));`,
-  );
+    );
+  }
   await change("server/host/secret-cards.ts",
     "    const saveId = message.j1Credential && vault.refVersion(message.id);",
     "    const saveId = message.j1Credential && boundVersion(message, botId, threadId);",
@@ -4513,11 +4627,14 @@ export interface ConfigRouteDeps {
     `      const namedRevision = named?.revision();
       for (const key of resetKeys) if (key) forgetKey(key);`,
   );
+  const configReply = settingsWindow
+    ? '{ ...(configForAccess(finalized.value, auth) as object), ...(savedVpsNotice ? { notice: savedVpsNotice } : {}) }'
+    : "configForAccess(finalized.value, auth)";
   await change("server/routes/config.ts",
-    "      return json(res, 200, configForAccess(finalized.value, auth));",
+    `      return json(res, 200, ${configReply});`,
     `      if (named && (!namedRevision || !named.finish(namedRevision)))
         return json(res, 409, { error: "The credential was saved, but the original request could not resume." });
-      return json(res, 200, configForAccess(finalized.value, auth));`,
+      return json(res, 200, ${configReply});`,
   );
   await change("server/index.ts",
     `  store, cfg, registry, sessions, browserCleanup, browserLive, browserRuntime, usedBrowserSessions, decider,
@@ -4530,15 +4647,19 @@ export interface ConfigRouteDeps {
     "function j1CredentialActionHash(row: Message, proof: NonNullable<Message[\"j1Credential\"]>) {",
     "const j1NamedSlotVersions = new Map<ConfigCredentialTargetId, string>();\nconst j1NamedSlots = Object.keys(CREDENTIAL_TARGETS).filter(\n  (key): key is ConfigCredentialTargetId => isCredentialTargetId(key) && isConfigCredentialTarget(key),\n).map(target => {\n  const sentinel = \"__j1_settings_slot__\";\n  const [part, fields] = Object.entries(credentialConfigPatch(target, sentinel))[0]!;\n  const key = Object.entries(fields).find(([, value]) => value === sentinel)![0];\n  return { target, part, key };\n});\n\nfunction j1NamedField(root: unknown, part: string, key: string): unknown {\n  if (!root || typeof root !== \"object\") return undefined;\n  const nested = (root as Record<string, unknown>)[part];\n  return nested && typeof nested === \"object\" ? (nested as Record<string, unknown>)[key] : undefined;\n}\n\nonConfigSaved((before, after, touched) => {\n  for (const { target, part, key } of j1NamedSlots) {\n    if (j1NamedField(touched, part, key) !== undefined || j1NamedField(before, part, key) !== j1NamedField(after, part, key))\n      j1NamedSlotVersions.set(target, randomUUID());\n  }\n});\n\nfunction j1NamedTarget(row: Message) {\n  const target = row.secret?.target;\n  return process.env.J1_MAUSBOT_MANAGED === \"1\" && isCredentialTargetId(target) && isConfigCredentialTarget(target)\n    ? target : undefined;\n}\n\nfunction j1NamedPatchMatches(target: ConfigCredentialTargetId, patch: unknown) {\n  const slot = j1NamedSlots.find(item => item.target === target);\n  if (!slot || !patch || typeof patch !== \"object\" || Array.isArray(patch)) return false;\n  const value = j1NamedField(patch, slot.part, slot.key);\n  if (typeof value !== \"string\" || !value.trim()) return false;\n  const expected = credentialConfigPatch(target, value);\n  const keys = Object.keys(patch);\n  if (keys.length !== 1 || keys[0] !== slot.part) return false;\n  const input = Object.entries((patch as Record<string, object>)[slot.part]!);\n  const requested = Object.entries((expected as Record<string, object>)[slot.part]!);\n  return input.length === requested.length && requested.every(([key, value]) => input.some(item => item[0] === key && item[1] === value));\n}\n\nfunction j1PrepareNamedCredential(header: string, patch: unknown, auth: RequestAuth) {\n  if (header.length > 600 || auth.kind !== \"session\" || !auth.scopes.includes(\"admin\")) return null;\n  let ids: unknown;\n  try { ids = JSON.parse(header); } catch { return null; }\n  if (!Array.isArray(ids) || ids.length !== 4 || ids.some(id => typeof id !== \"string\" || !/^[\\w-]{1,128}$/.test(id))) return null;\n  const [botId, threadId, cardId, requestKey] = ids as [string, string, string, string];\n  if (!visibleTo(viewerFor(auth)).thread(threadId)) return null;\n  const original = secretCards.secretMessage(botId, threadId, cardId);\n  const target = original && j1NamedTarget(original);\n  if (!original?.j1Credential || !target || original.secret?.requestKey !== requestKey ||\n      original.j1Credential.saveId || original.secret.provided || original.secret.dismissed ||\n      !j1CredentialAnswerAllowed(original, botId, threadId, auth) || !j1NamedPatchMatches(target, patch) ||\n      credentialIsConfigured(cfg, target)) return null;\n  const before = j1NamedSlotVersions.get(target);\n  return {\n    revision: () => {\n      const revision = j1NamedSlotVersions.get(target);\n      return revision !== before && credentialIsConfigured(cfg, target) ? revision : undefined;\n    },\n    finish: (revision: string) => {\n      const row = secretCards.secretMessage(botId, threadId, cardId);\n      if (!row?.j1Credential || row.secret?.requestKey !== requestKey || j1NamedTarget(row) !== target ||\n          row.j1Credential.saveId || row.secret.dismissed || !j1CredentialAnswerAllowed(row, botId, threadId, auth) ||\n          j1NamedSlotVersions.get(target) !== revision || !credentialIsConfigured(cfg, target)) return false;\n      const saved = store.patchMessage(threadId, cardId, { j1Credential: { ...row.j1Credential, saveId: revision } });\n      return saved?.j1Credential?.saveId === revision && j1FinishCredential(saved, botId, threadId, \"provided\", auth) === true;\n    },\n  };\n}\n\nfunction j1CredentialActionHash(row: Message, proof: NonNullable<Message[\"j1Credential\"]>) {",
   );
+  const useDesktopCredentialStore = settingsWindow ? "store" : "slot && window.ogb?.setCredential";
+  const writeDesktopCredential = settingsWindow
+    ? 'store(next, target === "anthropicApiKey" ? { everyClaudeBot: false } : undefined)'
+    : "window.ogb.setCredential(slot, next)";
   await change("src/components/SecretRequestCard.tsx",
     `        if (isConfigCredentialTarget(target)) {
-          const status: ConfigStatus = slot && window.ogb?.setCredential
-            ? await window.ogb.setCredential(slot, next)
+          const status: ConfigStatus = ${useDesktopCredentialStore}
+            ? await ${writeDesktopCredential}
             : await api(request.path, { method: request.method, body: JSON.stringify(request.body) });`,
     `        if (isConfigCredentialTarget(target)) {
           const owned = secret.j1NamedSettings === true;
-          const status: ConfigStatus = !owned && slot && window.ogb?.setCredential
-            ? await window.ogb.setCredential(slot, next)
+          const status: ConfigStatus = !owned && ${useDesktopCredentialStore}
+            ? await ${writeDesktopCredential}
             : await api(request.path, { method: request.method, body: JSON.stringify(request.body),
               ...(owned ? { headers: { "content-type": "application/json", "x-j1-credential-card": JSON.stringify([botId, threadId, message.id, secret.requestKey]) } } : {}) });`,
   );
@@ -4576,9 +4697,14 @@ import { managedPhoneSettingsDevice, managedPhoneSettingsIdentity, openManagedPh
     }
     // API keys are never echoed back: booleans only.`,
   );
+  const pairedDeviceGate = settingsWindow ? `      const pairedDevice = fromPairedDevice(req, auth);
+      if (pairedDevice && !isPhoneKeyPatch(body)) {
+        return json(res, 403, { error: "From a phone, only API keys can be changed. Change other settings on your computer." });
+      }
+` : "";
   await change("server/routes/config.ts",
     `      const body = await readBody(req);
-      if (hostedModels && ["instances",`,
+${pairedDeviceGate}      if (hostedModels && ["instances",`,
     `      let body = await readBody(req, managedPhone ? 16_384 : undefined);
       let managedHeader: string | undefined;
       if (device) {
@@ -4599,7 +4725,7 @@ import { managedPhoneSettingsDevice, managedPhoneSettingsIdentity, openManagedPh
       }
       if (!body || typeof body !== "object" || Array.isArray(body))
         return json(res, 400, { error: "The settings request is invalid." });
-      if (hostedModels && ["instances",`,
+${pairedDeviceGate}      if (hostedModels && ["instances",`,
   );
   await change("server/routes/config.ts",
     `      const header = req.headers["x-j1-credential-card"];`,
@@ -4618,12 +4744,13 @@ import { managedPhoneSettingsDevice, managedPhoneSettingsIdentity, openManagedPh
     `import { useState, type FormEvent } from "react";
 import { pairedNamedSettingsBody } from "@/lib/j1-phone-settings";`,
   );
+  const providerCredentialException = settingsWindow ? " && !isProviderCredentialTarget(secret.target)" : "";
   await change("src/components/SecretRequestCard.tsx",
-    `  const onlyOnHost = window.ogb?.remoteClient?.active === true && secret.target !== CUSTOM_SECRET_TARGET && desktopCredentialSlot(secret.target) !== null;`,
+    `  const onlyOnHost = window.ogb?.remoteClient?.active === true && secret.target !== CUSTOM_SECRET_TARGET && desktopCredentialSlot(secret.target) !== null${providerCredentialException};`,
     `  const pairedPhone = "ReactNativeWebView" in window && secret.j1NamedSettings === true;
   const onlyOnHost = secret.target !== CUSTOM_SECRET_TARGET && (pairedPhone
     ? desktopCredentialSlot(secret.target) === null || location.protocol !== "https:" || !globalThis.crypto?.subtle
-    : window.ogb?.remoteClient?.active === true && desktopCredentialSlot(secret.target) !== null);`,
+    : window.ogb?.remoteClient?.active === true && desktopCredentialSlot(secret.target) !== null${providerCredentialException});`,
   );
   await change("src/components/SecretRequestCard.tsx",
     `            : await api(request.path, { method: request.method, body: JSON.stringify(request.body),
@@ -4789,16 +4916,17 @@ export function createEmailService(deps: EmailServiceDeps) {`,
       const hint =`,
   );
   await change("server/host/secret-cards.ts",
-    'import { EMAIL_CANT_SEND_TEXT } from "../email/instructions.ts";',
-    'import { EMAIL_CANT_SEND_TEXT } from "../email/instructions.ts";\nimport type { EmailConnectCommit } from "../email/service.ts";',
+    'import { canonicalSecretRoot } from "../secret-vault.ts";',
+    'import { canonicalSecretRoot } from "../secret-vault.ts";\nimport type { EmailConnectCommit } from "../email/service.ts";',
   );
   await change("server/host/secret-cards.ts",
     "    connect(request: EmailConnectRequest, reading?: (imapHost: string) => void): Promise<EmailConnectAnswer>;",
     "    connect(request: EmailConnectRequest, reading?: (imapHost: string) => void, commit?: EmailConnectCommit): Promise<EmailConnectAnswer>;\n    revision?(address: string): string | undefined;",
   );
+  const secretCardServices = `  const { store, cfg, botLogins, ${settingsWindow ? "vaultStore, " : ""}phoneSecrets, phoneSecretSubmissions, connectorThread, answerCardNode } = deps;`;
   await change("server/host/secret-cards.ts",
-    '  const { store, cfg, botLogins, phoneSecrets, phoneSecretSubmissions, connectorThread, answerCardNode } = deps;',
-    '  const { store, cfg, botLogins, phoneSecrets, phoneSecretSubmissions, connectorThread, answerCardNode } = deps;\n  const boundEmailSaves = new Set<string>();',
+    secretCardServices,
+    `${secretCardServices}\n  const boundEmailSaves = new Set<string>();`,
   );
 
 
@@ -4881,15 +5009,20 @@ export function createEmailService(deps: EmailServiceDeps) {`,
         if (candidate?.j1Credential && candidate.secret?.delivery === "email" && !deps.threadVisible(auth, parsed.data.threadId))
           return json(res, 404, userError("serverError.secret.missing"));`,
   );
+  const phoneCheckOutgoing = settingsWindow
+    ? `current.secret.emailOutgoing
+            ? await deps.email.checkOutgoing(current.secret.address, { ...current.secret.emailOutgoing, smtpPassword: opened })
+            : `
+    : "";
   await change("server/host/secret-cards.ts",
-    '          const answer = await deps.email.connect({ address: current.secret.address, password: opened });',
+    `          const answer = ${phoneCheckOutgoing}await deps.email.connect({ address: current.secret.address, password: opened });`,
     `          const emailRequest = { address: current.secret.address, password: opened };
           if (current.j1Credential) {
-            const result = await saveBoundEmail(current, context.botId, context.threadId, emailRequest, auth);
+            ${settingsWindow ? 'if (current.secret.emailOutgoing) throw new PhoneSecretError("This request needs a mailbox credential.", 409);\n            ' : ""}const result = await saveBoundEmail(current, context.botId, context.threadId, emailRequest, auth);
             if (result.status !== 200) throw new PhoneSecretError("The mailbox credential could not be saved for this request.", result.status);
             return;
           }
-          const answer = await deps.email.connect(emailRequest);`,
+          const answer = ${phoneCheckOutgoing}await deps.email.connect(emailRequest);`,
   );
   await change("server/host/secret-cards.ts",
     "      (message?.secret?.delivery === \"file\"\n        ? botId && threadId && boundVersion(message, botId, threadId)\n        : vault.refVersion(id)) === version,",
