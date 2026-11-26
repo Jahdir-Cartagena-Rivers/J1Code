@@ -49,9 +49,7 @@ jobs:
       - name: Build resource monitor
         run: cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml
       - name: Build Linux executable
-        env:
-          VP_NODE_VERSION: "26.8.2"
-        run: node apps/server/scripts/cli.ts build-exe --verbose
+        run: VP_NODE_VERSION="$(node -p 'process.versions.node')" node apps/server/scripts/cli.ts build-exe --verbose
       - name: Package and smoke-test Linux runtime
         shell: bash
         run: |
