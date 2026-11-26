@@ -1,4 +1,4 @@
-import * as NodeURL from "node:url";
+﻿import * as NodeURL from "node:url";
 import serverPackageJson from "../../apps/server/package.json" with { type: "json" };
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -96,14 +96,8 @@ describe("selectCliRuntimeExternalDependencies", () => {
   });
 });
 
-// An external package is loaded from the real filesystem, so its own `require`
-// also resolves from the real filesystem. If one of its dependencies was
-// bundled away instead of left external, that dependency does not follow the
-// selected root into the sidecar.
-//
-// Found the hard way: msgpackr-extract's node-gyp-build-optional-packages
-// required detect-libc, which was bundled. Windows was fine; WSL got
-// MODULE_NOT_FOUND.
+// Keep helpers that J1 can also use in its bundle external when they're needed
+// by a native loader. WSL previously lost detect-libc this way.
 it.layer(NodeServices.layer)("external package dependency closure", (it) => {
   // Read the pnpm store directly: isolation hides transitive names and exports maps can block package.json.
   const readInstalledPackages = Effect.gen(function* () {
@@ -145,7 +139,7 @@ it.layer(NodeServices.layer)("external package dependency closure", (it) => {
 
   const isRuntimeExternal = isRuntimeExternalCliDependency;
 
-  it.effect("keeps every runtime dependency of an external package external too", () =>
+  it.effect("keeps sidecar loader dependencies external to the CLI bundle", () =>
     Effect.gen(function* () {
       const installed = yield* readInstalledPackages;
       const violations: string[] = [];
@@ -155,6 +149,10 @@ it.layer(NodeServices.layer)("external package dependency closure", (it) => {
       for (const name of queue) {
         if (seen.has(name)) continue;
         seen.add(name);
+
+        // The sidecar installs Pi as a production package, with its private dependency
+        // tree. The extracted-archive smoke test exercises that file-backed entry point.
+        if (name === "@earendil-works/pi-coding-agent") continue;
 
         const manifest = installed.get(name);
         if (!manifest) continue;
@@ -175,7 +173,7 @@ it.layer(NodeServices.layer)("external package dependency closure", (it) => {
       assert.deepStrictEqual(
         violations,
         [],
-        `these dependencies of external packages would be bundled away and fail to resolve under WSL: ${violations.join(", ")}`,
+        `these sidecar loader dependencies need to stay external: ${violations.join(", ")}`,
       );
     }),
   );

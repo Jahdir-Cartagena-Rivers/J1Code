@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Duration from "effect/Duration";
@@ -144,6 +144,44 @@ const smokeCliArchive = Effect.fn("smokeCliArchive")(function* (input: {
     });
   }
 
+  // A clean server can start before any provider has loaded. Verify the file-backed
+  // Pi and MCP entry points against the dependencies in the extracted sidecar.
+  const piRuntime = yield* runExecutable(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `
+        import assert from "node:assert/strict";
+        import { realpathSync } from "node:fs";
+        import { createRequire, findPackageJSON } from "node:module";
+        import { dirname, join, relative, sep } from "node:path";
+
+        function loadPackage(name, from) {
+          const manifest = findPackageJSON(name, from);
+          assert.ok(manifest, \`Missing \${name}\`);
+          assert.equal(relative(process.cwd(), realpathSync(manifest)).split(sep)[0], "node_modules");
+          return {
+            manifest,
+            exports: createRequire(from)(join(dirname(manifest), "dist", "index.js")),
+          };
+        }
+
+        const pi = loadPackage("@earendil-works/pi-coding-agent", import.meta.url);
+        assert.equal(typeof pi.exports.createAgentSession, "function");
+        const mcp = loadPackage("@earendil-works/pi-mcp", pi.manifest);
+        assert.equal(typeof mcp.exports.StreamableHttpTransport, "function");
+      `,
+    ],
+    contentDir,
+  );
+  if (piRuntime.exitCode !== 0) {
+    return yield* new CliArchiveSmokeError({
+      step: "loading the bundled DeepAI provider dependencies",
+      detail: `exit ${String(piRuntime.exitCode)}\n${piRuntime.stdout}${piRuntime.stderr}`,
+    });
+  }
+
   const net = yield* NetService.NetService;
   const port = yield* net.findAvailablePort(47700);
   const home = path.join(scratch, "home");
@@ -201,7 +239,7 @@ const smokeCliArchive = Effect.fn("smokeCliArchive")(function* (input: {
     });
   }
   yield* Effect.log(
-    `[cli-smoke] ${root}: --version and __service-launcher passed, and serve answered on ${String(port)}.`,
+    `[cli-smoke] ${root}: --version, __service-launcher and DeepAI package loading passed, and serve answered on ${String(port)}.`,
   );
 });
 
