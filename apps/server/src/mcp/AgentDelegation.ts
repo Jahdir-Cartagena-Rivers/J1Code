@@ -1,647 +1,429 @@
 import {
-  AGENT_DELEGATION_ACTIVITY_KIND,
-  AGENT_DELEGATION_MAX_ACTIVE,
-  AGENT_DELEGATION_MAX_DEPTH,
-  AGENT_DELEGATION_MAX_TOTAL,
-  AgentDelegationError,
-  AgentDelegationRecord,
-  type AgentDelegationResult,
-  type AgentDelegationStatus,
-  CommandId,
-  EventId,
-  MessageId,
-  type OrchestrationCommand,
-  type OrchestrationEvent,
-  type OrchestrationThreadShell,
-  SpawnAgentInput,
-  ThreadId,
+  AGENT_DELEGATION_MAX_ACTIVE, AGENT_DELEGATION_MAX_DEPTH, AGENT_DELEGATION_MAX_TOTAL,
+  AgentDelegationError, CommandId, isRuntimeModeAbove,
+  type AgentDelegationResult, type OrchestrationV2StoredEvent, type OrchestrationV2Subagent,
+  type OrchestrationV2Run, type OrchestrationV2ThreadShell, type ProviderOptionDescriptor,
+  type RunId, type ServerProvider, type SpawnAgentInput, type ThreadId,
 } from "@j1code/contracts";
-import * as Cause from "effect/Cause";
-import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
-import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
-import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
-import * as Schema from "effect/Schema";
-import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import * as Option from "effect/Option";
+import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
+import { DispatchModeLimit, exceededDispatchModeLimit } from "../orchestration-v2/DispatchModeLimit.ts";
+import { EventSinkV2 } from "../orchestration-v2/EventSink.ts";
+import { ThreadManagementService, isActiveRun } from "../orchestration-v2/ThreadManagementService.ts";
+import { ProviderInstanceRegistry } from "../provider/ProviderInstanceRegistry.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
+import { McpInvocationContext, type McpInvocationScope } from "./McpInvocationContext.ts";
+import { nativeAgentCaller } from "./toolkits/routing/boundary.ts";
 
-import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
-import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { ProviderRegistry } from "../provider/Services/ProviderRegistry.ts";
-import { ProviderService } from "../provider/Services/ProviderService.ts";
-import { ServerRuntimeStartup } from "../serverRuntimeStartup.ts";
-import type { OrchestrationDispatchError } from "../orchestration/Errors.ts";
-import type { ProjectionRepositoryError } from "../persistence/Errors.ts";
-import { type McpInvocationScope } from "./McpInvocationContext.ts";
-
-const active = (status: AgentDelegationStatus) =>
-  status === "starting" || status === "running" || status === "waiting";
-const failure = (message: string) => new AgentDelegationError({ message });
-const wrapFailure = (cause: Cause.Cause<unknown>) => failure(Cause.pretty(cause).slice(0, 2000));
 const OUTPUT_LIMIT = 24_000;
-const decodeRecord = Schema.decodeUnknownEffect(AgentDelegationRecord);
-const encodeSpawn = Schema.encodeEffect(Schema.fromJsonString(SpawnAgentInput));
+const MAX_ACTIVE_WORKERS = 16;
+const failure = (message: string) => new AgentDelegationError({ message });
+const unavailable = () => failure("This worker does not belong to your lead chat or is unavailable.");
+const wrap = (message: string) => Effect.mapError(() => failure(message));
 
-interface Job {
-  record: AgentDelegationRecord;
-  changed: Deferred.Deferred<void>;
-  timer?: Fiber.Fiber<void, never> | undefined;
-}
-
-export class AgentDelegation extends Context.Service<
-  AgentDelegation,
-  {
-    readonly models: (invocation: McpInvocationScope) => Effect.Effect<
-      {
-        providers: ReadonlyArray<{
-          instanceId: string;
-          driver: string;
-          name: string;
-          enabled: boolean;
-          available: boolean;
-          authStatus: string;
-          models: ReadonlyArray<{ model: string; name: string }>;
-        }>;
-        limits: { maxDepth: number; maxActivePerLead: number; maxWorkersPerTurn: number };
-      },
-      AgentDelegationError
-    >;
-    readonly spawn: (
-      input: SpawnAgentInput,
-      invocation: McpInvocationScope,
-    ) => Effect.Effect<AgentDelegationResult, AgentDelegationError>;
-    readonly get: (
-      threadId: ThreadId,
-      invocation: McpInvocationScope,
-    ) => Effect.Effect<AgentDelegationResult, AgentDelegationError>;
-    readonly list: (
-      invocation: McpInvocationScope,
-    ) => Effect.Effect<ReadonlyArray<AgentDelegationResult>, AgentDelegationError>;
-    readonly wait: (
-      threadId: ThreadId,
-      seconds: number,
-      invocation: McpInvocationScope,
-    ) => Effect.Effect<AgentDelegationResult, AgentDelegationError>;
-    readonly cancel: (
-      threadId: ThreadId,
-      invocation: McpInvocationScope,
-    ) => Effect.Effect<AgentDelegationResult, AgentDelegationError>;
-  }
->()("@j1code/server/mcp/AgentDelegation") {}
-
-const make = Effect.gen(function* () {
-  const engine = yield* OrchestrationEngineService;
-  const snapshots = yield* ProjectionSnapshotQuery;
-  const providers = yield* ProviderService;
-  const registry = yield* ProviderRegistry;
-  const crypto = yield* Crypto.Crypto;
-  const scope = yield* Scope.Scope;
-  const mutex = yield* Semaphore.make(1);
-  const jobs = new Map<ThreadId, Job>();
-  const blockedParents = new Set<ThreadId>();
-  const ready = yield* Deferred.make<void, AgentDelegationError>();
-  const events = yield* engine.subscribeDomainEvents;
-  const timestamp = DateTime.now.pipe(Effect.map(DateTime.formatIso));
-  const uuid = crypto.randomUUIDv4.pipe(Effect.orDie);
-  const dispatch = (command: OrchestrationCommand) => engine.dispatch(command);
-
-  const append = Effect.fn("AgentDelegation.append")(function* (
-    threadId: ThreadId,
-    kind: string,
-    summary: string,
-    payload: unknown,
-    tone: "info" | "error" = "info",
-  ) {
-    const id = yield* uuid;
-    const now = yield* timestamp;
-    yield* dispatch({
-      type: "thread.activity.append",
-      commandId: CommandId.make(`delegation:${id}`),
-      threadId,
-      createdAt: now,
-      activity: {
-        id: EventId.make(id),
-        kind,
-        summary,
-        payload,
-        tone,
-        turnId: null,
-        createdAt: now,
-      },
-    });
-  });
-
-  const persist = Effect.fn("AgentDelegation.persist")(function* (job: Job, initial = false) {
-    const record = job.record;
-    // The child retains its linkage even if its lead is archived or deleted.
-    const child = yield* snapshots.getThreadShellById(record.threadId);
-    if (Option.isSome(child))
-      yield* append(
-        record.threadId,
-        AGENT_DELEGATION_ACTIVITY_KIND,
-        `Worker ${record.status}: ${record.title}`,
-        record,
-      );
-    const parent = yield* snapshots.getThreadShellById(record.parentThreadId);
-    if (Option.isNone(parent)) return;
-    yield* append(
-      record.parentThreadId,
-      AGENT_DELEGATION_ACTIVITY_KIND,
-      `Worker ${record.status}: ${record.title}`,
-      record,
-    );
-    yield* append(
-      record.parentThreadId,
-      initial ? "task.started" : "task.updated",
-      `Worker ${record.status}: ${record.title}`,
-      {
-        taskId: record.threadId,
-        agentKind: "agent",
-        title: record.title,
-        role: "Delegated worker",
-        model: record.modelSelection.model,
-        status:
-          record.status === "timed-out"
-            ? "failed"
-            : record.status === "starting"
-              ? "pending"
-              : record.status,
-        error: record.error,
-        detail: record.error ?? `Open worker chat: ${record.title}`,
-      },
-      record.error ? "error" : "info",
-    );
-  });
-
-  const change = Effect.fn("AgentDelegation.change")(function* (
-    job: Job,
-    status: AgentDelegationStatus,
-    error: string | null = null,
-  ) {
-    if (job.record.status === status && job.record.error === error) return;
-    if (!active(job.record.status)) return;
-    job.record = { ...job.record, status, error, updatedAt: yield* timestamp };
-    yield* persist(job);
-    const previous = job.changed;
-    job.changed = yield* Deferred.make<void>();
-    yield* Deferred.succeed(previous, undefined);
-    if (!active(status) && job.timer) yield* Fiber.interrupt(job.timer);
-  });
-
-  const stopTree = Effect.fn("AgentDelegation.stopTree")(function* (
-    threadId: ThreadId,
-    status: "cancelled" | "timed-out" | "interrupted",
-    reason: string,
-  ): Effect.fn.Return<void, OrchestrationDispatchError | ProjectionRepositoryError> {
-    blockedParents.add(threadId);
-    for (const child of jobs.values()) {
-      if (child.record.parentThreadId === threadId && active(child.record.status)) {
-        yield* stopTree(child.record.threadId, status, reason).pipe(
-          Effect.catchCause((cause) =>
-            Effect.logError("Could not persist a descendant stop", { cause }),
-          ),
-        );
-      }
-    }
-    const job = jobs.get(threadId);
-    if (!job || !active(job.record.status)) return;
-    // Persist the stop before enqueueing it so a delayed turn cannot resurrect the worker.
-    yield* change(job, status, reason).pipe(
-      Effect.ensuring(
-        Effect.gen(function* () {
-          const child = yield* snapshots.getThreadShellById(threadId);
-          if (Option.isSome(child)) {
-            yield* dispatch({
-              type: "thread.session.stop",
-              commandId: CommandId.make(`delegation-stop:${yield* uuid}`),
-              threadId,
-              createdAt: yield* timestamp,
-            });
-          } else {
-            yield* providers.stopSession({ threadId });
-          }
-        }).pipe(
-          Effect.catchCause((cause) =>
-            Effect.logError("Worker stop could not be queued; stopping its session directly", {
-              cause,
-            }).pipe(
-              Effect.andThen(
-                providers.stopSession({ threadId }).pipe(Effect.ignore({ log: true })),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  });
-
-  const startTimer = Effect.fn("AgentDelegation.startTimer")(function* (job: Job) {
-    const delay = Math.max(0, Date.parse(job.record.deadlineAt) - (yield* Clock.currentTimeMillis));
-    // Clear this handle before taking the lock; change must never interrupt its own timer.
-    job.timer = yield* Effect.sleep(delay).pipe(
-      Effect.andThen(
-        Effect.sync(() => {
-          job.timer = undefined;
-        }),
-      ),
-      Effect.andThen(
-        mutex.withPermits(1)(
-          stopTree(job.record.threadId, "timed-out", "Worker deadline exceeded."),
-        ),
-      ),
-      Effect.catchCause((cause) =>
-        Effect.logError("Could not stop expired delegated worker", { cause }),
-      ),
-      Effect.forkIn(scope),
-    );
-  });
-
-  const result = Effect.fn("AgentDelegation.result")(function* (
-    job: Job,
-  ): Effect.fn.Return<AgentDelegationResult, AgentDelegationError> {
-    const detail = yield* snapshots
-      .getThreadDetailById(job.record.threadId)
-      .pipe(Effect.catchCause((cause) => Effect.fail(wrapFailure(cause))));
-    const text = Option.isSome(detail)
-      ? detail.value.messages
-          .filter((message) => message.role === "assistant")
-          .map((message) => message.text)
-          .join("\n\n")
-      : "";
-    return {
-      threadId: job.record.threadId,
-      parentThreadId: job.record.parentThreadId,
-      title: job.record.title,
-      modelSelection: job.record.modelSelection,
-      status: job.record.status,
-      deadlineAt: job.record.deadlineAt,
-      output: text.slice(-OUTPUT_LIMIT),
-      outputTruncated: text.length > OUTPUT_LIMIT,
-      error: job.record.error,
-    };
-  });
-
-  const requireParent = Effect.fn("AgentDelegation.requireParent")(function* (
-    invocation: McpInvocationScope,
-  ) {
-    const parent = yield* snapshots.getThreadShellById(invocation.threadId);
-    if (
-      Option.isNone(parent) ||
-      parent.value.archivedAt !== null ||
-      blockedParents.has(invocation.threadId)
-    ) {
-      return yield* failure("The lead chat is unavailable or stopped.");
-    }
-    const session = parent.value.session;
-    if (
-      !session ||
-      session.providerInstanceId !== invocation.providerInstanceId ||
-      (session.status !== "ready" && session.status !== "running")
-    ) {
-      return yield* failure("This credential is no longer bound to an active lead session.");
-    }
-    const job = jobs.get(invocation.threadId);
-    if (job && !active(job.record.status)) return yield* failure("This worker has already ended.");
-    return parent.value;
-  });
-
-  const owned = (invocation: McpInvocationScope, id: ThreadId) => {
-    const job = jobs.get(id);
-    return job &&
-      (job.record.parentThreadId === invocation.threadId ||
-        job.record.rootThreadId === invocation.threadId)
-      ? job
-      : undefined;
+/** V2 reports the durable queue state and effective deadline when present. */
+export type AgentDelegationV2Result =
+  Omit<AgentDelegationResult, "status" | "deadlineAt"> & {
+    readonly status: AgentDelegationResult["status"] | "queued";
+    readonly deadlineAt?: AgentDelegationResult["deadlineAt"];
   };
 
-  const reconcile = Effect.fn("AgentDelegation.reconcile")(function* (event: OrchestrationEvent) {
-    if (!("threadId" in event.payload)) return;
-    const id = event.payload.threadId;
-    if (event.type === "thread.turn-start-requested" && !jobs.has(id)) blockedParents.delete(id);
-    if (
-      event.type === "thread.turn-interrupt-requested" ||
-      event.type === "thread.session-stop-requested" ||
-      event.type === "thread.deleted" ||
-      event.type === "thread.archived"
-    ) {
-      yield* stopTree(id, "cancelled", "Lead or worker was stopped.");
-      return;
-    }
-    const job = jobs.get(id);
-    if (
-      event.type === "thread.session-set" &&
-      event.payload.session.status === "error" &&
-      job &&
-      active(job.record.status)
-    ) {
-      yield* change(job, "failed", event.payload.session.lastError ?? "Worker provider failed.");
-      yield* stopTree(id, "interrupted", "Worker provider failed.");
-      yield* dispatch({
-        type: "thread.session.stop",
-        commandId: CommandId.make(`delegation-failed-stop:${yield* uuid}`),
-        threadId: id,
-        createdAt: yield* timestamp,
-      });
-      return;
-    }
-    if (
-      event.type === "thread.session-set" &&
-      ["stopped", "interrupted", "error"].includes(event.payload.session.status)
-    ) {
-      yield* stopTree(
-        id,
-        "interrupted",
-        event.payload.session.lastError ?? "Lead or worker session ended.",
-      );
-      return;
-    }
-    if (!job || !active(job.record.status)) return;
-    if (
-      event.type !== "thread.session-set" &&
-      event.type !== "thread.turn-diff-completed" &&
-      event.type !== "thread.activity-appended"
-    )
-      return;
-    if (
-      event.type === "thread.activity-appended" &&
-      (event.payload.activity.kind === AGENT_DELEGATION_ACTIVITY_KIND ||
-        event.payload.activity.kind.startsWith("task."))
-    )
-      return;
-    const child = yield* snapshots.getThreadShellById(id);
-    if (Option.isNone(child)) return;
-    const thread = child.value;
-    if (thread.session?.status === "error" || thread.latestTurn?.state === "error") {
-      yield* change(job, "failed", thread.session?.lastError ?? "Worker provider failed.");
-    } else if (thread.session?.status === "interrupted" || thread.session?.status === "stopped") {
-      yield* stopTree(id, "interrupted", "Worker session ended before its result was collected.");
-    } else if (
-      event.type === "thread.turn-diff-completed" &&
-      thread.latestTurn?.state === "completed"
-    ) {
-      yield* change(job, "completed");
-      // The saved chat remains available; an idle worker must not retain a provider process.
-      yield* dispatch({
-        type: "thread.session.stop",
-        commandId: CommandId.make(`delegation-complete-stop:${yield* uuid}`),
-        threadId: id,
-        createdAt: yield* timestamp,
-      });
-    } else if (thread.hasPendingApprovals || thread.hasPendingUserInput) {
-      yield* change(job, "waiting");
-    } else if (thread.session?.status === "running") {
-      yield* change(job, "running");
-    }
-  });
+const limits = {
+  maxDepth: AGENT_DELEGATION_MAX_DEPTH,
+  maxActivePerLead: AGENT_DELEGATION_MAX_ACTIVE,
+  maxWorkersPerTurn: AGENT_DELEGATION_MAX_TOTAL,
+};
 
-  const initialize = Effect.gen(function* () {
-    const startup = yield* Effect.serviceOption(ServerRuntimeStartup);
-    if (Option.isSome(startup)) yield* startup.value.awaitCommandReady;
-    const records = yield* snapshots.listActivitiesByKind(AGENT_DELEGATION_ACTIVITY_KIND);
-    for (const activity of records) {
-      const record = yield* decodeRecord(activity.payload);
-      const previous = jobs.get(record.threadId);
-      if (!previous || record.updatedAt >= previous.record.updatedAt) {
-        jobs.set(record.threadId, { record, changed: yield* Deferred.make<void>() });
-      }
-    }
-    // Recovery never resends a task. A crash may have left real provider work running.
-    for (const job of jobs.values()) {
-      if (!active(job.record.status)) continue;
-      const detail = yield* snapshots.getThreadDetailById(job.record.threadId);
-      if (
-        Option.isSome(detail) &&
-        detail.value.latestTurn?.state === "completed" &&
-        detail.value.checkpoints.some(
-          (checkpoint) => checkpoint.turnId === detail.value.latestTurn?.turnId,
-        )
-      ) {
-        yield* change(job, "completed");
-      } else {
-        yield* stopTree(
-          job.record.threadId,
-          "interrupted",
-          "Server restarted. History preserved; this task was not automatically rerun.",
-        );
-      }
-    }
-    yield* Deferred.succeed(ready, undefined);
-  }).pipe(Effect.catchCause((cause) => Deferred.fail(ready, wrapFailure(cause))));
+type Worker = {
+  readonly task: OrchestrationV2Subagent;
+  readonly child: OrchestrationV2ThreadShell;
+  readonly depth: number;
+  readonly rootRunId: RunId | null;
+};
+const liveStatus = (status: AgentDelegationV2Result["status"]) =>
+  status === "queued" || status === "starting" || status === "running" || status === "waiting";
 
-  yield* initialize.pipe(Effect.forkIn(scope));
-  yield* Stream.runForEach(events, (event) =>
-    Deferred.await(ready).pipe(
-      Effect.andThen(mutex.withPermits(1)(reconcile(event))),
-      Effect.catchCause((cause) =>
-        Effect.logError("Delegation lifecycle update failed", { cause }),
-      ),
-    ),
-  ).pipe(Effect.forkIn(scope));
+function workerStatus(task: OrchestrationV2Subagent, run: OrchestrationV2Run | undefined, pendingInput: boolean):
+  AgentDelegationV2Result["status"] {
+  switch (task.status) {
+    case "completed":
+    case "failed":
+      return task.status;
+    case "cancelled":
+    case "interrupted":
+      return task.deadlineCancellationAt === undefined ? task.status : "timed-out";
+  }
+  if (pendingInput || run?.status === "waiting") return "waiting";
+  if (run?.status === "queued") return "queued";
+  if (run === undefined || run.status === "preparing" || run.status === "starting") return "starting";
+  // A terminal run alone is not the result. V2 may still owe a continuation or descendant return.
+  return "running";
+}
 
+function providerAvailable(provider: ServerProvider): boolean {
+  return provider.enabled && provider.installed &&
+    (provider.status === "ready" || provider.status === "warning") &&
+    provider.availability !== "unavailable" && provider.auth.status !== "unauthenticated";
+}
+
+function optionsValid(pick: SpawnAgentInput["modelSelection"], descriptors?: ReadonlyArray<ProviderOptionDescriptor>) {
+  const supplied = pick.options ?? [];
+  return new Set(supplied.map(({ id }) => id)).size === supplied.length &&
+    (descriptors === undefined || supplied.every(({ id, value }) => {
+      const descriptor = descriptors.find((entry) => entry.id === id);
+      return descriptor?.type === "boolean" ? typeof value === "boolean" :
+        descriptor?.type === "select" && descriptor.options.some((option) => option.id === value);
+    }));
+}
+
+const encodeCommandIdentity = Schema.encodeSync(Schema.fromJsonString(Schema.Tuple([Schema.String, Schema.String])));
+const stableId = (kind: "spawn" | "cancel", parent: ThreadId, request: string) =>
+  Effect.tryPromise({
+    try: () => crypto.subtle.digest("SHA-256", new TextEncoder().encode(encodeCommandIdentity([parent, request]))),
+    catch: () => failure("Could not derive the saved delegation command identity."),
+  }).pipe(Effect.map((digest) => CommandId.make(`j1-agent:${kind}:${Buffer.from(digest).toString("hex")}`)));
+
+function sameSelection(left: SpawnAgentInput["modelSelection"], right: SpawnAgentInput["modelSelection"]): boolean {
+  if (left.instanceId !== right.instanceId || left.model !== right.model) return false;
+  if (left.options === undefined || right.options === undefined) return left.options === right.options;
+  return left.options.length === right.options.length && left.options.every(({ id, value }, index) =>
+    right.options?.[index]?.id === id && right.options[index]?.value === value);
+}
+
+function findSpawn(
+  events: ReadonlyArray<OrchestrationV2StoredEvent>,
+  parent: ThreadId,
+  input: SpawnAgentInput,
+): OrchestrationV2Subagent | undefined {
+  for (const { event } of events) {
+    if (event.type !== "subagent.updated" || event.threadId !== parent) continue;
+    const task = event.payload;
+    if (task.origin === "app_owned" && task.threadId === parent &&
+        task.childThreadId !== null && task.prompt === input.task && task.title === input.title &&
+        task.deadlineTimeoutSeconds === input.timeoutSeconds &&
+        task.modelSelection !== undefined && sameSelection(task.modelSelection, input.modelSelection))
+      return task;
+  }
+  return undefined;
+}
+
+const make = Effect.gen(function* () {
+  const threads = yield* ThreadManagementService;
+  const environment = yield* ServerEnvironment;
+  const registry = yield* ProviderInstanceRegistry;
+  const events = yield* EventSinkV2;
+  const settings = yield* ServerSettingsService;
+  // Only bridge admission is serialized. V2 owns persistence, execution and recovery.
+  const admission = yield* Semaphore.make(1);
   const authorize = (invocation: McpInvocationScope) =>
-    invocation.capabilities.has("agents")
-      ? Deferred.await(ready)
-      : Effect.fail(failure("This session has no agent delegation capability."));
+    nativeAgentCaller.pipe(
+      Effect.provideService(McpInvocationContext, invocation),
+      Effect.provideService(ThreadManagementService, threads),
+      Effect.provideService(ServerEnvironment, environment),
+      Effect.mapError(failure),
+    );
 
-  const inspect = Effect.fn("AgentDelegation.inspect")(
-    function* (id: ThreadId, invocation: McpInvocationScope) {
-      yield* authorize(invocation);
-      const job = owned(invocation, id);
-      if (!job) return yield* failure("This worker does not belong to your lead chat.");
-      return yield* result(job);
-    },
-    Effect.catchCause((cause) => Effect.fail(wrapFailure(cause))),
+  const loadShell = (id: ThreadId) => threads.getThreadShell(id).pipe(wrap("Could not read the saved worker."));
+  const listChildren = (shell: OrchestrationV2ThreadShell) => threads.getThreadRecords(shell.id, ["subagents"]).pipe(
+    Effect.map(({ subagents }) => subagents.filter((task) =>
+      task.threadId === shell.id && task.origin === "app_owned" && task.childThreadId !== null)),
+    wrap("Could not read saved delegated work."),
   );
 
-  return AgentDelegation.of({
-    models: (invocation) =>
-      authorize(invocation).pipe(
-        Effect.andThen(registry.getProviders),
-        Effect.map((list) => ({
-          providers: list.map((provider) => ({
-            instanceId: provider.instanceId,
-            driver: provider.driver,
-            name: provider.displayName ?? provider.driver,
-            enabled: provider.enabled,
-            available: provider.availability !== "unavailable" && provider.installed,
-            authStatus: provider.auth.status,
-            models: provider.models.map((model) => ({ model: model.slug, name: model.name })),
-          })),
-          limits: {
-            maxDepth: AGENT_DELEGATION_MAX_DEPTH,
-            maxActivePerLead: AGENT_DELEGATION_MAX_ACTIVE,
-            maxWorkersPerTurn: AGENT_DELEGATION_MAX_TOTAL,
-          },
-        })),
-      ),
-    spawn: Effect.fn("AgentDelegation.spawn")(
-      function* (input, invocation) {
-        yield* authorize(invocation);
-        return yield* mutex.withPermits(1)(
-          Effect.gen(function* () {
-            const parent: OrchestrationThreadShell = yield* requireParent(invocation);
-            const parentJob = jobs.get(parent.id);
-            const depth = (parentJob?.record.depth ?? 0) + 1;
-            if (depth > AGENT_DELEGATION_MAX_DEPTH)
-              return yield* failure("Worker delegation depth limit reached.");
-            const rootThreadId = parentJob?.record.rootThreadId ?? parent.id;
-            const rootTurnKey =
-              parentJob?.record.rootTurnKey ??
-              parent.latestTurn?.turnId ??
-              parent.session?.activeTurnId ??
-              invocation.providerSessionId;
-            const encoded = yield* encodeSpawn(input);
-            const fingerprintBytes = yield* crypto.digest(
-              "SHA-256",
-              new TextEncoder().encode(encoded),
-            );
-            const fingerprint = Buffer.from(fingerprintBytes).toString("hex");
-            const existing = [...jobs.values()].find(
-              (job) =>
-                job.record.parentThreadId === parent.id && job.record.requestId === input.requestId,
-            );
-            if (existing) {
-              if (existing.record.fingerprint !== fingerprint)
-                return yield* failure("This requestId was already used for a different task.");
-              return yield* result(existing);
-            }
-            const family = [...jobs.values()].filter(
-              (job) => job.record.rootThreadId === rootThreadId,
-            );
-            if (
-              family.filter((job) => active(job.record.status)).length >=
-                AGENT_DELEGATION_MAX_ACTIVE ||
-              [...jobs.values()].filter((job) => active(job.record.status)).length >= 16
-            ) {
-              return yield* failure(
-                "Active worker limit reached. Wait for or cancel an existing worker.",
-              );
-            }
-            if (
-              family.filter((job) => job.record.rootTurnKey === rootTurnKey).length >=
-              AGENT_DELEGATION_MAX_TOTAL
-            )
-              return yield* failure("Worker budget for this lead turn is exhausted.");
-            const available = (yield* registry.getProviders).find(
-              (provider) => provider.instanceId === input.modelSelection.instanceId,
-            );
-            if (
-              !available ||
-              !available.enabled ||
-              !available.installed ||
-              available.availability === "unavailable"
-            )
-              return yield* failure("That provider instance is not enabled and available.");
-            if (!available.models.some((model) => model.slug === input.modelSelection.model))
-              return yield* failure(
-                "Unknown model slug. Use list_agent_models to select a configured model.",
-              );
-            const routing = yield* providers.getInstanceInfo(input.modelSelection.instanceId);
-            if (!routing.enabled) return yield* failure("That provider instance is disabled.");
-            const id = ThreadId.make(`j1-agent:${yield* uuid}`);
-            const now = yield* timestamp;
-            const deadline = Math.min(
-              Date.parse(now) + (input.timeoutSeconds ?? 600) * 1000,
-              parentJob ? Date.parse(parentJob.record.deadlineAt) : Infinity,
-            );
-            const record: AgentDelegationRecord = {
-              version: 1,
-              parentThreadId: parent.id,
-              rootThreadId,
-              rootTurnKey,
-              threadId: id,
-              requestId: input.requestId,
-              fingerprint,
-              title: input.title,
-              modelSelection: input.modelSelection,
-              depth,
-              status: "starting",
-              createdAt: now,
-              deadlineAt: DateTime.formatIso(DateTime.makeUnsafe(deadline)),
-              updatedAt: now,
-              error: null,
-            };
-            yield* dispatch({
-              type: "thread.create",
-              commandId: CommandId.make(`delegation-create:${id}`),
-              threadId: id,
-              projectId: parent.projectId,
-              title: `Worker: ${input.title}`,
-              modelSelection: input.modelSelection,
-              runtimeMode: parent.runtimeMode,
-              interactionMode: "default",
-              branch: parent.branch,
-              worktreePath: parent.worktreePath,
-              createdAt: now,
-            });
-            const job: Job = { record, changed: yield* Deferred.make<void>() };
-            jobs.set(id, job);
-            yield* Effect.gen(function* () {
-              yield* persist(job, true);
-              yield* dispatch({
-                type: "thread.turn.start",
-                commandId: CommandId.make(`delegation-start:${id}`),
-                threadId: id,
-                message: {
-                  messageId: MessageId.make(`delegation-task:${id}`),
-                  role: "user",
-                  attachments: [],
-                  text: `You are a delegated worker for lead chat ${parent.id}. Your task is below. Work only within its scope, respect project instructions and return your findings, changes, validation and limitations. You share the lead's workspace; coordinate file ownership before parallel edits. Do not claim verification you did not perform.\n\n${input.task}`,
-                },
-                modelSelection: input.modelSelection,
-                runtimeMode: parent.runtimeMode,
-                interactionMode: "default",
-                createdAt: now,
-              });
-              yield* startTimer(job);
-            }).pipe(
-              Effect.catchCause((cause) =>
-                change(job, "failed", Cause.pretty(cause).slice(0, 2000)),
-              ),
-            );
-            return yield* result(job);
-          }),
-        );
-      },
-      Effect.catchCause((cause) => Effect.fail(wrapFailure(cause))),
-    ),
-    get: inspect,
-    list: (invocation) =>
-      Effect.gen(function* () {
-        yield* authorize(invocation);
-        return yield* Effect.forEach(
-          [...jobs.keys()].filter((id) => owned(invocation, id)),
-          (id) => result(jobs.get(id)!),
-        );
-      }),
-    wait: Effect.fn("AgentDelegation.wait")(function* (id, seconds, invocation) {
-      yield* authorize(invocation);
-      const job = owned(invocation, id);
-      if (!job) return yield* failure("This worker does not belong to your lead chat.");
-      if (active(job.record.status) && job.record.status !== "waiting") {
-        yield* Deferred.await(job.changed).pipe(
-          Effect.timeoutOption(Math.min(60, Math.max(1, seconds)) * 1000),
-        );
+  const family = Effect.fn("AgentDelegation.family")(function* (root: OrchestrationV2ThreadShell, strict = false) {
+    const visited = new Set<ThreadId>([root.id]);
+    const workers: Worker[] = [];
+    const queue = [{ shell: root, depth: 0, rootRunId: null as RunId | null }];
+    for (let cursor = 0; cursor < queue.length; cursor++) {
+      const { shell, depth, rootRunId } = queue[cursor]!;
+      for (const task of yield* listChildren(shell)) {
+        const childId = task.childThreadId!;
+        if (visited.has(childId)) {
+          if (strict) return yield* unavailable();
+          continue;
+        }
+        const child = yield* loadShell(childId);
+        if (!child || child.id !== childId || child.deletedAt !== null ||
+            child.projectId !== root.projectId || child.lineage.relationshipToParent !== "subagent" ||
+            child.lineage.parentThreadId !== shell.id || child.lineage.rootThreadId !== root.lineage.rootThreadId ||
+            child.forkedFrom?.type !== "node" || child.forkedFrom.nodeId !== task.id) {
+          if (strict && child?.deletedAt !== null) return yield* unavailable();
+          continue;
+        }
+        visited.add(childId);
+        const parentRun = depth === 0 ? task.runId : rootRunId;
+        workers.push({ task, child, depth: depth + 1, rootRunId: parentRun });
+        queue.push({ shell: child, depth: depth + 1, rootRunId: parentRun });
       }
-      return yield* result(job);
-    }),
-    cancel: Effect.fn("AgentDelegation.cancel")(
-      function* (id, invocation) {
-        yield* authorize(invocation);
-        const job = owned(invocation, id);
-        if (!job) return yield* failure("This worker does not belong to your lead chat.");
-        yield* mutex.withPermits(1)(stopTree(id, "cancelled", "Cancelled by the lead."));
-        return yield* result(job);
-      },
-      Effect.catchCause((cause) => Effect.fail(wrapFailure(cause))),
-    ),
+    }
+    return workers;
   });
+
+  const owned = Effect.fn("AgentDelegation.owned")(function* (parent: OrchestrationV2ThreadShell, id: ThreadId) {
+    const worker = (yield* family(parent)).find(({ child }) => child.id === id);
+    if (!worker) return yield* unavailable();
+    return worker;
+  });
+
+  const readWorker = Effect.fn("AgentDelegation.result")(function* ({ task, child }: Worker) {
+    const { runs, runtimeRequests, nodes, contextTransfers } = yield* threads.getThreadRecords(
+      child.id, ["runs", "runtimeRequests", "nodes", "contextTransfers"],
+    ).pipe(wrap("Could not read saved worker progress."));
+    // The original V2 spawn is correlated by its durable context transfer. Only
+    // later explicitly delegated continuations necessarily carry delegatedTaskId.
+    const start = contextTransfers.find((transfer) =>
+      transfer.type === "subagent_spawn" && transfer.targetThreadId === child.id &&
+      transfer.sourceThreadId === task.threadId && transfer.sourcePoint.runId === task.runId,
+    )?.targetRunId;
+    const runIds = new Set<RunId>();
+    const taskRuns = runs.toSorted((a, b) => a.ordinal - b.ordinal).filter((run) => {
+      const prior = run.restartContinuationOfRunId ?? run.usageLimitContinuationOfRunId;
+      if (run.threadId !== child.id || (run.id !== start && run.delegatedTaskId !== task.id &&
+          (prior === undefined || !runIds.has(prior)))) return false;
+      runIds.add(run.id);
+      return true;
+    });
+    const current = taskRuns.at(-1);
+    const nodeIds = new Set(nodes.filter((node) => node.runId !== null && runIds.has(node.runId)).map(({ id }) => id));
+    const pendingInput = runtimeRequests.some((request) =>
+      request.status === "pending" && nodeIds.has(request.nodeId) &&
+      request.kind !== "dynamic_tool_call" && request.kind !== "auth_refresh" &&
+      request.responseCapability.type === "live");
+    const status = workerStatus(task, current, pendingInput);
+    // Completion summaries come from the durable task. Until then expose only assistant
+    // messages whose run belongs to this exact delegation, never later manual work.
+    const savedMessages = task.result === null && runIds.size > 0
+      ? (yield* threads.getThreadRecords(child.id, ["messages"], {
+          messageRunIds: [...runIds], messageRoles: ["assistant"],
+        }).pipe(wrap("Could not read the saved worker response."))).messages
+      : [];
+    const output = task.result ?? savedMessages.filter((message) =>
+      message.role === "assistant" && message.runId !== null && runIds.has(message.runId))
+      .map(({ text }) => text).join("\n\n");
+    const error = status === "timed-out"
+      ? "The delegated worker reached its deadline."
+      : status === "failed" || status === "interrupted"
+        ? output || ("Worker " + status + ". See the saved Worker chat.")
+        : null;
+    return {
+      threadId: child.id,
+      parentThreadId: task.threadId,
+      title: task.title ?? child.title,
+      modelSelection: task.modelSelection ?? child.modelSelection,
+      status,
+      output: output.slice(-OUTPUT_LIMIT),
+      outputTruncated: output.length > OUTPUT_LIMIT,
+      error: error?.slice(-OUTPUT_LIMIT) ?? null,
+      ...(task.deadlineAt === undefined ? {} : { deadlineAt: DateTime.formatIso(task.deadlineAt) }),
+    } satisfies AgentDelegationV2Result;
+  });
+
+  const readOwned = Effect.fn("AgentDelegation.readOwned")(function* (id: ThreadId, invocation: McpInvocationScope) {
+    const { caller } = yield* authorize(invocation);
+    return yield* readWorker(yield* owned(caller, id));
+  });
+  const currentLimit = (parent: OrchestrationV2ThreadShell) => {
+    const managed = settings.managedPolicy?.limits?.maxRuntimeMode;
+    return {
+      runtimeMode: managed !== undefined && isRuntimeModeAbove(parent.runtimeMode, managed) ? managed : parent.runtimeMode,
+      interactionMode: parent.interactionMode,
+    };
+  };
+
+  return {
+    models: Effect.fn("AgentDelegation.models")(function* (invocation: McpInvocationScope) {
+      const { caller } = yield* authorize(invocation);
+      const instances = yield* registry.listInstances;
+      const known = yield* Effect.forEach(instances, (instance) => instance.snapshot.getSnapshot);
+      const unavailableProviders = yield* registry.listUnavailable;
+      const providers = yield* Effect.forEach([...known, ...unavailableProviders], (provider) =>
+        threads.isProviderInstanceEnabledForProject({
+          projectId: caller.projectId, instanceId: provider.instanceId,
+        }).pipe(Effect.map((projectEnabled) => ({
+          instanceId: provider.instanceId,
+          driver: provider.driver,
+          name: provider.displayName ?? provider.driver,
+          enabled: provider.enabled && projectEnabled,
+          available: projectEnabled && providerAvailable(provider),
+          authStatus: provider.auth.status,
+          models: provider.models.map(({ slug, name }) => ({ model: slug, name })),
+        }))),
+      );
+      return { providers, limits };
+    }),
+    spawn: (input: SpawnAgentInput, invocation: McpInvocationScope) => admission.withPermits(1)(
+      Effect.gen(function* () {
+        const { caller: originalParent } = yield* authorize(invocation);
+        if (!optionsValid(input.modelSelection))
+          return yield* failure("A model option was specified more than once.");
+        const commandId = yield* stableId("spawn", originalParent.id, input.requestId);
+        const { caller: parent } = yield* authorize(invocation);
+        if (parent.id !== originalParent.id) return yield* unavailable();
+        const replay = yield* events.readByCommandId({ commandId }).pipe(
+          Stream.runCollect, wrap("Could not check the delegation receipt."),
+        );
+        if (replay.length > 0) {
+          const saved = findSpawn(replay, parent.id, input);
+          if (!saved?.childThreadId) return yield* failure("This requestId was already used for a different task.");
+          return yield* readWorker(yield* owned(parent, saved.childThreadId));
+        }
+        // A receipt without the original event evidence does not authorize a second child.
+        if (yield* threads.hasReceipt(commandId))
+          return yield* failure("The saved delegation receipt has no verifiable child evidence.");
+
+        let root = parent;
+        const visited = new Set<ThreadId>([parent.id]);
+        while (root.lineage.relationshipToParent === "subagent") {
+          const ownerId = root.lineage.parentThreadId;
+          if (ownerId === null || visited.has(ownerId)) return yield* unavailable();
+          visited.add(ownerId);
+          const next = yield* loadShell(ownerId);
+          if (!next || next.projectId !== parent.projectId || next.deletedAt !== null || next.archivedAt !== null)
+            return yield* unavailable();
+          root = next;
+        }
+        const workers = yield* family(root);
+        const nested = root.id === parent.id ? undefined : workers.find(({ child }) => child.id === parent.id);
+        if (root.id !== parent.id && !nested) return yield* unavailable();
+        if ((nested?.depth ?? 0) + 1 > limits.maxDepth)
+          return yield* failure("Worker delegation depth limit reached.");
+        const { runs } = yield* threads.getThreadRecords(parent.id, ["runs"]).pipe(
+          wrap("Could not verify the active parent run."),
+        );
+        const parentRun = runs.find((run) => run.id === parent.activeRunId &&
+          run.threadId === parent.id && run.providerInstanceId === invocation.thread?.providerInstanceId &&
+          isActiveRun(run));
+        if (!parentRun?.rootNodeId) return yield* failure("The calling provider no longer owns an active run.");
+        const rootRunId = nested ? nested.rootRunId : parentRun.id;
+        if (rootRunId === null) return yield* failure("Could not recover the root worker budget.");
+        if (workers.filter((worker) => worker.rootRunId === rootRunId).length >= limits.maxWorkersPerTurn)
+          return yield* failure("Worker budget for this lead turn is exhausted.");
+        if (workers.filter(({ task }) => liveStatus(workerStatus(task, undefined, false))).length >= limits.maxActivePerLead)
+          return yield* failure("Active worker limit reached. Wait for or cancel an existing worker.");
+        const allThreads = yield* threads.listProjectThreads({ includeSubagents: true }).pipe(
+          wrap("Could not verify the active worker limit."),
+        );
+        const maybeActive = allThreads.filter(({ lineage }) => lineage.relationshipToParent === "subagent");
+        if (maybeActive.length >= MAX_ACTIVE_WORKERS) {
+          const shells = yield* Effect.forEach(maybeActive, ({ id }) => loadShell(id));
+          if (shells.filter((row) => row && row.archivedAt === null && row.deletedAt === null &&
+              (row.activeRunId !== null || row.status === "queued" || row.status === "running")).length >= MAX_ACTIVE_WORKERS)
+            return yield* failure("Active worker limit reached in this environment.");
+        }
+
+        const pick = input.modelSelection;
+        const instance = yield* registry.getInstance(pick.instanceId);
+        if (!instance?.enabled || instance.instanceId !== pick.instanceId ||
+            !(yield* threads.isProviderInstanceEnabledForProject({ projectId: parent.projectId, instanceId: pick.instanceId })))
+          return yield* failure("That provider instance is not enabled for this project.");
+        const provider = yield* instance.snapshot.getSnapshot;
+        if (provider.instanceId !== pick.instanceId || !providerAvailable(provider))
+          return yield* failure("That provider account is unavailable.");
+        const model = provider.models.find(({ slug }) => slug === pick.model);
+        if (!model || !optionsValid(pick, model.capabilities?.optionDescriptors))
+          return yield* failure("The selected model or options are unavailable for that provider account.");
+        const limit = currentLimit(parent);
+        if (exceededDispatchModeLimit(limit, parent) !== undefined)
+          return yield* failure("The source thread is above the managed approval limit.");
+        if (provider.supportedRuntimeModes?.length && !provider.supportedRuntimeModes.includes(limit.runtimeMode))
+          return yield* failure("That provider cannot run the source approval mode.");
+
+        const result = yield* threads.dispatch({
+          type: "delegated_task.request",
+          commandId,
+          parentThreadId: parent.id,
+          parentRunId: parentRun.id,
+          parentNodeId: parentRun.rootNodeId,
+          title: input.title,
+          task: input.task,
+          modelSelection: pick,
+          ...limit,
+          createdBy: "agent",
+          creationSource: "mcp",
+          completionWake: "always",
+          ...(input.timeoutSeconds === undefined ? {} : { timeoutSeconds: input.timeoutSeconds }),
+        }).pipe(
+          Effect.provideService(DispatchModeLimit, limit),
+          wrap("V2 could not admit the delegated worker."),
+        );
+        const saved = findSpawn(result.storedEvents, parent.id, input);
+        if (!saved?.childThreadId) return yield* failure("The delegation receipt does not match this task.");
+        return yield* readWorker(yield* owned(parent, saved.childThreadId));
+      }),
+    ),
+    get: readOwned,
+    list: Effect.fn("AgentDelegation.list")(function* (invocation: McpInvocationScope) {
+      const { caller } = yield* authorize(invocation);
+      return yield* Effect.forEach(yield* family(caller), readWorker);
+    }),
+    wait: Effect.fn("AgentDelegation.wait")(function* (id: ThreadId, seconds: number, invocation: McpInvocationScope) {
+      const { caller } = yield* authorize(invocation);
+      const worker = yield* owned(caller, id);
+      const afterSequence = yield* threads.getThreadEventSequence(worker.task.threadId).pipe(
+        wrap("Could not start watching the worker."),
+      );
+      const initial = yield* readWorker(worker);
+      if (!liveStatus(initial.status) || initial.status === "waiting") return initial;
+      const next = yield* Stream.merge(
+        threads.streamStoredEventsFrom({ afterSequence, threadId: id }).pipe(
+          Stream.filter(({ event }) => event.type === "run.created" || event.type === "run.updated" ||
+            event.type === "runtime-request.updated" || event.type === "thread.archived" || event.type === "thread.deleted"),
+        ),
+        threads.streamStoredEventsFrom({
+          afterSequence, threadId: worker.task.threadId, eventType: "subagent.updated",
+        }).pipe(Stream.filter(({ event }) => event.type === "subagent.updated" && event.payload.id === worker.task.id)),
+      ).pipe(
+        Stream.mapError(() => failure("Could not watch saved worker events.")),
+        Stream.mapEffect(() => readOwned(id, invocation)),
+        Stream.filter(({ status }) => status !== initial.status),
+        Stream.runHead,
+        Effect.timeoutOption(Duration.seconds(Math.min(60, Math.max(1, seconds)))),
+        Effect.map(Option.flatten),
+      );
+      return Option.isSome(next) ? next.value : yield* readOwned(id, invocation);
+    }),
+    cancel: Effect.fn("AgentDelegation.cancel")(function* (id: ThreadId, invocation: McpInvocationScope) {
+      const { caller: originalCaller } = yield* authorize(invocation);
+      const originalWorker = yield* owned(originalCaller, id);
+      const initial = yield* readWorker(originalWorker);
+      if (!liveStatus(initial.status)) return initial;
+      if (originalWorker.child.archivedAt !== null) return yield* unavailable();
+      const commandId = yield* stableId("cancel", originalCaller.id, originalWorker.task.id + ":" + id);
+      const { caller } = yield* authorize(invocation);
+      const worker = yield* owned(caller, id);
+      if (caller.id !== originalCaller.id || worker.task.id !== originalWorker.task.id ||
+          worker.child.archivedAt !== null) return yield* unavailable();
+      const current = yield* readWorker(worker);
+      if (!liveStatus(current.status)) return current;
+      const limit = currentLimit(caller);
+      for (const child of [worker.child, ...(yield* family(worker.child, true)).map(({ child }) => child)]) {
+        if (exceededDispatchModeLimit(limit, child) !== undefined)
+          return yield* failure("A worker runs above your current approval or interaction mode.");
+      }
+      const reason = "Cancelled by the owning lead.";
+      yield* threads.cancelDelegatedTask({
+        parentThreadId: worker.task.threadId,
+        taskId: worker.task.id,
+        command: { type: "thread.stop", commandId, threadId: id, stopDelegatedTasks: false, reason },
+        stopDescendants: (remoteDispatch) => threads.stopDelegatedTasks({
+          threadId: id, commandId, reason, remoteDispatch,
+        }),
+      }).pipe(Effect.provideService(DispatchModeLimit, limit), wrap("V2 could not stop the delegated worker."));
+      return yield* readOwned(id, invocation);
+    }),
+  };
 });
+
+export class AgentDelegation extends Context.Service<
+  AgentDelegation, Effect.Success<typeof make>
+>()("@j1code/server/mcp/AgentDelegation") {}
 
 export const AgentDelegationLive = Layer.effect(AgentDelegation, make);

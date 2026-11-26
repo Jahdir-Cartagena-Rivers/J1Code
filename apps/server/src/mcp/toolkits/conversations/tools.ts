@@ -7,12 +7,11 @@ import {
   ConversationMessagePage,
 } from "@j1code/contracts";
 import * as Schema from "effect/Schema";
-import * as Tool from "effect/unstable/ai/Tool";
-import * as Toolkit from "effect/unstable/ai/Toolkit";
+import { Tool, Toolkit } from "effect/ai";
 import { ExternalConversations } from "../../../conversations/ExternalConversations.ts";
-import { McpInvocationContext } from "../../McpInvocationContext.ts";
+import { nativeAgentCallerDependencies } from "../routing/boundary.ts";
 
-const dependencies = [ExternalConversations, McpInvocationContext];
+const dependencies = [ExternalConversations, ...nativeAgentCallerDependencies];
 export const ConversationsToolkit = Toolkit.make(
   Tool.make("search_conversations", {
     description:

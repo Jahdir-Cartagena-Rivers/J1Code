@@ -2,7 +2,7 @@ import { expect, it } from "@effect/vitest";
 import * as NodeSqliteClient from "@j1code/shared/nodeSqliteClient";
 import type { AutoModelInput } from "@j1code/shared/autoModel";
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import migration from "../persistence/Migrations/061_AutoModelAdmissions.ts";
 import { makeAutoModelAdmission } from "./AutoModelAdmission.ts";
 
@@ -87,6 +87,36 @@ it.effect(
         expect(failure).toMatchObject({ reason: "retry-identity-conflict" });
       }),
     ),
+);
+
+it.effect("previews without journaling and preserves the committed receipt on retry", () =>
+  test((service, sql) =>
+    Effect.gen(function* () {
+      const request = { threadId: "thread", requestId: "preview", input };
+      const preview = yield* service.admit(request, { preview: true, resolverDurationMs: 17 });
+      expect(preview.pin.ref).toEqual(fast);
+      expect(preview.revision).toBe(1);
+      expect(preview.resolverDurationMs).toBe(17);
+      expect(yield* sql`SELECT * FROM auto_model_admissions`).toHaveLength(0);
+      yield* Effect.flip(service.admit({
+        ...request,
+        input: { ...input, candidates: [] },
+      }, { preview: true }));
+      expect(yield* sql`SELECT * FROM auto_model_admissions`).toHaveLength(0);
+      const committed = yield* service.admit(request, { resolverDurationMs: null });
+      expect(committed.revision).toBe(preview.revision);
+      expect(committed.pin).toEqual(preview.pin);
+      expect(committed.resolverDurationMs).toBeNull();
+      expect(yield* service.admit(request, {
+        preview: true, resolverDurationMs: 99,
+      })).toEqual(committed);
+      expect(yield* sql`SELECT * FROM auto_model_admissions`).toHaveLength(1);
+      const next = yield* service.admit({ ...request, requestId: "next" });
+      expect(next.revision).toBe(2);
+      expect(next.resolverDurationMs).toBeGreaterThanOrEqual(0);
+      expect(yield* sql`SELECT * FROM auto_model_admissions`).toHaveLength(2);
+    }),
+  ),
 );
 
 it.effect("retains task pins across policy edits and escalates only at safe boundaries", () =>

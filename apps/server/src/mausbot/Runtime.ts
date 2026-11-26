@@ -16,6 +16,11 @@ import type {
   ExternalRouteReceiptKey,
 } from "@j1code/contracts";
 import { startMausbotComputer } from "./NativeComputer.ts";
+import {
+  readNativeBotEnrollmentSnapshot, readNativeRoomMemberEnrollment, stageColdNativeRoomAttachments, stageNativeBotEnrollment, validateColdNativeRoomTurn,
+  type SavedNativeHistoryRequest, type SavedNativeResumeRequest,
+} from "./NativeBotEnrollment.ts";
+import type { MausbotExecutionHost, MausbotExecutionOwner } from "./ExecutionHost.ts";
 import { mausbotChildEnvironment } from "./ChildEnvironment.ts";
 
 import { startDeepAIBridge, type DeepAIBridge, type DeepAIBridgeOptions } from "./DeepAIBridge.ts";
@@ -25,15 +30,7 @@ export interface MausbotRuntimeOptions {
   readonly platform: NodeJS.Platform;
   readonly memory?: (input: unknown, current: () => boolean) => Promise<unknown>;
   readonly conversationCall?: (input: unknown, current: () => boolean) => Promise<unknown>;
-  readonly execution?: {
-    call(
-      input: unknown,
-      current: () => boolean,
-      emit: (event: unknown) => void,
-      owner: string,
-    ): Promise<unknown>;
-    disconnect(owner: string): Promise<void>;
-  };
+  readonly execution?: MausbotExecutionHost["Service"];
   readonly resources: string;
   readonly uiDir?: string | undefined;
   readonly serverDir?: string | undefined;
@@ -76,9 +73,10 @@ export class MausbotRuntime {
   private stopping: Promise<void> | undefined;
   private computer: Awaited<ReturnType<typeof startMausbotComputer>> | undefined;
   private token: string | undefined;
+  private phoneSettingsKey: string | undefined;
   private readonly clientTokens = new Map<string, Promise<string>>();
   private deepAIBridge: DeepAIBridge | undefined;
-  private executionOwner: string | undefined;
+  private executionOwner: MausbotExecutionOwner | undefined;
   private origin: string | undefined;
   private browserExecutable: string;
   private appliedBrowserExecutable: string | undefined;
@@ -105,6 +103,72 @@ export class MausbotRuntime {
     const child = this.child;
     if (!child?.connected || signal?.aborted)
       throw new Error("Conversation runtime is unavailable.");
+    return this.readOwnedChild(child, "conversation", { input }, signal);
+  }
+
+  async readSavedBotEnrollment(
+    owner: MausbotExecutionOwner, botId: string, threadId: string, request?: SavedNativeHistoryRequest | SavedNativeResumeRequest,
+  ) {
+    const child = this.child;
+    if (!child?.connected || this.executionOwner !== owner) {
+      throw new Error("The bot runtime disconnected.");
+    }
+    const id = /^[\w-]{1,120}$/u;
+    if (!id.test(botId) || !id.test(threadId)) {
+      throw new Error("Invalid native bot or thread identity.");
+    }
+    const history = request && "turnId" in request ? request : undefined;
+    const resume = request && "resumeTurnId" in request ? request : undefined;
+    if ((history && !id.test(history.turnId)) || (resume && !id.test(resume.resumeTurnId))) {
+      throw new Error("Invalid native turn identity.");
+    }
+    const current = () => this.child === child && this.executionOwner === owner && child.connected;
+    const result = await this.readOwnedChild(child, "saved-bot-enrollment", {
+      botId, threadId, ...(history ? { turnId: history.turnId } : {}),
+      ...(resume ? { resumeTurnId: resume.resumeTurnId } : {}),
+    });
+    if (!current()) throw new Error("The bot runtime disconnected.");
+    return history
+      ? stageNativeBotEnrollment(result, botId, threadId, NodePath.join(this.options.dataDir, "attachments"), history, current)
+      : readNativeBotEnrollmentSnapshot(result, botId, threadId, resume !== undefined);
+  }
+
+  async readSavedRoomMemberEnrollment(owner: MausbotExecutionOwner, botId: string, threadId: string, roomTurnId: string) {
+    const child = this.child;
+    if (!child?.connected || this.executionOwner !== owner) throw new Error("The bot runtime disconnected.");
+    const id = /^[\w-]{1,120}$/u;
+    if (![botId, threadId, roomTurnId].every(value => id.test(value))) throw new Error("Invalid native room turn identity.");
+    const result = await this.readOwnedChild(child, "saved-bot-enrollment", { botId, threadId, roomTurnId });
+    if (this.child !== child || this.executionOwner !== owner || !child.connected)
+      throw new Error("The bot runtime disconnected.");
+    return readNativeRoomMemberEnrollment(result, botId, threadId, roomTurnId);
+  }
+
+  async stageSavedColdRoomTurn(input: Parameters<typeof validateColdNativeRoomTurn>[1] & {
+    owner: MausbotExecutionOwner; attachmentsDir: string; current: () => boolean; previousRoomSnapshot?: string;
+  }) {
+    const { owner, botId, threadId, turnId, attachmentsDir } = input;
+    const child = this.child;
+    const current = () => input.current() && this.child === child && child?.connected === true && this.executionOwner === owner;
+    if (!current()) throw new Error("The native room turn disconnected.");
+    const proof = await this.readSavedRoomMemberEnrollment(owner, botId, threadId, turnId);
+    if (!proof || !current()) return null;
+    const plan = validateColdNativeRoomTurn(proof, input);
+    const staged = await stageColdNativeRoomAttachments(
+      proof, NodePath.join(this.options.dataDir, "attachments"), attachmentsDir, plan.threadId, current, input.previousRoomSnapshot,
+    );
+    const refreshed = await this.readSavedRoomMemberEnrollment(owner, botId, threadId, turnId);
+    if (!current() || JSON.stringify(refreshed) !== JSON.stringify(proof))
+      throw new Error("The native room operation or history changed during file staging.");
+    return staged;
+  }
+
+  private async readOwnedChild(
+    child: NodeChildProcess.ChildProcess,
+    channel: "conversation" | "saved-bot-enrollment",
+    fields: { input: unknown } | { botId: string; threadId: string; turnId?: string; resumeTurnId?: string; roomTurnId?: string },
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     if (this.conversationReads >= 8) throw new Error("Too many conversation reads are open.");
     this.conversationReads++;
     try {
@@ -117,7 +181,7 @@ export class MausbotRuntime {
         const received = (message: unknown) => {
           if (
             !object(message) ||
-            message.type !== "j1:conversation-result" ||
+            message.type !== `j1:${channel}-result` ||
             message.requestId !== requestId
           )
             return;
@@ -144,7 +208,7 @@ export class MausbotRuntime {
         child.once("disconnect", ended);
         signal?.addEventListener("abort", aborted, { once: true });
         if (signal?.aborted) return aborted();
-        child.send({ type: "j1:conversation-query", requestId, input }, (error) => {
+        child.send({ ...fields, type: `j1:${channel}-query`, requestId }, (error) => {
           if (error) finish(error);
         });
       });
@@ -240,6 +304,7 @@ export class MausbotRuntime {
     const webhookPort = await availablePort();
     if (port === webhookPort) throw new Error("Runtime ports collided. Try starting again.");
     const owner = NodeCrypto.randomBytes(32).toString("base64url");
+    const phoneSettingsKey = NodeCrypto.randomBytes(32).toString("base64url");
     const origin = `http://127.0.0.1:${port}`;
     const bridge = this.options.deepAI ? await startDeepAIBridge(this.options.deepAI) : undefined;
     this.deepAIBridge = bridge;
@@ -261,11 +326,12 @@ export class MausbotRuntime {
         OMB_DESKTOP_PARENT: "0",
         OMB_DEV_TRUST_LOCAL_BROWSER: "0",
         J1_MAUSBOT_MANAGED: "1",
+        J1_MAUSBOT_PHONE_SETTINGS_KEY: phoneSettingsKey,
         J1_MAUSBOT_LIGHTPANDA_PATH: this.browserExecutable,
       },
     });
     const { stdin, stdout, stderr } = child;
-    const executionOwner = NodeCrypto.randomUUID();
+    const executionOwner: MausbotExecutionOwner = { id: NodeCrypto.randomUUID() };
     this.executionOwner = executionOwner;
     if (!stdin || !stdout || !stderr) {
       child.kill();
@@ -293,7 +359,8 @@ export class MausbotRuntime {
         typeof message.requestId === "string"
       ) {
         const requestId = message.requestId;
-        const current = () => this.child === child && child.connected;
+        const current = () => this.child === child && this.executionOwner === executionOwner &&
+          child.connected && this.stopping === undefined;
         const reply = (result: object) => {
           if (current())
             // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Captured child IPC, not a browser Window.
@@ -312,6 +379,9 @@ export class MausbotRuntime {
               if (current()) privatePort.postMessage({ type: "j1:execution-event", event });
             },
             executionOwner,
+            (botId, threadId, history) => this.readSavedBotEnrollment(executionOwner, botId, threadId, history),
+            (botId, threadId, turnId) => this.readSavedRoomMemberEnrollment(executionOwner, botId, threadId, turnId),
+            (input) => this.stageSavedColdRoomTurn({ ...input, owner: executionOwner }),
           )
           .then(
             (value) => reply({ value }),
@@ -385,6 +455,7 @@ export class MausbotRuntime {
     child.on("error", () => {
       if (this.child !== child) return;
       this.token = undefined;
+      this.phoneSettingsKey = undefined;
       this.clientTokens.clear();
       this.origin = undefined;
     });
@@ -396,6 +467,7 @@ export class MausbotRuntime {
       this.appliedBrowserExecutable = undefined;
       this.origin = undefined;
       this.token = undefined;
+      this.phoneSettingsKey = undefined;
       this.clientTokens.clear();
       const computer = this.computer;
       this.computer = undefined;
@@ -446,6 +518,7 @@ export class MausbotRuntime {
       if (this.child !== child) throw new Error("Runtime stopped during authentication.");
       this.origin = origin;
       this.token = paired.token;
+      this.phoneSettingsKey = phoneSettingsKey;
       await this.setBrowserExecutablePath(this.browserExecutable);
       if (this.options.platform === "win32") {
         const native = NodePath.join(this.options.resources, "native", "cua-driver.exe");
@@ -613,6 +686,7 @@ export class MausbotRuntime {
     signal?: AbortSignal,
     frameOrigin?: string,
     clientSessionId?: string,
+    pairedSettingsSession?: string,
   ) {
     const pathname = path.split("?")[0]!;
     if (
@@ -636,6 +710,20 @@ export class MausbotRuntime {
     if ((body?.byteLength ?? 0) > MAUSBOT_REQUEST_BODY_LIMIT)
       throw new Error("Runtime upload exceeded 32 MiB.");
     if (!this.origin || !this.token) throw new Error("The Mausbot runtime is not running.");
+    let phoneSettings: string | undefined;
+    if (pathname === "/api/config" && new URLSearchParams(path.slice(pathname.length)).has("j1NamedCredential")) {
+      const headers = { "cache-control": "no-store" };
+      if (path !== "/api/config?j1NamedCredential=1")
+        return new Response(null, { status: 403, headers });
+      if (method !== "GET" && method !== "PATCH")
+        return new Response(null, { status: 405, headers: { ...headers, allow: "GET, PATCH" } });
+      if (!pairedSettingsSession || !signal || signal.aborted || clientSessionId || this.stopping || !this.phoneSettingsKey)
+        return new Response(null, { status: 403, headers });
+      const key = this.phoneSettingsKey;
+      const device = NodeCrypto.createHmac("sha256", key).update("device\0").update(pairedSettingsSession).digest("base64url");
+      const signature = NodeCrypto.createHmac("sha256", key).update(method + "\0" + device).digest("base64url");
+      phoneSettings = `${device}.${signature}`;
+    }
     const origin = this.origin;
     const token = clientSessionId
       ? await this.clientToken(clientSessionId, origin, this.token)
@@ -650,6 +738,7 @@ export class MausbotRuntime {
           headers: {
             authorization: `Bearer ${token}`,
             ...(contentType ? { "content-type": contentType } : {}),
+            ...(phoneSettings ? { "x-j1-phone-settings": phoneSettings } : {}),
           },
         },
         (response) => {
@@ -714,6 +803,7 @@ export class MausbotRuntime {
     await bridge?.close();
     const child = this.child;
     this.token = undefined;
+    this.phoneSettingsKey = undefined;
     this.clientTokens.clear();
     this.origin = undefined;
     const computer = this.computer;

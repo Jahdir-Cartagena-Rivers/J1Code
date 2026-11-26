@@ -20,7 +20,7 @@ const defaultInput = {
   runningUnderArm64Translation: false,
 } satisfies DesktopEnvironment.MakeDesktopEnvironmentInput;
 
-const makeEnvironmentLayer = (
+const layerEnvironment = (
   overrides: Partial<DesktopEnvironment.MakeDesktopEnvironmentInput> = {},
   env: Record<string, string | undefined> = {},
 ) =>
@@ -36,8 +36,7 @@ const makeEnvironmentLayer = (
 const makeEnvironment = (
   overrides: Partial<DesktopEnvironment.MakeDesktopEnvironmentInput> = {},
   env: Record<string, string | undefined> = {},
-) =>
-  DesktopEnvironment.DesktopEnvironment.pipe(Effect.provide(makeEnvironmentLayer(overrides, env)));
+) => DesktopEnvironment.DesktopEnvironment.pipe(Effect.provide(layerEnvironment(overrides, env)));
 
 describe("DesktopEnvironment", () => {
   it.effect("derives state paths and development identity inside Effect", () =>
@@ -78,7 +77,6 @@ describe("DesktopEnvironment", () => {
       assert.equal(environment.backendEntryPath, "/repo/apps/server/dist/bin.mjs");
       assert.equal(environment.backendCwd, "/repo");
       assert.equal(environment.appUserModelId, "com.j1code.desktop.dev");
-      assert.equal(environment.linuxWmClass, "t3code-dev");
       assert.equal(environment.linuxDesktopEntryName, "com.t3tools.T3Code.Development.desktop");
       assert.deepEqual(
         Option.map(environment.devServerUrl, (url) => url.href),
@@ -142,16 +140,47 @@ describe("DesktopEnvironment", () => {
     }),
   );
 
-  it.effect("uses the stable desktop entry as the packaged Linux portal identity", () =>
+  it.effect.each([
+    { platform: "darwin", processArch: "x64", runningUnderArm64Translation: true, hostArch: "arm64", appArch: "x64", translated: true },
+    { platform: "darwin", processArch: "arm64", runningUnderArm64Translation: false, hostArch: "arm64", appArch: "arm64", translated: false },
+    { platform: "win32", processArch: "x64", runningUnderArm64Translation: true, hostArch: "x64", appArch: "x64", translated: false },
+    { platform: "linux", processArch: "ia32", runningUnderArm64Translation: false, hostArch: "other", appArch: "other", translated: false },
+  ] as const)("reports native versus translated desktop architecture for %s", (input) =>
     Effect.gen(function* () {
-      const environment = yield* makeEnvironment({
-        platform: "linux",
-        isPackaged: true,
-        appPath: "/tmp/.mount_t3code/resources/app.asar",
-        resourcesPath: "/tmp/.mount_t3code/resources",
+      const environment = yield* makeEnvironment(input);
+      assert.deepEqual(environment.runtimeInfo, {
+        hostArch: input.hostArch, appArch: input.appArch, runningUnderArm64Translation: input.translated,
       });
+    }),
+  );
 
-      assert.equal(environment.linuxDesktopEntryName, "com.t3tools.T3Code.desktop");
+  it.effect("keeps installed resources separate from Windows server.asar and preserves fallback order", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment({ platform: "win32", isPackaged: true,
+        appPath: "/install/resources/app.asar", resourcesPath: "/install/resources" });
+      assert.equal(environment.resourcesPath, "/install/resources");
+      assert.equal(environment.backendCwd, "/Users/alice");
+      assert.deepEqual(environment.resolveResourcePathCandidates("lightpanda/lightpanda.exe"), [
+        "/repo/apps/desktop/resources/lightpanda/lightpanda.exe",
+        "/repo/apps/desktop/prod-resources/lightpanda/lightpanda.exe",
+        "/install/resources/resources/lightpanda/lightpanda.exe",
+        "/install/resources/lightpanda/lightpanda.exe",
+      ]);
+      assert.equal(environment.appUserModelId, "com.j1code.desktop");
+      assert.equal(environment.branding.baseName, "J1 Code");
+    }),
+  );
+
+  it.effect("rejects missing folder options while preserving user home expansion", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment();
+      for (const raw of [null, undefined, 123, {}, { initialPath: 123 }, { initialPath: "  " }]) {
+        assert.isTrue(Option.isNone(environment.resolvePickFolderDefaultPath(raw)));
+      }
+      assert.deepEqual(environment.resolvePickFolderDefaultPath({ initialPath: " ~/Projects " }),
+        Option.some("/Users/alice/Projects"));
+      assert.deepEqual(environment.resolvePickFolderDefaultPath({ initialPath: "~\\Projects" }),
+        Option.some("/Users/alice/Projects"));
     }),
   );
 
@@ -165,40 +194,6 @@ describe("DesktopEnvironment", () => {
 
       assert.equal(development.stateDir, "/Users/alice/.j1/dev");
       assert.equal(production.stateDir, "/Users/alice/.j1/userdata");
-    }),
-  );
-
-  it.effect("uses a configured app user model id override", () =>
-    Effect.gen(function* () {
-      const environment = yield* makeEnvironment(
-        {},
-        {
-          T3CODE_DESKTOP_APP_USER_MODEL_ID: " com.t3tools.t3code.dev.local ",
-          VITE_DEV_SERVER_URL: "http://localhost:5173",
-        },
-      );
-
-      assert.equal(environment.appUserModelId, "com.t3tools.t3code.dev.local");
-    }),
-  );
-
-  it.effect("resolves picker defaults without nullish sentinels", () =>
-    Effect.gen(function* () {
-      const environment = yield* makeEnvironment();
-
-      assert.deepEqual(environment.resolvePickFolderDefaultPath(null), Option.none());
-      assert.deepEqual(
-        environment.resolvePickFolderDefaultPath({ initialPath: " " }),
-        Option.none(),
-      );
-      assert.deepEqual(
-        environment.resolvePickFolderDefaultPath({ initialPath: "~" }),
-        Option.some("/Users/alice"),
-      );
-      assert.deepEqual(
-        environment.resolvePickFolderDefaultPath({ initialPath: "~/project" }),
-        Option.some("/Users/alice/project"),
-      );
     }),
   );
 });

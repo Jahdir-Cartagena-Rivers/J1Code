@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
-import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 import type { HiveMindConfig } from "./config.ts";
 import { hiveMemoryDigest, type HiveMemory } from "./store.ts";
 

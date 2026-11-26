@@ -1,7 +1,7 @@
 # J1 Code Mobile
 
-> [!WARNING]
-> J1 Code Mobile is currently in development and is not distributed yet. If you want to try it out, you can build it from source.
+> [!NOTE]
+> This guide covers building J1 Code Mobile from this repository with your own signing configuration. Use J1-provided installation artifacts when available.
 
 ## Quickstart
 
@@ -22,20 +22,40 @@ repository-root `.env` or `.env.local`, not an `apps/mobile/.env` file. See
 
 ## Development
 
-For simulator/emulator development, select and boot a device, then ensure its native client matches
-this checkout before starting Metro:
+For simulator, emulator, or Android phone development, boot or connect a device, then install the
+native client that matches this checkout before starting Metro:
 
 ```bash
-node ../../scripts/mobile-native-client.ts ensure ios <simulator-udid>
-# Or: node ../../scripts/mobile-native-client.ts ensure android <emulator-serial>
+vp run mobile:install ios [simulator-udid]
+# Or: vp run mobile:install android [emulator-or-phone-serial]
 vp run dev:client
 ```
 
-The helper compares a local Expo fingerprint and the installed binary with its last successful
-build record. It builds and installs missing, stale, or unverified clients and reuses matching ones.
-Use `check` instead of `ensure` for a read-only decision: exit 0 means compatible, 2 means a build is
-needed, and 1 means an operational error. Run it on the simulator host; no EAS login is required.
-An externally installed client is unverified until the helper builds it once.
+The helper selects the exact simulator UDID or Android serial. Omit the argument when exactly
+one simulator is booted or one Android device is ready. The helper compares the Expo fingerprint
+and installed binary with its install record, then looks for an artifact under
+`~/.cache/j1code/native-clients/artifacts` before building. An arm64 simulator build serves all
+supported iOS simulators. Android builds use Gradle and produce one APK per ABI
+(x86_64 or arm64-v8a). Build output goes to the printed log file, or to the terminal with
+`T3_NATIVE_CLIENT_VERBOSE=1`. Physical iPhones still use `vp run ios:dev`.
+
+Shared caching is opt-in. Set `T3_NATIVE_CLIENT_CACHE_ENDPOINT` to a J1 HTTPS task-cache endpoint
+and use its matching task-cache login. Set `T3_NATIVE_CLIENT_REPOSITORY` to the J1 GitHub repository
+with the Mobile Dev Client workflow enabled to allow dispatch for pushed commits.
+`T3_NATIVE_CLIENT_BUILD=local` skips workflow dispatch while keeping the configured cache.
+`T3_NATIVE_CLIENT_CACHE=read` allows downloads only, and `off` disables shared caching.
+The `T3_*` variable names are retained for compatibility.
+
+`--session <name>` installs into an agent-device session opened elsewhere, such as a device pool
+or a cloud simulator, instead of a local device: `vp run mobile:install android --session pool-1
+--metro http://<this-machine>:8081`. The helper uses the cache first and prepares a build on a
+cache miss. Android sessions default to x86_64. Pass `--abi arm64-v8a` for ARM.
+Direct downloads from the device host require a `ci-reader` login scoped to the configured cache
+endpoint. Without one, the helper transfers the local artifact to the session.
+
+For a read-only decision, run `node ../../scripts/mobile-native-client.ts check <ios|android>
+[device]`: exit 0 means compatible, 2 means an install is needed, and 1 means an operational error.
+An externally installed client is unverified until the helper installs it once.
 
 Start Metro for an already verified dev client:
 
@@ -95,14 +115,6 @@ Build and run the local iOS preview app:
 ```bash
 vp run ios:preview
 ```
-
-Force the review diff highlighter engine:
-
-```bash
-EXPO_PUBLIC_REVIEW_HIGHLIGHTER_ENGINE=javascript vp run ios:dev
-```
-
-`javascript` is the default and recommended setting for the review diff screen. Set `EXPO_PUBLIC_REVIEW_HIGHLIGHTER_ENGINE=native` only when you explicitly want to test the native Shiki engine.
 
 Inspect the resolved Expo config for a variant:
 

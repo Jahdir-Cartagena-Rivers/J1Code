@@ -8,12 +8,22 @@ type WorkerChat = {
   readonly id: ThreadId;
   readonly environmentId: EnvironmentId;
   readonly parentThreadId?: ThreadId | null | undefined;
+  readonly lineage?: {
+    readonly parentThreadId: ThreadId | null;
+    readonly relationshipToParent?: "fork" | "subagent" | null | undefined;
+    readonly sideChat?: boolean | undefined;
+  } | undefined;
   readonly createdAt: string;
   readonly archivedAt: string | null;
 };
 
 export function workerChatKey(thread: Pick<WorkerChat, "environmentId" | "id">): string {
   return scopedThreadKey({ environmentId: thread.environmentId, threadId: thread.id });
+}
+
+function workerChatParentId(thread: WorkerChat): ThreadId | null | undefined {
+  if (thread.lineage?.relationshipToParent === "fork" && thread.lineage.sideChat !== true) return null;
+  return thread.lineage === undefined ? thread.parentThreadId : thread.lineage.parentThreadId;
 }
 
 /** Build once per shell snapshot, rather than scanning every chat for each sidebar row. */
@@ -29,15 +39,17 @@ export function createWorkerChatLookup<T extends WorkerChat>() {
       snapshot = threads;
       byParent = new Map();
       for (const thread of threads) {
+        const parentThreadId = workerChatParentId(thread);
         if (
-          !thread.parentThreadId ||
-          thread.parentThreadId === thread.id ||
-          thread.archivedAt !== null
+          !parentThreadId ||
+          parentThreadId === thread.id ||
+          thread.archivedAt !== null ||
+          thread.lineage?.sideChat === true
         )
           continue;
         const key = workerChatKey({
           environmentId: thread.environmentId,
-          id: thread.parentThreadId,
+          id: parentThreadId,
         });
         const siblings = byParent.get(key) ?? [];
         siblings.push(thread);
@@ -55,19 +67,21 @@ export function createWorkerChatLookup<T extends WorkerChat>() {
 export function getRootChats<T extends WorkerChat>(threads: readonly T[]): T[] {
   const byKey = new Map(threads.map((thread) => [workerChatKey(thread), thread]));
   return threads.filter((thread) => {
-    if (!thread.parentThreadId) return true;
+    if (!workerChatParentId(thread)) return true;
     const seen = new Set([workerChatKey(thread)]);
     let current = thread;
-    while (current.parentThreadId) {
+    let parentThreadId = workerChatParentId(current);
+    while (parentThreadId) {
       const key = workerChatKey({
         environmentId: current.environmentId,
-        id: current.parentThreadId,
+        id: parentThreadId,
       });
       const parent = byKey.get(key);
       if (!parent || parent.archivedAt !== null) return current === thread;
       if (seen.has(key)) return true;
       seen.add(key);
       current = parent;
+      parentThreadId = workerChatParentId(current);
     }
     return current === thread;
   });

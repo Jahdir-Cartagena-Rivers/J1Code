@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
+import * as DateTime from "effect/DateTime";
+import { AuthAccessWriteScope, AuthOrchestrationOperateScope, AuthSessionId, AuthSettingsWriteScope, type AuthClientSession } from "@j1code/contracts";
 import { MausbotViewGrants } from "./ViewGrants.ts";
 
 const keyOf = (url: string) => url.split("/")[4]!;
@@ -30,6 +32,43 @@ describe("assistant view capabilities", () => {
     expect(grants.valid(client, 1)).toBe(false);
     grants.clear();
   });
+  it("limits named settings to mobile or tablet administrative token sessions", () => {
+    const grants = new MausbotViewGrants();
+    const key = keyOf(grants.issue("phone", 0));
+    const client = keyOf(grants.issue("phone", 0, Infinity, undefined, false));
+    const session: AuthClientSession = {
+      sessionId: AuthSessionId.make("phone"), subject: "fixture",
+      scopes: [AuthOrchestrationOperateScope, AuthAccessWriteScope, AuthSettingsWriteScope],
+      method: "bearer-access-token", client: { deviceType: "mobile" },
+      issuedAt: DateTime.makeUnsafe(0), expiresAt: DateTime.makeUnsafe(1000),
+      lastConnectedAt: null, connected: true, current: false,
+    };
+    try {
+      expect(grants.authorize(key, 1, [session])).toBe(true);
+      expect(grants.pairedSettingsSession(key, [session])).toBe("phone");
+      const tablet = { ...session, method: "dpop-access-token", client: { deviceType: "tablet" } } as const;
+      expect(grants.pairedSettingsSession(key, [tablet])).toBe("phone");
+      expect(grants.pairedSettingsSession(client, [session])).toBeUndefined();
+      expect(grants.clientSession(client)).toBe("phone");
+      expect(grants.pairedSettingsSession(key, [{ ...session, client: { deviceType: "desktop" } }])).toBeUndefined();
+      expect(grants.pairedSettingsSession(key, [{ ...session, method: "browser-session-cookie" }])).toBeUndefined();
+
+      const narrowed = { ...session, scopes: [AuthOrchestrationOperateScope, AuthAccessWriteScope] };
+      expect(grants.authorize(key, 2, [narrowed])).toBe(true);
+      expect(grants.pairedSettingsSession(key, [narrowed])).toBeUndefined();
+      const anotherAdmin = keyOf(grants.issue("phone", 2));
+      const accessRemoved = { ...session, scopes: [AuthOrchestrationOperateScope, AuthSettingsWriteScope] };
+      expect(grants.authorize(anotherAdmin, 2, [accessRemoved])).toBe(false);
+      const stream = grants.signal(key, 2)!;
+      expect(grants.authorize(key, 3, [])).toBe(false);
+      expect(stream.aborted).toBe(true);
+      expect(grants.pairedSettingsSession(key, [session])).toBeUndefined();
+      expect(grants.authorize(client, 3, [narrowed])).toBe(true);
+    } finally {
+      grants.clear();
+    }
+  });
+
   it("binds embedding to an exact host origin and rejects policy injection", () => {
     const grants = new MausbotViewGrants();
     const key = keyOf(grants.issue("owner", 0, Infinity, "https://j1.example"));

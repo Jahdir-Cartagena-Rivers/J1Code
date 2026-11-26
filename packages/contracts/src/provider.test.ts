@@ -2,22 +2,62 @@ import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
 import { ThreadId } from "./baseSchemas.ts";
-import {
-  ProviderEvent,
-  ProviderSendTurnInput,
-  ProviderSession,
-  ProviderSessionStartInput,
-  ProviderUploadFeedbackError,
-  ProviderUploadFeedbackInput,
-  ProviderUploadFeedbackResult,
-} from "./provider.ts";
+import { ProviderSession, ProviderSessionStartInput, ProviderSendTurnInput, ProviderUploadFeedbackInput, ProviderUploadFeedbackResult, ProviderUploadFeedbackError } from "./provider.ts";
+
+const decodeProviderSendTurnInput = Schema.decodeUnknownSync(ProviderSendTurnInput);
+
+describe("ProviderSendTurnInput", () => {
+  it.each(["image", "file"])(
+    "caps total image bytes for %s attachments without charging videos",
+    (type) => {
+      const image = {
+        type,
+        id: "image",
+        name: "image.png",
+        mimeType: "image/png",
+        sizeBytes: 10 * 1024 * 1024,
+      };
+      const video = {
+        type: "file",
+        id: "video",
+        name: "video.mp4",
+        mimeType: "video/mp4",
+        sizeBytes: 50 * 1024 * 1024,
+      };
+      expect(
+        decodeProviderSendTurnInput({
+          threadId: "thread-1",
+          attachments: [...Array.from({ length: 8 }, () => image), video],
+        }).attachments,
+      ).toHaveLength(9);
+      expect(() =>
+        decodeProviderSendTurnInput({
+          threadId: "thread-1",
+          attachments: [...Array.from({ length: 8 }, () => image), { ...image, sizeBytes: 1 }],
+        }),
+      ).toThrow(/80 MiB/);
+    },
+  );
+});
+
+describe("provider feedback", () => {
+  it("keeps the failed thread and original cause without exposing upstream text", () => {
+    const cause = new Error("provider request secret");
+    const error = new ProviderUploadFeedbackError({
+      threadId: ThreadId.make("thread-1"),
+      cause,
+    });
+
+    expect(error.threadId).toBe("thread-1");
+    expect(error.cause).toBe(cause);
+    expect(error.message).toBe("Failed to upload feedback for thread thread-1.");
+    expect(error.message).not.toContain("provider request secret");
+  });
+});
+
 
 const decodeProviderSessionStartInput = Schema.decodeUnknownSync(ProviderSessionStartInput);
-const decodeProviderSendTurnInput = Schema.decodeUnknownSync(ProviderSendTurnInput);
 const decodeProviderSession = Schema.decodeUnknownSync(ProviderSession);
-const decodeProviderEvent = Schema.decodeUnknownSync(ProviderEvent);
-const decodeProviderUploadFeedbackInput = Schema.decodeUnknownSync(ProviderUploadFeedbackInput);
-const decodeProviderUploadFeedbackResult = Schema.decodeUnknownSync(ProviderUploadFeedbackResult);
 
 function getOptionValue(
   options: ReadonlyArray<{ id: string; value: unknown }> | undefined,
@@ -120,128 +160,6 @@ describe("ProviderSessionStartInput", () => {
   });
 });
 
-describe("ProviderSendTurnInput", () => {
-  it("accepts 100 attachments and rejects 101", () => {
-    const attachments = Array.from({ length: 100 }, (_, index) => ({
-      type: "image",
-      id: `image-${index}`,
-      name: "image.png",
-      mimeType: "image/png",
-      sizeBytes: 1,
-    }));
-    expect(
-      decodeProviderSendTurnInput({ threadId: "thread-1", attachments }).attachments,
-    ).toHaveLength(100);
-    expect(() =>
-      decodeProviderSendTurnInput({
-        threadId: "thread-1",
-        attachments: [...attachments, attachments[0]],
-      }),
-    ).toThrow();
-  });
-
-  it.each(["image", "file"])(
-    "caps total image bytes for %s attachments without charging videos",
-    (type) => {
-      const image = {
-        type,
-        id: "image",
-        name: "image.png",
-        mimeType: "image/png",
-        sizeBytes: 10 * 1024 * 1024,
-      };
-      const video = {
-        type: "file",
-        id: "video",
-        name: "video.mp4",
-        mimeType: "video/mp4",
-        sizeBytes: 50 * 1024 * 1024,
-      };
-      expect(
-        decodeProviderSendTurnInput({
-          threadId: "thread-1",
-          attachments: [...Array.from({ length: 8 }, () => image), video],
-        }).attachments,
-      ).toHaveLength(9);
-      expect(() =>
-        decodeProviderSendTurnInput({
-          threadId: "thread-1",
-          attachments: [...Array.from({ length: 8 }, () => image), { ...image, sizeBytes: 1 }],
-        }),
-      ).toThrow(/80 MiB/);
-    },
-  );
-
-  it("accepts codex modelSelection", () => {
-    const parsed = decodeProviderSendTurnInput({
-      threadId: "thread-1",
-      modelSelection: {
-        provider: "codex",
-        model: "gpt-5.3-codex",
-        options: [
-          { id: "reasoningEffort", value: "xhigh" },
-          { id: "fastMode", value: true },
-        ],
-      },
-    });
-
-    expect(parsed.modelSelection?.instanceId).toBe("codex");
-    expect(parsed.modelSelection?.model).toBe("gpt-5.3-codex");
-    expect(getOptionValue(parsed.modelSelection?.options, "reasoningEffort")).toBe("xhigh");
-    expect(getOptionValue(parsed.modelSelection?.options, "fastMode")).toBe(true);
-  });
-
-  it("accepts claude modelSelection including ultrathink", () => {
-    const parsed = decodeProviderSendTurnInput({
-      threadId: "thread-1",
-      modelSelection: {
-        provider: "claudeAgent",
-        model: "claude-sonnet-4-6",
-        options: [
-          { id: "effort", value: "ultrathink" },
-          { id: "fastMode", value: true },
-        ],
-      },
-    });
-
-    expect(parsed.modelSelection?.instanceId).toBe("claudeAgent");
-    expect(getOptionValue(parsed.modelSelection?.options, "effort")).toBe("ultrathink");
-    expect(getOptionValue(parsed.modelSelection?.options, "fastMode")).toBe(true);
-  });
-});
-
-describe("provider feedback", () => {
-  it("accepts a thread and an optional feedback reason", () => {
-    expect(
-      decodeProviderUploadFeedbackInput({
-        threadId: "thread-1",
-        reason: "The agent stopped early.",
-      }),
-    ).toEqual({ threadId: "thread-1", reason: "The agent stopped early." });
-    expect(decodeProviderUploadFeedbackInput({ threadId: "thread-1" })).toEqual({
-      threadId: "thread-1",
-    });
-  });
-
-  it("returns the shareable Codex feedback identifier", () => {
-    expect(decodeProviderUploadFeedbackResult({ feedbackId: "provider-thread-1" })).toEqual({
-      feedbackId: "provider-thread-1",
-    });
-  });
-
-  it("keeps the failed thread and original cause without exposing upstream text", () => {
-    const cause = new Error("provider request secret");
-    const error = new ProviderUploadFeedbackError({
-      threadId: ThreadId.make("thread-1"),
-      cause,
-    });
-
-    expect(error.threadId).toBe("thread-1");
-    expect(error.cause).toBe(cause);
-    expect(error.message).toBe("Failed to upload feedback for thread thread-1.");
-    expect(error.message).not.toContain("provider request secret");
-  });
-});
 
 describe("providerInstanceId routing key (slice-2 invariant)", () => {
   it("decodes a ProviderSessionStartInput without providerInstanceId (legacy producer)", () => {
@@ -291,19 +209,6 @@ describe("providerInstanceId routing key (slice-2 invariant)", () => {
     expect(session.providerInstanceId).toBe("ollama_local");
   });
 
-  it("decodes a ProviderEvent carrying both legacy provider and new instance routing", () => {
-    const event = decodeProviderEvent({
-      id: "event-1",
-      kind: "notification",
-      provider: "codex",
-      providerInstanceId: "codex_personal",
-      threadId: "thread-1",
-      createdAt: "2024-01-01T00:00:00Z",
-      method: "session.created",
-    });
-    expect(event.provider).toBe("codex");
-    expect(event.providerInstanceId).toBe("codex_personal");
-  });
 
   it("rejects providerInstanceId values that fail the slug pattern (defense in depth)", () => {
     expect(() =>
@@ -314,5 +219,122 @@ describe("providerInstanceId routing key (slice-2 invariant)", () => {
         runtimeMode: "full-access",
       }),
     ).toThrow();
+  });
+});
+
+  it("accepts 100 attachments and rejects 101", () => {
+    const attachments = Array.from({ length: 100 }, (_, index) => ({
+      type: "image",
+      id: `image-${index}`,
+      name: "image.png",
+      mimeType: "image/png",
+      sizeBytes: 1,
+    }));
+    expect(
+      decodeProviderSendTurnInput({ threadId: "thread-1", attachments }).attachments,
+    ).toHaveLength(100);
+    expect(() =>
+      decodeProviderSendTurnInput({
+        threadId: "thread-1",
+        attachments: [...attachments, attachments[0]],
+      }),
+    ).toThrow();
+  });
+
+  it("accepts codex modelSelection", () => {
+    const parsed = decodeProviderSendTurnInput({
+      threadId: "thread-1",
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5.3-codex",
+        options: [
+          { id: "reasoningEffort", value: "xhigh" },
+          { id: "fastMode", value: true },
+        ],
+      },
+    });
+
+    expect(parsed.modelSelection?.instanceId).toBe("codex");
+    expect(parsed.modelSelection?.model).toBe("gpt-5.3-codex");
+    expect(getOptionValue(parsed.modelSelection?.options, "reasoningEffort")).toBe("xhigh");
+    expect(getOptionValue(parsed.modelSelection?.options, "fastMode")).toBe(true);
+  });
+
+  it("accepts claude modelSelection including ultrathink", () => {
+    const parsed = decodeProviderSendTurnInput({
+      threadId: "thread-1",
+      modelSelection: {
+        provider: "claudeAgent",
+        model: "claude-sonnet-4-6",
+        options: [
+          { id: "effort", value: "ultrathink" },
+          { id: "fastMode", value: true },
+        ],
+      },
+    });
+
+    expect(parsed.modelSelection?.instanceId).toBe("claudeAgent");
+    expect(getOptionValue(parsed.modelSelection?.options, "effort")).toBe("ultrathink");
+    expect(getOptionValue(parsed.modelSelection?.options, "fastMode")).toBe(true);
+  });
+
+
+describe("native-session reset and same-turn metadata", () => {
+  it("keeps the native reset flag separate from context clearing", () => {
+    const input = { threadId: "thread-1", runtimeMode: "full-access", freshSession: true, resumeCursor: { native: "old" } };
+    const decoded = decodeProviderSessionStartInput(input);
+    expect(decoded.freshSession).toBe(true);
+    expect(decoded.resumeCursor).toEqual(input.resumeCursor);
+    expect(decoded).not.toHaveProperty("freshContext");
+    const contextOnly = decodeProviderSessionStartInput({ threadId: "thread-1", runtimeMode: "full-access", freshContext: true });
+    expect(contextOnly).not.toHaveProperty("freshSession");
+    expect(() => decodeProviderSessionStartInput({ ...input, freshSession: "true" })).toThrow();
+    expect(input.resumeCursor).toEqual({ native: "old" });
+  });
+
+  it.each([null, false, {}, { turnId: "turn-1" }, { turnId: "", runtimeMode: "full-access" }, { turnId: "turn-1", runtimeMode: "admin" }])(
+    "rejects malformed same-turn metadata %j", (steer) => {
+      expect(() => decodeProviderSendTurnInput({ threadId: "thread-1", input: "Continue", steer })).toThrow();
+    },
+  );
+
+  it("carries exact turn and mode without inferring a new turn or resetting the session", () => {
+    const input = { threadId: "thread-1", input: "Follow up", steer: { turnId: "turn-1", runtimeMode: "full-access" } };
+    expect(decodeProviderSendTurnInput(input)).toEqual(input);
+    const neighbor = decodeProviderSendTurnInput({ threadId: "thread-2", input: "Ordinary turn" });
+    expect(neighbor).not.toHaveProperty("steer");
+    expect(decodeProviderSendTurnInput(input)).not.toHaveProperty("continuation");
+    expect(decodeProviderSendTurnInput(input)).not.toHaveProperty("freshSession");
+  });
+});
+
+describe("current send-turn and feedback compatibility", () => {
+  const image = { type: "image", id: "jpeg", name: "photo.jpeg", mimeType: "image/jpeg", sizeBytes: 1024 };
+
+  it("accepts JPEG while rejecting malformed or oversized attachment payloads", () => {
+    expect(decodeProviderSendTurnInput({ threadId: "thread-1", attachments: [image] }).attachments).toEqual([image]);
+    for (const attachment of [
+      { ...image, mimeType: "text/plain" },
+      { ...image, sizeBytes: -1 },
+      { ...image, sizeBytes: 10 * 1024 * 1024 + 1 },
+      { ...image, type: "file", sizeBytes: 50 * 1024 * 1024 + 1 },
+    ]) expect(() => decodeProviderSendTurnInput({ threadId: "thread-1", attachments: [attachment] })).toThrow();
+    expect(() => decodeProviderSendTurnInput({ threadId: "thread-1", input: "x".repeat(120001) })).toThrow();
+  });
+
+  it("uses current model option normalization without changing the legacy session boundary", () => {
+    const modelSelection = { instanceId: "custom_fork", model: "auto", options: null };
+    expect(decodeProviderSendTurnInput({ threadId: "thread-1", modelSelection }).modelSelection).toEqual({ instanceId: "custom_fork", model: "auto" });
+    expect(() => decodeProviderSessionStartInput({ threadId: "thread-1", runtimeMode: "full-access", modelSelection })).toThrow();
+  });
+
+  it("retains feedback input and shareable feedback result validation", () => {
+    const decodeInput = Schema.decodeUnknownSync(ProviderUploadFeedbackInput);
+    const decodeResult = Schema.decodeUnknownSync(ProviderUploadFeedbackResult);
+    expect(decodeInput({ threadId: "thread-1", reason: "Report" })).toEqual({ threadId: "thread-1", reason: "Report" });
+    expect(decodeInput({ threadId: "thread-1" })).not.toHaveProperty("reason");
+    expect(decodeResult({ feedbackId: "report-1" })).toEqual({ feedbackId: "report-1" });
+    expect(() => decodeResult({ feedbackId: "" })).toThrow();
+    expect(() => decodeInput({ threadId: "" })).toThrow();
   });
 });

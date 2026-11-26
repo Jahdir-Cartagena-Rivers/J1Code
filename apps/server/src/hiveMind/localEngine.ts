@@ -4,7 +4,7 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as NodeChildProcess from "node:child_process";
 import * as Effect from "effect/Effect";
-import { FetchHttpClient, HttpClient } from "effect/unstable/http";
+import { FetchHttpClient, HttpClient } from "effect/http";
 import type { HiveMindConfig } from "@j1code/contracts";
 import { ensureDirectory, writeAtomic } from "./files.ts";
 
@@ -19,7 +19,7 @@ export function probeHiveEndpoint(url: string): Promise<EndpointHealth> {
         : ("occupied" as const);
     }).pipe(
       Effect.timeout("2 seconds"),
-      Effect.catch(() => Effect.succeed("absent" as const)),
+      Effect.orElseSucceed(() => "absent" as const),
       Effect.provide(FetchHttpClient.layer),
       Effect.provideService(FetchHttpClient.Fetch, globalThis.fetch),
     ),

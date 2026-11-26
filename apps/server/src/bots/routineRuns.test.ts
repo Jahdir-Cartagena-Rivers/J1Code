@@ -1,7 +1,7 @@
 import { it } from "@effect/vitest";
 import { Effect } from "effect";
 import { expect } from "vite-plus/test";
-import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import { layerMemory } from "../persistence/Sqlite.ts";
 import { makeRoutineRuns } from "./routineRuns.ts";
 
 it.effect("claims an occurrence once and never automatically reclaims uncertain work", () =>
@@ -24,5 +24,5 @@ it.effect("claims an occurrence once and never automatically reclaims uncertain 
       "uncertain",
     ]);
     expect(yield* store.listForBot("other")).toEqual([]);
-  }).pipe(Effect.provide(SqlitePersistenceMemory)),
+  }).pipe(Effect.provide(layerMemory)),
 );

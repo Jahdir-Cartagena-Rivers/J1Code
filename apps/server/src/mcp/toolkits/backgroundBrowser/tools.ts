@@ -1,15 +1,17 @@
 import * as Schema from "effect/Schema";
-import { Tool, Toolkit } from "effect/unstable/ai";
+import { Tool, Toolkit } from "effect/ai";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";
 import { ServerSettingsService } from "../../../serverSettings.ts";
 import { BackgroundBrowser } from "./runtime.ts";
-import { ProjectionSnapshotQuery } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ThreadManagementService } from "../../../orchestration-v2/ThreadManagementService.ts";
+import { ProjectStoreV2 } from "../../../orchestration-v2/ProjectStore.ts";
 
 const dependencies = [
   McpInvocationContext,
   ServerSettingsService,
   BackgroundBrowser,
-  ProjectionSnapshotQuery,
+  ThreadManagementService,
+  ProjectStoreV2,
 ];
 export const BackgroundBrowserToolkit = Toolkit.make(
   Tool.make("background_browser_tools", {
@@ -36,7 +38,7 @@ export const BackgroundBrowserToolkit = Toolkit.make(
     .annotate(Tool.Destructive, true),
   Tool.make("background_browser_close", {
     description:
-      "Close this conversation's Lightpanda process and discard its temporary page, cookies and storage. In a bot conversation this also closes the page in its browser window. Other conversations and the collaborative visual preview are unaffected. The next browser call starts a fresh browser.",
+      "Close this conversation's Lightpanda process and discard its temporary page and storage. Saved bot-profile cookies follow the existing browser retention settings. In a bot conversation this also closes the page in its browser window. Other conversations and the collaborative visual preview are unaffected. The next browser call starts a fresh browser.",
     success: Schema.Struct({ closed: Schema.Boolean }),
     failure: Schema.String,
     dependencies,

@@ -1,7 +1,7 @@
 import {
   OrchestrationProjectShell,
-  OrchestrationShellSnapshot,
-  OrchestrationThreadShell,
+  EnvironmentId,
+  OrchestrationV2ThreadShellJson,
 } from "@j1code/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Arr from "effect/Array";
@@ -9,7 +9,11 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Arbitrary from "effect/unstable/arbitrary/Arbitrary";
 
-import { encodeShellSnapshotForCache } from "./persistence.ts";
+import { makeStoredShellSnapshotEncoder } from "./shellCacheEncoding.ts";
+import {
+  ORCHESTRATION_CACHE_SCHEMA_VERSION,
+  StoredOrchestrationShellSnapshot,
+} from "./orchestrationCache.ts";
 
 // Generated values can hold untrimmed strings, which a decoded value never
 // has. One encode and decode gives a value a client can hold; values that
@@ -27,14 +31,16 @@ const sampleDecoded = <S extends Schema.Constraint>(schema: S) =>
     );
     return Arr.getSomes(decoded);
   });
-const encodeSnapshot = Schema.encodeEffect(OrchestrationShellSnapshot);
+const encodeSnapshot = Schema.encodeEffect(Schema.fromJsonString(StoredOrchestrationShellSnapshot));
 
-describe("encodeShellSnapshotForCache", () => {
+describe("stored shell cache generated encoding", () => {
   it.effect("matches the Schema encoding of a generated snapshot", () =>
     Effect.gen(function* () {
-      const threads = yield* sampleDecoded(OrchestrationThreadShell);
+      const threads = yield* sampleDecoded(OrchestrationV2ThreadShellJson);
       const projects = yield* sampleDecoded(OrchestrationProjectShell);
-      const snapshot: OrchestrationShellSnapshot = {
+      const midpoint = Math.ceil(threads.length / 2);
+      const snapshot: typeof StoredOrchestrationShellSnapshot.Type["snapshot"] = {
+        schemaVersion: 1,
         snapshotSequence: 1,
         // The generator rarely makes monogram icons, and they are the one
         // project field whose encoding differs from the decoded value.
@@ -43,13 +49,21 @@ describe("encodeShellSnapshotForCache", () => {
             ? { ...project, projectIcon: { kind: "monogram", text: "J1 Code", color: "blue" } }
             : project,
         ),
-        threads,
-        updatedAt: "2026-09-25T00:00:00.000Z",
+        threads: threads.slice(0, midpoint),
+        archivedThreads: threads.slice(midpoint),
       };
 
-      expect(threads.length).toBeGreaterThan(0);
+      expect(snapshot.threads.length).toBeGreaterThan(0);
+      expect(snapshot.archivedThreads.length).toBeGreaterThan(0);
       expect(projects.length).toBeGreaterThan(0);
-      expect(yield* encodeShellSnapshotForCache(snapshot)).toEqual(yield* encodeSnapshot(snapshot));
+      const stored = {
+        schemaVersion: ORCHESTRATION_CACHE_SCHEMA_VERSION,
+        environmentId: EnvironmentId.make("generated-cache-environment"),
+        snapshot,
+      };
+      expect(
+        yield* makeStoredShellSnapshotEncoder({ yieldToHost: Effect.void })(stored),
+      ).toEqual(yield* encodeSnapshot(stored));
     }),
   );
 });

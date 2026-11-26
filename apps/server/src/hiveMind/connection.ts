@@ -3,7 +3,7 @@ import * as NodePath from "node:path";
 import * as NodeOS from "node:os";
 import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
-import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 import { readHiveConfig } from "./config.ts";
 import { readOptional } from "./files.ts";
 const Connection = Schema.Struct({ origin: Schema.String, token: Schema.String });

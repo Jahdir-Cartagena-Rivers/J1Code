@@ -1,57 +1,123 @@
 import {
+  isOrchestrationV2WorkActive,
   isToolLifecycleItemType,
   type AssetResource,
   type RuntimeItemStatus,
-  type ThreadId,
   type ToolActivitySource,
   type ToolLifecycleItemType,
+  type ToolActivitySurface,
+  type ToolActivityIcon,
+  type OrchestrationV2TurnItem,
+  type ThreadId,
 } from "@j1code/contracts";
+import type { ToolCallVisibility } from "@j1code/contracts/settings";
+import {
+  resolveT3McpSummaryAction,
+  resolveT3McpToolDefinition,
+  resolveT3McpToolId,
+  type T3McpToolDefinition,
+  type T3McpToolSummaryAction,
+} from "@j1code/shared/t3McpToolPresentation";
 import { classifyMarkdownImageSource } from "@j1code/client-runtime/markdown-images";
 import { resolveMediaSource } from "@j1code/client-runtime/media-source";
-import { parseChangeRequestUrl } from "@j1code/shared/changeRequestUrl";
-import { isWorkspaceImagePreviewPath } from "@j1code/shared/filePreview";
+import { sourceControlClients } from "@j1code/client-runtime/source-control-clients";
+import { isWorkspaceImagePreviewPath } from "@j1code/shared/mediaPreview";
+import { formatTokens } from "@j1code/shared/usageFormat";
+import { classifyToolActivity } from "@j1code/shared/toolActivity";
+import { toolOutputIndicatesFailure } from "@j1code/shared/toolOutput";
 
-/**
- * Activities the worktree setup card already represents. The settled record
- * is rendered by the card on web and mobile, never as a
- * worklog entry, so it is hidden from the activity feed even when it failed.
- */
-export function isWorktreeSetupActivity(kind: string): boolean {
-  return (
-    kind === "setup-script.requested" ||
-    kind === "setup-script.started" ||
-    kind === "worktree-setup"
-  );
+import {
+  summarizeT3ToolCalls,
+  t3ToolResultIndicatesFailure,
+  type T3ToolSummaryCall,
+} from "@j1code/client-runtime/t3ToolSummary";
+
+export type WorkLogToolLifecycleStatus = RuntimeItemStatus | "stopped" | "idle";
+
+export function toolItemForDisplay(item: OrchestrationV2TurnItem): OrchestrationV2TurnItem {
+  switch (item.type) {
+    case "command_execution":
+    case "dynamic_tool": {
+      const { output: _output, ...displayItem } = item;
+      return displayItem;
+    }
+    case "file_change": {
+      const { diffStr, oldStr: _oldStr, newStr: _newStr, ...displayItem } = item;
+      // A failed edit's diffStr holds the provider's error, not a diff.
+      return item.status === "failed" && diffStr?.trim()
+        ? { ...displayItem, diffStr }
+        : displayItem;
+    }
+    default:
+      return item;
+  }
 }
 
-export type WorkLogToolLifecycleStatus = RuntimeItemStatus | "stopped";
+type CompactionLabelItem = Pick<
+  Extract<OrchestrationV2TurnItem, { type: "compaction" }>,
+  "status" | "beforeTokenCount" | "afterTokenCount"
+>;
+
+export function contextCompactionTokenCounts(
+  item: CompactionLabelItem,
+): { readonly before: string; readonly after: string } | null {
+  if (
+    item.status === "running" ||
+    item.beforeTokenCount === undefined ||
+    item.afterTokenCount === undefined
+  ) {
+    return null;
+  }
+  return { before: formatTokens(item.beforeTokenCount), after: formatTokens(item.afterTokenCount) };
+}
+
+export function contextCompactionLabel(item: CompactionLabelItem): string {
+  if (item.status === "failed") return "Context compaction failed";
+  if (item.status === "cancelled" || item.status === "interrupted")
+    return "Context compaction stopped";
+  if (isOrchestrationV2WorkActive(item.status)) return "Compacting context";
+  const tokens = contextCompactionTokenCounts(item);
+  return tokens
+    ? `Context compacted ${tokens.before} → ${tokens.after} tokens`
+    : "Context compacted";
+}
 
 export interface WorkLogPresentationEntry {
+  readonly questionAnswer?: import("@j1code/contracts").UserInputAttachmentAnswerPayload;
+  readonly id?: string;
+  readonly createdAt?: string;
   readonly label: string;
-  readonly toolTitle?: string;
-  readonly toolData?: unknown;
+  readonly sourceActivityKind?: string;
+  readonly turnId?: string | null;
+  readonly toolCallId?: string;
+  readonly taskId?: string;
   readonly tone: "thinking" | "tool" | "info" | "error";
   readonly command?: string;
+  readonly rawCommand?: string;
   readonly detail?: string;
   readonly viewedImagePath?: string;
   readonly changedFiles?: ReadonlyArray<string>;
-  readonly itemType?: ToolLifecycleItemType;
+  readonly toolTitle?: string;
+  readonly toolData?: unknown;
   readonly requestKind?: string;
-  readonly turnId?: string | null;
-  readonly toolCallId?: string;
+  readonly itemType?: OrchestrationV2TurnItem["type"] | ToolLifecycleItemType;
   readonly toolLifecycleStatus?: string;
-  readonly sourceActivityKind?: string;
-  readonly taskId?: string;
+  readonly structuredPayload?: OrchestrationV2TurnItem;
   readonly toolSource?: ToolActivitySource;
+  readonly toolSurface?: ToolActivitySurface;
+  readonly toolIcon?: ToolActivityIcon;
 }
 
 export type ToolGroupAction =
   | "link-pr"
   | "unlink-pr"
   | "list-prs"
+  | "watch-pr"
+  | "unwatch-pr"
   | "read"
   | "edit"
   | "command"
+  | "thread-create"
   | "browser"
   | "device"
   | "code-search"
@@ -63,6 +129,7 @@ export type ToolGroupSummaryKind =
   | "pull-request"
   | ToolGroupAction
   | "dynamic-tool"
+  | "reasoning"
   | "agent-tool"
   | "tone-tool"
   | "mixed";
@@ -125,25 +192,46 @@ const T3_MCP_TOOL_LABELS: Record<
   device_close: ["Close", "Closing", "Closed", "a device"],
 };
 
-const PR_TOOL_ACTIONS: Readonly<Record<string, ToolGroupAction>> = {
-  link_pull_request: "link-pr",
-  unlink_pull_request: "unlink-pr",
-  list_thread_pull_requests: "list-prs",
-};
+function workEntryToolName(
+  entry: Pick<WorkLogPresentationEntry, "label" | "toolTitle" | "toolData" | "structuredPayload">,
+): string | undefined {
+  const item = entry.structuredPayload;
+  if (item?.type === "dynamic_tool" && item.toolName) return item.toolName;
+  const data = asRecord(entry.toolData);
+  if (typeof data?.server === "string" && typeof data.tool === "string") {
+    return `${data.server}.${data.tool}`;
+  }
+  if (typeof data?.toolName === "string") return data.toolName;
+  return resolveT3McpToolDefinition(entry.toolTitle) ? entry.toolTitle : entry.label;
+}
 
-function resolveJ1McpToolPresentation(
-  value: string | undefined,
+function workEntryToolInput(
+  entry: Pick<WorkLogPresentationEntry, "toolData" | "structuredPayload">,
+): unknown {
+  const item = entry.structuredPayload;
+  const data = asRecord(entry.toolData);
+  return item?.type === "dynamic_tool"
+    ? item.input
+    : (data?.arguments ?? data?.input ?? data?.rawInput);
+}
+
+function workEntryToolOutput(
+  entry: Pick<WorkLogPresentationEntry, "toolData" | "structuredPayload">,
+): unknown {
+  const item = entry.structuredPayload;
+  const data = asRecord(entry.toolData);
+  return item?.type === "dynamic_tool"
+    ? item.output
+    : (data?.output ?? data?.result ?? data?.rawOutput ?? data?.content);
+}
+
+function resolveT3McpToolPresentation(
+  definition: T3McpToolDefinition | null,
   status: string | undefined,
   data?: unknown,
 ) {
-  if (!value) return null;
-  const name = normalizeCompactToolLabel(value).replace(
-    /^(?:mcp__(?:t3-code|t3_code|t3code)__|(?:t3-code|t3_code|t3code)(?:[.:/]|\s*·\s*))/i,
-    "",
-  );
-  if (!Object.hasOwn(T3_MCP_TOOL_LABELS, name)) return null;
-
-  const [action, running, completed, detail] = T3_MCP_TOOL_LABELS[name]!;
+  if (!definition) return null;
+  const [action, running, completed, detail] = definition.labels;
   const verb =
     status === "inProgress"
       ? running
@@ -157,65 +245,63 @@ function resolveJ1McpToolPresentation(
               ? `Stopped ${running.toLowerCase()}`
               : running;
 
-  const actionKind = Object.hasOwn(PR_TOOL_ACTIONS, name) ? PR_TOOL_ACTIONS[name] : undefined;
+  const actionKind =
+    definition.summaryAction === "link-pr" ||
+    definition.summaryAction === "unlink-pr" ||
+    definition.summaryAction === "list-prs" ||
+    definition.summaryAction === "watch-pr" ||
+    definition.summaryAction === "unwatch-pr"
+      ? definition.summaryAction
+      : undefined;
   const payload = asRecord(data);
   const input =
     asRecord(payload?.arguments) ?? asRecord(payload?.input) ?? asRecord(payload?.rawInput);
-  const urlTarget = typeof input?.url === "string" ? parseChangeRequestUrl(input.url) : null;
-  const number = urlTarget?.number ?? input?.number;
+  const urlTarget =
+    typeof input?.url === "string" ? sourceControlClients.parseChangeRequestUrl(input.url) : null;
+  const number = urlTarget?.link.number ?? input?.number;
+  const { shortLabel } = (urlTarget?.definition ?? sourceControlClients.get(undefined))
+    .changeRequest;
   const target =
     actionKind !== undefined &&
     actionKind !== "list-prs" &&
     typeof number === "number" &&
     Number.isSafeInteger(number) &&
     number > 0
-      ? `PR #${number}`
+      ? `${shortLabel} #${number}`
       : detail;
   return {
     displayName: `${verb} ${target}`,
-    icon:
-      actionKind !== undefined
-        ? ("pull-request" as const)
-        : name.startsWith("preview_")
-          ? ("browser" as const)
-          : name.startsWith("device_")
-            ? ("device" as const)
-            : ("t3-code" as const),
+    icon: definition.icon,
     ...(actionKind === undefined ? {} : { action: actionKind }),
   };
 }
 
-/** Latest live activity stays present-tense unless the call itself failed, declined, or stopped. */
 export function liveActivityToolStatus(status: string | undefined, presentTense: boolean) {
-  if (status === "failed" || status === "declined" || status === "stopped") return status;
+  if (status === "failed" || status === "declined" || status === "stopped" || status === "idle") {
+    return status;
+  }
   if (presentTense || status === "inProgress") return "inProgress";
   return "completed";
 }
 
-/** Resolves tool identity before choosing labels or icons in either client. */
 export function resolveWorkEntryToolPresentation(
-  entry: Pick<WorkLogPresentationEntry, "label" | "toolTitle" | "toolData" | "toolLifecycleStatus">,
+  entry: Pick<
+    WorkLogPresentationEntry,
+    "label" | "toolTitle" | "toolData" | "toolLifecycleStatus" | "structuredPayload"
+  >,
   fallbackStatus?: "inProgress" | "completed",
 ) {
-  const status = entry.toolLifecycleStatus ?? fallbackStatus;
-  const data = entry.toolData;
-  if (data !== null && typeof data === "object") {
-    if (
-      "server" in data &&
-      typeof data.server === "string" &&
-      "tool" in data &&
-      typeof data.tool === "string"
-    ) {
-      return resolveJ1McpToolPresentation(`${data.server}.${data.tool}`, status, data);
-    }
-    if ("toolName" in data && typeof data.toolName === "string") {
-      return resolveJ1McpToolPresentation(data.toolName, status, data);
-    }
-  }
+  const toolName = workEntryToolName(entry);
+  const resolved = resolveT3McpToolDefinition(toolName, workEntryToolInput(entry));
+  const toolId = resolveT3McpToolId(toolName);
+  const labels = toolId ? T3_MCP_TOOL_LABELS[toolId] : undefined;
+  const definition = resolved && labels ? { ...resolved, labels } : resolved;
 
-  return (
-    resolveJ1McpToolPresentation(entry.toolTitle, status, data) ??
-    resolveJ1McpToolPresentation(entry.label, status, data)
+  const status = entry.toolLifecycleStatus ?? fallbackStatus;
+  return resolveT3McpToolPresentation(
+    definition,
+    definition && t3ToolResultIndicatesFailure(workEntryToolOutput(entry)) ? "failed" : status,
+    entry.toolData,
   );
 }
 
@@ -360,14 +446,478 @@ export function commandDetailRepeatsCommand(input: {
   );
 }
 
+
 export function workLogEntryIsToolLike(entry: WorkLogPresentationEntry): boolean {
   if (entry.tone === "tool" || entry.tone === "thinking" || entry.tone === "error") return true;
   if (entry.command !== undefined && entry.command.trim().length > 0) return true;
   if (entry.requestKind !== undefined) return true;
-  return entry.itemType !== undefined && isToolLifecycleItemType(entry.itemType);
+  return entry.itemType === "dynamic_tool" || (entry.itemType !== undefined && isToolLifecycleItemType(entry.itemType));
 }
 
-/** Maps item and task status to the status shown on a work-log row. */
+function workEntryIndicatesToolFailureFromOutput(
+  entry: WorkLogPresentationEntry,
+  includeCommand: boolean,
+): boolean {
+  if (
+    entry.tone === "error" ||
+    entry.toolLifecycleStatus === "failed" ||
+    entry.toolLifecycleStatus === "declined"
+  ) {
+    return true;
+  }
+  // Reasoning detail is the model's own prose (often tens of KB), not tool
+  // output: scanning it is slow on long threads and misreads phrases like
+  // "that exit code 2 is expected" as a failed tool.
+  if (!workLogEntryIsToolLike(entry) || entry.itemType === "reasoning") return false;
+  if (
+    resolveT3McpToolDefinition(workEntryToolName(entry)) &&
+    t3ToolResultIndicatesFailure(workEntryToolOutput(entry))
+  ) {
+    return true;
+  }
+  const item = entry.structuredPayload;
+  if (item?.type === "command_execution") {
+    // The exit code outranks text in the output or the command itself.
+    if (item.exitCode !== undefined) return item.exitCode !== 0;
+    if (item.outputIndicatesFailure) return true;
+    if (item.output && toolOutputIndicatesFailure(item.output.slice(0, 32_768))) {
+      return true;
+    }
+  }
+  const output = includeCommand
+    ? [entry.detail, entry.command].filter(Boolean).join("\n")
+    : (entry.detail ?? "");
+  return output.length > 0 && toolOutputIndicatesFailure(output);
+}
+
+// Rows are re-derived on every timeline update but entries are reused while
+// their item is unchanged, so these per-entry checks are computed once.
+const entryChecks = new WeakMap<
+  WorkLogPresentationEntry,
+  { failure?: boolean; displayFailure?: boolean; action?: ToolGroupAction }
+>();
+
+function checksFor(entry: WorkLogPresentationEntry) {
+  let checks = entryChecks.get(entry);
+  if (!checks) {
+    checks = {};
+    entryChecks.set(entry, checks);
+  }
+  return checks;
+}
+
+export function workEntryIndicatesToolFailure(entry: WorkLogPresentationEntry): boolean {
+  return (checksFor(entry).failure ??= workEntryIndicatesToolFailureFromOutput(entry, true));
+}
+
+export function workEntryDisplayIndicatesToolFailure(entry: WorkLogPresentationEntry): boolean {
+  return (checksFor(entry).displayFailure ??= workEntryIndicatesToolFailureFromOutput(
+    entry,
+    false,
+  ));
+}
+
+const HIDEABLE_TOOL_CALL_ITEM_TYPES: ReadonlySet<WorkLogPresentationEntry["itemType"]> = new Set([
+  "command_execution",
+  "file_change",
+  "file_search",
+  "web_search",
+  "dynamic_tool",
+]);
+
+export function workEntryHiddenByToolCallVisibility(
+  entry: WorkLogPresentationEntry,
+  visibility: ToolCallVisibility,
+): boolean {
+  if (visibility === "showAll" || !HIDEABLE_TOOL_CALL_ITEM_TYPES.has(entry.itemType)) return false;
+  if (visibility !== "hideSuccessful") return true;
+  return entry.toolLifecycleStatus === "completed" && !workEntryDisplayIndicatesToolFailure(entry);
+}
+
+function workLogEntryIsLocalCodeSearch(entry: WorkLogPresentationEntry): boolean {
+  return (
+    entry.itemType === "file_search" ||
+    (entry.itemType === "web_search" &&
+      /\bgrep\b/i.test(normalizeCompactToolLabel(entry.toolTitle ?? entry.label)))
+  );
+}
+
+export function toolGroupAction(entry: WorkLogPresentationEntry): ToolGroupAction {
+  return (checksFor(entry).action ??= computeToolGroupAction(entry));
+}
+
+function computeToolGroupAction(entry: WorkLogPresentationEntry): ToolGroupAction {
+  if (entry.sourceActivityKind === "approval.requested" ||
+      entry.sourceActivityKind === "approval.resolved" ||
+      entry.sourceActivityKind === "provider.approval.respond.failed") return "update";
+  if (entry.itemType === "thread_created") return "thread-create";
+  const presentation = resolveWorkEntryToolPresentation(entry);
+  if (presentation?.action !== undefined) return presentation.action;
+  if (presentation?.icon === "browser") return "browser";
+  if (presentation?.icon === "device") return "device";
+  if (entry.requestKind === "file-read" || entry.itemType === "image_view" ||
+      entry.viewedImagePath !== undefined ||
+      ((entry.itemType === "dynamic_tool" || entry.itemType === "dynamic_tool_call") &&
+       entry.toolTitle?.trim().toLowerCase() === "read file")) return "read";
+  if (entry.requestKind === "file-change") return "edit";
+  if (entry.requestKind === "command") return "command";
+  if (entry.itemType === "approval_request" || entry.itemType === "user_input_request") {
+    return workLogEntryIsToolLike(entry) ? "other" : "update";
+  }
+  const data = asRecord(entry.toolData) ?? {};
+  const toolName =
+    entry.structuredPayload?.type === "dynamic_tool"
+      ? entry.structuredPayload.toolName
+      : typeof data.toolName === "string"
+        ? data.toolName
+        : entry.toolTitle;
+  const classified = classifyToolActivity({
+    itemType:
+      entry.itemType === "command_execution" ||
+      entry.itemType === "file_change" ||
+      entry.itemType === "web_search"
+        ? entry.itemType
+        : entry.itemType === "dynamic_tool"
+          ? "dynamic_tool_call"
+          : undefined,
+    title: entry.toolTitle ?? entry.label,
+    data: {
+      ...data,
+      ...(toolName ? { toolName } : {}),
+    },
+  });
+  if (classified === "read") return "read";
+  if (classified === "file_change" || entry.itemType === "file_change") return "edit";
+  if (classified === "command" || entry.itemType === "command_execution" || entry.command) {
+    return "command";
+  }
+  if (classified === "search") {
+    return entry.itemType === "web_search" && !workLogEntryIsLocalCodeSearch(entry)
+      ? "search"
+      : "code-search";
+  }
+  if (workLogEntryIsLocalCodeSearch(entry)) return "code-search";
+  if (entry.itemType === "web_search") return "search";
+  if ((entry.changedFiles?.length ?? 0) > 0) return "edit";
+  return workLogEntryIsToolLike(entry) ? "other" : "update";
+}
+
+export function workEntryViewedImagePath(entry: WorkLogPresentationEntry): string | null {
+  const viewedImagePath = entry.viewedImagePath?.trim();
+  if (
+    viewedImagePath !== undefined &&
+    !/[\r\n]/.test(viewedImagePath) &&
+    isWorkspaceImagePreviewPath(viewedImagePath)
+  ) {
+    return viewedImagePath;
+  }
+  const detail = entry.detail?.trim();
+  return toolGroupAction(entry) === "read" &&
+    detail !== undefined &&
+    !/[\r\n]/.test(detail) &&
+    isWorkspaceImagePreviewPath(detail)
+    ? detail
+    : null;
+}
+
+/** Distinct images the agent opened across a tool group, in viewing order. */
+export function workEntriesViewedImagePaths(
+  entries: ReadonlyArray<WorkLogPresentationEntry>,
+): string[] {
+  return [...new Set(entries.flatMap((entry) => workEntryViewedImagePath(entry) ?? []))];
+}
+
+export interface ViewedImageAsset {
+  readonly resource: Extract<AssetResource, { readonly _tag: "media-file" }>;
+  readonly alt: string;
+  readonly srcFragment: string;
+}
+
+export function resolveViewedImageAsset(
+  source: string,
+  input: {
+    readonly threadId: ThreadId;
+    readonly workspaceRoot?: string | null | undefined;
+  },
+): ViewedImageAsset | null {
+  const imageSource = classifyMarkdownImageSource(source, input.workspaceRoot ?? ".");
+  if (imageSource._tag !== "WorkspaceFile") return null;
+  const resolvedFilePath =
+    input.workspaceRoot == null && imageSource.path.startsWith("./")
+      ? imageSource.path.slice(2)
+      : imageSource.path;
+
+  const media = resolveMediaSource(source, {
+    threadId: input.threadId,
+    workspaceRoot: input.workspaceRoot,
+    resolvedFilePath,
+  });
+  if (media === null || media.access !== "environment") return null;
+  return { resource: media.resource, alt: media.name, srcFragment: media.srcFragment };
+}
+
+function toolGroupActionCount(
+  action: ToolGroupAction,
+  entries: ReadonlyArray<WorkLogPresentationEntry>,
+): number {
+  if (action !== "edit") return entries.length;
+  const changedFiles = new Set<string>();
+  let editsWithoutFileDetails = 0;
+  for (const entry of entries) {
+    if (!entry.changedFiles || entry.changedFiles.length === 0) {
+      editsWithoutFileDetails += 1;
+    } else {
+      for (const file of entry.changedFiles) changedFiles.add(file);
+    }
+  }
+  return changedFiles.size + editsWithoutFileDetails;
+}
+
+function toolGroupActionLabel(action: ToolGroupAction, count: number): string {
+  switch (action) {
+    case "link-pr":
+      return `Linked ${count} ${count === 1 ? "pull request" : "pull requests"}`;
+    case "unlink-pr":
+      return `Unlinked ${count} ${count === 1 ? "pull request" : "pull requests"}`;
+    case "watch-pr":
+      return `Watching ${count} ${count === 1 ? "pull request" : "pull requests"}`;
+    case "unwatch-pr":
+      return `Stopped watching ${count} ${count === 1 ? "pull request" : "pull requests"}`;
+    case "list-prs":
+      return count === 1
+        ? "Checked linked pull requests"
+        : `Checked linked pull requests ${count} times`;
+    case "read":
+      return `Read ${count} ${count === 1 ? "file" : "files"}`;
+    case "edit":
+      return `Changed ${count} ${count === 1 ? "file" : "files"}`;
+    case "command":
+      return `Ran ${count} ${count === 1 ? "command" : "commands"}`;
+    case "thread-create":
+      return `Created ${count} ${count === 1 ? "thread" : "threads"}`;
+    case "device":
+      return `Used device controls ${count} ${count === 1 ? "time" : "times"}`;
+    case "browser":
+      return `Used browser ${count} ${count === 1 ? "time" : "times"}`;
+    case "search":
+      return `Searched the web ${count} ${count === 1 ? "time" : "times"}`;
+    case "code-search":
+      return `Searched code ${count} ${count === 1 ? "time" : "times"}`;
+    case "other":
+      return `Used ${count} ${count === 1 ? "tool" : "tools"}`;
+    case "update":
+      return `Received ${count} ${count === 1 ? "update" : "updates"}`;
+  }
+}
+
+function t3ToolSummaryCall(entry: WorkLogPresentationEntry): T3ToolSummaryCall {
+  return {
+    input: workEntryToolInput(entry),
+    output: workEntryToolOutput(entry),
+    outcome:
+      entry.toolLifecycleStatus === "failed" ||
+      entry.toolLifecycleStatus === "declined" ||
+      entry.tone === "error"
+        ? "failed"
+        : entry.toolLifecycleStatus === "completed"
+          ? "completed"
+          : "unfinished",
+  };
+}
+
+function summaryActionPriority(action: ToolGroupAction | T3McpToolSummaryAction): number {
+  switch (action) {
+    case "command":
+    case "edit":
+    case "delegate":
+    case "task-cancel":
+    case "thread-create":
+    case "thread-send":
+    case "thread-interrupt":
+    case "workflow-stop":
+    case "background-wait":
+    case "schedule-create":
+    case "schedule-update":
+    case "schedule-delete":
+    case "schedule-run":
+    case "thread-configure":
+    case "thread-fork":
+    case "thread-merge":
+    case "thread-organize":
+    case "thread-update":
+    case "queue-edit":
+    case "queue-cancel":
+    case "queue-reorder":
+    case "queue-steer":
+    case "question-respond":
+    case "worktree-handoff":
+    case "project-create":
+    case "project-update":
+    case "project-delete":
+    case "project-clone":
+    case "environment-update":
+    case "theme-set":
+    case "attachment-prepare":
+    case "attachment-discard":
+    case "attachment-send":
+      return 0;
+    case "other":
+    case "update":
+      return 2;
+    default:
+      return 1;
+  }
+}
+
+export function summarizeToolGroup(entries: ReadonlyArray<WorkLogPresentationEntry>): {
+  summary: string;
+  hasFailure: boolean;
+} {
+  const toolEntries = entries.filter((entry) => entry.itemType !== "reasoning");
+  if (entries.length > 0 && toolEntries.length === 0) {
+    return {
+      summary: entries.length === 1 ? "Thought" : `Thought (×${entries.length})`,
+      hasFailure: false,
+    };
+  }
+  entries = toolEntries;
+  const groups = new Map<
+    ToolGroupAction | T3McpToolSummaryAction,
+    {
+      action: ToolGroupAction;
+      t3Action: T3McpToolSummaryAction | null;
+      entries: WorkLogPresentationEntry[];
+    }
+  >();
+  const sources = new Map<string, ToolActivitySource>();
+  for (const entry of entries) {
+    const t3Action = resolveT3McpSummaryAction(
+      workEntryToolName(entry),
+      t3ToolSummaryCall(entry).input,
+    );
+    if (entry.toolSource && t3Action === null) {
+      sources.set(entry.toolSource.key, entry.toolSource);
+      continue;
+    }
+    const action = toolGroupAction(entry);
+    const key = t3Action ?? action;
+    const group = groups.get(key);
+    if (group) group.entries.push(entry);
+    else groups.set(key, { action, t3Action, entries: [entry] });
+  }
+  const summaries = [...groups].map(([action, group], index) => ({
+    index,
+    count: group.entries.length,
+    priority: summaryActionPriority(action),
+    ...(group.t3Action
+      ? summarizeT3ToolCalls(group.t3Action, group.entries.map(t3ToolSummaryCall))
+      : {
+          label: toolGroupActionLabel(
+            group.action,
+            toolGroupActionCount(group.action, group.entries),
+          ),
+          failedCount: group.entries.filter(workEntryDisplayIndicatesToolFailure).length,
+        }),
+  }));
+  const selected = [...summaries]
+    .sort((a, b) => a.priority - b.priority || a.index - b.index)
+    .slice(0, 2)
+    .sort((a, b) => a.index - b.index);
+  const labels = selected.map(({ label }) => label);
+  if (sources.size > 0) {
+    const sourceValues = [...sources.values()];
+    const sourceNames = [...new Set(sourceValues.map((source) => source.name))];
+    const formattedNames =
+      sourceNames.length < 2
+        ? sourceNames[0]!
+        : sourceNames.length === 2
+          ? sourceNames.join(" and ")
+          : `${sourceNames.slice(0, -1).join(", ")}, and ${sourceNames.at(-1)}`;
+    const allIntegrations = sourceValues.every((source) => source.kind === "integration");
+    labels.unshift(
+      `Used ${formattedNames}${allIntegrations ? ` ${sourceNames.length === 1 ? "integration" : "integrations"}` : ""}`,
+    );
+  }
+  const sourcedCount = entries.filter(
+    (entry) =>
+      entry.toolSource !== undefined &&
+      resolveT3McpToolDefinition(workEntryToolName(entry)) === null,
+  ).length;
+  const remainingCount =
+    entries.length - sourcedCount - selected.reduce((count, group) => count + group.count, 0);
+  if (remainingCount > 0) {
+    labels.push(`Performed ${remainingCount} other ${remainingCount === 1 ? "action" : "actions"}`);
+  }
+  const sentenceLabels = labels.map((label, index) =>
+    index === 0 ? label : label.charAt(0).toLowerCase() + label.slice(1),
+  );
+  const summary =
+    sentenceLabels.length < 3
+      ? sentenceLabels.join(" and ")
+      : `${sentenceLabels.slice(0, -1).join(", ")}, and ${sentenceLabels.at(-1)}`;
+  return { summary, hasFailure: summaries.some((group) => group.failedCount > 0) };
+}
+
+export function toolGroupSummaryKind(
+  entries: ReadonlyArray<WorkLogPresentationEntry>,
+): ToolGroupSummaryKind {
+  const toolEntries = entries.filter((entry) => entry.itemType !== "reasoning");
+  if (entries.length > 0 && toolEntries.length === 0) return "reasoning";
+  entries = toolEntries;
+  if (
+    entries.length > 0 &&
+    entries.every((entry) => resolveWorkEntryToolPresentation(entry)?.icon === "pull-request")
+  )
+    return "pull-request";
+  const actions = new Set(entries.map(toolGroupAction));
+  if (actions.size !== 1) return "mixed";
+  const action = actions.values().next().value!;
+  if (action !== "other") return action;
+  const fallbackKinds = new Set(
+    entries.map((entry): ToolGroupSummaryKind => {
+      if (entry.itemType === "mcp_tool_call") return "other";
+      if (entry.itemType === "dynamic_tool" || entry.itemType === "dynamic_tool_call") return "dynamic-tool";
+      if (entry.itemType === "subagent" || entry.itemType === "collab_agent_tool_call" || entry.taskId) return "agent-tool";
+      if (entry.tone === "thinking") return "agent-tool";
+      if (entry.tone === "tool") return "tone-tool";
+      return "other";
+    }),
+  );
+  return fallbackKinds.size === 1 ? fallbackKinds.values().next().value! : "mixed";
+}
+
+export function liveThoughtLine(markdown: string): string {
+  const heading = /^\s*\*\*([^*\r\n]+)\*\*[ \t]*\r?(?:\n|$)/.exec(markdown)?.[1];
+  const text = (heading ?? markdown)
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/^[ \t]*(?:#{1,6}|[-*+]|\d+\.)[ \t]+/gm, "")
+    .replace(/`+|\*\*|~~/g, "")
+    .replace(/(^|[^\w*])[*_]([^*_\n]+)[*_](?![\w*])/g, "$1$2")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (heading !== undefined) return text;
+  const end = /[.?!]["'”’)]?(?=\s)/.exec(text);
+  return end ? text.slice(0, end.index + end[0].length) : text;
+}
+
+export function workEntryIndicatesToolSuccess(entry: WorkLogPresentationEntry): boolean {
+  return (
+    workLogEntryIsToolLike(entry) &&
+    !workEntryIndicatesToolFailure(entry) &&
+    entry.tone !== "thinking" &&
+    entry.toolLifecycleStatus !== "inProgress" &&
+    entry.toolLifecycleStatus !== "stopped"
+  );
+}
+
+export function isWorktreeSetupActivity(kind: string): boolean {
+  return (
+    kind === "setup-script.requested" ||
+    kind === "setup-script.started" ||
+    kind === "worktree-setup"
+  );
+}
+
 export function extractWorkLogToolLifecycleStatus(
   payloadValue: unknown,
 ): WorkLogToolLifecycleStatus | undefined {
@@ -392,246 +942,6 @@ export function extractWorkLogToolLifecycleStatus(
     default:
       return undefined;
   }
-}
-
-// Some providers report completion even when the output describes a failure.
-function toolDetailTextLooksLikeFailure(text: string): boolean {
-  const normalized = text.toLowerCase();
-  return (
-    normalized.includes("file not found") ||
-    normalized.includes("no files found") ||
-    normalized.includes("enoent") ||
-    normalized.includes("no such file or directory") ||
-    normalized.includes("no such file") ||
-    normalized.includes("commandnotfoundexception") ||
-    normalized.includes("command not found") ||
-    (normalized.includes("cannot find path") && normalized.includes("because it does not exist")) ||
-    (normalized.includes("is not recognized") && normalized.includes("the term '")) ||
-    normalized.includes("is not recognized as the name of a cmdlet") ||
-    normalized.includes("a parameter cannot be found that matches parameter name") ||
-    /<exited with exit code\s+[1-9]\d*\s*>/i.test(text) ||
-    /exit(?:ed)? with exit code\s+[1-9]\d*/i.test(text) ||
-    /exit code\s*[:\s]\s*[1-9]\d*\b/i.test(text)
-  );
-}
-
-function workEntryIndicatesToolFailureFromOutput(
-  entry: WorkLogPresentationEntry,
-  includeCommand: boolean,
-): boolean {
-  if (
-    entry.tone === "error" ||
-    entry.toolLifecycleStatus === "failed" ||
-    entry.toolLifecycleStatus === "declined"
-  ) {
-    return true;
-  }
-  if (!workLogEntryIsToolLike(entry)) return false;
-  const output = includeCommand
-    ? [entry.detail, entry.command].filter(Boolean).join("\n")
-    : (entry.detail ?? "");
-  return output.length > 0 && toolDetailTextLooksLikeFailure(output);
-}
-
-/** Includes legacy activities that stored error output in the command field. */
-export function workEntryIndicatesToolFailure(entry: WorkLogPresentationEntry): boolean {
-  return workEntryIndicatesToolFailureFromOutput(entry, true);
-}
-
-/** Checks rendered output without treating the user's command as an error. */
-export function workEntryDisplayIndicatesToolFailure(entry: WorkLogPresentationEntry): boolean {
-  return workEntryIndicatesToolFailureFromOutput(entry, false);
-}
-
-/** Decides whether the row can show a success marker. */
-export function workEntryIndicatesToolSuccess(entry: WorkLogPresentationEntry): boolean {
-  return (
-    workLogEntryIsToolLike(entry) &&
-    !workEntryIndicatesToolFailure(entry) &&
-    entry.tone !== "thinking" &&
-    entry.toolLifecycleStatus !== "inProgress" &&
-    entry.toolLifecycleStatus !== "stopped"
-  );
-}
-
-function workLogEntryIsLocalCodeSearch(entry: WorkLogPresentationEntry): boolean {
-  return (
-    entry.itemType === "web_search" &&
-    /\bgrep\b/i.test(normalizeCompactToolLabel(entry.toolTitle ?? entry.label))
-  );
-}
-
-export function toolGroupAction(entry: WorkLogPresentationEntry): ToolGroupAction {
-  if (
-    entry.sourceActivityKind === "approval.requested" ||
-    entry.sourceActivityKind === "approval.resolved" ||
-    entry.sourceActivityKind === "provider.approval.respond.failed"
-  ) {
-    return "update";
-  }
-  const presentation = resolveWorkEntryToolPresentation(entry);
-  if (presentation?.action !== undefined) return presentation.action;
-  if (presentation?.icon === "browser") return "browser";
-  if (presentation?.icon === "device") return "device";
-  if (
-    entry.requestKind === "file-read" ||
-    entry.itemType === "image_view" ||
-    entry.viewedImagePath !== undefined ||
-    (entry.itemType === "dynamic_tool_call" &&
-      entry.toolTitle?.trim().toLowerCase() === "read file")
-  ) {
-    return "read";
-  }
-  if (
-    entry.requestKind === "file-change" ||
-    entry.itemType === "file_change" ||
-    (entry.changedFiles?.length ?? 0) > 0
-  ) {
-    return "edit";
-  }
-  if (entry.requestKind === "command" || entry.itemType === "command_execution" || entry.command) {
-    return "command";
-  }
-  if (workLogEntryIsLocalCodeSearch(entry)) return "code-search";
-  if (entry.itemType === "web_search") return "search";
-  return workLogEntryIsToolLike(entry) ? "other" : "update";
-}
-
-export function workEntryViewedImagePath(entry: WorkLogPresentationEntry): string | null {
-  const viewedImagePath = entry.viewedImagePath?.trim();
-  if (
-    viewedImagePath !== undefined &&
-    !/[\r\n]/.test(viewedImagePath) &&
-    isWorkspaceImagePreviewPath(viewedImagePath)
-  ) {
-    return viewedImagePath;
-  }
-  const detail = entry.detail?.trim();
-  return toolGroupAction(entry) === "read" &&
-    detail !== undefined &&
-    !/[\r\n]/.test(detail) &&
-    isWorkspaceImagePreviewPath(detail)
-    ? detail
-    : null;
-}
-
-export interface ViewedImageAsset {
-  readonly resource: Extract<AssetResource, { readonly _tag: "media-file" }>;
-  readonly alt: string;
-  readonly srcFragment: string;
-}
-
-export function resolveViewedImageAsset(
-  source: string,
-  input: {
-    readonly threadId: ThreadId;
-    readonly workspaceRoot?: string | null | undefined;
-  },
-): ViewedImageAsset | null {
-  // A relative path with no known workspace still names a media-file relative
-  // to the thread's workspace, so classify against "." and drop the prefix.
-  const imageSource = classifyMarkdownImageSource(source, input.workspaceRoot ?? ".");
-  if (imageSource._tag !== "WorkspaceFile") return null;
-  const resolvedFilePath =
-    input.workspaceRoot == null && imageSource.path.startsWith("./")
-      ? imageSource.path.slice(2)
-      : imageSource.path;
-
-  const media = resolveMediaSource(source, {
-    threadId: input.threadId,
-    workspaceRoot: input.workspaceRoot,
-    resolvedFilePath,
-  });
-  if (media === null || media.access !== "environment") return null;
-  return { resource: media.resource, alt: media.name, srcFragment: media.srcFragment };
-}
-
-function toolGroupActionCount(
-  action: ToolGroupAction,
-  entries: ReadonlyArray<WorkLogPresentationEntry>,
-): number {
-  if (action !== "edit") return entries.length;
-
-  const changedFiles = new Set<string>();
-  let editsWithoutFileDetails = 0;
-  for (const entry of entries) {
-    if (!entry.changedFiles || entry.changedFiles.length === 0) {
-      editsWithoutFileDetails += 1;
-      continue;
-    }
-    for (const file of entry.changedFiles) changedFiles.add(file);
-  }
-  return changedFiles.size + editsWithoutFileDetails;
-}
-
-function toolGroupActionLabel(action: ToolGroupAction, count: number): string {
-  switch (action) {
-    case "link-pr":
-      return `Linked ${count} ${count === 1 ? "pull request" : "pull requests"}`;
-    case "unlink-pr":
-      return `Unlinked ${count} ${count === 1 ? "pull request" : "pull requests"}`;
-    case "list-prs":
-      return count === 1
-        ? "Checked linked pull requests"
-        : `Checked linked pull requests ${count} times`;
-    case "read":
-      return `Read ${count} ${count === 1 ? "file" : "files"}`;
-    case "edit":
-      return `Changed ${count} ${count === 1 ? "file" : "files"}`;
-    case "command":
-      return `Ran ${count} ${count === 1 ? "command" : "commands"}`;
-    case "device":
-      return `Used device controls ${count} ${count === 1 ? "time" : "times"}`;
-    case "browser":
-      return `Used browser ${count} ${count === 1 ? "time" : "times"}`;
-    case "search":
-      return `Searched the web ${count} ${count === 1 ? "time" : "times"}`;
-    case "code-search":
-      return `Searched code ${count} ${count === 1 ? "time" : "times"}`;
-    case "other":
-      return `Used ${count} ${count === 1 ? "tool" : "tools"}`;
-    case "update":
-      return `Received ${count} ${count === 1 ? "update" : "updates"}`;
-  }
-}
-
-export function summarizeToolGroup(entries: ReadonlyArray<WorkLogPresentationEntry>): string {
-  const summaryEntries = omitSupersededLifecycleMarkers(entries, (entry) => entry);
-  const sources = new Map<string, ToolActivitySource>();
-  const groupedEntries = new Map<ToolGroupAction, WorkLogPresentationEntry[]>();
-  for (const entry of summaryEntries) {
-    if (entry.toolSource && resolveWorkEntryToolPresentation(entry)?.icon !== "pull-request") {
-      sources.set(entry.toolSource.key, entry.toolSource);
-      continue;
-    }
-    const action = toolGroupAction(entry);
-    const group = groupedEntries.get(action);
-    if (group) group.push(entry);
-    else groupedEntries.set(action, [entry]);
-  }
-  const labels = [...groupedEntries].map(([action, actionEntries]) =>
-    toolGroupActionLabel(action, toolGroupActionCount(action, actionEntries)),
-  );
-  if (sources.size > 0) {
-    const sourceValues = [...sources.values()];
-    const sourceNames = sourceValues.map((source) => source.name);
-    const formattedNames =
-      sourceNames.length < 2
-        ? sourceNames[0]!
-        : sourceNames.length === 2
-          ? sourceNames.join(" and ")
-          : `${sourceNames.slice(0, -1).join(", ")}, and ${sourceNames.at(-1)}`;
-    const allIntegrations = sourceValues.every((source) => source.kind === "integration");
-    labels.unshift(
-      `Used ${formattedNames}${allIntegrations ? ` ${sources.size === 1 ? "integration" : "integrations"}` : ""}`,
-    );
-  }
-  const sentenceLabels = labels.map((label, index) =>
-    index === 0 ? label : label.charAt(0).toLowerCase() + label.slice(1),
-  );
-  if (sentenceLabels.length < 2) return sentenceLabels[0] ?? "";
-  if (sentenceLabels.length === 2) return sentenceLabels.join(" and ");
-  return `${sentenceLabels.slice(0, -1).join(", ")}, and ${sentenceLabels.at(-1)}`;
 }
 
 export function omitSupersededLifecycleMarkers<T>(
@@ -670,31 +980,4 @@ export function omitSupersededLifecycleMarkers<T>(
   // Hermes lacks toReversed; this array is local, so reversing it cannot mutate the input.
   // oxlint-disable-next-line unicorn/no-array-reverse
   return reversedEntries.reverse();
-}
-
-export function toolGroupSummaryKind(
-  entries: ReadonlyArray<WorkLogPresentationEntry>,
-): ToolGroupSummaryKind {
-  if (
-    entries.length > 0 &&
-    entries.every((entry) => resolveWorkEntryToolPresentation(entry)?.icon === "pull-request")
-  )
-    return "pull-request";
-  const actions = new Set(entries.map(toolGroupAction));
-  if (actions.size !== 1) return "mixed";
-
-  const action = actions.values().next().value!;
-  if (action !== "other") return action;
-
-  const fallbackKinds = new Set(
-    entries.map((entry): ToolGroupSummaryKind => {
-      if (entry.itemType === "mcp_tool_call") return "other";
-      if (entry.itemType === "dynamic_tool_call") return "dynamic-tool";
-      if (entry.itemType === "collab_agent_tool_call" || entry.taskId) return "agent-tool";
-      if (entry.tone === "thinking") return "agent-tool";
-      if (entry.tone === "tool") return "tone-tool";
-      return "other";
-    }),
-  );
-  return fallbackKinds.size === 1 ? fallbackKinds.values().next().value! : "mixed";
 }

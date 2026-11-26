@@ -14,8 +14,8 @@ import { connectionAtomRuntime } from "../../connection/runtime";
 import { usePreparedConnection } from "../../state/session";
 import { useEnvironments } from "../../state/environments";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { MaterialButton } from "../../components/MaterialButton";
-import { AppText } from "../../components/AppText";
+import { Button } from "../../components/ui/Button";
+import { AppText } from "../../components/ui/AppText";
 import { serverEnvironment } from "../../state/server";
 
 const openWorkspace = createEnvironmentRpcCommand(connectionAtomRuntime, {
@@ -129,7 +129,7 @@ export function MausbotWorkspace({
     return null;
   return (
     <View>
-      <MaterialButton
+      <Button
         tone="text"
         label={busy ? "Opening bots…" : label}
         disabled={busy || !environmentId}
@@ -142,7 +142,7 @@ export function MausbotWorkspace({
             className="flex-1 bg-screen"
             style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}
           >
-            <MaterialButton tone="text" label="Back to J1" onPress={() => setView(null)} />
+            <Button tone="text" label="Back to J1" onPress={() => setView(null)} />
             <WebView
               ref={webView}
               source={{ uri: url }}

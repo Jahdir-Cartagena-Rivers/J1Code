@@ -1,7 +1,11 @@
-import { OrchestrationDispatchCommandError } from "@j1code/contracts";
+import {
+  OrchestrationDispatchCommandError,
+  OrchestrationV2ThreadLaunchError,
+} from "@j1code/contracts";
 import * as Schema from "effect/Schema";
 
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
+const isThreadLaunchError = Schema.is(OrchestrationV2ThreadLaunchError);
 
 export function wasBootstrapThreadDeleted(error: unknown): boolean {
   return (
@@ -11,6 +15,7 @@ export function wasBootstrapThreadDeleted(error: unknown): boolean {
 
 export function wasBootstrapThreadNotCreated(error: unknown): boolean {
   return (
-    isOrchestrationDispatchCommandError(error) && error.bootstrapThreadDisposition === "not-created"
+    (isOrchestrationDispatchCommandError(error) || isThreadLaunchError(error)) &&
+    error.bootstrapThreadDisposition === "not-created"
   );
 }

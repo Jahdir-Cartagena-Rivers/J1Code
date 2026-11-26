@@ -17,8 +17,8 @@ import { useFocusEffect } from "@react-navigation/native";
 
 import { connectionAtomRuntime } from "../../connection/runtime";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { MaterialButton } from "../../components/MaterialButton";
-import { AppText } from "../../components/AppText";
+import { Button } from "../../components/ui/Button";
+import { AppText } from "../../components/ui/AppText";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 import {
   decodeWorkspaceHostMessage,
@@ -271,7 +271,7 @@ export function SharedWorkspace(props: {
               </>
             )}
             {error ? (
-              <MaterialButton
+              <Button
                 label="Retry"
                 onPress={() => {
                   pending.current = null;
@@ -286,7 +286,7 @@ export function SharedWorkspace(props: {
                 }}
               />
             ) : null}
-            <MaterialButton tone="text" label="Connections" onPress={onOpenConnections} />
+            <Button tone="text" label="Connections" onPress={onOpenConnections} />
           </View>
         ) : null}
       </KeyboardAvoidingView>

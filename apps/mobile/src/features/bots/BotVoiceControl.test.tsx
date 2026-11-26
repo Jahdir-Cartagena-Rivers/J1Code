@@ -19,11 +19,11 @@ vi.mock("../../state/server", () => ({ environmentServerConfigsAtom: {} }));
 vi.mock("react-native", () => ({
   View: ({ children }: { children: unknown }) => createElement("div", null, children as never),
 }));
-vi.mock("../../components/AppText", () => ({
+vi.mock("../../components/ui/AppText", () => ({
   AppText: ({ children }: { children: unknown }) => createElement("span", null, children as never),
 }));
-vi.mock("../../components/MaterialButton", () => ({
-  MaterialButton: ({ label, onPress }: { label: string; onPress: () => void }) =>
+vi.mock("../../components/ui/Button", () => ({
+  Button: ({ label, onPress }: { label: string; onPress: () => void }) =>
     createElement("button", { onClick: onPress }, label),
 }));
 vi.mock("../../lib/uuid", () => ({ uuidv4: () => "session" }));

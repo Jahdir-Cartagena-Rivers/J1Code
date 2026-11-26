@@ -5,14 +5,14 @@ import * as NodePath from "node:path";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, ManagedRuntime } from "effect";
 import * as NodeSqliteClient from "@j1code/shared/nodeSqliteClient";
-import migration from "../persistence/Migrations/062_TaskOwnerBindings.ts";
+import { Migration0062 as migration } from "../persistence/J1MigrationBridge.ts";
 import {
   makeTaskOwnerStore,
   TaskOwnerStoreError,
   type TaskOwnerVerifier,
 } from "./taskOwnerStore.ts";
 
-// eslint-disable-next-line j1code/no-manual-effect-runtime-in-tests
+// eslint-disable-next-line j1code/no-manual-effect-runtime-in-tests -- Persistence is verified by closing and reopening a file-backed runtime.
 const runtime = (filename: string) => ManagedRuntime.make(NodeSqliteClient.layer({ filename }));
 const scope = { environmentId: "env", projectId: "project" };
 const binding = { ...scope, bindingId: "binding", taskId: "task", threadId: "thread" };

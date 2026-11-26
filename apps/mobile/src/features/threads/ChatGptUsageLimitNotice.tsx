@@ -1,21 +1,12 @@
-import type { EnvironmentId, OrchestrationThreadShell } from "@j1code/contracts";
-import { CHATGPT_USAGE_URL, isChatGptUsageLimitError } from "@j1code/shared/usageLimits";
-import * as Option from "effect/Option";
+import type { EnvironmentThreadShell } from "@j1code/client-runtime/state/shell";
+import { CHATGPT_USAGE_URL, CHATGPT_USAGE_LIMIT_CODE } from "@j1code/shared/usageLimits";
 import { Linking, Pressable, View } from "react-native";
-import { AppText as Text } from "../../components/AppText";
+import { AppText as Text } from "../../components/ui/AppText";
 import { ProviderIcon } from "../../components/ProviderIcon";
-import { useThreadDetail } from "../../state/use-thread-detail";
 
-export function ChatGptUsageLimitNotice({
-  environmentId,
-  thread,
-}: {
-  environmentId: EnvironmentId;
-  thread: OrchestrationThreadShell;
-}) {
-  const state = useThreadDetail({ environmentId, threadId: thread.id });
-  const detail = Option.getOrNull(state.data);
-  if (!isChatGptUsageLimitError(detail?.activities ?? [], thread.session?.lastError)) return null;
+export function ChatGptUsageLimitNotice({ thread }: { readonly thread: EnvironmentThreadShell }) {
+  if (!thread.runtime?.lastError || thread.runtime.lastErrorCode !== CHATGPT_USAGE_LIMIT_CODE)
+    return null;
   return (
     <View
       accessibilityRole="alert"

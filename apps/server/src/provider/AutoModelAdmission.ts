@@ -8,7 +8,7 @@ import {
 } from "@j1code/shared/autoModel";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Durable task pins are revalidated by the serialized engine before provider dispatch.
 const Ref = Schema.Struct({
@@ -63,7 +63,7 @@ export const makeAutoModelAdmission = Effect.gen(function* () {
     readonly requestId: string;
     // Server-derived requirements and current exact-instance metadata only.
     readonly input: Omit<AutoModelInput, "pin" | "manual">;
-  }) {
+  }, options?: { readonly preview?: true; readonly resolverDurationMs?: number | null }) {
     const { threadId, requestId } = request;
     const input = request.input;
     const identity = yield* encodeIdentity({
@@ -127,8 +127,11 @@ export const makeAutoModelAdmission = Effect.gen(function* () {
           revision: (previous?.revision ?? 0) + 1,
           pin: measured.decision.pin,
           reason: measured.decision.reason,
-          resolverDurationMs: measured.resolverDurationMs,
+          resolverDurationMs: options?.resolverDurationMs === undefined
+            ? measured.resolverDurationMs
+            : options.resolverDurationMs,
         };
+        if (options?.preview) return receipt;
         const receiptJson = yield* encodeReceipt(receipt);
         yield* sql`INSERT INTO auto_model_admissions
         (thread_id, task_id, revision, request_id, request_identity, receipt_json)

@@ -11,6 +11,7 @@ const fixtureSource = `
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 let owner = '';
 let pairedScope = 'admin';
 let browser = process.env.J1_MAUSBOT_LIGHTPANDA_PATH;
@@ -30,6 +31,22 @@ const server = http.createServer((req, res) => {
   if(req.url === '/api/auth/pair') return res.end(JSON.stringify({token: pairedScope === 'admin' ? 'fixture-only-token' : 'fixture-client-token'}));
   if(!['Bearer fixture-only-token', 'Bearer fixture-client-token'].includes(req.headers.authorization)) { res.statusCode = 401; return res.end('{}'); }
   if(req.url === '/api/providers' && req.headers.authorization === 'Bearer fixture-client-token') { res.statusCode = 403; return res.end('{}'); }
+  if(req.url === '/api/config?j1NamedCredential=1') {
+    const key = process.env.J1_MAUSBOT_PHONE_SETTINGS_KEY;
+    const hmac = value => crypto.createHmac('sha256', key).update(value).digest('base64url');
+    const device = hmac('device\\0paired-phone');
+    const proof = device + '.' + hmac(req.method + '\\0' + device);
+    if(req.headers['x-j1-phone-settings'] !== proof || req.headers.authorization !== 'Bearer fixture-only-token') {
+      res.statusCode = 403; return res.end('{}');
+    }
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      if(body === '{"hold":true}') { res.write('{'); return; }
+      res.end(JSON.stringify({device,method:req.method,body}));
+    });
+    return;
+  }
   if(req.url === '/api/auth/session') return res.end(JSON.stringify({scope:pairedScope}));
   if(req.url === '/api/bots/redirect') { res.statusCode = 302; res.setHeader('location','https://example.invalid'); return res.end('{}'); }
   if(req.url === '/api/bots/large') return res.end(JSON.stringify('x'.repeat(4*1024*1024)));
@@ -52,6 +69,7 @@ process.stdin.on('end', () => server.listen(Number(process.env.OMB_PORT), '127.0
 async function fixture(
   conversationCall?: ConstructorParameters<typeof MausbotRuntime>[0]["conversationCall"],
   deepAI?: ConstructorParameters<typeof MausbotRuntime>[0]["deepAI"],
+  disconnect?: () => Promise<void>,
 ) {
   const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-mausbot-runtime-test-"));
   const resources = NodePath.join(root, "resources");
@@ -66,6 +84,7 @@ async function fixture(
     dataDir,
     ...(conversationCall ? { conversationCall } : {}),
     ...(deepAI ? { deepAI } : {}),
+    ...(disconnect ? { execution: { call: async () => { throw new Error("Unexpected execution"); }, disconnect } } : {}),
   });
   return { runtime, resources, dataDir, root };
 }
@@ -116,6 +135,69 @@ describe("managed upstream runtime", () => {
       ).toBe(403);
       expect((await runtime.forward("/api/providers", "POST")).status).toBe(200);
     } finally {
+      await runtime.stop();
+      await NodeFSP.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("authenticates only the exact paired settings GET and PATCH and rotates its signing key", async () => {
+    const stopping = Promise.withResolvers<void>();
+    const disconnected = Promise.withResolvers<void>();
+    const { runtime, root } = await fixture(undefined, undefined, async () => {
+      stopping.resolve();
+      await disconnected.promise;
+    });
+    const path = "/api/config?j1NamedCredential=1";
+    const phone = "paired-phone";
+    const signal = new AbortController().signal;
+    const named = (method: string, options: { url?: string; signal?: AbortSignal; client?: string; session?: string; body?: Uint8Array } = {}) =>
+      runtime.forward(options.url ?? path, method, options.body ? "application/json" : undefined,
+        options.body, options.signal ?? signal, undefined, options.client, options.session);
+    try {
+      await runtime.start();
+      expect((await named("GET")).status).toBe(403);
+      expect((await named("GET", { session: phone, client: phone })).status).toBe(403);
+      expect((await named("GET", { session: phone, signal: AbortSignal.abort() })).status).toBe(403);
+      expect((await named("GET", { session: phone, url: path + "&j1NamedCredential=1" })).status).toBe(403);
+      expect((await named("GET", { session: phone, url: "/api/config?j1NamedCredential=%31" })).status).toBe(403);
+      const wrongMethod = await named("POST", { session: phone });
+      expect(wrongMethod.status).toBe(405);
+      expect(wrongMethod.headers.get("allow")).toBe("GET, PATCH");
+
+      const get = await named("GET", { session: phone });
+      expect(get.status).toBe(200);
+      expect(get.headers.get("x-j1-phone-settings")).toBeNull();
+      expect(get.headers.get("cache-control")).toBe("no-store");
+      const result = await get.json() as { device: string };
+      expect(result).toEqual({ device: expect.stringMatching(/^[\w-]{43}$/), method: "GET", body: "" });
+      const patch = await named("PATCH", { session: phone, body: new TextEncoder().encode('{"enabled":true}') });
+      expect(patch.status).toBe(200);
+      expect(await patch.json()).toEqual({ device: result.device, method: "PATCH", body: '{"enabled":true}' });
+
+      const cancel = new AbortController();
+      const held = await named("PATCH", {
+        session: phone, signal: cancel.signal, body: new TextEncoder().encode('{"hold":true}'),
+      });
+      const reader = held.body!.getReader();
+      expect(await reader.read()).toMatchObject({ done: false });
+      const cancelled = expect(reader.read()).rejects.toThrow();
+      cancel.abort();
+      await cancelled;
+      expect((await runtime.forward("/api/providers", "POST")).status).toBe(200);
+
+      const stop = runtime.stop();
+      await stopping.promise;
+      expect((await named("GET", { session: phone })).status).toBe(403);
+      disconnected.resolve();
+      await stop;
+      await runtime.start();
+      const rotated = await named("GET", { session: phone });
+      expect(rotated.status).toBe(200);
+      const rotatedResult = await rotated.json() as { device: string };
+      expect(rotatedResult).toEqual({ device: expect.stringMatching(/^[\w-]{43}$/), method: "GET", body: "" });
+      expect(rotatedResult.device).not.toBe(result.device);
+    } finally {
+      disconnected.resolve();
       await runtime.stop();
       await NodeFSP.rm(root, { recursive: true, force: true });
     }

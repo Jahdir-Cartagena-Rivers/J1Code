@@ -26,3 +26,11 @@ describe("managed approval-mode boundary", () => {
     expect(() => decode(input)).toThrow();
   });
 });
+
+
+it("preserves an explicit Full Access thread choice without inventing acknowledgement", () => {
+  const input = { botId: "bot-1", mode: "full", options: { threadId: "thread-1", threadOnly: true, updateBotDefault: false } };
+  expect(decode(input)).toEqual(input);
+  expect(decode(input).options).not.toHaveProperty("acknowledgeLocalAuto");
+  expect(() => decode({ ...input, options: { ...input.options, refreshPermissions: "true" } })).toThrow();
+});

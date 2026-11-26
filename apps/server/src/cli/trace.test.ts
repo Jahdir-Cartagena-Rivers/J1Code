@@ -1,6 +1,6 @@
 import { assert, it } from "@effect/vitest";
 
-import { makeTraceSpanSummary } from "./trace.ts";
+import { formatTraceSummary, makeTraceSpanSummary } from "./trace.ts";
 
 const MINUTE_MS = 60_000;
 
@@ -16,56 +16,20 @@ function span(name: string, durationMs: number, endMs: number, exitTag = "Succes
   });
 }
 
-function browserSpan(name: string, status: { code: string; message?: string }) {
+function browserSpan(
+  name: string,
+  status: { code: string; message?: string },
+  attributes: Record<string, unknown> = {},
+) {
   return JSON.stringify({
     type: "otlp-span",
     name,
     durationMs: 1,
     endTimeUnixNano: "1000000",
     status,
+    attributes,
   });
 }
-
-it("reports count, rate, percentiles, and exits per span name", () => {
-  // Ten `refresh` spans of 1..10 ms end over minutes 0..9, and one `probe`
-  // span ends at minute 10, so the recorded window is 10 minutes.
-  const refreshes = Array.from({ length: 10 }, (_, index) =>
-    span(
-      "refresh",
-      index + 1,
-      index * MINUTE_MS,
-      index === 0 ? "Interrupted" : index === 1 ? "Failure" : "Success",
-    ),
-  );
-  const summarizer = makeTraceSpanSummary();
-  [...refreshes, span("probe", 2_500, 10 * MINUTE_MS)].forEach(summarizer.addLine);
-  const summary = summarizer.finish();
-
-  assert.strictEqual(summary.spanCount, 11);
-  assert.strictEqual(summary.minutes, 10);
-  assert.deepStrictEqual(summary.spans, [
-    {
-      name: "refresh",
-      count: 10,
-      perMinute: 1,
-      p50Ms: 5,
-      p90Ms: 9,
-      maxMs: 10,
-      interrupted: 1,
-      failures: 1,
-    },
-    {
-      name: "probe",
-      count: 1,
-      perMinute: 0.1,
-      p50Ms: 2_500,
-      p90Ms: 2_500,
-      maxMs: 2_500,
-      interrupted: 0,
-      failures: 0,
-    },
-  ]);
-});
 
 it("drops spans that ended before the window and counts unreadable lines", () => {
   const summarizer = makeTraceSpanSummary(MINUTE_MS);
@@ -74,7 +38,6 @@ it("drops spans that ended before the window and counts unreadable lines", () =>
     "",
     "{not json",
     JSON.stringify({ name: "no-duration" }),
-    // Ends past the largest Date, so the report could not print it.
     JSON.stringify({ name: "far-future", durationMs: 1, endTimeUnixNano: "9".repeat(22) }),
     span("recent", 4, 5 * MINUTE_MS),
   ].forEach(summarizer.addLine);
@@ -91,10 +54,53 @@ it("reads failures and interrupts of browser spans from their OTLP status", () =
   const summarizer = makeTraceSpanSummary();
   [
     browserSpan("render", { code: "2", message: "boom" }),
+    browserSpan("render", { code: "0" }, { "effect.fiber.interrupted": true }),
     browserSpan("render", { code: "1", message: "Interrupted" }),
     browserSpan("render", { code: "1" }),
   ].forEach(summarizer.addLine);
 
   const [render] = summarizer.finish().spans;
-  assert.deepStrictEqual([render?.count, render?.interrupted, render?.failures], [3, 1, 1]);
+  assert.deepStrictEqual([render?.count, render?.interrupted, render?.failures], [4, 2, 1]);
+});
+
+it("prints durations that round up to a second in seconds", () => {
+  const summarizer = makeTraceSpanSummary();
+  [span("rpc", 999.4, MINUTE_MS), span("rpc", 999.6, 2 * MINUTE_MS)].forEach(summarizer.addLine);
+
+  const row = formatTraceSummary(summarizer.finish(), 25)
+    .split("\n")
+    .find((line) => line.startsWith("rpc"));
+  assert.deepStrictEqual(row?.trim().split(/\s+/).slice(3, 6), ["999ms", "1s", "1s"]);
+});
+
+it("summarizes failed spans without including attributes, status messages or exit causes", () => {
+  const summarizer = makeTraceSpanSummary();
+  const privatePath = "/home/fixture-user/.j1/userdata";
+  const credential = "fixture-credential";
+  summarizer.addLine(
+    browserSpan("rpc.request", { code: "2", message: privatePath }, { token: credential }),
+  );
+  summarizer.addLine(
+    JSON.stringify({
+      name: "rpc.request",
+      durationMs: 5,
+      endTimeUnixNano: "2000000",
+      exit: { _tag: "Failure", cause: `${credential} at ${privatePath}` },
+    }),
+  );
+  const summary = summarizer.finish();
+  assert.equal(summary.spans[0]?.failures, 2);
+  const report = formatTraceSummary(summary, 25);
+  assert.include(report, "rpc.request");
+  assert.notInclude(report, privatePath);
+  assert.notInclude(report, credential);
+});
+
+it("reports an empty window without printing the contents of skipped lines", () => {
+  const summarizer = makeTraceSpanSummary(MINUTE_MS);
+  summarizer.addLine("incomplete private fixture");
+  const report = formatTraceSummary(summarizer.finish(), 25, true);
+  assert.include(report, "No spans found in the local trace file or its rotated files in that window.");
+  assert.include(report, "Skipped 1 lines");
+  assert.notInclude(report, "incomplete private fixture");
 });

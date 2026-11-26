@@ -1,9 +1,25 @@
+import {
+  ChatAttachment, CommandId, EnvironmentId, MessageId, OrchestrationV2LinkedSender,
+  OrchestrationV2IdleRouteCommand, OrchestrationV2StrictSteerTarget, ProjectId, ProviderInstanceId, ProviderInteractionMode,
+  RunId, RuntimeMode, ThreadId, TrimmedNonEmptyString,
+} from "@j1code/contracts";
+import type { PreparedStrictRouteDelivery, StrictRouteDeliveryResult } from "./v2StrictDelivery.ts";
 import * as Effect from "effect/Effect";
 import { automaticRouteFeedback } from "./feedback.ts";
 import * as Schema from "effect/Schema";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import {
+  assertIdleRouteSubmission,
+  claimIdleRouteSubmission,
+  settleIdleRouteSubmission,
+  type IdleDeliveryEvidence,
+  assertStrictRouteSubmission,
+  claimStrictRouteSubmission,
+  settleStrictRouteSubmission,
+  strictRouteDescriptorFingerprint,
   registerRoute,
+  bindRouteInputFingerprint,
+  replayRouteInput,
   resolveRoute,
   resolveDiscoveredOwner,
   type RouteEndpoint,
@@ -20,6 +36,11 @@ const Endpoint = Schema.Struct({
   threadId: Schema.String,
 });
 const Request = Schema.Struct({
+  origin: Schema.optionalKey(Schema.Struct({
+    subject: TrimmedNonEmptyString,
+    runId: TrimmedNonEmptyString,
+    messageId: TrimmedNonEmptyString,
+  })),
   requestId: Schema.String,
   feedbackFor: Schema.optionalKey(Schema.String),
   feedbackMessageHash: Schema.optionalKey(Schema.String),
@@ -46,7 +67,37 @@ const Receipt = Schema.Struct({
   kind: Schema.Literals(["delivered", "accepted", "completed", "failed"]),
   message: Schema.optionalKey(Schema.String),
 });
+const Modes = { runtimeMode: RuntimeMode, interactionMode: ProviderInteractionMode };
+const PreparedStrictDelivery = Schema.Struct({
+  attempt: Schema.Struct({
+    requestId: TrimmedNonEmptyString,
+    attemptId: TrimmedNonEmptyString,
+    source: Schema.Struct({ environmentId: EnvironmentId, threadId: ThreadId }),
+    destination: Schema.Struct({
+      ...Modes, environmentId: EnvironmentId, threadId: ThreadId, projectId: ProjectId,
+      providerInstanceId: ProviderInstanceId, runId: RunId,
+    }),
+    ceiling: Schema.Struct(Modes),
+    text: Schema.String,
+    attachments: Schema.Array(ChatAttachment),
+  }),
+  command: Schema.Struct({
+    type: Schema.Literal("message.steer-strict"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    messageId: MessageId,
+    text: Schema.String,
+    attachments: Schema.Array(ChatAttachment),
+    createdBy: Schema.Literals(["user", "agent", "system"]),
+    creationSource: Schema.Literals(["web", "mobile", "mcp", "provider", "server"]),
+    senderThreadId: Schema.optional(ThreadId),
+    linkedSender: Schema.optional(OrchestrationV2LinkedSender),
+    target: OrchestrationV2StrictSteerTarget,
+  }),
+});
+const decodePreparedStrictDelivery = Schema.decodeUnknownEffect(PreparedStrictDelivery);
 const State = Schema.Struct({
+  inputFingerprint: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u))),
   request: Request,
   originalRequest: Request,
   resolution: Schema.NullOr(
@@ -73,6 +124,16 @@ const State = Schema.Struct({
   reason: Schema.NullOr(Schema.String),
   attemptId: Schema.NullOr(Schema.String),
   receipts: Schema.Array(Receipt),
+  idleSubmission: Schema.optionalKey(Schema.Struct({
+    routeFingerprint: TrimmedNonEmptyString,
+    commandFingerprint: TrimmedNonEmptyString,
+    command: OrchestrationV2IdleRouteCommand,
+  })),
+  strictSubmission: Schema.optionalKey(Schema.Struct({
+    routeFingerprint: TrimmedNonEmptyString,
+    descriptorFingerprint: TrimmedNonEmptyString,
+    delivery: PreparedStrictDelivery,
+  })),
 });
 const Event = Schema.Union([
   Schema.Struct({ type: Schema.Literal("confirm") }),
@@ -87,6 +148,7 @@ const encodeState = Schema.encodeEffect(Schema.fromJsonString(State));
 const decodeRequest = Schema.decodeEffect(Request);
 const decodeEvent = Schema.decodeUnknownSync(Event);
 const decodeEndpoint = Schema.decodeEffect(Endpoint);
+const decodeIdleCommand = Schema.decodeEffect(OrchestrationV2IdleRouteCommand);
 export class RoutingStoreError extends Schema.TaggedError<RoutingStoreError>()(
   "RoutingStoreError",
   {
@@ -96,7 +158,7 @@ export class RoutingStoreError extends Schema.TaggedError<RoutingStoreError>()(
 ) {}
 export interface StoredRoute {
   readonly revision: number;
-  readonly state: typeof State.Type;
+  readonly state: RouteState;
 }
 
 /** Infrastructure only. A single server owner must recover interrupted sends before dispatch.
@@ -111,8 +173,11 @@ export interface RouteResolutionVerifier {
   ) => Effect.Effect<RouteResolutionAuthority, RoutingStoreError>;
 }
 
-export const makeDurableRoutingStoreWithResolution = (verifier?: RouteResolutionVerifier) =>
-  Effect.gen(function* () {
+const validateRoute = <A>(operation: string, evaluate: () => A) =>
+  Effect.try({ try: evaluate, catch: (cause) => new RoutingStoreError({ operation, cause }) });
+
+export const makeDurableRoutingStoreWithResolution = Effect.fn("makeDurableRoutingStoreWithResolution")(
+  function* (verifier?: RouteResolutionVerifier) {
     const sql = yield* SqlClient.SqlClient;
     const get = Effect.fn("DurableRoutingStore.get")(function* (requestId: string) {
       const rows = yield* sql<{
@@ -121,21 +186,28 @@ export const makeDurableRoutingStoreWithResolution = (verifier?: RouteResolution
       }>`SELECT revision, state_json FROM durable_routes WHERE request_id = ${requestId}`;
       const row = rows[0];
       if (!row) return null;
-      return {
-        revision: row.revision,
-        state: yield* decodeState(row.state_json),
-      };
+      const state = yield* decodeState(row.state_json);
+      yield* validateRoute("validate-stored-proof", () => {
+        assertIdleRouteSubmission(state);
+        assertStrictRouteSubmission(state);
+      });
+      return { revision: row.revision, state };
     });
-    const create = Effect.fn("DurableRoutingStore.create")(function* (input: RouteRequest) {
+    const create = Effect.fn("DurableRoutingStore.create")(function* (input: RouteRequest, inputFingerprint?: string) {
       const request = yield* decodeRequest(input);
-      const state = yield* Effect.try(() => registerRoute(request));
+      const state = yield* validateRoute("register", () => {
+        const initial = registerRoute(request);
+        return inputFingerprint === undefined ? initial : bindRouteInputFingerprint(initial, inputFingerprint);
+      });
       yield* sql`INSERT INTO durable_routes(request_id, fingerprint, revision, status, state_json)
       VALUES (${request.requestId}, ${state.fingerprint}, 0, ${state.status}, ${yield* encodeState(state)}) ON CONFLICT(request_id) DO NOTHING`;
       const stored = yield* get(request.requestId);
+      if (stored && inputFingerprint !== undefined) {
+        yield* validateRoute("replay-input", () => replayRouteInput(stored.state, inputFingerprint));
+        return stored;
+      }
       if (!stored || stored.state.fingerprint !== state.fingerprint)
-        return yield* Effect.fail(
-          new RoutingStoreError({ operation: "validate", cause: "Route identity conflict" }),
-        );
+        return yield* new RoutingStoreError({ operation: "validate", cause: "Route identity conflict" });
       return stored;
     });
     const transition = Effect.fn("DurableRoutingStore.transition")(function* (
@@ -145,27 +217,23 @@ export const makeDurableRoutingStoreWithResolution = (verifier?: RouteResolution
     ) {
       const stored = yield* get(requestId);
       if (!stored)
-        return yield* Effect.fail(
-          new RoutingStoreError({ operation: "validate", cause: "Route not found" }),
-        );
+        return yield* new RoutingStoreError({ operation: "validate", cause: "Route not found" });
       if (stored.revision !== expectedRevision)
-        return yield* Effect.fail(
-          new RoutingStoreError({ operation: "validate", cause: "Route revision conflict" }),
-        );
+        return yield* new RoutingStoreError({ operation: "validate", cause: "Route revision conflict" });
       const state =
         typeof input === "function"
-          ? yield* Effect.try(() => input(stored.state))
-          : yield* Effect.try(() => transitionRoute(stored.state, decodeEvent(input)));
+          ? yield* validateRoute("transition", () => input(stored.state))
+          : yield* validateRoute("transition", () => transitionRoute(stored.state, decodeEvent(input)));
+      yield* validateRoute("validate-strict-proof", () => assertStrictRouteSubmission(state));
+      yield* validateRoute("validate-idle-proof", () => assertIdleRouteSubmission(state));
       // Duplicate receipts are no-ops, but still check the revision atomically.
       const revision = stored.revision + (state === stored.state ? 0 : 1);
       const rows =
         yield* sql`UPDATE durable_routes SET revision = ${revision}, status = ${state.status}, state_json = ${yield* encodeState(state)}
       WHERE request_id = ${requestId} AND revision = ${expectedRevision} RETURNING request_id`;
       if (rows.length !== 1)
-        return yield* Effect.fail(
-          new RoutingStoreError({ operation: "validate", cause: "Route revision conflict" }),
-        );
-      const feedback = yield* Effect.try(() => automaticRouteFeedback(state));
+        return yield* new RoutingStoreError({ operation: "validate", cause: "Route revision conflict" });
+      const feedback = yield* validateRoute("create-feedback", () => automaticRouteFeedback(state));
       if (feedback && state !== stored.state) yield* create(feedback);
       return { revision, state };
     }, sql.withTransaction);
@@ -187,12 +255,10 @@ export const makeDurableRoutingStoreWithResolution = (verifier?: RouteResolution
           "resolve",
           Effect.gen(function* () {
             if (!verifier)
-              return yield* Effect.fail(
-                new RoutingStoreError({
+              return yield* new RoutingStoreError({
                   operation: "resolve",
                   cause: "User resolution verifier unavailable",
-                }),
-              );
+                });
             const endpoint = yield* decodeEndpoint(destination);
             const authority = yield* verifier.verify(id, endpoint);
             if (
@@ -200,12 +266,10 @@ export const makeDurableRoutingStoreWithResolution = (verifier?: RouteResolution
               authority.destination.projectId !== endpoint.projectId ||
               authority.destination.threadId !== endpoint.threadId
             )
-              return yield* Effect.fail(
-                new RoutingStoreError({
+              return yield* new RoutingStoreError({
                   operation: "resolve",
                   cause: "Resolution destination mismatch",
-                }),
-              );
+                });
             return yield* transition(id, revision, (state) => resolveRoute(state, authority));
           }),
         ),
@@ -242,16 +306,90 @@ export const makeDurableRoutingStoreWithResolution = (verifier?: RouteResolution
           Effect.gen(function* () {
             const rows = yield* sql<{
               request_id: string;
-            }>`SELECT request_id FROM durable_routes WHERE status IN ('admitted', 'uncertain') AND json_extract(state_json, '$.request.destination.threadId') LIKE 'mausbot:%' ORDER BY request_id LIMIT 128`;
+            }>`SELECT request_id FROM durable_routes WHERE status IN ('admitted', 'uncertain') AND json_type(state_json, '$.strictSubmission') IS NULL AND json_extract(state_json, '$.request.destination.threadId') LIKE 'mausbot:%' ORDER BY request_id LIMIT 128`;
             return rows.map((row) => row.request_id);
           }),
         ),
+      unconfirmedStrict: () =>
+        wrap("unconfirmedStrict", Effect.gen(function* () {
+          const rows = yield* sql<{ request_id: string }>`SELECT request_id FROM durable_routes
+            WHERE status IN ('sending', 'admitted', 'uncertain')
+              AND json_type(state_json, '$.strictSubmission') = 'object'
+            ORDER BY request_id LIMIT 128`;
+          return rows.map((row) => row.request_id);
+        })),
+      claimIdleSubmission: (
+        id: string, revision: number, fingerprint: string, command: OrchestrationV2IdleRouteCommand,
+      ) => wrap("claimIdleSubmission", Effect.gen(function* () {
+        const decoded = yield* decodeIdleCommand(command);
+        return yield* transition(id, revision, (state) =>
+          claimIdleRouteSubmission(
+            transitionRoute(state, { type: "begin-send", attemptId: decoded.attemptId }),
+            fingerprint, decoded,
+          ),
+        );
+      })),
+      settleIdleSubmission: (
+        id: string, revision: number, commandFingerprint: string, evidence: IdleDeliveryEvidence,
+      ) => wrap("settleIdleSubmission", transition(id, revision, (state) =>
+        settleIdleRouteSubmission(state, commandFingerprint, evidence),
+      )),
+      idleRequestForRun: (runId: string) => wrap("idleRequestForRun", Effect.gen(function* () {
+        const rows = yield* sql<{ request_id: string }>`
+          SELECT request_id FROM durable_routes
+          WHERE json_extract(state_json, '$.idleSubmission.command.runId') = ${runId} LIMIT 2
+        `;
+        return rows.length === 1 ? rows[0]?.request_id ?? null : null;
+      })),
+      lastUnconfirmedIdle: () => wrap("lastUnconfirmedIdle", Effect.gen(function* () {
+        const rows = yield* sql<{ last_id: string | null }>`
+          SELECT MAX(request_id) AS last_id FROM durable_routes
+          WHERE status IN ('sending', 'admitted', 'uncertain')
+            AND json_type(state_json, '$.idleSubmission') = 'object'
+        `;
+        return rows[0]?.last_id ?? null;
+      })),
+      unconfirmedIdle: (after: string, last: string) => wrap("unconfirmedIdle", Effect.gen(function* () {
+        const rows = yield* sql<{ request_id: string }>`
+          SELECT request_id FROM durable_routes
+          WHERE status IN ('sending', 'admitted', 'uncertain')
+            AND request_id > ${after} AND request_id <= ${last}
+            AND json_type(state_json, '$.idleSubmission') = 'object'
+          ORDER BY request_id LIMIT 128
+        `;
+        return rows.map((row) => row.request_id);
+      })),
+      claimStrictSubmission: (
+        id: string,
+        revision: number,
+        fingerprint: string,
+        delivery: PreparedStrictRouteDelivery,
+      ) => wrap("claimStrictSubmission", Effect.gen(function* () {
+        const decoded = yield* decodePreparedStrictDelivery(delivery);
+        if (strictRouteDescriptorFingerprint(decoded) !== strictRouteDescriptorFingerprint(delivery)) {
+          return yield* new RoutingStoreError({
+            operation: "validate", cause: "Strict route descriptor changed during validation",
+          });
+        }
+        return yield* transition(id, revision, (state) =>
+          claimStrictRouteSubmission(state, fingerprint, decoded),
+        );
+      })),
+      settleStrictSubmission: (
+        id: string,
+        revision: number,
+        descriptorFingerprint: string,
+        result: StrictRouteDeliveryResult,
+      ) => wrap("settleStrictSubmission", transition(id, revision, (state) =>
+        settleStrictRouteSubmission(state, descriptorFingerprint, result),
+      )),
       get: (id: string) => wrap("get", get(id)),
-      create: (request: RouteRequest) => wrap("create", create(request)),
+      create: (request: RouteRequest, inputFingerprint?: string) => wrap("create", create(request, inputFingerprint)),
       transition: (id: string, revision: number, event: RouteEvent) =>
         wrap("transition", transition(id, revision, event)),
       recoverInterruptedSends: () => wrap("recoverInterruptedSends", recoverInterruptedSends()),
     };
-  });
+  },
+);
 
 export const makeDurableRoutingStore = makeDurableRoutingStoreWithResolution();

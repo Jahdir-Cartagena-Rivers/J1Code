@@ -1,0 +1,21 @@
+import { isActiveSubagentStatus } from "@j1code/client-runtime/state/subagentRuntime";
+import type { OrchestrationV2Subagent } from "@j1code/contracts";
+import { formatDuration } from "@j1code/shared/orchestrationTiming";
+import * as DateTime from "effect/DateTime";
+
+export function subagentCardElapsed(
+  agents: ReadonlyArray<Pick<OrchestrationV2Subagent, "status" | "startedAt" | "completedAt">>,
+  nowMs: number,
+): string | null {
+  const starts = agents.flatMap((agent) =>
+    agent.startedAt ? [DateTime.toEpochMillis(agent.startedAt)] : [],
+  );
+  if (starts.length === 0) return null;
+  const live = agents.some((agent) => isActiveSubagentStatus(agent.status));
+  if (!live && agents.some((agent) => agent.completedAt === null)) return null;
+  const ends = agents.flatMap((agent) =>
+    agent.completedAt ? [DateTime.toEpochMillis(agent.completedAt)] : [],
+  );
+  const duration = (live ? nowMs : Math.max(...ends)) - Math.min(...starts);
+  return duration > 0 ? formatDuration(duration) : null;
+}

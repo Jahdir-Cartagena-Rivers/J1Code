@@ -1,5 +1,5 @@
 import * as Schema from "effect/Schema";
-import { RuntimeMode } from "./orchestration.ts";
+import { RuntimeMode } from "./providerPolicy.ts";
 import { ConversationEndpoint, ConversationPrincipal } from "./conversation.ts";
 
 /** Private adapter facts, re-read by the serialized command admission boundary. */
@@ -86,4 +86,4 @@ export const MausbotRoutingInvocation = Schema.Struct({
   arguments: Schema.Unknown,
 });
 export type MausbotRoutingInvocation = typeof MausbotRoutingInvocation.Type;
-export type ExternalRoutingActor = typeof ConversationPrincipal.Type;
+export type ExternalRoutingActor = ConversationPrincipal;

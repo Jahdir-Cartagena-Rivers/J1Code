@@ -1,62 +1,73 @@
-import { CommandId, EventId, ThreadId, manualRouteStatusLabel } from "@j1code/contracts";
 import { DateTime, Effect, Option } from "effect";
+import * as Context from "effect/Context";
+
 import { ExternalRouteEndpoints } from "./ExternalRouteEndpoints.ts";
-import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import type { StoredRoute } from "./durableRoutingStore.ts";
 import { automaticRouteFeedback } from "./feedback.ts";
+import type { RouteEndpoint, RouteStatus } from "./routeState.ts";
 
-/** Durable source-chat notice, never evidence of destination acceptance. */
+export interface LocalRouteNotice {
+  readonly id: string;
+  readonly source: RouteEndpoint;
+  readonly destination: RouteEndpoint | null;
+  readonly requestId: string;
+  readonly revision: number;
+  readonly status: RouteStatus;
+  readonly summary: string;
+  readonly occurredAt: DateTime.Utc;
+}
+
+/** Supplied by a durable V2 audit writer when local route activity is supported. */
+export class LocalRouteNoticeWriter extends Context.Service<
+  LocalRouteNoticeWriter,
+  { readonly write: (notice: LocalRouteNotice) => Effect.Effect<void, unknown> }
+>()("@j1code/server/routing/sourceActivity/LocalRouteNoticeWriter") {}
+
+export function toLocalRouteNotice(row: StoredRoute, occurredAt: DateTime.Utc): LocalRouteNotice | null {
+  const { state, revision } = row;
+  if (state.request.feedbackFor) return null;
+  return {
+    id: `routing-notice:${state.request.requestId}:${revision}`,
+    source: state.request.source,
+    destination: state.request.destination,
+    requestId: state.request.requestId,
+    revision,
+    status: state.status,
+    summary: state.originalRequest.content.split("\n")[0]?.slice(0, 200) ?? "Forwarded request",
+    occurredAt,
+  };
+}
+
+/** Source status is informational and never advances the receiving attempt. */
 export const makeRouteSourceNotifier = Effect.gen(function* () {
-  const engine = yield* OrchestrationEngineService;
   const external = yield* Effect.serviceOption(ExternalRouteEndpoints);
-  return (row: StoredRoute) =>
-    Effect.gen(function* () {
-      const { state, revision } = row;
-      if (state.request.feedbackFor) return;
-      const feedback = automaticRouteFeedback(state);
-      if (feedback) {
-        if (state.request.source.threadId.startsWith("mausbot:") && Option.isSome(external))
-          yield* external.value.wake;
+  const local = yield* Effect.serviceOption(LocalRouteNoticeWriter);
+  return Effect.fn("RouteSourceNotifier.publish")(function* (row: StoredRoute) {
+    const notice = toLocalRouteNotice(row, yield* DateTime.now);
+    if (notice === null) return "suppressed" as const;
+    if (notice.source.threadId.startsWith("mausbot:")) {
+      if (Option.isNone(external)) {
+        yield* Effect.logWarning("External route source notice held", { requestId: notice.requestId });
+        return "held" as const;
       }
-      if (state.request.source.threadId.startsWith("mausbot:")) {
-        if (Option.isNone(external)) return;
-        yield* external.value.notice({
-          endpoint: state.request.source,
-          requestId: state.request.requestId,
-          revision,
-          status: state.status,
-          summary:
-            state.originalRequest.content.split("\n")[0]?.slice(0, 200) ?? "Forwarded request",
-        });
-        return;
-      }
-      const id = `routing-notice:${state.request.requestId}:${revision}`;
-      const createdAt = DateTime.formatIso(yield* DateTime.now);
-      yield* engine.dispatch({
-        type: "thread.activity.append",
-        commandId: CommandId.make(id),
-        threadId: ThreadId.make(state.request.source.threadId),
-        createdAt,
-        activity: {
-          id: EventId.make(id),
-          kind: "routing.updated",
-          tone: "info",
-          turnId: null,
-          createdAt,
-          summary: `Request: ${manualRouteStatusLabel(state.status)}`,
-          payload: {
-            requestId: state.request.requestId,
-            revision,
-            status: state.status,
-            summary:
-              state.originalRequest.content.split("\n")[0]?.slice(0, 200) ?? "Forwarded request",
-            destination: state.request.destination,
-          },
-        },
+      if (automaticRouteFeedback(row.state)) yield* external.value.wake;
+      yield* external.value.notice({
+        endpoint: notice.source, requestId: notice.requestId,
+        revision: notice.revision, status: notice.status, summary: notice.summary,
       });
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logWarning("Could not publish source routing notice", { cause }),
-      ),
-    );
+    } else {
+      if (Option.isNone(local)) {
+        yield* Effect.logWarning("Local route source notice held pending V2 audit support", {
+          requestId: notice.requestId, revision: notice.revision,
+        });
+        return "held" as const;
+      }
+      yield* local.value.write(notice);
+    }
+    return "published" as const;
+  }, (effect) => effect.pipe(Effect.catch((cause) =>
+    Effect.logWarning("Could not publish source routing notice", { cause }).pipe(
+      Effect.as("held" as const),
+    ),
+  )));
 });

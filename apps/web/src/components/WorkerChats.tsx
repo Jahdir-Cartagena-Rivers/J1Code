@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import type { ScopedThreadRef } from "@j1code/contracts";
-import type { EnvironmentThreadShell } from "@j1code/client-runtime/state/shell";
+import type { EnvironmentThreadShell } from "@j1code/client-runtime/state/models";
 import {
   foldWorkerChat,
   createWorkerChatLookup,
@@ -11,7 +11,7 @@ import {
   workerChatKey,
 } from "@j1code/client-runtime/worker-chats";
 import { ChevronDown, ChevronRight, Minus, Plus } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useClientSettings } from "~/hooks/useSettings";
 import { cn } from "~/lib/utils";
@@ -37,30 +37,23 @@ export function getProjectRootChats(threads: readonly EnvironmentThreadShell[]) 
 
 export function useRootChatShells() {
   const threads = useThreadShells();
-  return useMemo(() => getProjectRootChats(threads), [threads]);
+  return getProjectRootChats(threads);
 }
 
 function useWorkerChats(parent: ScopedThreadRef) {
   const threads = useThreadShells();
-  const children = useMemo(
-    () =>
-      lookupWorkerChats(threads, {
-        environmentId: parent.environmentId,
-        id: parent.threadId,
-      }),
-    [parent.environmentId, parent.threadId, threads],
-  );
+  const children = lookupWorkerChats(threads, {
+    environmentId: parent.environmentId,
+    id: parent.threadId,
+  });
   const key = workerChatKey({ environmentId: parent.environmentId, id: parent.threadId });
   const previous = useWorkerChatStore((state) => state.byParentKey[key]);
   const setExpansion = useWorkerChatStore((state) => state.setExpansion);
-  const expansion = useMemo(
-    () =>
-      reconcileWorkerChatExpansion(
-        previous,
-        children.map((child) => child.id),
-      ),
-    [children, previous],
+  const expansion = reconcileWorkerChatExpansion(
+    previous,
+    children.map((child) => child.id),
   );
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Persist reconciled child IDs and folds in the external worker-chat store across remounts.
   useEffect(() => {
     if (children.length > 0 && expansion !== previous) setExpansion(key, expansion);
   }, [children.length, expansion, key, previous, setExpansion]);
@@ -78,16 +71,12 @@ function WorkerChatLink({
   const clearSelection = useThreadSelectionStore((state) => state.clearSelection);
   const setAnchor = useThreadSelectionStore((state) => state.setAnchor);
   const [isFileDragOver, setIsFileDragOver] = useState(false);
-  const fileDropHandlers = useMemo(
-    () =>
-      makeWorkspaceFileDropHandlers({
-        setDragActive: setIsFileDragOver,
-        addFiles: (files) =>
-          onFileDropThreads?.({ environmentId: thread.environmentId, threadId: thread.id }, files),
-        addFolders: () => {},
-      }),
-    [onFileDropThreads, thread.environmentId, thread.id],
-  );
+  const fileDropHandlers = makeWorkspaceFileDropHandlers({
+    setDragActive: setIsFileDragOver,
+    addFiles: (files) =>
+      onFileDropThreads?.({ environmentId: thread.environmentId, threadId: thread.id }, files),
+    addFolders: () => {},
+  });
   const lastVisitedAt = useUiStateStore(
     (state) => state.threadLastVisitedAtById[workerChatKey(thread)],
   );
@@ -231,7 +220,7 @@ export function WorkerChatsInChat({ parent }: { parent: ScopedThreadRef }) {
   );
   const lead = threads.find(
     (thread) =>
-      thread.environmentId === parent.environmentId && thread.id === shell?.parentThreadId,
+      thread.environmentId === parent.environmentId && thread.id === shell?.lineage.parentThreadId,
   );
   if (children.length === 0 && !lead) return null;
   return (

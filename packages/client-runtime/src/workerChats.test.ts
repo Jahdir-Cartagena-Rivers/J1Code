@@ -38,6 +38,19 @@ describe("saved worker chat navigation", () => {
       "child2",
     ]);
     expect(getRootChats(threads).map((thread) => thread.id)).toEqual(["parent0", "remote1"]);
+    const nested = threads.map(({ parentThreadId, ...thread }) => ({
+      ...thread, lineage: { parentThreadId },
+    }));
+    const lookup = createWorkerChatLookup<(typeof nested)[number]>();
+    expect(lookup(nested, parent).map((thread) => thread.id)).toEqual(["child1", "child2"]);
+    expect(getRootChats(nested).map((thread) => thread.id)).toEqual(["parent0", "remote1"]);
+    const currentRoot = { ...chat("root4", parent.id), lineage: { parentThreadId: null } };
+    expect(getRootChats([parent, currentRoot]).map((thread) => thread.id)).toEqual(["parent0", "root4"]);
+    const fork = { ...chat("fork5", parent.id), lineage: { parentThreadId: parent.id, relationshipToParent: "fork" as const } };
+    const side = { ...chat("side6", parent.id), lineage: { parentThreadId: parent.id, relationshipToParent: "fork" as const, sideChat: true } };
+    const mixed = [parent, fork, side];
+    expect(getRootChats(mixed).map((thread) => thread.id)).toEqual([parent.id, fork.id]);
+    expect(createWorkerChatLookup<(typeof mixed)[number]>()(mixed, parent)).toEqual([]);
   });
 
   it("keeps orphaned workers reachable and never drops an invalid cycle", () => {

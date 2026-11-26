@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 import * as NodeSqliteClient from "@j1code/shared/nodeSqliteClient";
-import migration from "../persistence/Migrations/060_DurableRoutes.ts";
+import { Migration0060 as migration } from "../persistence/J1MigrationBridge.ts";
 import { makeDurableRoutingStore } from "./durableRoutingStore.ts";
 import {
   makeDeliveryDispatcher,
@@ -47,9 +47,7 @@ const fixture = Effect.fnUntraced(function* () {
             expect((yield* store.get("r").pipe(Effect.orDie))?.state.status).toBe("sending");
             sends++;
             if (outcome === "throw")
-              return yield* Effect.fail(
-                new DeliveryDispatchError({ message: "transport disconnected" }),
-              );
+              return yield* new DeliveryDispatchError({ message: "transport disconnected" });
             if (outcome === "missing") return null;
             last = {
               receiptId: "receipt",
@@ -174,8 +172,9 @@ describe("delivery dispatcher", () => {
       }).pipe(Effect.provide(database)),
   );
 
-  for (const outcome of ["throw", "missing"] as const) {
-    it.effect(`makes ${outcome} uncertain and never resends across dispatcher restart`, () =>
+  it.effect.each(["throw", "missing"] as const)(
+    "makes %s uncertain and never resends across dispatcher restart",
+    (outcome) =>
       Effect.gen(function* () {
         const f = yield* fixture();
         yield* f.dispatcher.register(request);
@@ -187,8 +186,7 @@ describe("delivery dispatcher", () => {
         yield* restarted.dispatch("r");
         expect(f.sends()).toBe(1);
       }).pipe(Effect.provide(database)),
-    );
-  }
+  );
 
   it.effect(
     "recovers a crash after durable claim without sending; guards environment, loops and ambiguous auto",

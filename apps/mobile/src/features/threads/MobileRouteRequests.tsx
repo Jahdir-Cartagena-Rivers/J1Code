@@ -10,7 +10,7 @@ import {
   EnvironmentId,
   type ManualRouteStatus,
 } from "@j1code/contracts";
-import { AppText as Text } from "../../components/AppText";
+import { AppText as Text } from "../../components/ui/AppText";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useProjects, useThreadShells } from "../../state/entities";
@@ -44,10 +44,7 @@ export function MobileRouteRequests({
     (thread) => thread.environmentId === environmentId && thread.id !== threadId,
   );
   const detail = useEnvironmentThread(environmentId, ThreadId.make(threadId));
-  const revision =
-    Option.getOrNull(detail.data)?.activities.filter(
-      (activity) => activity.kind === "routing.updated",
-    ).length ?? 0;
+  const revision = JSON.stringify(Option.getOrNull(detail.data)?.thread.routeNotices ?? []);
   const [requests, setRequests] = useState<ReadonlyArray<typeof ManualRouteStatus.Type>>([]);
   const [notice, setNotice] = useState("");
   const [noticeRequestId, setNoticeRequestId] = useState<string | null>(null);

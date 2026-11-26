@@ -1,10 +1,11 @@
 import { DesktopToolError } from "@j1code/contracts";
 import * as Effect from "effect/Effect";
 import { DesktopAutomation } from "../../../desktop/DesktopAutomation.ts";
-import { requireMcpCapability } from "../../McpInvocationContext.ts";
+import { requireThreadMcpCapability } from "../../McpInvocationContext.ts";
 import { DesktopStandardToolkit, DesktopScreenshotToolkit } from "./tools.ts";
 
-const access = requireMcpCapability("desktop").pipe(
+const access = requireThreadMcpCapability("desktop").pipe(
+  Effect.filterOrFail((scope) => scope.client === undefined, () => new Error("Provider thread required")),
   Effect.mapError(
     () =>
       new DesktopToolError({
@@ -14,7 +15,7 @@ const access = requireMcpCapability("desktop").pipe(
       }),
   ),
 );
-export const DesktopStandardHandlersLive = DesktopStandardToolkit.toLayer({
+export const DesktopStandardHandlersLive = DesktopStandardToolkit.toLayer(Effect.succeed(DesktopStandardToolkit.of({
   desktop_read: (input) =>
     Effect.gen(function* () {
       const scope = yield* access;
@@ -31,12 +32,12 @@ export const DesktopStandardHandlersLive = DesktopStandardToolkit.toLayer({
         ...(input.stdin === undefined ? {} : { stdin: input.stdin }),
       });
     }),
-});
-export const DesktopScreenshotHandlersLive = DesktopScreenshotToolkit.toLayer({
+})));
+export const DesktopScreenshotHandlersLive = DesktopScreenshotToolkit.toLayer(Effect.succeed(DesktopScreenshotToolkit.of({
   desktop_screenshot: (input) =>
     Effect.gen(function* () {
       const scope = yield* access;
       const desktop = yield* DesktopAutomation;
       return yield* desktop.screenshot(scope, input);
     }),
-});
+})));

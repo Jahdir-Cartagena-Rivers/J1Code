@@ -1,34 +1,28 @@
-import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
+import { useCallback, useMemo, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 import * as Option from "effect/Option";
-import { NativeStackScreenOptions } from "../../native/StackHeader";
-import { AppText } from "../../components/AppText";
-import { MaterialButton } from "../../components/MaterialButton";
+import { AppText } from "../../components/ui/AppText";
+import { Button } from "../../components/ui/Button";
 import { useEnvironments } from "../../state/environments";
 import { usePreparedConnection } from "../../state/session";
 import { SharedWorkspace } from "../mausbot/SharedWorkspace";
 import { selectWorkspaceEnvironment, workspaceConversationUrl } from "../mausbot/workspace-browser";
+import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 import { useHomeListOptions } from "./home-list-options";
-import { checkForAppUpdateOnLaunch, startAppUpdateForegroundRecheck } from "../updates/app-updates";
 
-export function HomeRouteScreen(
-  props: StaticScreenProps<
-    { workspaceEnvironmentId?: string; workspaceThreadId?: string } | undefined
-  >,
-) {
+export type HomeRouteParameters = { workspaceEnvironmentId?: string; workspaceThreadId?: string } | undefined;
+
+export function HomeRouteScreen() {
   const navigation = useNavigation();
-  useEffect(() => {
-    void checkForAppUpdateOnLaunch();
-    startAppUpdateForegroundRecheck();
-  }, []);
+  const { setNativeToolsActive } = useAdaptiveWorkspaceLayout();
   const { environments } = useEnvironments();
   const availableIds = useMemo(
     () => new Set(environments.map((e) => e.environmentId)),
     [environments],
   );
   const { options } = useHomeListOptions(availableIds);
-  const parameters = props.route.params;
+  const parameters = useRoute<RouteProp<{ Home: HomeRouteParameters }, "Home">>().params;
   const target =
     parameters?.workspaceEnvironmentId && parameters.workspaceThreadId
       ? { environmentId: parameters.workspaceEnvironmentId, threadId: parameters.workspaceThreadId }
@@ -57,7 +51,6 @@ export function HomeRouteScreen(
   const openConnections = useCallback(() => navigation.navigate("Connections"), [navigation]);
   return (
     <>
-      <NativeStackScreenOptions options={{ headerShown: false }} />
       {address ? (
         <SharedWorkspace
           key={`${address.environmentId}:${address.baseUrl}`}
@@ -65,7 +58,7 @@ export function HomeRouteScreen(
           baseUrl={address.baseUrl}
           {...(target ? { initialUrl: workspaceConversationUrl(address.baseUrl, target) } : {})}
           onOpenConnections={openConnections}
-          onOpenAppTools={openConnections}
+          onOpenAppTools={() => setNativeToolsActive(true)}
         />
       ) : (
         <View className="flex-1 items-center justify-center gap-4 bg-screen px-6">
@@ -77,7 +70,8 @@ export function HomeRouteScreen(
                 : "Connecting to J1…"
               : "Choose a server to open J1."}
           </AppText>
-          <MaterialButton label="Connections" onPress={openConnections} />
+          <Button label="Connections" onPress={openConnections} />
+          <Button label="App tools" onPress={() => setNativeToolsActive(true)} />
         </View>
       )}
     </>

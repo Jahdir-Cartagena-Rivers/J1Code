@@ -1,7 +1,7 @@
 import type { BotId, BotRoutine, EnvironmentId } from "@j1code/contracts";
 import { View } from "react-native";
-import { AppText } from "../../components/AppText";
-import { MaterialButton } from "../../components/MaterialButton";
+import { AppText } from "../../components/ui/AppText";
+import { Button as MaterialButton } from "../../components/ui/Button";
 import { botRoutineHistory } from "../../state/botRoutines";
 import { useEnvironmentQuery } from "../../state/query";
 const labels = {

@@ -1,112 +1,34 @@
+import { createElement } from "react";
+import { ProviderPackageIcon } from "../chat/ProviderPackageIcon";
+import type { ProviderDriverKind } from "@j1code/contracts";
+import { providerClients } from "@j1code/client-runtime/provider-clients";
+import type { ProviderClientDefinition as RegistryProviderClientDefinition } from "@j1code/provider-core/client";
 import {
-  AntigravitySettings,
-  ClaudeSettings,
-  CodexSettings,
-  CursorSettings,
-  GrokSettings,
-  OpenCodeSettings,
-  ProviderDriverKind,
-} from "@j1code/contracts";
-import * as Schema from "effect/Schema";
-import {
-  AntigravityIcon,
-  ClaudeAI,
-  CursorIcon,
-  GrokIcon,
-  type Icon,
-  OpenAI,
-  OpenCodeIcon,
-  DeepAIIcon,
+  AntigravityIcon, ClaudeAI, CursorIcon, DeepAIIcon, type Icon, OpenAI,
 } from "../Icons";
 
-type ProviderSettingsSchema = {
-  readonly fields: Readonly<Record<string, Schema.Top>>;
-} & Schema.Top;
+export { providerClients };
 
-/**
- * Browser-safe provider definition. This is deliberately shaped like the
- * future provider package client export: the core web app gets a schema with
- * field annotations plus provider-level presentation metadata, then renders
- * settings generically.
- */
-export interface ProviderClientDefinition {
+const legacyIcons: Readonly<Record<string, Icon>> = {
+  codex: OpenAI, claudeAgent: ClaudeAI, cursor: CursorIcon,
+  antigravity: AntigravityIcon, deepai: DeepAIIcon,
+};
+
+export type ProviderClientDefinition = Omit<RegistryProviderClientDefinition, "driverKind" | "icon"> & {
   readonly value: ProviderDriverKind;
-  readonly label: string;
-  readonly icon: Icon;
-  readonly settingsSchema: ProviderSettingsSchema;
-  /**
-   * Optional short label rendered as a `variant="warning"` badge next to
-   * the instance title. Used to flag drivers that still ship under an
-   * early-access or preview gate — the flag is a property of the driver
-   * kind (not a specific instance), so every instance of that driver —
-   * built-in default or custom — advertises the same marker.
-   */
-  readonly badgeLabel?: string;
-}
+  readonly icon?: Icon;
+};
 
-const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = [
-  {
-    value: ProviderDriverKind.make("codex"),
-    label: "Codex",
-    icon: OpenAI,
-    settingsSchema: CodexSettings,
-  },
-  {
-    value: ProviderDriverKind.make("claudeAgent"),
-    label: "Claude",
-    icon: ClaudeAI,
-    settingsSchema: ClaudeSettings,
-  },
-  {
-    value: ProviderDriverKind.make("cursor"),
-    label: "Cursor",
-    icon: CursorIcon,
-    badgeLabel: "Early Access",
-    settingsSchema: CursorSettings,
-  },
-  {
-    value: ProviderDriverKind.make("grok"),
-    label: "Grok",
-    icon: GrokIcon,
-    badgeLabel: "Early Access",
-    settingsSchema: GrokSettings,
-  },
-  {
-    value: ProviderDriverKind.make("opencode"),
-    label: "OpenCode",
-    icon: OpenCodeIcon,
-    settingsSchema: OpenCodeSettings,
-  },
-  {
-    value: ProviderDriverKind.make("antigravity"),
-    label: "Antigravity",
-    icon: AntigravityIcon,
-    settingsSchema: AntigravitySettings,
-  },
-  {
-    value: ProviderDriverKind.make("deepai"),
-    label: "DeepAI",
-    icon: DeepAIIcon,
-    settingsSchema: Schema.Struct({}),
-  },
-];
-
-const PROVIDER_CLIENT_DEFINITION_BY_VALUE: Partial<
-  Record<ProviderDriverKind, ProviderClientDefinition>
-> = Object.fromEntries(
-  PROVIDER_CLIENT_DEFINITIONS.map((definition) => [definition.value, definition]),
+export const DRIVER_OPTIONS: readonly ProviderClientDefinition[] = providerClients.definitions.map(
+  ({ driverKind, icon, ...definition }) => ({
+    ...definition, value: driverKind, icon: legacyIcons[driverKind] ?? (icon === undefined ? undefined : (props) =>
+      createElement(ProviderPackageIcon, { ...props, icon })),
+  }),
 );
-
-export const DRIVER_OPTIONS = PROVIDER_CLIENT_DEFINITIONS;
-export const DRIVER_OPTION_BY_VALUE = PROVIDER_CLIENT_DEFINITION_BY_VALUE;
+export const DRIVER_OPTION_BY_VALUE: Partial<Record<ProviderDriverKind, ProviderClientDefinition>> =
+  Object.fromEntries(DRIVER_OPTIONS.map(definition => [definition.value, definition]));
 export type DriverOption = ProviderClientDefinition;
 
-/**
- * Look up the driver metadata for an instance's `driver` field. Accepts
- * Returns `undefined` for fork / unknown drivers so callers can decide how
- * to render them — typically by falling back to a generic card.
- */
 export function getDriverOption(driver: ProviderDriverKind | undefined): DriverOption | undefined {
-  if (driver === undefined) return undefined;
-  return PROVIDER_CLIENT_DEFINITION_BY_VALUE[driver];
+  return driver === undefined ? undefined : DRIVER_OPTIONS.find(option => option.value === driver);
 }

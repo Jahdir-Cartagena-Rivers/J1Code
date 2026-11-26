@@ -1,7 +1,7 @@
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
-import { J1ProjectFile } from "./j1ProjectFile.ts";
+import { J1ProjectFile, J1_PROJECT_FILE_NAME, J1_PROJECT_FILE_SCHEMA_URL } from "./j1ProjectFile.ts";
 
 const decode = Schema.decodeUnknownSync(J1ProjectFile);
 
@@ -66,4 +66,15 @@ describe("J1ProjectFile", () => {
     expect(decode({ worktreeSubmodules: "top-level" }).worktreeSubmodules).toBe("top-level");
     expect(() => decode({ worktreeSubmodules: "shallow" })).toThrow();
   });
+});
+
+
+it("retains the checked-in file and schema aliases while bounding persisted scripts", () => {
+  expect(J1_PROJECT_FILE_NAME).toBe("t3.json");
+  expect(J1_PROJECT_FILE_SCHEMA_URL).toBe("https://t3.codes/schema/t3.json");
+  const script = { name: "Dev", command: "pnpm dev" };
+  expect(decode({ scripts: Array.from({ length: 50 }, () => script) }).scripts).toHaveLength(50);
+  expect(() => decode({ scripts: Array.from({ length: 51 }, () => script) })).toThrow();
+  expect(() => decode({ iconPath: "x".repeat(513) })).toThrow();
+  expect(() => decode({ scripts: [{ ...script, runOnWorktreeCreate: "true" }] })).toThrow();
 });

@@ -1,5 +1,5 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import type { EnvironmentThreadShell } from "@j1code/client-runtime/state/shell";
@@ -12,7 +12,7 @@ import {
   unfoldWorkerChat,
   workerChatKey,
 } from "@j1code/client-runtime/worker-chats";
-import { AppText as Text } from "../../components/AppText";
+import { AppText as Text } from "../../components/ui/AppText";
 import { useThreadShells } from "../../state/entities";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 
@@ -172,7 +172,7 @@ export function WorkerChatsInChat({
   );
   const lead = threads.find(
     (thread) =>
-      thread.environmentId === parent.environmentId && thread.id === shell?.parentThreadId,
+      thread.environmentId === parent.environmentId && thread.id === shell?.lineage.parentThreadId,
   );
   if (children.length === 0 && !lead) return null;
   // oxlint-disable-next-line unicorn/no-array-reverse -- Hermes lacks toReversed; reverse a copy.

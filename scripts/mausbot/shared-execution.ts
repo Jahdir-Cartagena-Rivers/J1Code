@@ -1,6 +1,10 @@
 // Copied into the captured runtime. Provider accounts and agent processes stay
 // in J1; the original bot harness retains its tool scopes, approvals and UI.
 import * as NodeCrypto from "node:crypto";
+import * as NodePath from "node:path";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { inSecretFolder } from "../secret-folder.ts";
 import type { ModelCatalog, ProviderDriver, RuntimeEvent, SendTurnInput } from "../contracts.ts";
 import { newEventId } from "../contracts.ts";
 import { mountChatTools, type ChatToolSession } from "./chat-mcp-tools.ts";
@@ -33,7 +37,7 @@ type Turn = {
   input: SendTurnInput;
   turnId: string;
   controller: AbortController;
-  tools: ChatToolSession;
+  tools: ChatToolSession | null;
   approvals: ReturnType<typeof createChatToolApproval>;
   questions: Map<string, string[]>;
   assistant: Map<string, string>;
@@ -42,6 +46,364 @@ type Turn = {
   errorReported: boolean;
   toolCalls: Map<string, AbortController>;
 };
+
+export interface NativeIncidentBatch {
+  readonly generation: string;
+  readonly reports: readonly {
+    readonly nativeMessageId: string;
+    readonly sourceBotId: string;
+    readonly sourceThreadId: string;
+    readonly sourceBotName: string;
+    readonly textHash: string;
+    readonly notified: boolean;
+  }[];
+}
+
+export function savedIncidentReports(path: ReadonlyArray<SavedHistoryLine>, ids: readonly string[], recipientThreadId: string, recipientBotId: string) {
+  const rows = path.filter(row => row.kind !== "activity" || row.attachments?.length);
+  const suffix = rows.slice(-ids.length);
+  if (!ids.length || new Set(ids).size !== ids.length || suffix.length !== ids.length) return undefined;
+  const reports = [];
+  for (const [index, row] of suffix.entries()) {
+    const ask = row.peerAsk;
+    if (row.id !== ids[index] || row.role !== "user" || row.kind !== "text" || row.sender ||
+        row.requestCancelled || row.attachments?.length || !row.text?.trim() ||
+        !ask?.unattended || !ask.incident || !ask.botId || !ask.incident.threadId ||
+        ask.incident.threadId === recipientThreadId ||
+        ask.incident.j1Recipient?.threadId !== recipientThreadId ||
+        ask.incident.j1Recipient.botId !== recipientBotId) return undefined;
+    reports.push({ nativeMessageId: row.id, sourceBotId: ask.botId, sourceThreadId: ask.incident.threadId,
+      sourceBotName: ask.name, notified: ask.incident.notified === true,
+      textHash: NodeCrypto.createHash("sha256").update(row.text).digest("hex") });
+  }
+  return reports;
+}
+
+export interface NativeAssignmentOrigin {
+  readonly incidentBatch?: NativeIncidentBatch;
+  readonly privateHandoffHash?: string;
+  readonly parkedStatus?: { readonly kind: "team-setup" | "mcp-setup" | "mcp-oauth" | "app-connector" | "signin-ack" | "credential-status"; readonly priorGeneration: string; readonly priorTurnId: string;
+    readonly privateReview?: { readonly person: string; readonly sourceId: string; readonly scopeHash: string };
+    readonly decisions: readonly { cardId: string; requestId: string; actionHash: string;
+      family?: "mcp" | "oauth" | "app" | "signin" | "credential"; flowId?: string; reviewHash?: string; group?: { id: string; cardIds: readonly string[] };
+      state: "applied" | "denied" | "cancelled" | "failed" | "acknowledged" | "saved" }[];
+    readonly mixed?: { readonly cardOrder: readonly string[];
+      readonly questions: readonly { cardId: string; requestId: string; answer: string; person: string }[] }; };
+  readonly consultation?: { readonly reply: "resume" | "poll"; readonly brief: string; readonly envelopeHash: string };
+  readonly privateHandoffGeneration?: string;
+  readonly parentResultWake?: {
+    readonly root?: { readonly sourceMessageId: string; readonly sourceHash: string; readonly person: string };
+    readonly priorGeneration: string;
+    readonly priorTurnId: string;
+    readonly execution: number;
+    readonly priorStartedAt: number;
+    readonly cutAt: number;
+    readonly restarts?: number;
+    readonly startedAt: number;
+    readonly reports: readonly {
+      inboxId: string; childId: string; childBotId: string; childThreadId: string;
+      execution: number; finishedAt: number; reportedAt: number; resultHash: string; report: string;
+    }[];
+  };
+  readonly childRestart?: {
+    readonly rootResultHash?: string;
+    readonly priorGeneration: string;
+    readonly priorTurnId: string;
+    readonly execution: number;
+    readonly restarts: number;
+    readonly priorStartedAt: number;
+    readonly reconciledAt: number;
+    readonly startedAt: number;
+  };
+  readonly privateAnswers?: {
+    readonly priorTurnId: string;
+    readonly priorGeneration: string;
+    readonly answers: readonly { cardId: string; requestId: string; person: string; answer: string }[];
+  };
+  readonly root?: true;
+  readonly nodeId: string;
+  readonly requestId: string;
+  readonly execution: number;
+  readonly dispatch: "first" | "resume" | "rerun" | "computer";
+  readonly computerSelection?: {
+    readonly id: string;
+    readonly sourceGeneration: string;
+    readonly dispatchGeneration: string;
+    readonly previousChoiceId?: string;
+    readonly sourceSurface: "cloud" | "vm" | "local" | "browser" | null;
+    readonly selected: "cloud" | "vm" | "local" | "browser";
+    readonly previousSurface: "cloud" | "vm" | "local" | "browser" | null;
+  };
+  readonly restarts: number;
+  readonly sourceMessageId: string;
+  readonly approvalMode: NonNullable<SendTurnInput["approvalMode"]>;
+  readonly restrictedTools: boolean;
+}
+
+export interface SavedHistoryAnchor {
+  readonly messageId: string;
+  readonly origin?: NativeAssignmentOrigin & { current(): boolean; stopped?(): boolean };
+  readonly promptText: string;
+  readonly authoredInputText?: string;
+  readonly currentImages: ReadonlyArray<{ path: string; mime: string }>;
+}
+
+interface SavedHistoryLine {
+  readonly id: string;
+  readonly role: "user" | "bot";
+  readonly kind: string;
+  readonly text?: string;
+  readonly at: number;
+  readonly turnCompletedAt?: number;
+  readonly j1ProviderMessageId?: string;
+  readonly j1CoordinatorRootId?: string;
+  readonly j1ComputerSelections?: ReadonlyArray<
+    Omit<NonNullable<NativeAssignmentOrigin["computerSelection"]>, "dispatchGeneration"> &
+    { readonly dispatchGeneration?: string }
+  >;
+  readonly roomRequest?: { readonly id: string; readonly phase: string };
+  readonly requestCancelled?: boolean;
+  readonly sender?: unknown;
+  readonly peerAsk?: { botId: string; name: string; unattended?: boolean; incident?: { threadId: string; notified?: boolean; j1Recipient?: { botId: string; threadId: string } } };
+  readonly attachments?: ReadonlyArray<{
+    kind: "image" | "audio" | "file";
+    path: string;
+    mime: string;
+    name?: string;
+  }>;
+}
+
+export type NativeRoomMemberRead = (turnId: string) => unknown;
+
+const roomTurns = new Map<string, {
+  botId: string; threadId: string; signal: AbortSignal; read: NativeRoomMemberRead;
+}>();
+
+export function readOwnedNativeRoomTurn(
+  owner: { botId: string; threadId: string; signal: AbortSignal; read: NativeRoomMemberRead } | undefined,
+  botId: string, threadId: string, turnId: string,
+) {
+  if (!owner || owner.signal.aborted || owner.botId !== botId || owner.threadId !== threadId) return null;
+  return owner.read(turnId);
+}
+
+export interface NativeIncidentRetryNote {
+  id: string; chiefId: string; chiefThreadId: string; text: string;
+}
+
+const resumeTurns = new Map<string, {
+  botId: string; threadId: string; cursor: string; signal: AbortSignal; current(): boolean; incidentFailure?: string; incidentNote?: NativeIncidentRetryNote;
+}>();
+
+const historyTurns = new Map<string, {
+  botId: string; threadId: string; anchor: SavedHistoryAnchor; signal: AbortSignal;
+}>();
+
+type SavedAttachmentRoots = {
+  readonly managed: string;
+  readonly workspace?: string;
+  readonly bot?: string;
+};
+
+function ownedAttachmentReference(path: string, roots: SavedAttachmentRoots) {
+  const invalid = () => new Error("A saved attachment is outside the native file scope.");
+  const segments = (name: string) => {
+    const parts = name.split(/[\\\\/]/u);
+    if (inSecretFolder(name) || parts.some(part => !part || part === "." || part === ".." || part.length > 255 ||
+        /^(?:con|prn|aux|nul|conin\$|conout\$|com[1-9\u00b9\u00b2\u00b3]|lpt[1-9\u00b9\u00b2\u00b3])(?:\.|$)/iu.test(part) ||
+        /[:*?"<>|\u0000-\u001f]/u.test(part) || part.endsWith(".") || part.endsWith(" "))) throw invalid();
+    return parts;
+  };
+  const prefix = "/api/attachments/";
+  const reference = (root: keyof SavedAttachmentRoots, name: string) => {
+    const parts = segments(name);
+    const base = roots[root];
+    if (!base || (root === "managed" && parts.length !== 1) ||
+        inSecretFolder(NodePath.join(base, ...parts))) throw invalid();
+    return { root, filename: parts.join("/") };
+  };
+  if (path.startsWith(prefix)) return reference("managed", path.slice(prefix.length));
+  // Reject traversal before file URL parsing can normalize it away.
+  const asFileUrl = path.startsWith("file:");
+  const spelling = asFileUrl ? decodeURIComponent(path) : path;
+  if (/(?:^|[\\\\/])\.{1,2}(?:[\\\\/]|$)/u.test(spelling)) throw invalid();
+  let local = path;
+  if (asFileUrl) {
+    const url = new URL(path);
+    if (url.username || url.password || url.port || url.search || url.hash) throw invalid();
+    local = fileURLToPath(url);
+  }
+  if (/^[\\\\/]{2}[.?][\\\\/]/u.test(local)) throw invalid();
+  if (NodePath.isAbsolute(local)) {
+    for (const root of ["managed", "bot", "workspace"] as const) {
+      const base = roots[root];
+      if (!base) continue;
+      const relative = NodePath.relative(base, local);
+      if (relative && relative !== ".." && !relative.startsWith(".." + NodePath.sep) &&
+          !NodePath.isAbsolute(relative)) return reference(root, relative);
+    }
+    throw invalid();
+  }
+  const parts = segments(local);
+  // Bare blob names were used by the native upload store before workspace references.
+  if (parts.length === 1 && existsSync(NodePath.join(roots.managed, local))) return reference("managed", local);
+  for (const root of ["workspace", "bot"] as const) {
+    const base = roots[root];
+    if (base && existsSync(NodePath.join(base, ...parts))) return reference(root, local);
+  }
+  if (parts.length === 1) return reference("managed", local);
+  throw invalid();
+}
+
+export function savedHistoryForTurn(
+  path: ReadonlyArray<SavedHistoryLine>,
+  anchor: SavedHistoryAnchor,
+  attachmentRoots: SavedAttachmentRoots,
+) {
+  const origin = anchor.origin;
+  const authoredRoot = origin?.root === true && origin.dispatch === "first";
+  const index = path.findIndex(line => line.id === anchor.messageId && (origin?.incidentBatch
+    ? line.role === "user" && Boolean(line.peerAsk?.incident)
+    : origin?.root
+    ? line.role === "user" && line.j1CoordinatorRootId === origin.nodeId
+    : origin
+      ? line.role === "bot" && line.roomRequest?.id === origin.requestId && line.roomRequest.phase === "request"
+      : line.role === "user"));
+  if (index < 0 || ((!origin || origin.dispatch === "first") &&
+      path.slice(index + 1).some(line => line.kind !== "activity" || Boolean(line.attachments?.length)))) {
+    throw new Error("The active native branch moved beyond the current message.");
+  }
+  const nativeAttachment = (attachment: NonNullable<SavedHistoryLine["attachments"]>[number]) => {
+    const reference = ownedAttachmentReference(attachment.path, attachmentRoots);
+    return {
+      ...reference, name: attachment.name ?? NodePath.basename(reference.filename), mime: attachment.mime,
+      type: attachment.kind === "image" ? "image" : "file",
+    };
+  };
+  const choice = origin?.computerSelection;
+  const choices = path[index]?.j1ComputerSelections;
+  const choiceIndex = (origin?.execution ?? 0) - 2;
+  const savedChoice = choices?.[choiceIndex];
+  const previousChoice = choiceIndex > 0 ? choices?.[choiceIndex - 1] : undefined;
+  if ((origin?.dispatch === "computer") !== Boolean(choice) ||
+      (choice && (!savedChoice || savedChoice.id !== choice.id ||
+        savedChoice.sourceGeneration !== choice.sourceGeneration || savedChoice.dispatchGeneration !== choice.dispatchGeneration ||
+        savedChoice.selected !== choice.selected || savedChoice.previousSurface !== choice.previousSurface ||
+        savedChoice.sourceSurface !== choice.sourceSurface || savedChoice.previousChoiceId !== choice.previousChoiceId ||
+        (choiceIndex > 0
+          ? !previousChoice || previousChoice.id !== choice.previousChoiceId ||
+            previousChoice.dispatchGeneration !== choice.sourceGeneration || previousChoice.selected !== choice.sourceSurface
+          : choice.previousChoiceId !== undefined || choice.sourceGeneration !== origin?.nodeId) ||
+        path.findLast(line => line.role === "user" && line.kind === "text")?.id !== anchor.messageId))) {
+    throw new Error("The native computer selection no longer owns this branch.");
+  }
+  if (origin && (!origin.current() || origin.sourceMessageId !== anchor.messageId ||
+      (!authoredRoot && anchor.currentImages.length))) {
+    throw new Error("The coordinator assignment does not own this saved input.");
+  }
+  const promptAttachments = origin && !authoredRoot ? [] : (path[index]?.attachments ?? []).map(nativeAttachment);
+  for (const image of anchor.currentImages) {
+    const saved = nativeAttachment({ ...image, kind: "image" });
+    if (!promptAttachments.some(item => item.root === saved.root && item.filename === saved.filename &&
+        item.type === "image" &&
+        item.mime === saved.mime)) {
+      throw new Error("The current image was not saved on the anchored native message.");
+    }
+  }
+  const toRow = (line: SavedHistoryLine) => {
+    if (!Number.isSafeInteger(line.at) || (line.turnCompletedAt !== undefined &&
+        (!Number.isSafeInteger(line.turnCompletedAt) || line.turnCompletedAt < line.at))) {
+      throw new Error("A saved native message has an invalid timestamp.");
+    }
+    return {
+      nativeMessageId: line.id,
+      ...(origin && line.j1ProviderMessageId ? { mirrorMessageId: line.j1ProviderMessageId } : {}),
+      createdAt: new Date(line.at).toISOString(),
+      completedAt: line.turnCompletedAt === undefined ? null : new Date(line.turnCompletedAt).toISOString(),
+      role: line.role === "user" ? "user" : "assistant",
+      text: line.text ?? "",
+      attachments: (line.attachments ?? []).map(nativeAttachment),
+    };
+  };
+  const messages = (origin && !authoredRoot ? path : path.slice(0, index)).map(toRow);
+  return {
+    anchorMessageId: anchor.messageId, promptText: anchor.promptText, promptAttachments, messages,
+    ...(authoredRoot ? { authoredSource: toRow(path[index]!), authoredInputText: anchor.authoredInputText } : {}),
+    ...(origin ? { origin: { ...(origin.root ? { root: true as const } : {}), nodeId: origin.nodeId, requestId: origin.requestId,
+      execution: origin.execution, dispatch: origin.dispatch, restarts: origin.restarts,
+      ...(origin.computerSelection ? { computerSelection: origin.computerSelection } : {}),
+      ...(origin.incidentBatch ? { incidentBatch: origin.incidentBatch } : {}),
+      ...(origin.privateHandoffHash ? { privateHandoffHash: origin.privateHandoffHash } : {}),
+      ...(origin.consultation ? { consultation: origin.consultation } : {}),
+      ...(origin.privateHandoffGeneration ? { privateHandoffGeneration: origin.privateHandoffGeneration } : {}),
+      ...(origin.privateAnswers ? { privateAnswers: origin.privateAnswers } : {}),
+      ...(origin.parkedStatus ? { parkedStatus: origin.parkedStatus } : {}),
+      ...(origin.childRestart ? { childRestart: origin.childRestart } : {}),
+      ...(origin.parentResultWake ? { parentResultWake: origin.parentResultWake } : {}),
+      sourceMessageId: origin.sourceMessageId,
+      approvalMode: origin.approvalMode, restrictedTools: origin.restrictedTools } } : {}),
+    workspaceRoot: attachmentRoots.workspace ?? null,
+  };
+}
+
+/** Answers a parent-owned request from the saved native store, outside turn delivery. */
+/** Native storage carries the message anchor outside the private V2 cursor. */
+export function nativeResumeCursor(value: unknown, botId: string, threadId: string) {
+  if (typeof value !== "string" || value.length > 4096) return undefined;
+  const prefix = "j1-shared:v2:" + botId + ":" + threadId + ":";
+  if (!value.startsWith(prefix)) return undefined;
+  const match = /^[\w.-]+:(?:[\w:.-]|%[0-9A-F]{2})+~([\w-]+)$/.exec(value.slice(prefix.length));
+  if (!match) return undefined;
+  return {
+    cursor: value.slice(0, value.lastIndexOf("~")),
+    messageId: match[1]!,
+    revision: NodeCrypto.createHash("sha256").update(value).digest("hex"),
+  };
+}
+
+export function registerSavedBotEnrollmentReader(
+  read: (botId: string, threadId: string, history?: {
+    turnId: string; anchor: SavedHistoryAnchor;
+  }, resumeCursor?: string, incidentFailure?: string, incidentNote?: NativeIncidentRetryNote) => unknown,
+) {
+  if (process.env.J1_MAUSBOT_MANAGED !== "1" || !process.send) return;
+  process.on("message", (message: unknown) => {
+    if (!object(message) || message.type !== "j1:saved-bot-enrollment-query") return;
+    const { requestId, botId, threadId, turnId, resumeTurnId, roomTurnId } = message;
+    if (typeof requestId !== "string" || !/^[a-f0-9-]{36}$/u.test(requestId)) return;
+    const id = /^[\w-]{1,120}$/u;
+    if (typeof botId !== "string" || !id.test(botId) ||
+        typeof threadId !== "string" || !id.test(threadId)) return;
+    try {
+      if (roomTurnId !== undefined) {
+        const value = typeof roomTurnId === "string" && id.test(roomTurnId) &&
+            turnId === undefined && resumeTurnId === undefined
+          ? readOwnedNativeRoomTurn(roomTurns.get(roomTurnId), botId, threadId, roomTurnId)
+          : null;
+        process.send?.({ type: "j1:saved-bot-enrollment-result", requestId, value });
+        return;
+      }
+      let history: { turnId: string; anchor: SavedHistoryAnchor } | undefined;
+      if (turnId !== undefined) {
+        const owner = typeof turnId === "string" ? historyTurns.get(turnId) : undefined;
+        if (typeof turnId !== "string" || !owner || owner.signal.aborted ||
+            owner.botId !== botId || owner.threadId !== threadId) {
+          throw new Error("The saved history request has no current native turn.");
+        }
+        history = { turnId, anchor: owner.anchor };
+      }
+      const resume = typeof resumeTurnId === "string" ? resumeTurns.get(resumeTurnId) : undefined;
+      if (resumeTurnId !== undefined && (history || !resume || resume.signal.aborted ||
+          resume.botId !== botId || resume.threadId !== threadId || !resume.current())) {
+        throw new Error("The saved continuation does not own this native turn.");
+      }
+      process.send?.({ type: "j1:saved-bot-enrollment-result", requestId,
+        value: read(botId, threadId, history, resume?.cursor, resume?.incidentFailure, resume?.incidentNote) });
+    } catch {
+      process.send?.({ type: "j1:saved-bot-enrollment-result", requestId, value: null });
+    }
+  });
+}
 
 export const J1SharedDriver: ProviderDriver<Record<string, never>> = {
   driverKind: "j1-shared",
@@ -76,9 +438,12 @@ export const J1SharedDriver: ProviderDriver<Record<string, never>> = {
       const turn = turns.get(threadId);
       if (!turn) return;
       turns.delete(threadId);
+      historyTurns.delete(turn.turnId);
+      resumeTurns.delete(turn.turnId);
+      roomTurns.delete(turn.turnId);
       turn.controller.abort();
       turn.approvals.close();
-      await turn.tools.close();
+      await turn.tools?.close();
     };
     const source = (turn: Turn) => ({ botId: turn.input.botId, threadId: turn.input.threadId });
     const onBridgeEvent = (message: ObjectValue) => {
@@ -106,7 +471,7 @@ export const J1SharedDriver: ProviderDriver<Record<string, never>> = {
       }
       if (typeof message.threadId !== "string") return;
       const turn = turns.get(message.threadId);
-      if (!turn || turn.input.botId !== message.botId) return;
+      if (!turn || turn.input.botId !== message.botId || turn.turnId !== message.turnId) return;
       if (message.kind === "tool-cancel" && typeof message.requestId === "string") {
         turn.toolCalls.get(message.requestId)?.abort();
         return;
@@ -124,8 +489,10 @@ export const J1SharedDriver: ProviderDriver<Record<string, never>> = {
           try {
             if (typeof message.name !== "string" || !object(message.arguments))
               throw new Error("Invalid tool call.");
-            turn.tools.validate(message.name, message.arguments);
-            const shown = turn.tools.view(message.name, message.arguments);
+            const tools = turn.tools;
+            if (!tools) throw new Error("This consultation does not have action tools.");
+            tools.validate(message.name, message.arguments);
+            const shown = tools.view(message.name, message.arguments);
             const full = (turn.input.approvalModeNow?.() ?? turn.input.approvalMode) === "full";
             const block = turn.approvals.floored({
               full,
@@ -140,7 +507,7 @@ export const J1SharedDriver: ProviderDriver<Record<string, never>> = {
                 (await turn.approvals.ask(shown.title, JSON.stringify(shown.input), shown.grant)));
             if (controller.signal.aborted) throw new Error("The bot tool was cancelled.");
             value = allowed
-              ? await turn.tools.execute(message.name, message.arguments, controller.signal)
+              ? await tools.execute(message.name, message.arguments, controller.signal)
               : { ok: false, text: refusal(block, () => {}) };
           } catch (error) {
             value = { ok: false, text: String(error) };
@@ -174,6 +541,7 @@ export const J1SharedDriver: ProviderDriver<Record<string, never>> = {
         void cleanup(turn.input.threadId);
         return;
       }
+      if (message.kind !== "runtime") return;
       const event = message.event;
       if (!object(event) || !object(event.payload)) return;
       const payload = event.payload;
@@ -187,9 +555,14 @@ export const J1SharedDriver: ProviderDriver<Record<string, never>> = {
       const announce = () => {
         if (turn.sessionAnnounced) return;
         turn.sessionAnnounced = true;
+        const cursor = payload.resumeCursor;
+        const messageId = turn.input.j1SavedHistoryAnchor?.messageId;
+        const anchored = typeof cursor === "string" && messageId ? cursor + "~" + messageId : undefined;
+        const sessionId = anchored && nativeResumeCursor(anchored, turn.input.botId, turn.input.threadId)
+          ? anchored : typeof cursor === "string" ? cursor : "j1-shared:" + turn.input.botId + ":" + turn.input.threadId;
         send({
           type: "session.started",
-          sessionId: `j1-shared:${turn.input.botId}:${turn.input.threadId}`,
+          sessionId,
           model: turn.input.model,
         });
       };
@@ -333,6 +706,9 @@ export const J1SharedDriver: ProviderDriver<Record<string, never>> = {
               payload.state !== "failed" &&
               payload.state !== "interrupted",
             stopReason: payload.errorMessage ?? payload.reason ?? payload.stopReason,
+            ...(event.type === "turn.completed" && payload.state === "failed" &&
+                typeof payload.incidentFailure === "string" && payload.incidentFailure.length <= 4096
+              ? { j1IncidentFailure: payload.incidentFailure } : {}),
             cost: payload.totalCostUsd,
             ...(object(payload.tokenUsage)
               ? {
@@ -430,7 +806,7 @@ export const J1SharedDriver: ProviderDriver<Record<string, never>> = {
           const selected = decodeSharedModel(turnInput.model ?? models.default);
           await turnInput.engineAdmission?.("session");
           const controller = new AbortController();
-          const tools = await mountChatTools(
+          const tools = turnInput.j1Consultation ? null : await mountChatTools(
             turnInput.integrations,
             controller.signal,
             true,
@@ -493,6 +869,31 @@ export const J1SharedDriver: ProviderDriver<Record<string, never>> = {
           };
           turns.set(turnInput.threadId, turn);
           try {
+            if (turnInput.j1SavedHistoryAnchor && !turnInput.j1ExplicitResume) historyTurns.set(turnId, {
+              botId: turnInput.botId, threadId: turnInput.threadId,
+              anchor: turnInput.j1SavedHistoryAnchor, signal: controller.signal,
+            });
+            if (turnInput.j1ExplicitResume) {
+              const cursor = turnInput.resumeCursor;
+              const saved = nativeResumeCursor(cursor, turnInput.botId, turnInput.threadId);
+              if (typeof cursor !== "string" || !saved || saved.messageId !== turnInput.j1SavedHistoryAnchor?.messageId ||
+                  !turnInput.j1ExplicitResume() || turnInput.text !== (turnInput.j1RetryNote?.text ?? "") || turnInput.images?.length ||
+                  turnInput.transcript?.length || turnInput.recoveryText) {
+                throw new Error("The saved J1 continuation does not match this bot message.");
+              }
+              resumeTurns.set(turnId, {
+                botId: turnInput.botId, threadId: turnInput.threadId,
+                cursor, signal: controller.signal, current: turnInput.j1ExplicitResume,
+                incidentFailure: turnInput.j1RetryFailure, incidentNote: turnInput.j1RetryNote,
+              });
+            }
+            if (turnInput.j1RoomTurn && turnInput.j1RoomMemberRead) roomTurns.set(turnId, {
+              botId: turnInput.botId, threadId: turnInput.threadId,
+              signal: controller.signal, read: turnInput.j1RoomMemberRead,
+            });
+            const origin = turnInput.j1SavedHistoryAnchor?.origin;
+            const authoredRoot = origin?.root === true && origin.dispatch === "first";
+            const privateCoordinator = origin && !authoredRoot;
             const result = await sharedExecutionRequest({
               action: "start",
               ...source(turn),
@@ -501,11 +902,16 @@ export const J1SharedDriver: ProviderDriver<Record<string, never>> = {
               title: turnInput.j1BotName ?? "Bot conversation",
               ...(turnInput.j1ProjectId ? { projectId: turnInput.j1ProjectId } : {}),
               cwd: turnInput.cwd ?? process.cwd(),
-              text: turnInput.text,
+              text: privateCoordinator ? turnInput.j1SavedHistoryAnchor!.promptText : turnInput.text,
               system: turnInput.system ?? "",
               turnId,
+              ...(privateCoordinator ? { nativeOriginStart: true } : {}),
+              ...(turnInput.j1RoomTurn ? { nativeRoomTurn: true } : {}),
+              ...(turnInput.j1RetryFailure ? { nativeIncidentRetry: true } : {}),
+              ...(turnInput.j1RetryNote ? { nativeIncidentNote: true } : {}),
+              ...(authoredRoot ? { trackCoordinatorRoot: true } : {}),
               sharedContinuation:
-                typeof turnInput.resumeCursor === "string" &&
+                !privateCoordinator && typeof turnInput.resumeCursor === "string" &&
                 turnInput.resumeCursor.startsWith("j1-shared:"),
               restrictedTools: turnInput.toolScope !== undefined,
               ...(turnInput.transcript ? { transcript: turnInput.transcript } : {}),
@@ -523,19 +929,29 @@ export const J1SharedDriver: ProviderDriver<Record<string, never>> = {
               approvalMode: turnInput.approvalModeNow?.() ?? turnInput.approvalMode ?? "ask",
               guestConfined: false,
               images: turnInput.images ?? [],
-              tools: tools.definitions.map(({ function: fn }) => ({
+              tools: tools?.definitions.map(({ function: fn }) => ({
                 name: fn.name,
                 description: fn.description,
                 inputSchema: fn.parameters,
-              })),
+              })) ?? [],
             });
-            if (!object(result) || typeof result.turnId !== "string")
+            if (!object(result) || result.turnId !== turnId)
               throw new Error("J1 did not accept the bot turn.");
-            turn.turnId = result.turnId;
+            if (result.replayed === true) {
+              emit(turnInput.threadId, {
+                type: "turn.completed", turnId: result.turnId, ok: false,
+                stopReason: turnInput.j1SavedHistoryAnchor?.origin
+                  ? "This coordinator execution was already admitted." : "Resume was already recorded for this saved run.",
+              });
+              await cleanup(turnInput.threadId);
+            }
             return { turnId: result.turnId };
           } catch (error) {
             await cleanup(turnInput.threadId);
             throw error;
+          } finally {
+            if (!turnInput.j1SavedHistoryAnchor?.origin) historyTurns.delete(turnId);
+            if (!turnInput.j1RetryFailure) resumeTurns.delete(turnId);
           }
         },
         async interruptTurn(threadId) {
@@ -543,7 +959,9 @@ export const J1SharedDriver: ProviderDriver<Record<string, never>> = {
           if (turn) {
             turn.controller.abort();
             turn.approvals.close();
-            await sharedExecutionRequest({ action: "interrupt", ...source(turn) });
+            const origin = turn.input.j1SavedHistoryAnchor?.origin;
+            const durableStop = origin && (!(origin.root && origin.dispatch === "first") || origin.stopped?.());
+            await sharedExecutionRequest({ action: durableStop ? "stop" : "interrupt", ...source(turn) });
           }
         },
         async respondToRequest(threadId, requestId, decision) {

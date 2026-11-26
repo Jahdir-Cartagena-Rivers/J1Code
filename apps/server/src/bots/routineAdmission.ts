@@ -1,97 +1,98 @@
 import * as NodeCrypto from "node:crypto";
-import {
-  BotId,
-  CommandId,
-  MessageId,
-  ThreadId,
-  type BotProfile,
-  type BotRoutine,
-} from "@j1code/contracts";
+import { CommandId, MessageId, ThreadId, type BotProfile, type BotRoutine } from "@j1code/contracts";
 import { standaloneBotWorkspace } from "@j1code/shared/bot-workspace";
 import { resolveProjectSettings } from "@j1code/shared/projectSettings";
-import { DateTime, Effect, Option, Path } from "effect";
-import { ServerConfig } from "../config.ts";
-import { ServerSettingsService } from "../serverSettings.ts";
-import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
-import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { WorkspacePaths } from "../workspace/WorkspacePaths.ts";
+import { Effect, Option, Path } from "effect";
 
-/** Admit one persisted occurrence through the normal provider reactor. */
+import { ServerConfig } from "../config.ts";
+import { DispatchModeLimit } from "../orchestration-v2/DispatchModeLimit.ts";
+import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
+import { ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
+import { ProjectService } from "../project/ProjectService.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
+
+/** Admit one persisted occurrence as a project bot conversation. */
 export const makeRoutineAdmission = Effect.gen(function* () {
-  const engine = yield* OrchestrationEngineService;
-  const snapshots = yield* ProjectionSnapshotQuery;
+  const orchestrator = yield* OrchestratorV2;
+  const projects = yield* ProjectStoreV2;
+  const projectService = yield* ProjectService;
   const settingsService = yield* ServerSettingsService;
   const config = yield* ServerConfig;
-  const paths = yield* WorkspacePaths;
   const path = yield* Path.Path;
-  return (bot: BotProfile, routine: BotRoutine, occurrence: number) =>
-    Effect.gen(function* () {
-      const digest = NodeCrypto.createHash("sha256")
-        .update(`${bot.id.length}:${bot.id}${routine.id.length}:${routine.id}:${occurrence}`)
-        .digest("hex");
-      const threadId = ThreadId.make(`bot-routine:${digest}`);
-      const createdAt = DateTime.formatIso(yield* DateTime.now);
-      const workspace =
-        bot.projectId === null
-          ? standaloneBotWorkspace(path.join(config.baseDir, "bot-workspaces"), BotId.make(bot.id))
-          : null;
-      const projectId = bot.projectId ?? workspace!.projectId;
-      let project = yield* snapshots.getProjectShellById(projectId);
-      if (Option.isNone(project) && workspace) {
-        const workspaceRoot = yield* paths.normalizeWorkspaceRoot(workspace.workspaceRoot, {
-          createIfMissing: true,
-        });
-        yield* engine.dispatch({
-          type: "project.create",
-          commandId: CommandId.make(`bot-workspace:${workspace.projectId}`),
-          projectId,
-          title: bot.name,
-          workspaceRoot,
-          createWorkspaceRootIfMissing: true,
-          defaultModelSelection: null,
-          createdAt,
-        });
-        project = yield* snapshots.getProjectShellById(projectId);
-      }
-      if (Option.isNone(project)) return yield* Effect.fail("Bot project is unavailable.");
-      if (
-        workspace &&
-        path.resolve(project.value.workspaceRoot) !== path.resolve(workspace.workspaceRoot)
-      )
-        return yield* Effect.fail("Bot workspace does not match its expected location.");
-      const settings = yield* settingsService.getSettings;
-      const runtimeMode = resolveProjectSettings(settings, projectId, project.value).settings
-        .defaultRuntimeMode;
-      const thread = yield* snapshots.getThreadShellById(threadId);
-      if (Option.isNone(thread))
-        yield* engine.dispatch({
-          type: "thread.create",
-          commandId: CommandId.make(`bot-routine-thread:${digest}`),
-          threadId,
-          projectId,
-          title: routine.name,
-          bot: { id: bot.id, name: bot.name, instructions: bot.instructions },
-          modelSelection: bot.modelSelection,
-          runtimeMode,
-          interactionMode: "default",
-          branch: null,
-          worktreePath: null,
-          createdAt,
-        });
-      yield* engine.dispatch({
-        type: "thread.turn.start",
-        commandId: CommandId.make(`bot-routine-turn:${digest}`),
-        threadId,
-        message: {
-          messageId: MessageId.make(`bot-routine-message:${digest}`),
-          role: "user",
-          text: routine.prompt,
-          attachments: [],
-        },
-        modelSelection: bot.modelSelection,
-        runtimeMode,
-        interactionMode: "default",
-        createdAt,
+  return Effect.fn("bots.routineAdmission")(function* (bot: BotProfile, routine: BotRoutine, occurrence: number) {
+    const settings = yield* settingsService.getSettings;
+    const profile = Object.hasOwn(settings.bots, bot.id) ? settings.bots[bot.id] : undefined;
+    if (!profile || profile.id !== bot.id || profile.archived || profile.projectId !== bot.projectId) {
+      return yield* Effect.fail("Bot profile is unavailable.");
+    }
+
+    const digest = NodeCrypto.createHash("sha256")
+      .update(`${bot.id.length}:${bot.id}${routine.id.length}:${routine.id}:${occurrence}`)
+      .digest("hex");
+    const threadId = ThreadId.make(`bot-routine:${digest}`);
+    const workspace =
+      profile.projectId === null
+        ? standaloneBotWorkspace(path.join(config.baseDir, "bot-workspaces"), profile.id)
+        : null;
+    const projectId = profile.projectId ?? workspace!.projectId;
+    let project = Option.getOrUndefined(yield* projects.getShell(projectId));
+    if (!project && workspace) {
+      yield* projectService.create({
+        commandId: CommandId.make(`bot-workspace:${projectId}`),
+        projectId,
+        title: profile.name,
+        workspaceRoot: workspace.workspaceRoot,
+        createWorkspaceRootIfMissing: true,
+        defaultModelSelection: null,
       });
-    });
+      project = Option.getOrUndefined(yield* projects.getShell(projectId));
+    }
+    if (!project || project.archivedAt != null) return yield* Effect.fail("Bot project is unavailable.");
+    if (
+      workspace &&
+      path.resolve(project.workspaceRoot) !== path.resolve(workspace.workspaceRoot)
+    ) {
+      return yield* Effect.fail("Bot workspace does not match its expected location.");
+    }
+
+    const modes = {
+      runtimeMode: resolveProjectSettings(settings, projectId, project).settings.defaultRuntimeMode,
+      interactionMode: "default" as const,
+    };
+    let thread = yield* orchestrator.getThreadShell(threadId);
+    if (thread === null) {
+      yield* orchestrator.dispatch({
+        type: "thread.bot.create",
+        commandId: CommandId.make(`bot-routine-thread:${digest}`),
+        threadId,
+        projectId,
+        botId: profile.id,
+        title: routine.name,
+        modelSelection: profile.modelSelection,
+        ...modes,
+        branch: null,
+        worktreePath: null,
+        createdBy: "user",
+        creationSource: "server",
+      });
+      thread = yield* orchestrator.getThreadShell(threadId);
+    }
+    if (!thread || thread.projectId !== projectId || thread.bot?.id !== profile.id ||
+        thread.archivedAt != null || thread.deletedAt != null) {
+      return yield* Effect.fail("Bot routine conversation is unavailable.");
+    }
+
+    return yield* orchestrator.dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make(`bot-routine-turn:${digest}`),
+      threadId,
+      messageId: MessageId.make(`bot-routine-message:${digest}`),
+      text: routine.prompt,
+      attachments: [],
+      modelSelection: profile.modelSelection,
+      dispatchMode: { type: "start_immediately" },
+      createdBy: "user",
+      creationSource: "server",
+    }).pipe(Effect.provideService(DispatchModeLimit, modes), Effect.asVoid);
+  });
 });

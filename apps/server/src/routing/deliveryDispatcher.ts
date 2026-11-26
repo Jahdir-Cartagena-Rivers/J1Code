@@ -1,11 +1,12 @@
-import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import type { makeDurableRoutingStore, StoredRoute } from "./durableRoutingStore.ts";
 import type { RouteEndpoint, RouteReceipt, RouteRequest } from "./routeState.ts";
 
-export class DeliveryDispatchError extends Data.TaggedError("DeliveryDispatchError")<{
-  readonly message: string;
-}> {}
+export class DeliveryDispatchError extends Schema.TaggedError<DeliveryDispatchError>()(
+  "DeliveryDispatchError",
+  { message: Schema.String },
+) {}
 
 type Store = Effect.Success<typeof makeDurableRoutingStore>;
 export type DeliveryRequest = Omit<RouteRequest, "permissionCeiling" | "destinationPermissions">;
@@ -66,17 +67,15 @@ export function makeDeliveryDispatcher(store: Store, port: DeliveryPort) {
   const receive = Effect.fn("DeliveryDispatcher.receive")(function* (evidence: unknown) {
     const receipt = yield* port.verifyReceipt(evidence);
     if (!receipt)
-      return yield* Effect.fail(
-        new DeliveryDispatchError({ message: "Unauthenticated delivery receipt" }),
-      );
+      return yield* new DeliveryDispatchError({ message: "Unauthenticated delivery receipt" });
     const route = yield* store.get(receipt.requestId);
     if (!route)
-      return yield* Effect.fail(new DeliveryDispatchError({ message: "Unknown delivery receipt" }));
+      return yield* new DeliveryDispatchError({ message: "Unknown delivery receipt" });
     return yield* store.transition(receipt.requestId, route.revision, { type: "receipt", receipt });
   });
   const dispatch = Effect.fn("DeliveryDispatcher.dispatch")(function* (requestId: string) {
     const route = yield* store.get(requestId);
-    if (!route) return yield* Effect.fail(new DeliveryDispatchError({ message: "Unknown route" }));
+    if (!route) return yield* new DeliveryDispatchError({ message: "Unknown route" });
     const result = (deferred: string | null): DeliveryResult => ({ route, deferred });
     if (route.state.status !== "queued") return result(null);
     const request = route.state.request;
@@ -106,9 +105,7 @@ export function makeDeliveryDispatcher(store: Store, port: DeliveryPort) {
           const evidence = yield* reservation.send(claimed);
           const receipt = yield* port.verifyReceipt(evidence);
           if (!receipt)
-            return yield* Effect.fail(
-              new DeliveryDispatchError({ message: "Missing authenticated receipt" }),
-            );
+            return yield* new DeliveryDispatchError({ message: "Missing authenticated receipt" });
           const saved = yield* store.transition(requestId, claimed.revision, {
             type: "receipt",
             receipt,
@@ -119,9 +116,7 @@ export function makeDeliveryDispatcher(store: Store, port: DeliveryPort) {
             Effect.gen(function* () {
               const current = yield* store.get(requestId);
               if (!current)
-                return yield* Effect.fail(
-                  new DeliveryDispatchError({ message: "Claimed route disappeared" }),
-                );
+                return yield* new DeliveryDispatchError({ message: "Claimed route disappeared" });
               if (current.state.status !== "sending") return { route: current, deferred: null };
               const uncertain = yield* store.transition(requestId, current.revision, {
                 type: "send-interrupted",

@@ -1,5 +1,6 @@
 import { expect, it } from "vite-plus/test";
-import { MessageId, TurnId, type OrchestrationThread } from "@j1code/contracts";
+import { MessageId, RunId } from "@j1code/contracts";
+import type { ChatMessage } from "../../types";
 import { deriveMessagesTimelineRows } from "./MessagesTimeline.logic";
 import {
   deriveThreadFeedPresentation,
@@ -7,13 +8,13 @@ import {
 } from "../../../../mobile/src/lib/threadActivity";
 import { routeRequestAnchors } from "@j1code/shared/routeRequestAnchors";
 
-const turnId = TurnId.make("turn-1");
-const messages: OrchestrationThread["messages"] = ["intro", "handoff", "final"].map(
+const runId = RunId.make("turn-1");
+const messages: ReadonlyArray<ChatMessage> = ["intro", "handoff", "final"].map(
   (id, index) => ({
     id: MessageId.make(id),
     role: "assistant" as const,
     text: id,
-    turnId,
+    runId,
     createdAt: `2026-01-01T00:00:0${index + 1}Z`,
     updatedAt: `2026-01-01T00:00:0${index + 1}Z`,
     streaming: false,
@@ -48,7 +49,7 @@ it("keeps one historical card at the web fold and restores its message on expans
   for (const expanded of [false, true, false]) {
     const rows = deriveMessagesTimelineRows({
       ...input,
-      expandedTurnIds: expanded ? new Set([turnId]) : new Set(),
+      expandedRunIds: expanded ? new Set([runId]) : new Set(),
     });
     const visible = rows.flatMap((row) =>
       row.kind === "message"
@@ -60,7 +61,8 @@ it("keeps one historical card at the web fold and restores its message on expans
     expect(anchor).toBe("handoff");
     expect(visible.filter((id) => id === anchor)).toHaveLength(1);
     const fold = rows.find((row) => row.kind === "turn-fold");
-    expect(fold?.kind === "turn-fold" && fold.hiddenMessageIds).toContain("handoff");
+    if (!expanded) expect(fold?.kind === "turn-fold" && fold.hiddenMessageIds).toContain("handoff");
+    else expect(rows.some((row) => row.kind === "message" && row.message.id === anchor)).toBe(true);
     expect(rows.findIndex((row) => row.kind === "turn-fold")).toBeLessThan(
       rows.findIndex((row) => row.kind === "message" && row.message.id === "final"),
     );
@@ -70,21 +72,23 @@ it("keeps one historical card at the web fold and restores its message on expans
 it("keeps one historical card through native mobile fold expansion and collapse", () => {
   const feed: ThreadFeedEntry[] = messages.map((message) => ({
     type: "message",
+    runId,
     id: message.id,
     createdAt: message.createdAt,
     message,
   }));
   for (const expanded of [false, true, false]) {
-    const rows = deriveThreadFeedPresentation(feed, null, expanded ? new Set([turnId]) : new Set());
+    const rows = deriveThreadFeedPresentation(feed, null, expanded ? new Set([runId]) : new Set());
     const visible = rows.flatMap((row) =>
       row.type === "message"
         ? [row.message.id]
-        : row.type === "turn-fold" && !row.expanded
+        : row.type === "run-fold" && !row.expanded
           ? (row.hiddenMessageIds ?? [])
           : [],
     );
     expect(visible.filter((id) => id === anchor)).toHaveLength(1);
-    const fold = rows.find((row) => row.type === "turn-fold");
-    expect(fold?.type === "turn-fold" && fold.hiddenMessageIds).toContain("handoff");
+    const fold = rows.find((row) => row.type === "run-fold");
+    if (!expanded) expect(fold?.type === "run-fold" && fold.hiddenMessageIds).toContain("handoff");
+    else expect(rows.some((row) => row.type === "message" && row.message.id === anchor)).toBe(true);
   }
 });

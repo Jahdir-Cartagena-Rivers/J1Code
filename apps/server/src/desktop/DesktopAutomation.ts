@@ -10,7 +10,7 @@ import * as Schema from "effect/Schema";
 import { HostProcessArchitecture, HostProcessPlatform } from "@j1code/shared/hostProcess";
 import { ServerConfig } from "../config.ts";
 import { ProcessRunner } from "../processRunner.ts";
-import type { McpInvocationScope } from "../mcp/McpInvocationContext.ts";
+import type { McpThreadInvocationScope } from "../mcp/McpInvocationContext.ts";
 
 export const AGENT_DESKTOP_VERSION = "1.3.1";
 const Envelope = Schema.Struct({
@@ -35,10 +35,12 @@ export function desktopBinaryPath(packageRoot: string, platform: string, arch: s
 
 /** Keep snapshots private to the calling provider session, even across concurrent threads. */
 export function desktopScopeKey(
-  scope: Pick<McpInvocationScope, "threadId" | "providerSessionId">,
+  scope: Pick<McpThreadInvocationScope, "thread" | "client">,
 ): string {
+  if (scope.client !== undefined || !scope.thread?.threadId || !scope.thread.providerSessionId.trim())
+    throw new Error("Desktop automation requires its authenticated provider thread.");
   return NodeCrypto.createHash("sha256")
-    .update(JSON.stringify([scope.threadId, scope.providerSessionId]))
+    .update(JSON.stringify([scope.thread.threadId, scope.thread.providerSessionId]))
     .digest("hex");
 }
 
@@ -59,13 +61,13 @@ export class DesktopAutomation extends Context.Service<
   DesktopAutomation,
   {
     readonly run: (
-      scope: McpInvocationScope,
+      scope: McpThreadInvocationScope,
       command: string,
       args: ReadonlyArray<string>,
       options?: { readonly headed?: boolean; readonly stdin?: string; readonly action?: boolean },
     ) => Effect.Effect<{ result: unknown }, DesktopToolError>;
     readonly screenshot: (
-      scope: McpInvocationScope,
+      scope: McpThreadInvocationScope,
       input: typeof DesktopScreenshotInput.Type,
     ) => Effect.Effect<
       { screenshot: { mimeType: "image/png"; data: string; width: number; height: number } },
@@ -85,7 +87,7 @@ export const layer = Layer.effect(
     const arch = yield* HostProcessArchitecture;
 
     const run = Effect.fn("DesktopAutomation.run")(function* (
-      scope: McpInvocationScope,
+      scope: McpThreadInvocationScope,
       command: string,
       args: ReadonlyArray<string>,
       options: {
@@ -171,7 +173,7 @@ export const layer = Layer.effect(
     });
 
     const screenshot = Effect.fn("DesktopAutomation.screenshot")(function* (
-      scope: McpInvocationScope,
+      scope: McpThreadInvocationScope,
       input: typeof DesktopScreenshotInput.Type,
     ) {
       return yield* Effect.scoped(

@@ -1,12 +1,12 @@
 import { ProjectId, ThreadId, TrimmedNonEmptyString } from "@j1code/contracts";
 import * as Schema from "effect/Schema";
-import * as Tool from "effect/unstable/ai/Tool";
-import * as Toolkit from "effect/unstable/ai/Toolkit";
-import { OrchestrationEngineService } from "../../../orchestration/Services/OrchestrationEngine.ts";
-import { ProjectionSnapshotQuery } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { Tool, Toolkit } from "effect/ai";
+import { OrchestratorV2 } from "../../../orchestration-v2/Orchestrator.ts";
+import { ProjectStoreV2 } from "../../../orchestration-v2/ProjectStore.ts";
+import { ServerSettingsService } from "../../../serverSettings.ts";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";
+import { RoutingBoundaryPorts } from "../routing/boundary.ts";
 
-const dependencies = [OrchestrationEngineService, ProjectionSnapshotQuery, McpInvocationContext];
 const Projects = Tool.make("list_chat_projects", {
   description:
     "List this environment's projects before routing a request from Home or another conversation. Project IDs and paths are environment-local.",
@@ -14,20 +14,26 @@ const Projects = Tool.make("list_chat_projects", {
     Schema.Struct({ id: ProjectId, title: Schema.String, workspaceRoot: Schema.String }),
   ),
   failure: Schema.String,
-  dependencies,
+  dependencies: [OrchestratorV2, ProjectStoreV2, McpInvocationContext],
 }).annotate(Tool.Readonly, true);
 const Handoff = Tool.make("handoff_to_project", {
   description:
-    "Route a user request into a new saved project chat and start it there. Preserve the source conversation. Write the request in clear, concise Markdown with short paragraphs or bullets for the goal, relevant context, and constraints. Preserve important details and use descriptive links for attachments instead of exposing long paths when possible. Never include secrets. Reuse requestId only for an identical retry. Return the supplied relative URL as a clickable Markdown link. This is a durable project chat, not a temporary worker. Ask for a destination only when ambiguous; never guess a workspace.",
+    "Route a user request into a new saved project chat when automatic routing permits it. Report the returned status and use the request ID to monitor the result. Preserve the source conversation. Write the request in clear, concise Markdown with short paragraphs or bullets for the goal, relevant context, and constraints. Preserve important details and use descriptive links for attachments instead of exposing long paths when possible. Never include secrets. Reuse requestId only for an identical retry. Return the supplied relative URL as a clickable Markdown link. This is a durable project chat, not a temporary worker. Ask for a destination only when ambiguous; never guess a workspace.",
   parameters: Schema.Struct({
     requestId: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
     projectId: ProjectId,
     title: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
     request: TrimmedNonEmptyString.check(Schema.isMaxLength(100_000)),
   }),
-  success: Schema.Struct({ threadId: ThreadId, url: Schema.String }),
+  success: Schema.Struct({
+    threadId: ThreadId,
+    url: Schema.String,
+    requestId: Schema.optionalKey(Schema.String),
+    status: Schema.Literals(["blocked", "suggested", "queued", "sending", "admitted", "delivered",
+      "accepted", "completed", "failed", "uncertain", "existing"]),
+  }),
   failure: Schema.String,
-  dependencies,
+  dependencies: [OrchestratorV2, ProjectStoreV2, ServerSettingsService, RoutingBoundaryPorts, McpInvocationContext],
 })
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)

@@ -2,7 +2,7 @@ import { it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import { BotProfile } from "@j1code/contracts";
 import { expect } from "vite-plus/test";
-import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import { layerMemory } from "../persistence/Sqlite.ts";
 import { makeRoutineScheduler } from "./routineScheduler.ts";
 
 const decode = Schema.decodeUnknownSync(BotProfile);
@@ -49,7 +49,7 @@ it.effect("admits each scheduled occurrence once and skips disabled or archived 
     profiles = [{ ...bot, routines: [{ ...bot.routines![0]!, enabled: false }] }];
     yield* scheduler.sweep(at + 3600000);
     expect(calls).toHaveLength(1);
-  }).pipe(Effect.provide(SqlitePersistenceMemory)),
+  }).pipe(Effect.provide(layerMemory)),
 );
 
 it.effect("does not replay an occurrence if provider admission is uncertain", () =>
@@ -66,7 +66,7 @@ it.effect("does not replay an occurrence if provider admission is uncertain", ()
     yield* scheduler.sweep(now);
     yield* scheduler.sweep(now);
     expect(attempts).toBe(1);
-  }).pipe(Effect.provide(SqlitePersistenceMemory)),
+  }).pipe(Effect.provide(layerMemory)),
 );
 
 it.effect("does not start a routine disabled after its occurrence was claimed", () =>
@@ -84,7 +84,7 @@ it.effect("does not start a routine disabled after its occurrence was claimed", 
     });
     yield* scheduler.sweep(Date.parse("2026-01-01T02:00:00Z"));
     expect(attempts).toBe(0);
-  }).pipe(Effect.provide(SqlitePersistenceMemory)),
+  }).pipe(Effect.provide(layerMemory)),
 );
 
 it.effect("retries after a settings read fails before provider admission", () =>
@@ -106,5 +106,5 @@ it.effect("retries after a settings read fails before provider admission", () =>
     yield* scheduler.sweep(now);
     yield* scheduler.sweep(now);
     expect(attempts).toBe(1);
-  }).pipe(Effect.provide(SqlitePersistenceMemory)),
+  }).pipe(Effect.provide(layerMemory)),
 );

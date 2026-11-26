@@ -25,18 +25,18 @@ import * as Semaphore from "effect/Semaphore";
 
 import * as ProcessRunner from "../processRunner.ts";
 import { patchDeviceHubAndroidPorts } from "./deviceHubAndroidPorts.ts";
+import DEVICE_TOOL_VERSIONS from "./deviceToolVersions.json" with { type: "json" };
 
 const DEVICE_HUB_PACKAGE = "expo-device-hub";
-export const DEVICE_HUB_VERSION = "0.12.0";
+export const DEVICE_HUB_VERSION = DEVICE_TOOL_VERSIONS[DEVICE_HUB_PACKAGE];
 const AGENT_DEVICE_PACKAGE = "agent-device";
-export const AGENT_DEVICE_VERSION = "0.21.12";
+export const AGENT_DEVICE_VERSION = DEVICE_TOOL_VERSIONS[AGENT_DEVICE_PACKAGE];
 
 const INSTALL_TIMEOUT = Duration.minutes(10);
 const installLock = Semaphore.makeUnsafe(1);
 
 export interface DeviceToolPaths {
   readonly installDir: string;
-  /** Absolute path of the tool's entry script, run with a resolved Node runtime. */
   readonly entryPath: string;
   readonly sentinelPath: string;
 }
@@ -52,10 +52,13 @@ export class DeviceToolchainInstallError extends Schema.TaggedError<DeviceToolch
     tool: Schema.String,
     step: Schema.String,
     exitCode: Schema.optional(Schema.Number),
+    reason: Schema.optional(Schema.Literal("npm_not_found")),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
+    if (this.reason === "npm_not_found")
+      return "Device support needs npm, which is not on the J1 Code server's PATH. Install npm (it comes with Node.js from nodejs.org), restart J1 Code, then retry.";
     const suffix = this.exitCode === undefined ? "" : ` (exit code ${this.exitCode})`;
     return `Installing ${this.tool} failed while ${this.step}${suffix}.`;
   }
@@ -93,7 +96,6 @@ const deviceToolchainPaths = (path: Path.Path, baseDir: string): DeviceToolchain
   agentDevice: toolPaths(path, baseDir, AGENT_DEVICE_SPEC),
 });
 
-/** Keep daemon state (daemon.json, sessions) in userdata, separate from tool installs. */
 export const agentDeviceStateDir = (path: Path.Path, stateDir: string): string =>
   path.join(stateDir, "device", "agent-device");
 
@@ -108,6 +110,11 @@ const isInstalled = Effect.fn("DeviceToolchain.isInstalled")(function* (
   ]).pipe(Effect.orElseSucceed(() => [false, Option.none<string>()] as const));
   return entryExists && Option.isSome(sentinel) && sentinel.value.trim() === version;
 });
+
+const isCommandNotFound = (error: ProcessRunner.ProcessRunError) =>
+  error._tag === "ProcessSpawnError" &&
+  error.cause instanceof PlatformError.PlatformError &&
+  error.cause.reason._tag === "NotFound";
 
 const installTool = Effect.fn("DeviceToolchain.installTool")(function* (
   spec: ToolSpec,
@@ -173,8 +180,7 @@ const installTool = Effect.fn("DeviceToolchain.installTool")(function* (
       .pipe(
         Effect.catchTags({
           ProcessSpawnError: (error) =>
-            error.cause instanceof PlatformError.PlatformError &&
-            error.cause.reason._tag === "NotFound"
+            isCommandNotFound(error)
               ? runner.run({
                   command: "pnpm",
                   args: ["--package=npm@11", "dlx", "npm", ...installArgs],
@@ -182,7 +188,16 @@ const installTool = Effect.fn("DeviceToolchain.installTool")(function* (
                 })
               : Effect.fail(error),
         }),
-        Effect.mapError(fail("running npm install")),
+        Effect.mapError((cause) =>
+          isCommandNotFound(cause)
+            ? new DeviceToolchainInstallError({
+                tool: spec.name,
+                step: "running npm install",
+                reason: "npm_not_found",
+                cause,
+              })
+            : fail("running npm install")(cause),
+        ),
       );
     if (result.code !== 0) {
       return yield* new DeviceToolchainInstallError({
@@ -203,16 +218,17 @@ const installTool = Effect.fn("DeviceToolchain.installTool")(function* (
     yield* fs
       .writeFileString(path.join(stagingDir, ".install-complete"), `${spec.version}\n`)
       .pipe(Effect.mapError(fail("recording the completed install")));
-    yield* fs.rename(stagingDir, paths.installDir).pipe(
-      Effect.catch((cause) =>
-        // A concurrent server may have published the same version first.
-        isInstalled(fs, paths, spec.version).pipe(
-          Effect.flatMap((published) =>
-            published ? Effect.void : Effect.fail(fail("publishing the install")(cause)),
+    yield* fs
+      .rename(stagingDir, paths.installDir)
+      .pipe(
+        Effect.catch((cause) =>
+          isInstalled(fs, paths, spec.version).pipe(
+            Effect.flatMap((published) =>
+              published ? Effect.void : Effect.fail(fail("publishing the install")(cause)),
+            ),
           ),
         ),
-      ),
-    );
+      );
     return paths;
   }).pipe(
     Effect.ensuring(fs.remove(stagingDir, { recursive: true, force: true }).pipe(Effect.ignore)),
@@ -252,7 +268,23 @@ export const isDeviceHubInstalled = (baseDir: string) =>
 export const isAgentDeviceInstalled = (baseDir: string) =>
   isToolInstalled(baseDir, AGENT_DEVICE_SPEC, (paths) => paths.agentDevice);
 
-/** Read completed installs without downloading or starting either tool. */
+/** Entry of the first installed agent-device among `versions`; never installs. */
+export const installedAgentDeviceEntry = Effect.fn("DeviceToolchain.installedAgentDeviceEntry")(
+  function* (baseDir: string, versions: ReadonlyArray<string>) {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    for (const version of versions) {
+      // A persisted daemon record may only name a version under the managed tool directory.
+      if (!/^[0-9]+\.[0-9]+\.[0-9]+(?:-[a-zA-Z0-9.-]+)?(?:\+[a-zA-Z0-9.-]+)?$/.test(version)) {
+        continue;
+      }
+      const paths = toolPaths(path, baseDir, { ...AGENT_DEVICE_SPEC, version });
+      if (yield* isInstalled(fs, paths, version)) return paths.entryPath;
+    }
+    return null;
+  },
+);
+
 export const deviceToolVersions = Effect.fn("DeviceToolchain.versions")(function* (
   baseDir: string,
   running: { hub?: string; agent?: string } = {},

@@ -1,13 +1,3 @@
-/**
- * J1ProjectFileLoader - Effect service that loads the checked-in `t3.json`
- * project file from a workspace root.
- *
- * Loading is best-effort: a missing file resolves to `Option.none`, and
- * unreadable or invalid files are logged and treated as absent so callers
- * can fall back to their defaults.
- *
- * @module J1ProjectFileLoader
- */
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -35,22 +25,16 @@ export class J1ProjectFileLoadError extends Schema.TaggedError<J1ProjectFileLoad
   }
 }
 
-/** Service tag for t3.json project file loading. */
 export class J1ProjectFileLoader extends Context.Service<
   J1ProjectFileLoader,
   {
-    /**
-     * Load and decode `t3.json` at the workspace root.
-     *
-     * Never fails: missing, unreadable, or invalid files resolve to
-     * `Option.none` (invalid files are logged as warnings).
-     */
+    /** Never fails; missing/unreadable/invalid files return none, with warnings for invalid files. */
     readonly load: (workspaceRoot: string) => Effect.Effect<Option.Option<J1ProjectFile>>;
   }
 >()("@j1code/server/project/J1ProjectFileLoader") {}
 
 const logJ1ProjectFileLoadError = (error: J1ProjectFileLoadError) =>
-  Effect.logWarning(error).pipe(
+  Effect.logWarning(error.message).pipe(
     Effect.annotateLogs({
       operation: error.operation,
       workspaceRoot: error.workspaceRoot,
@@ -59,7 +43,7 @@ const logJ1ProjectFileLoadError = (error: J1ProjectFileLoadError) =>
     }),
   );
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;

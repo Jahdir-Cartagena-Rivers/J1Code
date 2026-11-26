@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   registerRoute,
+  bindRouteInputFingerprint,
+  replayRouteInput,
   resolveRoute,
   transitionRoute,
   type RouteRequest,
@@ -187,6 +189,7 @@ it.each(["suggest", "auto"] as const)(
       mode,
       taskId: "task",
       sourceUrl: "j1://source",
+      origin: { subject: "user", runId: "original-run", messageId: "original-message" },
     };
     const suggested = registerRoute(original);
     expect(suggested.status).toBe("suggested");
@@ -221,6 +224,29 @@ it.each(["suggest", "auto"] as const)(
     expect(() =>
       resolveRoute(suggested, { ...authority, destinationPermissions: ["write"] }),
     ).toThrow("permission-escalation");
+    expect(() => resolveRoute(suggested, { ...authority, userId: "foreign" })).toThrow(
+      "Unauthorized",
+    );
+    for (const key of ["subject", "runId", "messageId"] as const) {
+      expect(() => registerRoute({
+        ...original,
+        origin: { ...original.origin, [key]: "changed" },
+      }, resolved)).toThrow("identity conflict");
+    }
     expect(() => resolveRoute(resolved, authority)).toThrow();
   },
 );
+
+it("replays exact original input without changing saved manual confirmation or route policy", () => {
+  const fingerprint = "a".repeat(64);
+  const suggested = bindRouteInputFingerprint(registerRoute({ ...request, mode: "suggest" }), fingerprint);
+  const confirmed = resolveRoute(suggested, {
+    authenticatedUser: true, userId: "user", source, destination, destinationPermissions: ["read"],
+  });
+  expect(replayRouteInput(confirmed, fingerprint)).toBe(confirmed);
+  expect(confirmed.resolution?.userId).toBe("user");
+  expect(() => replayRouteInput(confirmed, "b".repeat(64))).toThrow("identity conflict");
+  expect(() => bindRouteInputFingerprint(confirmed, "b".repeat(64))).toThrow("identity conflict");
+  expect(() => bindRouteInputFingerprint(registerRoute(request), "malformed")).toThrow();
+  expect(() => replayRouteInput(registerRoute(request), fingerprint)).toThrow("existing status");
+});

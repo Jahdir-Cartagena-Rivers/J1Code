@@ -1,6 +1,6 @@
 import * as NodeOS from "node:os";
 
-import { HostProcessPlatform } from "@j1code/shared/hostProcess";
+import * as HostProcess from "@j1code/shared/HostProcess";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -39,9 +39,9 @@ export class DesktopNetworkInterfaces extends Context.Service<
   }
 >()("@j1code/desktop/backend/DesktopNetworkInterfaces") {}
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = Effect.gen(function* () {
-  const platform = yield* HostProcessPlatform;
+  const platform = yield* HostProcess.Platform;
   return DesktopNetworkInterfaces.of({
     read: Effect.try({
       try: () => NodeOS.networkInterfaces(),

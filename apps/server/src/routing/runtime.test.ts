@@ -2,109 +2,117 @@
 
 import {
   EnvironmentId,
-  DEFAULT_SERVER_SETTINGS,
   CommandId,
   ProjectId,
   ThreadId,
-  TurnId,
+  EventId,
+  ProviderDriverKind,
+  MessageId,
   ProviderInstanceId,
-  type OrchestrationEvent,
+  type OrchestrationV2DomainEvent,
 } from "@j1code/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
 import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
 import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/sql/SqlClient";
 import { expect, it } from "vite-plus/test";
 
-import { OrchestrationCommandReceiptRepositoryLive } from "../persistence/Layers/OrchestrationCommandReceipts.ts";
-import { OrchestrationEventStoreLive } from "../persistence/Layers/OrchestrationEventStore.ts";
-import {
-  makeSqlitePersistenceLive,
-  SqlitePersistenceMemory,
-} from "../persistence/Layers/Sqlite.ts";
-import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
-import { OrchestrationEngineLive } from "../orchestration/Layers/OrchestrationEngine.ts";
-import { OrchestrationProjectionPipelineLive } from "../orchestration/Layers/ProjectionPipeline.ts";
-import { OrchestrationProjectionSnapshotQueryLive } from "../orchestration/Layers/ProjectionSnapshotQuery.ts";
-import * as ThreadBackgroundLiveness from "../orchestration/ThreadBackgroundLiveness.ts";
-import * as ThreadPlanProgress from "../orchestration/ThreadPlanProgress.ts";
-import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
-import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { ServerConfig } from "../config.ts";
+import * as Sqlite from "../persistence/Sqlite.ts";
+import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
+import * as DateTime from "effect/DateTime";
+import { CodexProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
+import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
+import * as RuntimePolicy from "../orchestration-v2/RuntimePolicy.ts";
+import * as ProviderReplayHarness from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
+import type { ProviderAdapterV2 } from "@j1code/provider-core/server/ProviderAdapter";
+import { ProviderRegistry } from "../provider/ProviderRegistry.ts";
 
-import { shouldWakeRouteDrain } from "./engineDrain.ts";
+import { layerV2RoutingOwner, shouldWakeRouteDrain } from "./engineDrain.ts";
+import { layerLocalRouteNoticeWriter } from "./localRouteNotice.ts";
+import { layerV2RouteAdmission } from "./v2RouteAdmission.ts";
 import { automaticRouteFeedback } from "./feedback.ts";
+import { makeDurableRoutingStore } from "./durableRoutingStore.ts";
 import * as Schema from "effect/Schema";
-const decodeReplyReceipt = Schema.decodeUnknownEffect(Schema.Struct({ requestId: Schema.String }));
-
-it("wakes for release of an approval, not routine tool activity", () => {
-  const activity = (kind: string) =>
-    ({ type: "thread.activity-appended", payload: { activity: { kind } } }) as OrchestrationEvent;
-  expect(shouldWakeRouteDrain(activity("tool.completed"))).toBe(false);
-  expect(shouldWakeRouteDrain(activity("approval.resolved"))).toBe(true);
-  expect(shouldWakeRouteDrain(activity("user-input.resolved"))).toBe(true);
-  expect(shouldWakeRouteDrain(activity("routing.updated"))).toBe(true);
-  expect(shouldWakeRouteDrain({ type: "thread.session-set" } as OrchestrationEvent)).toBe(true);
-});
-function makeOrchestrationLayer(
-  databasePath?: string,
-  repositoryIdentityResolver?: RepositoryIdentityResolver.RepositoryIdentityResolver["Service"],
-) {
-  const persistence = databasePath
-    ? makeSqlitePersistenceLive(databasePath)
-    : SqlitePersistenceMemory;
-  const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
-    prefix: "t3-orchestration-engine-test-",
-  });
-  return Layer.mergeAll(
-    OrchestrationEngineLive.pipe(
-      Layer.provide(OrchestrationProjectionSnapshotQueryLive),
-      Layer.provide(OrchestrationProjectionPipelineLive),
-    ),
-    OrchestrationProjectionSnapshotQueryLive,
-  ).pipe(
-    Layer.provideMerge(ThreadBackgroundLiveness.layer),
-    Layer.provide(ThreadPlanProgress.layer),
-    Layer.provide(OrchestrationEventStoreLive),
-    Layer.provideMerge(OrchestrationCommandReceiptRepositoryLive),
-    Layer.provide(
-      repositoryIdentityResolver
-        ? Layer.succeed(
-            RepositoryIdentityResolver.RepositoryIdentityResolver,
-            repositoryIdentityResolver,
-          )
-        : RepositoryIdentityResolver.layer,
-    ),
-    Layer.provideMerge(persistence),
-    Layer.provideMerge(ServerConfigLayer),
-    Layer.provideMerge(NodeServices.layer),
-  );
-}
-
 import { RoutingRuntimeLive } from "./runtime.ts";
 import { RoutingBoundaryPorts } from "../mcp/toolkits/routing/boundary.ts";
 import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
-import { ServerSettingsService } from "../serverSettings.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import { ExternalRouteEndpoints } from "./ExternalRouteEndpoints.ts";
 import type { ExternalRouteDelivery } from "@j1code/contracts";
+
+const decodeReplyReceipt = Schema.decodeUnknownEffect(Schema.Struct({ requestId: Schema.String }));
+
+it("wakes for release of an approval, not routine tool activity", () => {
+  const request = (status: string, kind: string) =>
+    ({ type: "runtime-request.updated", payload: { status, kind } }) as OrchestrationV2DomainEvent;
+  const event = (type: OrchestrationV2DomainEvent["type"]) =>
+    ({ type }) as OrchestrationV2DomainEvent;
+  expect(shouldWakeRouteDrain(event("turn-item.updated"))).toBe(false);
+  expect(shouldWakeRouteDrain(request("pending", "command"))).toBe(false);
+  expect(shouldWakeRouteDrain(request("resolved", "command"))).toBe(true);
+  expect(shouldWakeRouteDrain(request("resolved", "user_input"))).toBe(true);
+  expect(shouldWakeRouteDrain(event("thread.runtime-mode-updated"))).toBe(true);
+  expect(shouldWakeRouteDrain(event("provider-thread.updated"))).toBe(true);
+});
+
+const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "default" };
+const replayAdapter = {
+  instanceId: modelSelection.instanceId,
+  driver: ProviderDriverKind.make("codex"),
+  getCapabilities: () => Effect.succeed(CodexProviderCapabilitiesV2),
+  planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" }),
+  openSession: () => Effect.die("Routing tests do not launch a provider"),
+} satisfies ProviderAdapterV2["Service"];
+
+const persistence = Sqlite.layerMemory;
+const orchestration = ProviderReplayHarness.layerWithRegistry(
+  { name: "routing-runtime" },
+  ProviderAdapterRegistry.layerFromAdapters([replayAdapter]),
+  { databaseLayer: persistence, runEffectWorker: false },
+);
+const routingTestServices = layerV2RoutingOwner.pipe(
+  Layer.provideMerge(layerLocalRouteNoticeWriter),
+  Layer.provide(layerV2RouteAdmission),
+  Layer.provideMerge(Layer.mergeAll(
+    orchestration,
+    ProjectionStore.layer,
+    ProjectStore.layer,
+    CommandReceiptStore.layer,
+    RuntimePolicy.layer,
+    Layer.mock(ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+    ExternalRouteEndpoints.layer,
+    Layer.mock(ServerEnvironment)({ getEnvironmentId: Effect.succeed(EnvironmentId.make("env")) }),
+    ServerSettings.layerTest({ chatRoutingMode: "auto" }),
+  )),
+  Layer.provideMerge(persistence),
+  Layer.provide(NodeServices.layer),
+);
+
+const seedProject = Effect.fn("RoutingRuntimeTest.seedProject")(function* (
+  id: string, title: string, workspaceRoot: string,
+) {
+  const projects = yield* ProjectStore.ProjectStoreV2;
+  const now = DateTime.formatIso(yield* DateTime.now);
+  const projectId = ProjectId.make(id);
+  yield* projects.apply({
+    sequence: 1, eventId: EventId.make(`seed:${id}`), aggregateKind: "project", aggregateId: projectId,
+    occurredAt: now, commandId: null, causationEventId: null, correlationId: null, metadata: {},
+    type: "project.created",
+    payload: { projectId, title, workspaceRoot, defaultModelSelection: null, scripts: [], createdAt: now, updatedAt: now },
+  });
+});
 
 effectIt.effect(
   "joins native transport receipts, acknowledgement and ancestry through the real registered runtime",
   () =>
     Effect.gen(function* () {
-      const engine = yield* OrchestrationEngineService;
+      const engine = yield* OrchestratorV2;
       const registry = yield* ExternalRouteEndpoints;
-      const createdAt = "2026-11-08T00:00:00.000Z";
-      yield* engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.make("merged-p"),
-        projectId: ProjectId.make("merged-p"),
-        title: "Original project",
-        workspaceRoot: process.cwd(),
-        defaultModelSelection: null,
-        createdAt,
-      });
+      yield* seedProject("merged-p", "Original project", process.cwd());
       yield* engine.dispatch({
         type: "thread.create",
         commandId: CommandId.make("merged-source"),
@@ -116,7 +124,8 @@ effectIt.effect(
         interactionMode: "default",
         branch: null,
         worktreePath: null,
-        createdAt,
+        createdBy: "user",
+        creationSource: "web",
       });
       const source = { environmentId: "env", projectId: "merged-p", threadId: "merged-source" };
       const destination = {
@@ -191,7 +200,7 @@ effectIt.effect(
             visited: [],
             maxHops: 8,
           },
-          fingerprint: "intent",
+          fingerprint: "b".repeat(64),
           originalRequest: "Current user instruction",
           sourceUrl: "/env/merged-source",
         });
@@ -248,7 +257,7 @@ effectIt.effect(
         const earlyReply = yield* decodeReplyReceipt(
           yield* registry.call(actor, "reply_to_route", {
             requestId,
-            replyId: "stable-across-completion",
+            replyId: "stable-\u96ea-across-completion",
             message: "Here is the evidence so far.",
           }),
         );
@@ -260,6 +269,9 @@ effectIt.effect(
             "Already fixed in commit abc.",
           )).status,
         ).toBe("completed");
+        expect(earlyReply.requestId).toBe(
+          "2d322dea429c7f9c5b98df4ec0147d99b025a567eac3ee265762d8a3841bb208",
+        );
         const completedState = (yield* ports.get(requestId))!;
         const returned = yield* ports.get(automaticRouteFeedback(completedState)!.requestId);
         expect(returned?.request.destination).toEqual(source);
@@ -268,7 +280,7 @@ effectIt.effect(
         expect(
           yield* registry.call(actor, "reply_to_route", {
             requestId,
-            replyId: "stable-across-completion",
+            replyId: "stable-\u96ea-across-completion",
             message: "Here is the evidence so far.",
           }),
         ).toMatchObject({ requestId: earlyReply.requestId });
@@ -280,6 +292,9 @@ effectIt.effect(
           }),
         );
         expect((yield* ports.get(reply.requestId))?.request.feedbackFor).toBe(requestId);
+        const store = yield* makeDurableRoutingStore;
+        const feedbackIds = [earlyReply.requestId, returned!.request.requestId, reply.requestId];
+        expect((yield* store.queued()).filter((id) => feedbackIds.includes(id))).toEqual(feedbackIds);
         expect(
           yield* registry.call(actor, "reply_to_route", {
             requestId,
@@ -304,48 +319,29 @@ effectIt.effect(
             })
             .pipe(Effect.result),
         ).toMatchObject({ _tag: "Failure" });
-      }).pipe(Effect.provide(RoutingRuntimeLive));
-    }).pipe(
-      Effect.provide(
-        Layer.mergeAll(
-          makeOrchestrationLayer(),
-          ExternalRouteEndpoints.layer,
-          Layer.succeed(ServerEnvironment, {
-            getEnvironmentId: Effect.succeed(EnvironmentId.make("env")),
-            getDescriptor: Effect.die("unused"),
-          }),
-          Layer.succeed(ServerSettingsService, {
-            getSettings: Effect.succeed({ ...DEFAULT_SERVER_SETTINGS, chatRoutingMode: "auto" }),
-          } as unknown as ServerSettingsService["Service"]),
-        ),
-      ),
-    ),
+      }).pipe(Effect.provide(RoutingRuntimeLive), Effect.scoped);
+
+      yield* Effect.gen(function* () {
+        const ports = yield* RoutingBoundaryPorts;
+        const requestId = "a".repeat(64);
+        const completed = yield* ports.get(requestId);
+        expect(completed?.status).toBe("completed");
+        expect(completed?.receipts.map(({ kind }) => kind)).toEqual(["delivered", "accepted", "completed"]);
+        const feedback = completed === null ? null : automaticRouteFeedback(completed);
+        expect(feedback).not.toBeNull();
+        if (feedback === null) return yield* Effect.die("Missing durable completion feedback");
+        expect((yield* ports.get(feedback.requestId))?.request.feedbackFor).toBe(requestId);
+      }).pipe(Effect.provide(RoutingRuntimeLive), Effect.scoped);
+    }).pipe(Effect.provide(routingTestServices)),
 );
 
 effectIt.effect(
-  "registered runtime persists suggestions, discovers owners and admits auto routes",
+  "registered runtime persists suggestions, discovers owners and holds unavailable auto routes",
   () =>
     Effect.gen(function* () {
-      const engine = yield* OrchestrationEngineService;
-      const createdAt = "2026-11-01T00:00:00.000Z";
-      yield* engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.make("p"),
-        projectId: ProjectId.make("p"),
-        title: "P",
-        workspaceRoot: process.cwd(),
-        defaultModelSelection: null,
-        createdAt,
-      });
-      yield* engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.make("p2"),
-        projectId: ProjectId.make("p2"),
-        title: "Destination project",
-        workspaceRoot: `${process.cwd()}/route-target`,
-        defaultModelSelection: null,
-        createdAt,
-      });
+      const engine = yield* OrchestratorV2;
+      yield* seedProject("p", "P", process.cwd());
+      yield* seedProject("p2", "Destination project", `${process.cwd()}/route-target`);
       for (const id of ["source", "destination"])
         yield* engine.dispatch({
           type: "thread.create",
@@ -358,13 +354,21 @@ effectIt.effect(
           interactionMode: "default",
           branch: null,
           worktreePath: null,
-          createdAt,
+          createdBy: "user",
+          creationSource: "web",
         });
       yield* Effect.gen(function* () {
         const ports = yield* RoutingBoundaryPorts;
         const source = { environmentId: "env", projectId: "p", threadId: "source" };
         const destination = { ...source, projectId: "p2", threadId: "destination" };
-        yield* ports.claim!(destination, "task", "claim");
+        yield* ports.claim!(destination, "task", "claim-\u96ea");
+        yield* ports.claim!(destination, "task", "claim-\u96ea");
+        const sql = yield* SqlClient.SqlClient;
+        expect(yield* sql<{ binding_id: string }>`
+          SELECT binding_id FROM task_owner_bindings WHERE task_id = 'task'
+        `).toEqual([{
+          binding_id: "1e1e3299f5196b21f82037d584db12d1f1b206f86aa919e1421c62a5d4a726d8",
+        }]);
         expect(yield* ports.owner(source, "task")).toEqual({ destination, ambiguous: false });
         const suggestion = yield* ports.submit({
           route: {
@@ -379,7 +383,7 @@ effectIt.effect(
             visited: [],
             maxHops: 8,
           },
-          fingerprint: "suggestion",
+          fingerprint: "c".repeat(64),
           originalRequest: "review",
           sourceUrl: "/env/source",
         });
@@ -397,14 +401,16 @@ effectIt.effect(
             visited: [],
             maxHops: 8,
           },
-          fingerprint: "intent",
+          fingerprint: "b".repeat(64),
           originalRequest: "request",
           sourceUrl: "/env/source",
         });
-        expect(row.status).toBe("admitted");
+        expect(row.status).toBe("queued");
         expect(row.receipts).toEqual([]);
         expect((yield* ports.list(source)).length).toBe(2);
-        expect((yield* ports.policy(destination, "next", "task")).visited).toContainEqual(source);
+        // A queued route has not reached the destination. The native receipt test
+        // above checks ancestry once the destination has actually received it.
+        expect((yield* ports.policy(destination, "next", "task")).visited).toEqual([]);
         expect((yield* ports.policy(destination, "other", "unrelated-task")).visited).toEqual([]);
         expect(yield* ports.receipt!(source, "r", "accepted").pipe(Effect.result)).toMatchObject({
           _tag: "Failure",
@@ -417,7 +423,7 @@ effectIt.effect(
         yield* ports.release!(destination, "task", "release");
         yield* ports.release!(destination, "task", "release");
         expect((yield* ports.owner(source, "task")).destination).toBeNull();
-        expect((yield* ports.get("r"))?.status).toBe("admitted");
+        expect((yield* ports.get("r"))?.status).toBe("queued");
         const coordinator = { ...source, threadId: "coordinator" };
         for (const id of ["coordinator", "competing-coordinator"])
           yield* engine.dispatch({
@@ -431,22 +437,19 @@ effectIt.effect(
             interactionMode: "default",
             branch: null,
             worktreePath: null,
-            createdAt,
+            createdBy: "user",
+            creationSource: "web",
           });
         yield* engine.dispatch({
-          type: "thread.session.set",
+          type: "message.dispatch",
           commandId: CommandId.make("coordinator-busy"),
           threadId: ThreadId.make("coordinator"),
-          createdAt,
-          session: {
-            threadId: ThreadId.make("coordinator"),
-            status: "running",
-            providerName: "codex",
-            runtimeMode: "full-access",
-            activeTurnId: TurnId.make("busy-turn"),
-            lastError: null,
-            updatedAt: createdAt,
-          },
+          messageId: MessageId.make("coordinator-prompt"),
+          text: "Work on transcription",
+          attachments: [],
+          dispatchMode: { type: "start_immediately" },
+          createdBy: "user",
+          creationSource: "web",
         });
         const proposed = yield* ports.owner(
           source,
@@ -468,7 +471,7 @@ effectIt.effect(
             visited: [],
             maxHops: 8,
           },
-          fingerprint: "working-proposal",
+          fingerprint: "d".repeat(64),
           originalRequest: "Improve transcription",
           sourceUrl: "/env/source",
         });
@@ -503,7 +506,7 @@ effectIt.effect(
               visited: [],
               maxHops: 8,
             },
-            fingerprint: `integration-${mode}`,
+            fingerprint: (mode === "auto" ? "e" : "f").repeat(64),
             originalRequest: "Include completed audio changes in the next build",
             sourceUrl: "/env/source",
           });
@@ -516,20 +519,14 @@ effectIt.effect(
         expect((yield* ports.get("integration-auto"))?.status).toBe("queued");
         expect((yield* ports.get("integration-suggest"))?.status).toBe("suggested");
         expect((yield* ports.get("integration-auto"))?.receipts).toEqual([]);
-        const snapshots = yield* ProjectionSnapshotQuery;
-        const sourceDetail = Option.getOrThrow(
-          yield* snapshots.getThreadDetailById(ThreadId.make("source")),
-        );
-        expect(
-          Option.getOrThrow(yield* snapshots.getThreadShellById(ThreadId.make("source")))
-            .hasPendingApprovals,
-        ).toBe(false);
-        expect(sourceDetail.activities).toEqual(
+        const projections = yield* ProjectionStore.ProjectionStoreV2;
+        const sourceShell = yield* projections.getThreadShell(ThreadId.make("source"));
+        expect(sourceShell?.pendingRuntimeRequest).toBeNull();
+        expect(sourceShell?.routeNotices).toBeUndefined();
+        const sourceThread = yield* projections.getThread(ThreadId.make("source"));
+        expect(sourceThread.routeNotices).toEqual(
           expect.arrayContaining([
-            expect.objectContaining({
-              kind: "routing.updated",
-              payload: expect.objectContaining({ requestId: "integration-auto", status: "queued" }),
-            }),
+            expect.objectContaining({ requestId: "integration-auto", status: "queued" }),
           ]),
         );
         expect((yield* ports.owner(source, "unrelated-audio-fix")).ambiguous).toBe(true);
@@ -546,18 +543,5 @@ effectIt.effect(
           ambiguous: false,
         });
       }).pipe(Effect.provide(RoutingRuntimeLive));
-    }).pipe(
-      Effect.provide(
-        Layer.mergeAll(
-          makeOrchestrationLayer(),
-          Layer.succeed(ServerEnvironment, {
-            getEnvironmentId: Effect.succeed(EnvironmentId.make("env")),
-            getDescriptor: Effect.die("unused"),
-          }),
-          Layer.succeed(ServerSettingsService, {
-            getSettings: Effect.succeed({ ...DEFAULT_SERVER_SETTINGS, chatRoutingMode: "auto" }),
-          } as unknown as ServerSettingsService["Service"]),
-        ),
-      ),
-    ),
+    }).pipe(Effect.provide(routingTestServices)),
 );

@@ -1,11 +1,13 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
-import { McpSchema, McpServer, Tool } from "effect/unstable/ai";
+import { McpSchema, McpServer, Tool } from "effect/ai";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";
 import { BotToolkit } from "./tools.ts";
+import { advertisedJsonSchema } from "../../advertisedJsonSchema.ts";
 import { BotToolkitHandlers } from "./handlers.ts";
 
 const object = (value: unknown): value is Record<string, unknown> =>
@@ -61,37 +63,21 @@ const registration = Layer.effectDiscard(
         tool: new McpSchema.Tool({
           name: tool.name,
           description: Tool.getDescription(tool),
-          inputSchema: Tool.getJsonSchema(tool),
+          inputSchema: advertisedJsonSchema(tool),
         }),
         annotations: tool.annotations,
         handle: (payload) =>
           Effect.withFiber((fiber) => {
             const invocation = Context.getUnsafe(fiber.context, McpInvocationContext);
-            const call =
-              tool.name === "bot_call"
-                ? built
-                    .handle(
-                      "bot_call",
-                      payload as Tool.Parameters<typeof BotToolkit.tools.bot_call>,
-                    )
-                    .pipe(
-                      Stream.unwrap,
-                      Stream.run(Sink.last()),
-                      Effect.flatMap(Effect.fromOption),
-                      Effect.map(({ encodedResult }) => encodedResult as unknown),
-                    )
-                : built
-                    .handle(
-                      "bot_tools",
-                      payload as Tool.Parameters<typeof BotToolkit.tools.bot_tools>,
-                    )
-                    .pipe(
-                      Stream.unwrap,
-                      Stream.run(Sink.last()),
-                      Effect.flatMap(Effect.fromOption),
-                      Effect.map(({ encodedResult }) => encodedResult as unknown),
-                    );
-            return call.pipe(
+            return Schema.decodeUnknownEffect(Schema.Json)(payload).pipe(
+              Effect.flatMap((params) =>
+                built.handle(tool.name, params).pipe(
+                  Stream.unwrap,
+                  Stream.run(Sink.last()),
+                  Effect.flatMap(Effect.fromOption),
+                  Effect.map(({ encodedResult }) => encodedResult),
+                ),
+              ),
               Effect.provideService(McpInvocationContext, invocation),
               Effect.matchCause({
                 onFailure: () =>

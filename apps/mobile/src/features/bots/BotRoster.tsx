@@ -26,10 +26,10 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { AppText } from "../../components/AppText";
-import { ControlPill, ControlPillMenu } from "../../components/ControlPill";
-import { MaterialButton } from "../../components/MaterialButton";
-import { RowPressable } from "../../components/RowPressable";
+import { AppText } from "../../components/ui/AppText";
+import { ControlPill, ControlPillMenu } from "../../components/ui/ControlPill";
+import { Button } from "../../components/ui/Button";
+import { RowPressable } from "../../components/ui/RowPressable";
 import { uuidv4 } from "../../lib/uuid";
 import { useProjects, useThreadShells, waitForProject } from "../../state/entities";
 import { environmentServerConfigsAtom, serverEnvironment } from "../../state/server";
@@ -239,14 +239,14 @@ export function BotRoster({
           ))}
       </ScrollView>
       {entries.some(({ profile }) => profile.archived) ? (
-        <MaterialButton
+        <Button
           tone="text"
           label={showArchived ? "Hide archived bots" : "Show archived bots"}
           onPress={() => setShowArchived(!showArchived)}
         />
       ) : null}
       {pending ? (
-        <MaterialButton
+        <Button
           tone="text"
           label="Cancel opening conversation"
           onPress={() => setPending(null)}
@@ -562,7 +562,7 @@ function BotEditor({
             </AppText>
           ) : null}
           {error ? <AppText accessibilityRole="alert">{error}</AppText> : null}
-          <MaterialButton
+          <Button
             label={saving ? "Saving…" : "Save bot"}
             disabled={
               saving ||
@@ -573,7 +573,7 @@ function BotEditor({
             onPress={() => void save()}
             tone="primary"
           />
-          <MaterialButton label="Cancel" disabled={saving} onPress={onClose} />
+          <Button label="Cancel" disabled={saving} onPress={onClose} />
         </ScrollView>
       </KeyboardAvoidingView>
     </Modal>

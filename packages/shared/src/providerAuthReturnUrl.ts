@@ -1,6 +1,5 @@
 import { isLoopbackHost } from "./preview.ts";
 
-/** Only return to a local client or the hosted J1 Code client, never an arbitrary OAuth-supplied URL. */
 export function providerAuthReturnUrl(value: string | undefined): string | undefined {
   if (!value) return undefined;
   try {

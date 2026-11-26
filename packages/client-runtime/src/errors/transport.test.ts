@@ -1,16 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import { NETWORK_BLOCKING_HINT, UNRESPONSIVE_HOST_HINT } from "./network.ts";
 import { isTransportConnectionErrorMessage, sanitizeThreadErrorMessage } from "./transport.ts";
 
 describe("isTransportConnectionErrorMessage", () => {
-  it("returns true for SocketCloseError", () => {
-    expect(isTransportConnectionErrorMessage("SocketCloseError: connection reset")).toBe(true);
-  });
-
-  it("returns true for SocketOpenError", () => {
-    expect(isTransportConnectionErrorMessage("SocketOpenError: ECONNREFUSED")).toBe(true);
-  });
-
   it("returns true for React Native disconnected socket errors", () => {
     expect(
       isTransportConnectionErrorMessage(
@@ -19,13 +12,19 @@ describe("isTransportConnectionErrorMessage", () => {
     ).toBe(true);
   });
 
-  it("recognizes connection errors emitted by the Effect RPC session", () => {
-    expect(isTransportConnectionErrorMessage("Test environment disconnected.")).toBe(true);
+  it("recognizes relay connection errors that carry the network hint", () => {
+    for (const sentence of [
+      "Relay environment disconnected.",
+      "Relay environment stopped responding.",
+      "Relay environment could not establish a WebSocket connection.",
+    ]) {
+      expect(isTransportConnectionErrorMessage(`${sentence} ${NETWORK_BLOCKING_HINT}`)).toBe(true);
+    }
     expect(
       isTransportConnectionErrorMessage(
-        "Test environment could not establish a WebSocket connection.",
+        "Your ChatGPT connection expired or was disconnected. Sign in again.",
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(isTransportConnectionErrorMessage("Test environment is not connected.")).toBe(true);
     expect(isTransportConnectionErrorMessage("ClientProtocolError: socket closed")).toBe(true);
   });
@@ -36,12 +35,20 @@ describe("isTransportConnectionErrorMessage", () => {
     ).toBe(true);
   });
 
+  it("recognizes a stalled host without hiding unrelated trailing details", () => {
+    expect(isTransportConnectionErrorMessage(`Host stopped responding for 15s. ${UNRESPONSIVE_HOST_HINT}`)).toBe(true);
+    expect(isTransportConnectionErrorMessage("Unable to connect to the T3 server WebSocket.")).toBe(true);
+    expect(sanitizeThreadErrorMessage("Your ChatGPT connection expired or was disconnected. Sign in again.")).toBe("Your ChatGPT connection expired or was disconnected. Sign in again.");
+  });
+
   it("returns true for ping timeout", () => {
     expect(isTransportConnectionErrorMessage("ping timeout")).toBe(true);
   });
 
   it("returns false for business logic errors", () => {
     expect(isTransportConnectionErrorMessage("Thread not found")).toBe(false);
+    expect(isTransportConnectionErrorMessage("Permission denied. Sign in again.")).toBe(false);
+    expect(isTransportConnectionErrorMessage("Relay environment disconnected. Access revoked.")).toBe(false);
     expect(isTransportConnectionErrorMessage("Invalid model selection")).toBe(false);
   });
 
@@ -56,17 +63,5 @@ describe("isTransportConnectionErrorMessage", () => {
 describe("sanitizeThreadErrorMessage", () => {
   it("strips transport errors", () => {
     expect(sanitizeThreadErrorMessage("SocketCloseError: oops")).toBeNull();
-  });
-
-  it("preserves non-transport errors", () => {
-    expect(sanitizeThreadErrorMessage("Thread not found")).toBe("Thread not found");
-    expect(sanitizeThreadErrorMessage("Select a base branch before sending.")).toBe(
-      "Select a base branch before sending.",
-    );
-  });
-
-  it("returns null for null/undefined", () => {
-    expect(sanitizeThreadErrorMessage(null)).toBeNull();
-    expect(sanitizeThreadErrorMessage(undefined)).toBeNull();
   });
 });

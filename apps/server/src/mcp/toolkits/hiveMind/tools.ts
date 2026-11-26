@@ -1,10 +1,9 @@
 import * as Schema from "effect/Schema";
-import * as Tool from "effect/unstable/ai/Tool";
-import * as Toolkit from "effect/unstable/ai/Toolkit";
+import { Tool, Toolkit } from "effect/ai";
 import * as ServerConfig from "../../../config.ts";
-import { McpInvocationContext } from "../../McpInvocationContext.ts";
+import { nativeAgentCallerDependencies } from "../routing/boundary.ts";
 
-const dependencies = [ServerConfig.ServerConfig, McpInvocationContext];
+const dependencies = [ServerConfig.ServerConfig, ...nativeAgentCallerDependencies];
 export const HiveMindMemory = Schema.Struct({
   id: Schema.String,
   scope: Schema.Literals(["general", "project"]),
@@ -114,7 +113,7 @@ const Sync = Tool.make("hive_mind_sync", {
 
 const Continuity = Tool.make("hive_mind_continuity", {
   description:
-    "Use the selected external Hive Mind's task, preference, collection, artifact, episode, entity and relation records. list accepts kind/query/id/includeHistory. save requires kind/scope/project/title/data and current revision when editing. Task data: objective,status,decisions,failures,questions,nextSteps. Preferences: statement,polarity,context,exceptions,assetIds. Collections: assetIds,annotations. Artifacts: description,assetIds,taskId,preferredRevision. claim uses id,revision,owner,release. eventId makes save retries idempotent. Agent-written records remain evidence; never invent user preferences.",
+    "Use the selected external Hive Mind's task, preference, collection, artifact, episode, entity and relation records. list accepts kind/query/id/includeHistory. save requires kind/scope/project/title/data and current revision when editing. Task data: objective,status,decisions,failures,questions,nextSteps. Preferences: statement,polarity,context,exceptions,assetIds. Collections: assetIds,annotations. Artifacts: description,assetIds,taskId,preferredRevision. claim uses id,revision,release. The authenticated conversation supplies the owner and source. eventId makes save retries idempotent. Agent-written records remain evidence; never invent user preferences.",
   parameters: Schema.Struct({
     operation: Schema.Literals(["list", "save", "forget", "claim"]),
     input: Schema.Record(Schema.String, Schema.Unknown),

@@ -1,7 +1,7 @@
+import { formatProviderSkillDisplayName } from "@j1code/shared/inlineSkills";
 import type { ServerProviderSkill } from "@j1code/contracts";
 import {
   dedupeProviderSkillsByName,
-  formatProviderSkillDisplayName,
   isProviderSkillUserInvocable,
 } from "@j1code/client-runtime/providerSkills";
 import {

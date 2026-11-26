@@ -1,18 +1,29 @@
 {
-  "platforms": ["apple", "android"],
+  "platforms": [
+    "apple",
+    "android"
+  ],
   "apple": {
     "modules": [
       "J1NativeControlsModule",
       "J1KeyboardCommandsModule",
       "J1LiveDictationModule",
       "J1BotVoiceModule"
+    ],
+    "appDelegateSubscribers": [
+      "J1WorkspaceOrientationSubscriber",
+      "J1MenuDismissTouchGateSubscriber",
+      "J1BackgroundGraceSubscriber"
     ]
   },
   "android": {
     "modules": [
       "expo.modules.j1nativecontrols.J1NativeControlsModule",
       "expo.modules.j1nativecontrols.J1KeyboardCommandsModule",
-      "expo.modules.j1nativecontrols.J1BotVoiceModule"
+      "expo.modules.j1nativecontrols.J1BotVoiceModule",
+      "expo.modules.j1nativecontrols.J1WorkspaceNavigationModule",
+      "expo.modules.j1nativecontrols.J1FoldPostureModule",
+      "expo.modules.j1nativecontrols.J1SecretInputModule"
     ]
   }
 }

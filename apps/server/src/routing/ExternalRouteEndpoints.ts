@@ -61,10 +61,10 @@ export class ExternalRouteEndpoints extends Context.Service<
       let receiver: ((event: ExternalRouteHostEvent) => Effect.Effect<unknown, string>) | undefined;
       const changes = yield* PubSub.unbounded<void>();
       return ExternalRouteEndpoints.of({
-        proof: (key) =>
+        proof: Effect.fn("ExternalRouteEndpoints.proof")((key: ExternalRouteReceiptKey) =>
           [...adapters.values()]
             .find((adapter) => adapter.accepts(key.destination.threadId))
-            ?.proof?.(key) ?? Effect.succeed(null),
+            ?.proof?.(key) ?? Effect.succeed(null)),
         register: (adapter) => {
           if (adapters.has(adapter.kind))
             throw new Error("External route adapter is already registered.");
@@ -73,13 +73,13 @@ export class ExternalRouteEndpoints extends Context.Service<
             if (adapters.get(adapter.kind) === adapter) adapters.delete(adapter.kind);
           };
         },
-        source: (id) =>
+        source: Effect.fn("ExternalRouteEndpoints.source")((id: string) =>
           [...adapters.values()].find((adapter) => adapter.accepts(id))?.source(id) ??
-          Effect.succeed(null),
-        notice: (notice) =>
+          Effect.succeed(null)),
+        notice: Effect.fn("ExternalRouteEndpoints.notice")((notice: ExternalRouteNotice) =>
           [...adapters.values()]
             .find((adapter) => adapter.accepts(notice.endpoint.threadId))
-            ?.notice?.(notice) ?? Effect.fail("Source routing notices are unavailable."),
+            ?.notice?.(notice) ?? Effect.fail("Source routing notices are unavailable.")),
         registerRouter: (current) => {
           if (router) throw new Error("The routing boundary is already registered.");
           router = current;
@@ -87,14 +87,14 @@ export class ExternalRouteEndpoints extends Context.Service<
             if (router === current) router = undefined;
           };
         },
-        call: (actor, operation, input) =>
-          router ? router(actor, operation, input) : Effect.fail("Routing is not available yet."),
-        deliver: (input) =>
+        call: Effect.fn("ExternalRouteEndpoints.call")((actor: ExternalRoutingActor, operation: string, input: unknown) =>
+          router ? router(actor, operation, input) : Effect.fail("Routing is not available yet.")),
+        deliver: Effect.fn("ExternalRouteEndpoints.deliver")((input: ExternalRouteDelivery) =>
           [...adapters.values()]
             .find((adapter) => adapter.accepts(input.destination.threadId))
-            ?.deliver?.(input) ?? Effect.fail("Receiving conversation unavailable."),
-        receive: (event) =>
-          receiver ? receiver(event) : Effect.fail("Routing is not available yet."),
+            ?.deliver?.(input) ?? Effect.fail("Receiving conversation unavailable.")),
+        receive: Effect.fn("ExternalRouteEndpoints.receive")((event: ExternalRouteHostEvent) =>
+          receiver ? receiver(event) : Effect.fail("Routing is not available yet.")),
         registerReceiver: (current) => {
           if (receiver) throw new Error("The route receiver is already registered.");
           receiver = current;

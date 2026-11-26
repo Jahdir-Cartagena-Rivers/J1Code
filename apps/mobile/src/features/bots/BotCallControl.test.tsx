@@ -31,11 +31,11 @@ vi.mock("react-native", () => ({
   View: ({ children }: { children: unknown }) => createElement("div", null, children as never),
   AppState: { addEventListener: () => ({ remove() {} }) },
 }));
-vi.mock("../../components/AppText", () => ({
+vi.mock("../../components/ui/AppText", () => ({
   AppText: ({ children }: { children: unknown }) => createElement("span", null, children as never),
 }));
-vi.mock("../../components/MaterialButton", () => ({
-  MaterialButton: ({
+vi.mock("../../components/ui/Button", () => ({
+  Button: ({
     label,
     onPress,
     disabled,

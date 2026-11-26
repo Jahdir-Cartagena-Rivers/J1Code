@@ -1,28 +1,51 @@
 {
   "name": "@j1code/client-runtime",
   "private": true,
-  "license": "SEE LICENSE IN ../../LICENSE",
   "type": "module",
   "exports": {
-    "./mausbot-routing": {
-      "types": "./src/mausbotRouting.ts",
-      "default": "./src/mausbotRouting.ts"
+    "./pull-request-diff-fold": {
+      "types": "./src/pullRequestDiffFold.ts",
+      "default": "./src/pullRequestDiffFold.ts"
     },
-    "./bots/browser-document": {
-      "types": "./src/bots/browserDocument.ts",
-      "default": "./src/bots/browserDocument.ts"
+    "./assembly-highlighting": {
+      "types": "./src/assemblyHighlighting.ts",
+      "default": "./src/assemblyHighlighting.ts"
     },
-    "./bots/browser-event": {
-      "types": "./src/bots/browserEvent.ts",
-      "default": "./src/bots/browserEvent.ts"
+    "./zip/bounded-zip": {
+      "types": "./src/zip/boundedZip.ts",
+      "default": "./src/zip/boundedZip.ts"
     },
-    "./state/hive-mind": {
-      "types": "./src/state/hiveMind.ts",
-      "default": "./src/state/hiveMind.ts"
+    "./zip/directory": {
+      "types": "./src/zip/zipDirectory.ts",
+      "default": "./src/zip/zipDirectory.ts"
     },
-    "./worker-chats": {
-      "types": "./src/workerChats.ts",
-      "default": "./src/workerChats.ts"
+    "./workspace-basename-lookup": {
+      "types": "./src/workspaceBasenameLookup.ts",
+      "default": "./src/workspaceBasenameLookup.ts"
+    },
+    "./composerThreadItems": {
+      "types": "./src/composerThreadItems.ts",
+      "default": "./src/composerThreadItems.ts"
+    },
+    "./composer-model-mentions": {
+      "types": "./src/composerModelMentions.ts",
+      "default": "./src/composerModelMentions.ts"
+    },
+    "./locales": {
+      "types": "./src/locales.ts",
+      "default": "./src/locales.ts"
+    },
+    "./model-search": {
+      "types": "./src/modelSearch.ts",
+      "default": "./src/modelSearch.ts"
+    },
+    "./image-attachment-size": {
+      "types": "./src/imageAttachmentSize.ts",
+      "default": "./src/imageAttachmentSize.ts"
+    },
+    "./handoff": {
+      "types": "./src/handoff.ts",
+      "default": "./src/handoff.ts"
     },
     "./device/stream": {
       "types": "./src/device/stream.ts",
@@ -31,6 +54,10 @@
     "./device/hub-access": {
       "types": "./src/device/hubAccess.ts",
       "default": "./src/device/hubAccess.ts"
+    },
+    "./preview/server-browser-stream": {
+      "types": "./src/preview/serverBrowserStream.ts",
+      "default": "./src/preview/serverBrowserStream.ts"
     },
     "./worktree-setup": {
       "types": "./src/worktreeSetup.ts",
@@ -44,9 +71,29 @@
       "types": "./src/projectFaviconCache.ts",
       "default": "./src/projectFaviconCache.ts"
     },
-    "./pending-requests": {
-      "types": "./src/pendingRequests.ts",
-      "default": "./src/pendingRequests.ts"
+    "./user-message": {
+      "types": "./src/userMessage.ts",
+      "default": "./src/userMessage.ts"
+    },
+    "./prompt-links": {
+      "types": "./src/promptLinks.ts",
+      "default": "./src/promptLinks.ts"
+    },
+    "./secret-request": {
+      "types": "./src/secretRequest.ts",
+      "default": "./src/secretRequest.ts"
+    },
+    "./link-request": {
+      "types": "./src/linkRequest.ts",
+      "default": "./src/linkRequest.ts"
+    },
+    "./scheduled-task-webhook": {
+      "types": "./src/scheduledTaskWebhook.ts",
+      "default": "./src/scheduledTaskWebhook.ts"
+    },
+    "./scheduled-task-time-zone": {
+      "types": "./src/scheduledTaskTimeZone.ts",
+      "default": "./src/scheduledTaskTimeZone.ts"
     },
     "./connection": {
       "types": "./src/connection/index.ts",
@@ -64,10 +111,6 @@
       "types": "./src/markdownImages.ts",
       "default": "./src/markdownImages.ts"
     },
-    "./markdown-links": {
-      "types": "./src/markdownLinks.ts",
-      "default": "./src/markdownLinks.ts"
-    },
     "./media-reference": {
       "types": "./src/mediaReference.ts",
       "default": "./src/mediaReference.ts"
@@ -79,18 +122,6 @@
     "./media-actions": {
       "types": "./src/mediaActions.ts",
       "default": "./src/mediaActions.ts"
-    },
-    "./codex-file-citations": {
-      "types": "./src/codexFileCitations.ts",
-      "default": "./src/codexFileCitations.ts"
-    },
-    "./codex-artifact-templates": {
-      "types": "./src/codexArtifactTemplates.ts",
-      "default": "./src/codexArtifactTemplates.ts"
-    },
-    "./codex-markdown-directives": {
-      "types": "./src/codexMarkdownDirectives.ts",
-      "default": "./src/codexMarkdownDirectives.ts"
     },
     "./errors": {
       "types": "./src/errors/index.ts",
@@ -116,9 +147,17 @@
       "types": "./src/providerSkills.ts",
       "default": "./src/providerSkills.ts"
     },
+    "./providerUpdateRequiredModels": {
+      "types": "./src/providerUpdateRequiredModels.ts",
+      "default": "./src/providerUpdateRequiredModels.ts"
+    },
     "./voice-input": {
       "types": "./src/voice-input/index.ts",
       "default": "./src/voice-input/index.ts"
+    },
+    "./t3ToolSummary": {
+      "types": "./src/t3ToolSummary.ts",
+      "default": "./src/t3ToolSummary.ts"
     },
     "./relay": {
       "types": "./src/relay/index.ts",
@@ -140,6 +179,18 @@
       "types": "./src/textPaste.ts",
       "default": "./src/textPaste.ts"
     },
+    "./webhook-address": {
+      "types": "./src/webhookAddress.ts",
+      "default": "./src/webhookAddress.ts"
+    },
+    "./queued-run-edit": {
+      "types": "./src/queuedRunEdit.ts",
+      "default": "./src/queuedRunEdit.ts"
+    },
+    "./clock": {
+      "types": "./src/clock.ts",
+      "default": "./src/clock.ts"
+    },
     "./delayed-status": {
       "types": "./src/delayedStatus.ts",
       "default": "./src/delayedStatus.ts"
@@ -160,6 +211,14 @@
       "types": "./src/state/git.ts",
       "default": "./src/state/git.ts"
     },
+    "./state/command-output": {
+      "types": "./src/state/commandOutput.ts",
+      "default": "./src/state/commandOutput.ts"
+    },
+    "./state/item-support": {
+      "types": "./src/state/itemSupport.ts",
+      "default": "./src/state/itemSupport.ts"
+    },
     "./state/models": {
       "types": "./src/state/models.ts",
       "default": "./src/state/models.ts"
@@ -167,6 +226,14 @@
     "./state/orchestration": {
       "types": "./src/state/orchestration.ts",
       "default": "./src/state/orchestration.ts"
+    },
+    "./state/thread-history-merge": {
+      "types": "./src/state/threadHistoryMerge.ts",
+      "default": "./src/state/threadHistoryMerge.ts"
+    },
+    "./state/orchestration-v2-projection": {
+      "types": "./src/state/orchestrationV2Projection.ts",
+      "default": "./src/state/orchestrationV2Projection.ts"
     },
     "./state/presentation": {
       "types": "./src/state/presentation.ts",
@@ -179,6 +246,22 @@
     "./state/deviceHubAccess": {
       "types": "./src/state/deviceHubAccess.ts",
       "default": "./src/state/deviceHubAccess.ts"
+    },
+    "./state/peerLinks": {
+      "types": "./src/state/peerLinks.ts",
+      "default": "./src/state/peerLinks.ts"
+    },
+    "./state/environmentHttpAuth": {
+      "types": "./src/state/environmentHttpAuth.ts",
+      "default": "./src/state/environmentHttpAuth.ts"
+    },
+    "./state/connectMcpApproval": {
+      "types": "./src/state/connectMcpApproval.ts",
+      "default": "./src/state/connectMcpApproval.ts"
+    },
+    "./state/peerPairingCode": {
+      "types": "./src/state/peerPairingCode.ts",
+      "default": "./src/state/peerPairingCode.ts"
     },
     "./state/preview": {
       "types": "./src/state/preview.ts",
@@ -216,13 +299,25 @@
       "types": "./src/state/usage.ts",
       "default": "./src/state/usage.ts"
     },
+    "./state/usage-progress": {
+      "types": "./src/state/usageProgress.ts",
+      "default": "./src/state/usageProgress.ts"
+    },
     "./state/server": {
       "types": "./src/state/server.ts",
       "default": "./src/state/server.ts"
     },
+    "./state/outdatedServerUpdate": {
+      "types": "./src/state/outdatedServerUpdate.ts",
+      "default": "./src/state/outdatedServerUpdate.ts"
+    },
     "./state/session": {
       "types": "./src/state/session.ts",
       "default": "./src/state/session.ts"
+    },
+    "./state/usage-access": {
+      "types": "./src/state/usageAccess.ts",
+      "default": "./src/state/usageAccess.ts"
     },
     "./state/shared-settings": {
       "types": "./src/state/sharedSettings.ts",
@@ -244,6 +339,14 @@
       "types": "./src/state/threads.ts",
       "default": "./src/state/threads.ts"
     },
+    "./state/thread-activity-announcement": {
+      "types": "./src/state/threadActivityAnnouncement.ts",
+      "default": "./src/state/threadActivityAnnouncement.ts"
+    },
+    "./state/subagent-display": {
+      "types": "./src/state/subagentDisplay.ts",
+      "default": "./src/state/subagentDisplay.ts"
+    },
     "./state/subagentRuntime": {
       "types": "./src/state/subagentRuntime.ts",
       "default": "./src/state/subagentRuntime.ts"
@@ -251,6 +354,50 @@
     "./state/thread-sort": {
       "types": "./src/state/threadSort.ts",
       "default": "./src/state/threadSort.ts"
+    },
+    "./state/thread-inbox": {
+      "types": "./src/state/threadInbox.ts",
+      "default": "./src/state/threadInbox.ts"
+    },
+    "./state/thread-relationships": {
+      "types": "./src/state/threadRelationships.ts",
+      "default": "./src/state/threadRelationships.ts"
+    },
+    "./state/thread-checkpoints": {
+      "types": "./src/state/threadCheckpoints.ts",
+      "default": "./src/state/threadCheckpoints.ts"
+    },
+    "./state/thread-execution": {
+      "types": "./src/state/threadExecution.ts",
+      "default": "./src/state/threadExecution.ts"
+    },
+    "./state/pending-user-input": {
+      "types": "./src/state/pendingUserInput.ts",
+      "default": "./src/state/pendingUserInput.ts"
+    },
+    "./state/thread-requests": {
+      "types": "./src/state/threadRequests.ts",
+      "default": "./src/state/threadRequests.ts"
+    },
+    "./state/thread-workflows": {
+      "types": "./src/state/threadWorkflows.ts",
+      "default": "./src/state/threadWorkflows.ts"
+    },
+    "./state/composer-dispatch": {
+      "types": "./src/state/composerDispatch.ts",
+      "default": "./src/state/composerDispatch.ts"
+    },
+    "./state/context-window": {
+      "types": "./src/state/contextWindow.ts",
+      "default": "./src/state/contextWindow.ts"
+    },
+    "./state/thread-subagents": {
+      "types": "./src/state/threadSubagents.ts",
+      "default": "./src/state/threadSubagents.ts"
+    },
+    "./state/thread-undo": {
+      "types": "./src/state/threadUndo.ts",
+      "default": "./src/state/threadUndo.ts"
     },
     "./state/thread-settled": {
       "types": "./src/state/threadSettled.ts",
@@ -260,6 +407,14 @@
       "types": "./src/state/threadSearch.ts",
       "default": "./src/state/threadSearch.ts"
     },
+    "./state/thread-visits": {
+      "types": "./src/state/threadVisits.ts",
+      "default": "./src/state/threadVisits.ts"
+    },
+    "./state/turn-item-presentation": {
+      "types": "./src/state/turnItemPresentation.ts",
+      "default": "./src/state/turnItemPresentation.ts"
+    },
     "./state/vcs": {
       "types": "./src/state/vcs.ts",
       "default": "./src/state/vcs.ts"
@@ -267,6 +422,10 @@
     "./work-log/user-input": {
       "types": "./src/work-log/userInput.ts",
       "default": "./src/work-log/userInput.ts"
+    },
+    "./work-log/item-detail": {
+      "types": "./src/work-log/itemDetail.ts",
+      "default": "./src/work-log/itemDetail.ts"
     },
     "./work-log/presentation": {
       "types": "./src/work-log/presentation.ts",
@@ -280,9 +439,33 @@
       "types": "./src/work-log/commandLabel.ts",
       "default": "./src/work-log/commandLabel.ts"
     },
+    "./work-log/embedded-scripts": {
+      "types": "./src/work-log/embeddedScripts.ts",
+      "default": "./src/work-log/embeddedScripts.ts"
+    },
     "./work-log/scroll-anchor": {
       "types": "./src/work-log/scrollAnchor.ts",
       "default": "./src/work-log/scrollAnchor.ts"
+    },
+    "./pull-request-link-input": {
+      "types": "./src/pullRequestLinkInput.ts",
+      "default": "./src/pullRequestLinkInput.ts"
+    },
+    "./change-request-links": {
+      "types": "./src/changeRequestLinks.ts",
+      "default": "./src/changeRequestLinks.ts"
+    },
+    "./thread-pull-requests": {
+      "types": "./src/threadPullRequests.ts",
+      "default": "./src/threadPullRequests.ts"
+    },
+    "./thread-reference": {
+      "types": "./src/threadReference.ts",
+      "default": "./src/threadReference.ts"
+    },
+    "./pull-request-project-filter": {
+      "types": "./src/pullRequestProjectFilter.ts",
+      "default": "./src/pullRequestProjectFilter.ts"
     },
     "./thread-pull-request-compatibility": {
       "types": "./src/threadPullRequestCompatibility.ts",
@@ -323,27 +506,129 @@
     "./device/duo-control": {
       "types": "./src/device/duoControl.ts",
       "default": "./src/device/duoControl.ts"
+    },
+    "./diff-count": {
+      "types": "./src/diffCount.ts",
+      "default": "./src/diffCount.ts"
+    },
+    "./mcp-apps": {
+      "types": "./src/mcpApps/host.ts",
+      "default": "./src/mcpApps/host.ts"
+    },
+    "./state/mcp-apps": {
+      "types": "./src/state/mcpApps.ts",
+      "default": "./src/state/mcpApps.ts"
+    },
+    "./source-control-clients": {
+      "types": "./src/sourceControlClients.ts",
+      "default": "./src/sourceControlClients.ts"
+    },
+    "./review-guide-tour": {
+      "types": "./src/reviewGuideTour.ts",
+      "default": "./src/reviewGuideTour.ts"
+    },
+    "./state/query-persistence": {
+      "types": "./src/state/queryPersistence.ts",
+      "default": "./src/state/queryPersistence.ts"
+    },
+    "./pull-request-markdown": {
+      "types": "./src/pullRequestMarkdown.ts",
+      "default": "./src/pullRequestMarkdown.ts"
+    },
+    "./pull-request-checks": {
+      "types": "./src/pullRequestChecks.ts",
+      "default": "./src/pullRequestChecks.ts"
+    },
+    "./pull-request-editing": {
+      "types": "./src/pullRequestEditing.ts",
+      "default": "./src/pullRequestEditing.ts"
+    },
+    "./pull-request-reactions": {
+      "types": "./src/pullRequestReactions.ts",
+      "default": "./src/pullRequestReactions.ts"
+    },
+    "./pull-request-reply": {
+      "types": "./src/pullRequestReply.ts",
+      "default": "./src/pullRequestReply.ts"
+    },
+    "./pull-request-query": {
+      "types": "./src/pullRequestQuery.ts",
+      "default": "./src/pullRequestQuery.ts"
+    },
+    "./model-traits": {
+      "types": "./src/modelTraits.ts",
+      "default": "./src/modelTraits.ts"
+    },
+    "./pull-request-reviewers": {
+      "types": "./src/pullRequestReviewers.ts",
+      "default": "./src/pullRequestReviewers.ts"
+    },
+    "./pull-request-selection": {
+      "types": "./src/pullRequestSelection.ts",
+      "default": "./src/pullRequestSelection.ts"
+    },
+    "./provider-clients": {
+      "types": "./src/providerClients.ts",
+      "default": "./src/providerClients.ts"
+    },
+    "./provider-instance-ids": {
+      "types": "./src/providerInstanceIds.ts",
+      "default": "./src/providerInstanceIds.ts"
+    },
+    "./mausbot-routing": {
+      "types": "./src/mausbotRouting.ts",
+      "default": "./src/mausbotRouting.ts"
+    },
+    "./bots/browser-document": {
+      "types": "./src/bots/browserDocument.ts",
+      "default": "./src/bots/browserDocument.ts"
+    },
+    "./bots/browser-event": {
+      "types": "./src/bots/browserEvent.ts",
+      "default": "./src/bots/browserEvent.ts"
+    },
+    "./state/hive-mind": {
+      "types": "./src/state/hiveMind.ts",
+      "default": "./src/state/hiveMind.ts"
+    },
+    "./worker-chats": {
+      "types": "./src/workerChats.ts",
+      "default": "./src/workerChats.ts"
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "effect-tsgo tsrs --noEmit",
     "test": "vp test run"
   },
   "dependencies": {
+    "@pierre/diffs": "catalog:",
     "@j1code/contracts": "workspace:*",
+    "@j1code/provider-acp-registry": "workspace:*",
+    "@j1code/provider-core": "workspace:*",
+    "@j1code/provider-cursor": "workspace:*",
+    "@j1code/provider-fx": "workspace:*",
+    "@j1code/provider-grok": "workspace:*",
+    "@j1code/provider-kiro": "workspace:*",
+    "@j1code/provider-muse": "workspace:*",
+    "@j1code/provider-opencode": "workspace:*",
+    "@j1code/provider-pi": "workspace:*",
+    "@j1code/secret-provider-definitions": "workspace:*",
     "@j1code/shared": "workspace:*",
+    "@j1code/source-control-core": "workspace:*",
+    "@j1code/source-control-definitions": "workspace:*",
     "effect": "catalog:",
-    "mdast-util-directive": "^3.1.0",
-    "micromark-extension-directive": "^4.0.0",
-    "micromark-util-character": "^2.1.1",
-    "remark-parse": "^11.0.0",
+    "jszip": "3.10.1",
+    "remark-gfm": "catalog:",
+    "remark-parse": "catalog:",
     "three": "0.180.0",
-    "unified": "^11.0.5"
+    "unbash": "^5.0.0",
+    "unified": "catalog:"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
+    "@types/mdast": "^4.0.4",
     "@types/three": "0.180.0",
-    "micromark-util-types": "^2.0.2",
     "vite-plus": "catalog:"
-  }
+  },
+  "license": "SEE LICENSE IN ../../LICENSE"
 }

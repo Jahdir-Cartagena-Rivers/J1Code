@@ -15,7 +15,7 @@
 
 J1 Code brings your coding providers into one desktop, web, and mobile workspace. Use your own provider accounts, keep your projects and conversations on your machine, and coordinate work across configured agents.
 
-Built on [T3 Code](https://github.com/pingdotgg/t3code), with its architecture and MIT attribution preserved. J1 is an independently maintained derivative, based on upstream **0.0.44**. It is not an official T3 Tools release.
+Built on [T3 Code](https://github.com/pingdotgg/t3code), with its architecture and MIT attribution preserved. J1 is an independently maintained derivative, integrating the upstream **0.1.10** source line. It is not an official T3 Tools release.
 
 ## What J1 adds
 
@@ -28,21 +28,28 @@ Built on [T3 Code](https://github.com/pingdotgg/t3code), with its architecture a
 | Windows background work | Keep the server and active agent work running when the desktop closes to the tray.                           |
 | Separate profiles       | Keep J1 desktop and server data separate from your T3 installation.                                          |
 
-Provider adapters include Codex, Claude Code, Cursor, Grok, OpenCode, and Antigravity. Availability and capabilities depend on the provider runtime installed and authenticated on your machine.
+## Shared client features
+
+- Use configured provider subscriptions across desktop, web, and mobile clients.
+- Continue saved threads from another connected client.
+- Work in Git worktrees and review diffs, commits, and pull requests.
+- Connect over a local network, Tailscale, or J1 Connect.
+
+Provider adapters include Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity, Kiro, Pi, Muse Code, fx, and [ACP agents](docs/user/providers-acp.md). Availability and capabilities depend on the provider runtime installed and authenticated on your machine.
 
 ## Get started
 
-1. Download the Windows x64 installer from [Releases](https://github.com/Jahdir-Cartagena-Rivers/J1Code/releases/latest). Current releases are unsigned; verify the published checksums before installing.
+1. Download the Windows x64 installer from [Releases](https://github.com/Jahdir-Cartagena-Rivers/J1Code/releases/latest). Check the release signing information and verify the published checksums before installing.
 2. Install and authenticate the coding provider you want to use.
 3. Open J1 Code, add your project, and configure your providers in Settings.
 
-Windows is the currently published desktop target. The source includes macOS, Linux, web, and mobile clients; those targets need their own builds and validation. Mobile distribution requires your own signing and Expo configuration. See [installation](docs/user/install.md) and [fork maintenance](docs/operations/j1-fork.md).
+Use the artifacts listed for each J1 release. The source includes Windows, macOS, Linux, web, and mobile clients; each target needs its own build and validation. Mobile distribution requires your own signing and Expo configuration. See [installation](docs/user/install.md) and [fork maintenance](docs/operations/j1-fork.md).
 
 ## Build from source
 
 These commands are for maintainers, separately authorized development, or MIT material. Building or modifying new protected J1 source requires permission under [the current terms](LICENSE); the earlier MIT versions retain their original permissions.
 
-Use Node.js **24** within the version range in [package.json](package.json), and the repository's pinned pnpm/Vite+ tooling.
+Use the exact Node.js version pinned in [package.json](package.json), and the repository's pinned pnpm/Vite+ tooling.
 
 ### Install vp
 
@@ -85,3 +92,9 @@ J1 stores desktop preferences under `%APPDATA%/j1code` on Windows and server sta
 ## Attribution
 
 J1 Code is source-available. [Current terms](LICENSE) reserve rights in new protected J1 material while allowing use of official builds. T3 Code, dependencies, and previously released J1 material retain their original licenses, including MIT. See [the licensing boundaries](LICENSING.md). Full upstream copyright and third-party notices ship with the application. The `T3CODE_*` configuration names, `t3` CLI, and shared wire protocol remain for compatibility.
+
+## Provider setup and contributing
+
+[Provider setup](docs/user/install.md#providers) describes authentication. [Remote access](docs/user/remote-access.md), [permission modes](docs/user/permission-modes.md), [outside agents over MCP](docs/user/outside-agents.md), and the [FAQ](docs/user/faq.md) cover shared workflows.
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before reporting a bug or opening a pull request. The [architecture overview](docs/internals/overview.md) and [development runbook](docs/operations/development.md) describe the source layout and development setup.

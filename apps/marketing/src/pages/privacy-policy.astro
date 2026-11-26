@@ -1,10 +1,11 @@
 ---
 import LegalPage from "../components/LegalPage.astro";
 import { J1_SOURCE_URL } from "@j1code/shared/j1Brand";
-const sections = [["local-data", "Local data"], ["services", "Configured services"], ["choices", "Your choices"]] as const;
+const sections = [["local-data", "Local data"], ["services", "Configured services"], ["choices", "Your choices"], ["support", "Sharing diagnostic information"]] as const;
 ---
 <LegalPage title="Privacy — J1 Code" description="Local data and optional services in J1 Code." heading="J1 Code privacy and data" lede="Use your own providers and review the services you choose to enable." lastUpdated="2026-10-03" sections={sections}>
   <section id="local-data"><h2>Local data</h2><p>Projects, conversations, imported history, memories, and settings live in the environment that hosts your server. Protect that environment and its backups. Signing out does not delete your local work.</p></section>
   <section id="services"><h2>Configured services</h2><p>Your selected coding providers receive the prompts, files, and tool results you send them. Optional cloud linking, relays, notifications, and diagnostics communicate with the services configured for your build. Those providers' own policies apply. J1 does not bundle an account for a maintainer-operated cloud service.</p></section>
   <section id="choices"><h2>Your choices</h2><p>Use local connections, disconnect environments, manage retained memories, and leave optional service configuration blank when you do not need it. Public build configuration must not contain server secrets.</p><p><a href={`${J1_SOURCE_URL}/docs/user/privacy.md`}>Read the J1 Code privacy guide</a> for related controls and data choices.</p></section>
+  <section id="support"><h2>Sharing diagnostic information</h2><p>Before sharing logs, screenshots, crash reports, or reproduction files, review them for credentials, private code, prompts, and personal information. Share only what is needed with the maintainer or service operator handling your report. Your environment's backups and configured services have their own retention settings.</p></section>
 </LegalPage>

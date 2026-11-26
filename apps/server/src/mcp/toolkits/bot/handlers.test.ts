@@ -1,18 +1,18 @@
 import { expect, it } from "@effect/vitest";
-import { EnvironmentId, ProviderInstanceId, ThreadId } from "@j1code/contracts";
+import { EnvironmentId, MessageId, ProviderInstanceId, ThreadId } from "@j1code/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import { McpServer, McpSchema } from "effect/unstable/ai";
-import { registerBotExecutionContext } from "../../../mausbot/ExecutionContext.ts";
+import { McpServer, McpSchema } from "effect/ai";
+import { registerBotExecutionContext, captureBotExecutionContext, bindBotExecutionCredential } from "../../../mausbot/ExecutionContext.ts";
 import { McpInvocationContext, requireMcpCapability } from "../../McpInvocationContext.ts";
 import { BotToolkitRegistration, botToolResult } from "./register.ts";
 
 const threadId = ThreadId.make("bot-tool-owner");
 const invocation = {
   environmentId: EnvironmentId.make("fixture"),
-  threadId,
-  providerSessionId: "session",
-  providerInstanceId: ProviderInstanceId.make("codex"),
+  requestNamespace: "bot-test-session",
+  thread: { threadId, providerSessionId: "session", providerInstanceId: ProviderInstanceId.make("codex") },
+  client: undefined,
   capabilities: new Set(["agents"] as const),
   issuedAt: 1,
 };
@@ -70,10 +70,12 @@ it.effect(
                 calls.push(name);
                 return { ok: true };
               },
-            }),
+            }, { botId: "bot-test", messageId: MessageId.make("owned-message"), isCurrent: () => true }),
           ),
           (remove) => Effect.sync(remove),
         );
+        const owner = captureBotExecutionContext(threadId)!;
+        expect(bindBotExecutionCredential(threadId, owner, invocation.thread.providerSessionId)).toBe(true);
         const server = yield* McpServer.McpServer;
         expect(server.tools.map(({ tool }) => tool.name)).toEqual(
           expect.arrayContaining(["bot_tools", "bot_call"]),
@@ -93,9 +95,12 @@ it.effect(
           (yield* invoke(
             "bot_call",
             { name: "allowed", arguments: {} },
-            { ...invocation, threadId: ThreadId.make("neighbor") },
+            { ...invocation, thread: { ...invocation.thread, threadId: ThreadId.make("neighbor") } },
           )).isError,
         ).toBe(true);
+        expect((yield* invoke("bot_call", { name: "allowed", arguments: {} }, {
+          ...invocation, thread: { ...invocation.thread, providerSessionId: "old-credential" },
+        })).isError).toBe(true);
         expect(calls).toEqual(["allowed"]);
         expect(
           (yield* Effect.exit(
@@ -109,7 +114,7 @@ it.effect(
             requireMcpCapability("agents").pipe(
               Effect.provideService(McpInvocationContext, {
                 ...invocation,
-                threadId: ThreadId.make("neighbor"),
+                thread: { ...invocation.thread, threadId: ThreadId.make("neighbor") },
               }),
             ),
           ))._tag,

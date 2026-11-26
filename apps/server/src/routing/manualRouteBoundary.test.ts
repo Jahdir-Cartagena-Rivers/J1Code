@@ -10,11 +10,12 @@ import { registerRoute, transitionRoute, type RouteEndpoint } from "./routeState
 
 const source = { environmentId: "local", projectId: "home", threadId: "source" };
 const destination = { environmentId: "local", projectId: "work", threadId: "target" };
-function fixture(proposal: RouteEndpoint | null = null) {
+function fixture(proposal: RouteEndpoint | null = null, withOrigin = false) {
   let stored = {
     revision: 0,
     state: registerRoute({
       requestId: "r",
+      ...(withOrigin ? { origin: { subject: "user", runId: "run", messageId: "authored-message" } } : {}),
       source,
       destination: null,
       content: "work",
@@ -60,6 +61,9 @@ function fixture(proposal: RouteEndpoint | null = null) {
     get: () => stored,
     set: (value: typeof stored) => {
       stored = value;
+    },
+    subject: (subject: string) => {
+      session = { ...session, subject };
     },
     revoke: () => {
       session = { ...session, scopes: [] };
@@ -161,4 +165,39 @@ it("proposes a destination for legacy suggestions without changing or sending th
   expect(f.get().revision).toBe(0);
   expect(f.get().state.request.destination).toBeNull();
   expect(f.get().state.receipts).toEqual([]);
+});
+
+it("keeps confirmed route reads scoped to the authenticated resolution subject", async () => {
+  const f = fixture();
+  const { token } = await f.boundary.prepare("r", source, destination);
+  f.subject("different-user");
+  await expect(f.boundary.confirm(token)).rejects.toThrow("session mismatch");
+  f.subject("user");
+  const fresh = await f.boundary.prepare("r", source, destination);
+  const persisted = JSON.parse(JSON.stringify(await f.boundary.confirm(fresh.token)));
+  f.set(persisted);
+  expect(await f.boundary.status("r", source)).toMatchObject({ sourceMessageId: null });
+  expect(await f.boundary.list(source)).toMatchObject([{ sourceMessageId: null, status: "queued" }]);
+  f.subject("different-user");
+  await expect(f.boundary.status("r", source)).rejects.toThrow("Route unavailable");
+  await expect(f.boundary.prepare("r", source, destination)).rejects.toThrow("Route unavailable");
+  expect(await f.boundary.list(source)).toEqual([]);
+});
+
+it("preserves the authenticated source anchor across a status change and stored reload", async () => {
+  const f = fixture(destination, true);
+  f.subject("different-user");
+  expect(await f.boundary.list(source)).toEqual([]);
+  await expect(f.boundary.status("r", source)).rejects.toThrow("Route unavailable");
+  await expect(f.boundary.prepare("r", source, destination)).rejects.toThrow("Route unavailable");
+  f.subject("user");
+  expect(await f.boundary.list(source)).toMatchObject([{ sourceMessageId: "authored-message" }]);
+  const { token } = await f.boundary.prepare("r", source, destination);
+  const resolved = await f.boundary.confirm(token);
+  const sending = transitionRoute(resolved.state, { type: "begin-send", attemptId: "attempt" });
+  f.set(JSON.parse(JSON.stringify({ revision: 2, state: sending })));
+  expect(await f.boundary.status("r", source)).toMatchObject({
+    sourceMessageId: "authored-message",
+    revision: 2,
+  });
 });

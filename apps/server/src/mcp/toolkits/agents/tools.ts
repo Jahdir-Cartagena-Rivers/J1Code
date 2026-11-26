@@ -1,16 +1,21 @@
 import {
   AgentDelegationError,
   AgentDelegationResult,
+  AgentDelegationStatus,
   SpawnAgentInput,
   ThreadId,
 } from "@j1code/contracts";
 import * as Schema from "effect/Schema";
-import * as Tool from "effect/unstable/ai/Tool";
-import * as Toolkit from "effect/unstable/ai/Toolkit";
+import { Tool, Toolkit } from "effect/ai";
 import { AgentDelegation } from "../../AgentDelegation.ts";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";
 
 const dependencies = [AgentDelegation, McpInvocationContext];
+const WorkerResult = AgentDelegationResult.mapFields((fields) => ({
+  ...fields,
+  status: Schema.Union([AgentDelegationStatus, Schema.Literal("queued")]),
+  deadlineAt: Schema.optionalKey(fields.deadlineAt),
+}));
 const WorkerInput = Schema.Struct({ threadId: ThreadId });
 
 const Models = Tool.make("list_agent_models", {
@@ -40,9 +45,9 @@ const Models = Tool.make("list_agent_models", {
 
 const Spawn = Tool.make("spawn_agent", {
   description:
-    "Start a saved worker chat on ANY configured provider/model, including another harness. Use list_agent_models for instanceId and model. Returns immediately; collect its result with wait_agent/get_agent_result. Supply all needed context and task scope; conversation history is not automatically copied. The worker shares the lead's workspace and permission mode, so partition file ownership for parallel edits. Workers may delegate further within limits. Reuse requestId for retries. The default deadline is 10 minutes, maximum 30. Worker approval prompts remain for the user in its chat.",
+    "Start a saved worker chat on ANY configured provider/model, including another harness. Use list_agent_models for instanceId and model. Returns immediately; collect its result with wait_agent/get_agent_result. Supply all needed context and task scope; conversation history is not automatically copied. The worker shares the lead's workspace and permission mode, so partition file ownership for parallel edits. Workers may delegate further within limits. Reuse requestId for retries. The worker reports its actual queue and run status. An optional timeoutSeconds sets a deadline. Descendants inherit any earlier deadline from their parent worker. Worker approval prompts remain for the user in its chat.",
   parameters: SpawnAgentInput,
-  success: AgentDelegationResult,
+  success: WorkerResult,
   failure: AgentDelegationError,
   dependencies,
 })
@@ -52,9 +57,9 @@ const Spawn = Tool.make("spawn_agent", {
 
 const Get = Tool.make("get_agent_result", {
   description:
-    "Read a worker's live status and bounded saved assistant output. Completed means the provider finished; verify its claims before declaring the user's goal complete. If waiting, direct the user to its Worker chat for approval or input. Full history is retained in that chat.",
+    "Read a worker's live status and bounded saved assistant output. Completed means V2 recorded a settled delegated result; verify its claims before declaring the user's goal complete. If waiting, direct the user to its Worker chat for approval or input. Full history is retained in that chat.",
   parameters: WorkerInput,
-  success: AgentDelegationResult,
+  success: WorkerResult,
   failure: AgentDelegationError,
   dependencies,
 }).annotate(Tool.Readonly, true);
@@ -62,7 +67,7 @@ const Get = Tool.make("get_agent_result", {
 const List = Tool.make("list_agents", {
   description:
     "List your delegated workers and results. The root lead may see its entire descendant tree; workers can see their own children. Does not expose other chats' workers.",
-  success: Schema.Struct({ agents: Schema.Array(AgentDelegationResult) }),
+  success: Schema.Struct({ agents: Schema.Array(WorkerResult) }),
   failure: AgentDelegationError,
   dependencies,
 }).annotate(Tool.Readonly, true);
@@ -76,7 +81,7 @@ const Wait = Tool.make("wait_agent", {
       Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 60 })),
     ),
   }),
-  success: AgentDelegationResult,
+  success: WorkerResult,
   failure: AgentDelegationError,
   dependencies,
 }).annotate(Tool.Readonly, true);
@@ -85,7 +90,7 @@ const Cancel = Tool.make("cancel_agent", {
   description:
     "Stop your worker and its descendants, preserving all saved chats and evidence. Does not stop unrelated chats. Stopping the lead also cancels its descendant workers.",
   parameters: WorkerInput,
-  success: AgentDelegationResult,
+  success: WorkerResult,
   failure: AgentDelegationError,
   dependencies,
 })

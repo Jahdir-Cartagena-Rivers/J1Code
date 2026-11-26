@@ -1,3 +1,4 @@
+import { recoverMausbotView } from "./mausbotViewRecovery";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   createContext,
@@ -11,7 +12,7 @@ import {
 } from "react";
 import { resolveAssetUrl } from "../assets/assetUrls";
 import { useEnvironment, useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
-import { useActiveEnvironmentId, setActiveEnvironmentId, readThreadShell } from "../state/entities";
+import { readThreadShell } from "../state/entities";
 import { usePreparedConnection } from "../state/session";
 import { openMausbot, setMausbotApprovalMode } from "../state/mausbot";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -42,6 +43,8 @@ import { useMausbotFrameScroll } from "./useMausbotFrameScroll";
 import { isElectron } from "../env";
 import { WorkspacePageHeader } from "./WorkspacePageHeader";
 import { nativeOverlayClip, type FrameOverlay } from "./MausbotShell.layout";
+import { useThreadRouteRef } from "../hooks/useThreadRouteTarget";
+
 const decodeApprovalMode = Schema.decodeUnknownSync(MausbotApprovalModeInput);
 const settingsLabels = {
   ...SETTINGS_SECTION_LABELS,
@@ -106,17 +109,18 @@ export function MausbotShell({
   const searchStr = useLocation({ select: (location) => location.searchStr });
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const { environments } = useEnvironments();
-  const activeEnvironmentId = useActiveEnvironmentId();
+  const routeEnvironmentId = useThreadRouteRef()?.environmentId ?? null;
+  const [activeEnvironmentId, setActiveEnvironmentId] = useState<EnvironmentId | null>(null);
   const requestedEnvironment =
     pathname === "/assistants" ? new URLSearchParams(searchStr).get("environmentId") : null;
   const environmentId = requestedEnvironment
     ? EnvironmentId.make(requestedEnvironment)
-    : (activeEnvironmentId ?? primaryEnvironmentId);
+    : (routeEnvironmentId ?? activeEnvironmentId ?? primaryEnvironmentId);
   const environment = useEnvironment(environmentId);
   useEffect(() => {
-    if (requestedEnvironment && environment && activeEnvironmentId !== environment.environmentId)
+    if ((requestedEnvironment || routeEnvironmentId) && environment && activeEnvironmentId !== environment.environmentId)
       setActiveEnvironmentId(environment.environmentId);
-  }, [requestedEnvironment, environment, activeEnvironmentId]);
+  }, [requestedEnvironment, routeEnvironmentId, environment, activeEnvironmentId]);
   const connection = usePreparedConnection(environmentId);
   const base = connection._tag === "Some" ? connection.value.httpBaseUrl : null;
   const enabled = environment?.serverConfig?.environment.capabilities.mausbot === true;
@@ -488,15 +492,48 @@ export function MausbotShell({
     post();
   }, [post]);
   useEffect(() => {
-    if (!current || !environmentId || !connected) return;
+    if (!current || !environmentId || !connected || !base) return;
     const viewKey = /\/runtime\/([a-f0-9]{64})\//.exec(new URL(current.url).pathname)?.[1];
     if (!viewKey) return;
-    // Refresh the scoped capability without remounting the UI or losing unsent drafts.
-    const timer = window.setInterval(() => {
-      void open({ environmentId, input: { viewKey } });
-    }, 20 * 60_000);
-    return () => window.clearInterval(timer);
-  }, [current, environmentId, connected, open]);
+    let live = true;
+    let pending = false;
+    const refresh = async () => {
+      if (pending || document.visibilityState === "hidden") return;
+      pending = true;
+      try {
+        const replacement = await recoverMausbotView(
+          async () => (await open({ environmentId, input: { viewKey } }))._tag === "Success",
+          async () => {
+            const result = await open({ environmentId, input: { frameOrigin: location.origin } });
+            return result._tag === "Success" ? result.value.relativeUrl : null;
+          },
+          () => live,
+        );
+        if (!live || !replacement) return;
+        const resolved = resolveAssetUrl(base, replacement);
+        if (!resolved) return;
+        const url = new URL(resolved);
+        url.hash = new URLSearchParams({ "j1-origin": location.origin }).toString();
+        setError("");
+        setBounds(null);
+        setView({ key: current.key, url: url.href });
+      } finally {
+        pending = false;
+      }
+    };
+    const resume = () => void refresh();
+    const timer = window.setInterval(resume, 20 * 60_000);
+    window.addEventListener("focus", resume);
+    window.addEventListener("online", resume);
+    document.addEventListener("visibilitychange", resume);
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", resume);
+      window.removeEventListener("online", resume);
+      document.removeEventListener("visibilitychange", resume);
+    };
+  }, [current, environmentId, connected, open, base]);
   useEffect(() => {
     if (!current) return;
     let live = true;

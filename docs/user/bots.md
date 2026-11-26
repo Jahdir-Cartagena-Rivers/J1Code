@@ -12,6 +12,8 @@ Bots and project chats can search saved conversations, read matching messages an
 
 Choose **J1 shared providers** in a bot's model picker to use the same configured accounts and execution services as project chats. Compatible default accounts move automatically while keeping their models, instructions, conversations and permission modes. Custom accounts and native tool restrictions stay on their existing engine until a compatible shared configuration is selected.
 
+J1 shared providers use one execution path. An interrupted bot turn can resume without resending your message when J1 can verify the original provider thread. Your saved conversation remains available if the provider cannot verify that thread.
+
 In the bot's Identity settings, **J1 project for this thread** attaches a project’s folder, instructions, files and memory to that bot thread. Each thread keeps its own project. Start a new thread to work on another project after a session has begun.
 
 In a bot's Identity settings, choose **Set up engineering team** to keep the existing bot and its conversations while adding backend, client, and QA roles and a shared team room.

@@ -1,11 +1,15 @@
-import type { EnvironmentId, UnifiedSettings } from "@j1code/contracts";
-import { useAtomValue } from "@effect/atom-react";
+import { AuthSettingsWriteScope, type EnvironmentId, type UnifiedSettings } from "@j1code/contracts";
 import { PlusIcon } from "lucide-react";
 import { useState } from "react";
+import { refreshUsage } from "@j1code/client-runtime/state/usage";
+import { makeWindow } from "@j1code/shared/usageFormat";
+import { appAtomRegistry } from "../../rpc/atomRegistry";
+import { serverEnvironment } from "../../state/server";
+import { environmentPresentations } from "../../state/presentation";
+import { useEnvironmentScope } from "../../state/session";
+import { Switch } from "../ui/switch";
 
 import { useUpdateEnvironmentSettings } from "../../hooks/useSettings";
-import { serverEnvironment } from "../../state/server";
-import { useAtomCommand } from "../../state/use-atom-command";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -16,12 +20,10 @@ import {
   AlertDialogTitle,
 } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
-import { Switch } from "../ui/switch";
 import { AddUsageLimitSourceDialog } from "./AddUsageLimitSourceDialog";
 import { searchableSetting } from "./settingsSearch";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 
-/** Hub management follows the selected device and access rules of provider settings. */
 export function UsageProviderSettings({
   environmentId,
   environmentLabel,
@@ -36,32 +38,9 @@ export function UsageProviderSettings({
   readonly readOnly: boolean;
 }) {
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
-  const updateCursorSettings = useAtomCommand(serverEnvironment.updateSettings, {
-    label: "update Cursor account usage",
-  });
-  const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
-    reportFailure: false,
-  });
-  const platform = useAtomValue(serverEnvironment.configValueAtom(environmentId))?.environment
-    .platform;
+  const canWriteSettings = useEnvironmentScope(environmentId, AuthSettingsWriteScope);
   const [adding, setAdding] = useState(false);
-  const [updatingCursor, setUpdatingCursor] = useState(false);
   const entries = Object.entries(sources);
-
-  const setCursorUsageEnabled = async (enabled: boolean) => {
-    setUpdatingCursor(true);
-    try {
-      const result = await updateCursorSettings({
-        environmentId,
-        input: { patch: { cursorKeychainUsageEnabled: enabled } },
-      });
-      if (result._tag === "Success") {
-        await refreshProviders({ environmentId, input: {} });
-      }
-    } finally {
-      setUpdatingCursor(false);
-    }
-  };
 
   return (
     <>
@@ -76,21 +55,16 @@ export function UsageProviderSettings({
           ) : null
         }
       >
-        {platform?.os === "darwin" ? (
-          <SettingsRow
-            id="cursor-keychain-usage"
-            title="Cursor account usage"
-            description="Read your existing Cursor CLI login from macOS Keychain to show account history and monthly limits. macOS may ask you to allow access."
-            control={
-              <Switch
-                aria-label="Cursor account usage"
-                checked={cursorKeychainUsageEnabled}
-                disabled={readOnly || updatingCursor}
-                onCheckedChange={(enabled) => void setCursorUsageEnabled(enabled)}
-              />
-            }
-          />
-        ) : null}
+        <SettingsRow
+          title="Cursor Keychain usage"
+          description="Allow this environment to read its existing Cursor CLI login from macOS Keychain for usage. macOS may ask for access."
+          control={<Switch aria-label="Cursor Keychain usage" checked={cursorKeychainUsageEnabled}
+            disabled={readOnly || !canWriteSettings} onCheckedChange={(enabled) => updateSettings(
+              { cursorKeychainUsageEnabled: enabled },
+              { onSaved: () => { void refreshUsage({ registry: appAtomRegistry, server: serverEnvironment,
+                presentations: environmentPresentations, environmentIds: [environmentId], input: makeWindow(30) }); } },
+            )} />}
+        />
         {entries.length === 0 ? (
           <SettingsRow title="No hubs configured." />
         ) : (
@@ -125,13 +99,13 @@ export function UsageProviderSettings({
           onOpenChange={setAdding}
           environmentId={environmentId}
           environmentLabel={environmentLabel}
+          sources={sources}
         />
       ) : null}
     </>
   );
 }
 
-/** Removing a hub deletes its stored management key, so it requires confirmation. */
 function RemoveUsageProviderButton({
   label,
   onConfirm,

@@ -1,28 +1,54 @@
-import * as NodeOS from "node:os";
-import * as Path from "effect/Path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { it as effectIt } from "@effect/vitest";
+import * as HostProcess from "@j1code/shared/HostProcess";
+import { CommandAvailability, WindowsShellEnvironment } from "@j1code/shared/shell";
 import * as Effect from "effect/Effect";
-import { assert } from "vite-plus/test";
-import { it } from "@effect/vitest";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- Observe the existing synchronous shell probe without launching the user's login shell.
+import * as NodeChildProcess from "node:child_process";
+import * as NodeOS from "node:os";
+import { assert, it, vi } from "vite-plus/test";
 
-import { hydratePosixHome, resolveBaseDir } from "./os-jank.ts";
+import { deriveServerPaths } from "./config.ts";
+import {
+  expandHomePath,
+  fixPath,
+  hydratePosixHome,
+  refreshWindowsPath,
+  resolveBaseDir,
+} from "./os-jank.ts";
 
-it.effect("isolates J1 default state while preserving explicit data-directory overrides", () =>
+vi.mock("node:child_process", { spy: true });
+
+effectIt.effect("isolates the J1 home and derives paths for an explicit legacy profile", () =>
   Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    assert.equal(yield* resolveBaseDir(undefined), path.join(NodeOS.homedir(), ".j1"));
-    assert.equal(yield* resolveBaseDir(" "), path.join(NodeOS.homedir(), ".j1"));
-    assert.equal(yield* resolveBaseDir("./explicit-profile"), path.resolve("./explicit-profile"));
+    const home = yield* fs.makeTempDirectoryScoped({ prefix: "j1-resolve-home-" });
+    yield* Effect.gen(function* () {
+      const defaultHome = path.join(home, ".j1");
+      assert.equal(yield* resolveBaseDir(undefined), defaultHome);
+      assert.equal(yield* resolveBaseDir(" "), defaultHome);
+      assert.equal(yield* expandHomePath("~"), home);
+      assert.equal(yield* expandHomePath("~\\shared"), path.join(home, "shared"));
+      assert.equal(yield* resolveBaseDir("./explicit-profile"), path.resolve("./explicit-profile"));
+      const explicit = yield* resolveBaseDir("  ~/.t3  ");
+      assert.equal(explicit, path.join(home, ".t3"));
+
+      const devUrl = new URL("http://127.0.0.1:5173");
+      const defaults = yield* deriveServerPaths(defaultHome, devUrl);
+      const compatible = yield* deriveServerPaths(explicit, devUrl, { baseDirIsExplicit: true });
+      assert.equal(defaults.stateDir, path.join(defaultHome, "dev"));
+      assert.equal(compatible.stateDir, path.join(explicit, "userdata"));
+      assert.equal(compatible.settingsPath, path.join(compatible.stateDir, "settings.json"));
+      assert.equal(compatible.secretsDir, path.join(compatible.stateDir, "secrets"));
+      assert.equal(compatible.dbPath, path.join(compatible.stateDir, "statev2.sqlite"));
+      assert.isFalse(yield* fs.exists(defaultHome));
+      assert.isFalse(yield* fs.exists(explicit));
+    }).pipe(Effect.provideService(HostProcess.HomeDirectory, home));
   }).pipe(Effect.provide(NodeServices.layer)),
 );
-
-it("hydrates HOME for minimal service environments from the user account", () => {
-  const env: NodeJS.ProcessEnv = {};
-
-  hydratePosixHome(env);
-
-  assert.equal(env.HOME, NodeOS.userInfo().homedir);
-});
 
 it("hydrates HOME independently of a blank process HOME", () => {
   const originalHome = process.env.HOME;
@@ -51,3 +77,207 @@ it("preserves an explicitly configured HOME", () => {
 
   assert.equal(env.HOME, "/custom/home");
 });
+
+effectIt.effect("hydrates PATH when the desktop handoff is absent", () =>
+  Effect.acquireUseRelease(
+    Effect.sync(() =>
+      vi
+        .spyOn(NodeChildProcess, "execFileSync")
+        .mockReturnValue("__T3CODE_ENV_PATH_START__\n/opt/tools/bin\n__T3CODE_ENV_PATH_END__\n"),
+    ),
+    (probe) =>
+      Effect.gen(function* () {
+        const env: NodeJS.ProcessEnv = { SHELL: "/bin/bash", PATH: "/usr/bin" };
+
+        yield* fixPath().pipe(
+          Effect.provideService(HostProcess.Platform, "linux"),
+          Effect.provideService(HostProcess.Environment, env),
+          Effect.provide(NodeServices.layer),
+        );
+
+        assert.equal(probe.mock.calls.length, 1);
+        assert.equal(env.PATH, "/opt/tools/bin:/usr/bin");
+      }),
+    (probe) => Effect.sync(() => probe.mockRestore()),
+  ),
+);
+
+effectIt.effect("skips the login shell when the desktop already prepared the environment", () =>
+  Effect.acquireUseRelease(
+    Effect.sync(() =>
+      vi.spyOn(NodeChildProcess, "execFileSync").mockImplementation(() => {
+        throw new Error("An already-prepared environment must not launch a login shell");
+      }),
+    ),
+    (probe) =>
+      Effect.gen(function* () {
+        const env: NodeJS.ProcessEnv = { HOME: "/fixture/home", SHELL: "/bin/bash", PATH: "/fixture/bin" };
+        yield* fixPath({ shellEnvironmentPrepared: true }).pipe(
+          Effect.provideService(HostProcess.Platform, "linux"),
+          Effect.provideService(HostProcess.Environment, env),
+        );
+        assert.equal(probe.mock.calls.length, 0);
+        assert.equal(env.PATH, "/fixture/bin");
+        assert.equal(env.HOME, "/fixture/home");
+      }).pipe(Effect.provide(NodeServices.layer)),
+    (probe) => Effect.sync(() => probe.mockRestore()),
+  ),
+);
+
+const timedOut = (file: string) =>
+  Object.assign(new Error(`spawnSync ${file} ETIMEDOUT`), { code: "ETIMEDOUT" });
+
+effectIt.effect("waits longer for a login shell that times out at startup", () =>
+  Effect.acquireUseRelease(
+    Effect.sync(() =>
+      vi.spyOn(NodeChildProcess, "execFileSync").mockImplementation((file, _args, options) => {
+        // This profile takes 8 seconds while the machine is under load.
+        if ((options?.timeout ?? 0) < 8_000) throw timedOut(String(file));
+        return "__T3CODE_ENV_PATH_START__\n/opt/tools/bin\n__T3CODE_ENV_PATH_END__\n";
+      }),
+    ),
+    () =>
+      Effect.gen(function* () {
+        const env: NodeJS.ProcessEnv = { SHELL: "/bin/zsh", PATH: "/usr/bin" };
+
+        yield* fixPath().pipe(
+          Effect.provideService(HostProcess.Platform, "linux"),
+          Effect.provideService(HostProcess.Environment, env),
+          Effect.provide(NodeServices.layer),
+        );
+
+        assert.equal(env.PATH, "/opt/tools/bin:/usr/bin");
+      }),
+    (probe) => Effect.sync(() => probe.mockRestore()),
+  ),
+);
+
+effectIt.effect("waits longer for only one hung login shell", () =>
+  Effect.acquireUseRelease(
+    Effect.sync(() =>
+      vi.spyOn(NodeChildProcess, "execFileSync").mockImplementation((file) => {
+        throw timedOut(String(file));
+      }),
+    ),
+    (probe) =>
+      Effect.gen(function* () {
+        const env: NodeJS.ProcessEnv = { SHELL: "/bin/zsh", PATH: "/usr/bin" };
+
+        yield* fixPath().pipe(
+          Effect.provideService(HostProcess.Platform, "linux"),
+          Effect.provideService(HostProcess.Environment, env),
+          Effect.provide(NodeServices.layer),
+        );
+
+        const timeouts = probe.mock.calls.map(([, , options]) => options?.timeout);
+        assert.equal(timeouts.filter((timeout) => (timeout ?? 0) > 5_000).length, 1);
+        assert.equal(env.PATH, "/usr/bin");
+      }),
+    (probe) => Effect.sync(() => probe.mockRestore()),
+  ),
+);
+
+effectIt.effect("keeps mise's PATH record with the login shell PATH", () =>
+  Effect.acquireUseRelease(
+    Effect.sync(() =>
+      vi
+        .spyOn(NodeChildProcess, "execFileSync")
+        .mockReturnValue(
+          [
+            "__T3CODE_ENV_PATH_START__",
+            "/home/me/.local/bin:/mise/installs/claude/latest:/mise/shims",
+            "__T3CODE_ENV_PATH_END__",
+            "__T3CODE_ENV___MISE_DIFF_START__",
+            "mise-diff",
+            "__T3CODE_ENV___MISE_DIFF_END__",
+          ].join("\n"),
+        ),
+    ),
+    () =>
+      Effect.gen(function* () {
+        const env: NodeJS.ProcessEnv = { SHELL: "/bin/bash", PATH: "/usr/bin" };
+
+        yield* fixPath().pipe(
+          Effect.provideService(HostProcess.Platform, "linux"),
+          Effect.provideService(HostProcess.Environment, env),
+          Effect.provide(NodeServices.layer),
+        );
+
+        assert.equal(env.__MISE_DIFF, "mise-diff");
+      }),
+    (probe) => Effect.sync(() => probe.mockRestore()),
+  ),
+);
+
+effectIt.effect("hydrates a missing JAVA_HOME from the login shell and keeps an explicit one", () =>
+  Effect.acquireUseRelease(
+    Effect.sync(() =>
+      vi
+        .spyOn(NodeChildProcess, "execFileSync")
+        .mockReturnValue(
+          [
+            "__T3CODE_ENV_PATH_START__",
+            "/opt/homebrew/bin",
+            "__T3CODE_ENV_PATH_END__",
+            "__T3CODE_ENV_JAVA_HOME_START__",
+            "/opt/homebrew/opt/openjdk@17",
+            "__T3CODE_ENV_JAVA_HOME_END__",
+          ].join("\n"),
+        ),
+    ),
+    () =>
+      Effect.gen(function* () {
+        const missing: NodeJS.ProcessEnv = { SHELL: "/bin/zsh", PATH: "/usr/bin" };
+        const explicit: NodeJS.ProcessEnv = {
+          SHELL: "/bin/zsh",
+          PATH: "/usr/bin",
+          JAVA_HOME: "/custom/jdk",
+        };
+
+        for (const env of [missing, explicit]) {
+          yield* fixPath().pipe(
+            Effect.provideService(HostProcess.Platform, "darwin"),
+            Effect.provideService(HostProcess.Environment, env),
+            Effect.provide(NodeServices.layer),
+          );
+        }
+
+        assert.equal(missing.JAVA_HOME, "/opt/homebrew/opt/openjdk@17");
+        assert.equal(explicit.JAVA_HOME, "/custom/jdk");
+      }),
+    (probe) => Effect.sync(() => probe.mockRestore()),
+  ),
+);
+
+effectIt.effect("replaces a Path-spelled Windows PATH instead of adding a second key", () =>
+  Effect.gen(function* () {
+    const env: NodeJS.ProcessEnv = { Path: "C:\\Windows" };
+
+    yield* fixPath().pipe(
+      Effect.provideService(HostProcess.Platform, "win32"),
+      Effect.provideService(HostProcess.Environment, env),
+      Effect.provideService(WindowsShellEnvironment, () => Effect.succeed({ PATH: "C:\\Tools" })),
+      Effect.provideService(CommandAvailability, () => Effect.succeed(true)),
+      Effect.provide(NodeServices.layer),
+    );
+
+    assert.deepEqual(env, { PATH: "C:\\Tools;C:\\Windows" });
+  }),
+);
+
+effectIt.effect("adds a directory an installer wrote to the registry after launch", () =>
+  Effect.gen(function* () {
+    const env: NodeJS.ProcessEnv = { Path: "C:\\Tools;C:\\Windows" };
+    const installed = "C:\\Users\\me\\AppData\\Local\\cursor-agent";
+
+    yield* refreshWindowsPath().pipe(
+      Effect.provideService(HostProcess.Platform, "win32"),
+      Effect.provideService(HostProcess.Environment, env),
+      Effect.provideService(WindowsShellEnvironment, () =>
+        Effect.succeed({ PATH: `C:\\Windows;${installed}` }),
+      ),
+    );
+
+    assert.deepEqual(env, { PATH: `C:\\Tools;C:\\Windows;${installed}` });
+  }),
+);

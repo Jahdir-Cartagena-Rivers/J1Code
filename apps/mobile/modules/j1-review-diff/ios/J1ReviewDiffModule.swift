@@ -5,6 +5,14 @@ public class J1ReviewDiffModule: Module {
     Name("J1ReviewDiffSurface")
 
     View(J1ReviewDiffView.self) {
+      Prop("contentInsetTop") { (view: J1ReviewDiffView, value: Double) in
+        view.setContentInsetTop(CGFloat(value))
+      }
+
+      Prop("contentInsetBottom") { (view: J1ReviewDiffView, value: Double) in
+        view.setContentInsetBottom(CGFloat(value))
+      }
+
       Prop("tokensResetKey") { (view: J1ReviewDiffView, tokensResetKey: String) in
         view.setTokensResetKey(tokensResetKey)
       }
@@ -53,6 +61,22 @@ public class J1ReviewDiffModule: Module {
         view.setInitialRowIndex(initialRowIndex)
       }
 
+      Prop("initialFileId") { (view: J1ReviewDiffView, fileId: String) in
+        view.setInitialFileId(fileId)
+      }
+
+      Prop("scrollEnabled") { (view: J1ReviewDiffView, enabled: Bool) in
+        view.setScrollEnabled(enabled)
+      }
+
+      Prop("bounces") { (view: J1ReviewDiffView, bounces: Bool) in
+        view.setBounces(bounces)
+      }
+
+      Prop("refreshEnabled") { (view: J1ReviewDiffView, enabled: Bool) in
+        view.setRefreshEnabled(enabled)
+      }
+
       Prop("refreshing") { (view: J1ReviewDiffView, refreshing: Bool) in
         view.setRefreshing(refreshing)
       }
@@ -64,6 +88,7 @@ public class J1ReviewDiffModule: Module {
         "onToggleViewedFile",
         "onPressLine",
         "onToggleComment",
+        "onPressNotice",
         "onPullToRefresh"
       )
 
@@ -78,7 +103,8 @@ public class J1ReviewDiffModule: Module {
       // Large, frequently changing JSON values cannot be regular Fabric props. Expo's
       // prop adapter compares strings on the main thread before invoking a setter, which
       // makes a syntax-token patch capable of blocking a frame by itself.
-      AsyncFunction("setRowsJson") { (view: J1ReviewDiffView, rowsJson: String) in
+      AsyncFunction("setRowsJson") { (view: J1ReviewDiffView, rowsJson: String, contentResetKey: String) in
+        view.setContentResetKey(contentResetKey)
         view.setRowsJson(rowsJson)
       }
 
@@ -86,8 +112,10 @@ public class J1ReviewDiffModule: Module {
         view.setTokensJson(tokensJson)
       }
 
-      AsyncFunction("setTokensPatchJson") { (view: J1ReviewDiffView, tokensPatchJson: String) in
-        view.setTokensPatchJson(tokensPatchJson)
+      AsyncFunction("setTokensPatchJson") { (view: J1ReviewDiffView, tokensPatchJson: String, promise: Promise) in
+        view.setTokensPatchJson(tokensPatchJson) { accepted in
+          promise.resolve(accepted)
+        }
       }
     }
   }

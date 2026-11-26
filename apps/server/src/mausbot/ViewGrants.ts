@@ -6,6 +6,7 @@ import * as DateTime from "effect/DateTime";
 import {
   AuthAccessWriteScope,
   AuthOrchestrationOperateScope,
+  AuthSettingsWriteScope,
   type AuthClientSession,
 } from "@j1code/contracts";
 
@@ -109,6 +110,18 @@ export class MausbotViewGrants {
   clientSession(key: string) {
     const grant = this.grants.get(key);
     return grant && !grant.administrative ? grant.sessionId : undefined;
+  }
+  pairedSettingsSession(key: string, sessions: ReadonlyArray<AuthClientSession>) {
+    const grant = this.grants.get(key);
+    if (!grant?.administrative) return undefined;
+    const session = sessions.find((entry) => entry.sessionId === grant.sessionId);
+    const device = session?.client?.deviceType;
+    return session?.scopes.includes(AuthAccessWriteScope) &&
+      session.scopes.includes(AuthSettingsWriteScope) &&
+      (session.method === "bearer-access-token" || session.method === "dpop-access-token") &&
+      (device === "mobile" || device === "tablet")
+      ? grant.sessionId
+      : undefined;
   }
   frameOrigin(key: string) {
     return this.grants.get(key)?.frameOrigin;

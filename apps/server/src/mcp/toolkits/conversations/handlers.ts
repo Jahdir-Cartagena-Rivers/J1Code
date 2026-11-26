@@ -1,20 +1,14 @@
 import { Effect } from "effect";
 import { ExternalConversations } from "../../../conversations/ExternalConversations.ts";
-import { requireMcpCapability } from "../../McpInvocationContext.ts";
+import { nativeAgentCaller } from "../routing/boundary.ts";
 import { ConversationsToolkit } from "./tools.ts";
-import { botExecutionContext } from "../../../mausbot/ExecutionContext.ts";
 
-export const conversationPrincipal = requireMcpCapability("agents").pipe(
-  Effect.filterOrFail(
-    (scope) => !botExecutionContext(scope.threadId),
-    () => "Use this bot's selected conversation tools through bot_tools and bot_call.",
-  ),
-  Effect.map((scope) => ({
+export const conversationPrincipal = nativeAgentCaller.pipe(
+  Effect.map(({ scope }) => ({
     kind: "j1" as const,
     environmentId: scope.environmentId,
-    threadId: scope.threadId,
+    threadId: scope.thread.threadId,
   })),
-  Effect.mapError(() => "Shared conversations are unavailable for this session."),
 );
 export const ConversationsToolkitHandlers = ConversationsToolkit.toLayer(
   Effect.gen(function* () {

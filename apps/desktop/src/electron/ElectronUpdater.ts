@@ -7,7 +7,7 @@ import * as Scope from "effect/Scope";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeUtil from "node:util";
 
-import { autoUpdater } from "electron-updater";
+import { AppImageUpdater, autoUpdater } from "electron-updater";
 
 type AutoUpdater = typeof autoUpdater;
 const execFileAsync = NodeUtil.promisify(NodeChildProcess.execFile);
@@ -27,6 +27,27 @@ export async function resolvePrivateGitHubUpdateToken(): Promise<string | null> 
     return null;
   }
 }
+
+type SpawnLog = (cmd: string, args?: Array<string>, ...rest: Array<unknown>) => Promise<boolean>;
+
+// Electron holds the AppImage runtime's keepalive pipe and some files without O_CLOEXEC; a
+// relaunched AppImage inherits them, so old runtimes and FUSE mounts never exit. bash (AppRun
+// already needs it; dash cannot close multi-digit fds) closes them before exec'ing the AppImage.
+// -p skips BASH_ENV and exported functions in the helper only; the AppImage still receives both.
+const CLOSE_INHERITED_FDS_THEN_EXEC =
+  'for fd in /proc/self/fd/*; do fd=${fd##*/}; case $fd in *[!0-9]*|[012]) ;; *) eval "exec $fd>&-" ;; esac; done; exec "$@"';
+
+const relaunchWithoutInheritedDescriptors = (updater: AppImageUpdater) => {
+  const spawnLog = (AppImageUpdater.prototype as unknown as { spawnLog: SpawnLog }).spawnLog;
+  (updater as unknown as { spawnLog: SpawnLog }).spawnLog = function (cmd, args = [], ...rest) {
+    return spawnLog.call(
+      this,
+      "bash",
+      ["-p", "-c", CLOSE_INHERITED_FDS_THEN_EXEC, cmd, cmd, ...args],
+      ...rest,
+    );
+  };
+};
 
 export type ElectronUpdaterFeedUrl = Parameters<AutoUpdater["setFeedURL"]>[0];
 
@@ -101,50 +122,60 @@ export class ElectronUpdater extends Context.Service<
   }
 >()("@j1code/desktop/electron/ElectronUpdater") {}
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = ElectronUpdater.of({
   privateGitHubToken: Effect.promise(resolvePrivateGitHubUpdateToken),
-  setFeedURL: (options) =>
-    Effect.suspend(() => {
+  setFeedURL: Effect.fn("ElectronUpdater.setFeedURL")(function (options) {
+    return Effect.suspend(() => {
       autoUpdater.setFeedURL(options);
       return Effect.void;
-    }),
-  setAutoDownload: (value) =>
-    Effect.suspend(() => {
+    });
+  }),
+  setAutoDownload: Effect.fn("ElectronUpdater.setAutoDownload")(function (value) {
+    return Effect.suspend(() => {
       autoUpdater.autoDownload = value;
       return Effect.void;
-    }),
-  setAutoInstallOnAppQuit: (value) =>
-    Effect.suspend(() => {
+    });
+  }),
+  setAutoInstallOnAppQuit: Effect.fn("ElectronUpdater.setAutoInstallOnAppQuit")(function (value) {
+    return Effect.suspend(() => {
       autoUpdater.autoInstallOnAppQuit = value;
       return Effect.void;
-    }),
-  setChannel: (channel) =>
-    Effect.suspend(() => {
+    });
+  }),
+  setChannel: Effect.fn("ElectronUpdater.setChannel")(function (channel) {
+    return Effect.suspend(() => {
       autoUpdater.channel = channel;
       return Effect.void;
-    }),
-  setAllowPrerelease: (value) =>
-    Effect.suspend(() => {
+    });
+  }),
+  setAllowPrerelease: Effect.fn("ElectronUpdater.setAllowPrerelease")(function (value) {
+    return Effect.suspend(() => {
       autoUpdater.allowPrerelease = value;
       return Effect.void;
-    }),
+    });
+  }),
   allowDowngrade: Effect.sync(() => autoUpdater.allowDowngrade),
-  setAllowDowngrade: (value) =>
-    Effect.suspend(() => {
+  setAllowDowngrade: Effect.fn("ElectronUpdater.setAllowDowngrade")(function (value) {
+    return Effect.suspend(() => {
       autoUpdater.allowDowngrade = value;
       return Effect.void;
-    }),
-  setFullChangelog: (value) =>
-    Effect.suspend(() => {
+    });
+  }),
+  setFullChangelog: Effect.fn("ElectronUpdater.setFullChangelog")(function (value) {
+    return Effect.suspend(() => {
       autoUpdater.fullChangelog = value;
       return Effect.void;
-    }),
-  setDisableDifferentialDownload: (value) =>
-    Effect.suspend(() => {
-      autoUpdater.disableDifferentialDownload = value;
-      return Effect.void;
-    }),
+    });
+  }),
+  setDisableDifferentialDownload: Effect.fn("ElectronUpdater.setDisableDifferentialDownload")(
+    function (value) {
+      return Effect.suspend(() => {
+        autoUpdater.disableDifferentialDownload = value;
+        return Effect.void;
+      });
+    },
+  ),
   checkForUpdates: Effect.suspend(() => {
     const channel = autoUpdater.channel;
     return Effect.tryPromise({
@@ -159,9 +190,13 @@ export const make = ElectronUpdater.of({
       catch: (cause) => new ElectronUpdaterDownloadUpdateError({ channel, cause }),
     }).pipe(Effect.asVoid);
   }),
-  quitAndInstall: ({ isSilent, isForceRunAfter }) =>
-    Effect.suspend(() => {
+  quitAndInstall: Effect.fn("ElectronUpdater.quitAndInstall")(function ({
+    isSilent,
+    isForceRunAfter,
+  }) {
+    return Effect.suspend(() => {
       const channel = autoUpdater.channel;
+      if (autoUpdater instanceof AppImageUpdater) relaunchWithoutInheritedDescriptors(autoUpdater);
       return Effect.try({
         try: () => autoUpdater.quitAndInstall(isSilent, isForceRunAfter),
         catch: (cause) =>
@@ -172,8 +207,9 @@ export const make = ElectronUpdater.of({
             cause,
           }),
       });
-    }),
-  on: (eventName, listener) => {
+    });
+  }),
+  on: Effect.fn("ElectronUpdater.on")(function (eventName, listener) {
     const eventTarget = autoUpdater as unknown as {
       on: (eventName: string, listener: (...args: Array<unknown>) => void) => void;
       removeListener: (eventName: string, listener: (...args: Array<unknown>) => void) => void;
@@ -188,7 +224,7 @@ export const make = ElectronUpdater.of({
           eventTarget.removeListener(eventName, untypedListener);
         }),
     ).pipe(Effect.asVoid);
-  },
+  }),
 });
 
 export const layer = Layer.succeed(ElectronUpdater, make);

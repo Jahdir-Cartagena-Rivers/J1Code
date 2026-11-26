@@ -153,7 +153,7 @@ export class LivePresence<Connection> {
   }
   /** Keeps long silent steps from expiring; call about every 30 seconds. */
   heartbeat() {
-    for (const [chatId, entry] of [...this.live]) {
+    for (const [chatId, entry] of this.live) {
       if (this.now() - entry.touchedAt >= STALE_MS) this.end(chatId);
       else if (this.now() - entry.sentAt >= HEARTBEAT_MS) this.push(chatId, entry);
     }

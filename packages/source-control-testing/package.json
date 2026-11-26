@@ -1,0 +1,28 @@
+{
+  "name": "@j1code/source-control-testing",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./fakeSourceControlDriver": {
+      "types": "./src/fakeSourceControlDriver.ts",
+      "import": "./src/fakeSourceControlDriver.ts"
+    },
+    "./TestSourceControlHost": {
+      "types": "./src/TestSourceControlHost.ts",
+      "import": "./src/TestSourceControlHost.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "effect-tsgo tsrs --noEmit"
+  },
+  "dependencies": {
+    "@effect/platform-node": "catalog:",
+    "@j1code/contracts": "workspace:*",
+    "@j1code/shared": "workspace:*",
+    "@j1code/source-control-core": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:"
+  }
+}

@@ -1,24 +1,25 @@
 import { describe, expect, it } from "@effect/vitest";
-import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Fiber from "effect/Fiber";
-import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
+import * as Schema from "effect/Schema";
 
 import { EnvironmentAuthInvalidError } from "@j1code/contracts";
+import { hashTelemetryId } from "@j1code/shared/telemetryId";
 import {
-  appendClientConnectionParams,
   bootstrapRemoteBearerSession,
   exchangeRemoteDpopAccessToken,
   fetchRemoteSessionState,
   issueRemoteDpopWebSocketTicket,
   issueRemoteWebSocketTicket,
-  RemoteEnvironmentAuthInvalidJsonError,
-  RemoteEnvironmentAuthTimeoutError,
+  resolveRemoteDpopWebSocketConnectionUrl,
   resolveRemoteWebSocketConnectionUrl,
 } from "./remote.ts";
+import * as ClientCapabilities from "../platform/capabilities.ts";
+import * as RpcHttp from "../rpc/http.ts";
 import { fetchRemoteEnvironmentDescriptor } from "../environment/descriptor.ts";
-import { remoteHttpClientLayer } from "../rpc/http.ts";
 
 const isEnvironmentAuthInvalidError = Schema.is(EnvironmentAuthInvalidError);
 
@@ -39,17 +40,8 @@ const recordedFetch = (...responses: ReadonlyArray<Response>) => {
   return { fetchFn, calls };
 };
 
-const hangingFetch = () => {
-  const calls: Array<FetchCall> = [];
-  const fetchFn = ((input, init) => {
-    calls.push([input, init ?? {}]);
-    return new Promise<Response>(() => undefined);
-  }) satisfies typeof fetch;
-
-  return { fetchFn, calls };
-};
-
-const provideRemoteHttp = (fetchFn: typeof fetch) => Effect.provide(remoteHttpClientLayer(fetchFn));
+const provideRemoteHttp = (fetchFn: typeof fetch) =>
+  Effect.provide(RpcHttp.layerRemoteHttpClient(fetchFn));
 
 const expectFetchCall = (
   calls: ReadonlyArray<FetchCall>,
@@ -124,6 +116,153 @@ describe("remote environment authorization", () => {
         body: "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange&subject_token=pairing-token&subject_token_type=urn%3At3%3Aparams%3Aoauth%3Atoken-type%3Aenvironment-bootstrap&requested_token_type=urn%3Aietf%3Aparams%3Aoauth%3Atoken-type%3Aaccess_token",
       });
     }),
+  );
+
+  it.effect("classifies malformed successful remote auth responses as invalid responses", () =>
+    Effect.gen(function* () {
+      const fetch = recordedFetch(
+        Response.json(
+          {
+            access_token: "",
+            issued_token_type: "urn:ietf:params:oauth:token-type:access_token",
+            token_type: "Bearer",
+            expires_in: 3600,
+            scope:
+              "orchestration:read orchestration:operate terminal:operate review:write relay:read",
+          },
+          { status: 200 },
+        ),
+      );
+
+      const error = yield* bootstrapRemoteBearerSession({
+        httpBaseUrl: "https://remote.example.com/",
+        credential: "pairing-token",
+      }).pipe(provideRemoteHttp(fetch.fetchFn), Effect.flip);
+
+      expect(error).toMatchObject({ _tag: "RemoteEnvironmentAuthInvalidJsonError" });
+      expect(error.message).toBe(
+        "Remote environment endpoint returned an invalid response from https://remote.example.com/oauth/token.",
+      );
+    }),
+  );
+
+  it.effect("loads remote session state and websocket tickets over bearer auth", () =>
+    Effect.gen(function* () {
+      const fetch = recordedFetch(
+        Response.json(
+          {
+            environmentId: "environment-remote",
+            label: "Remote environment",
+            platform: {
+              os: "linux",
+              arch: "x64",
+            },
+            serverVersion: "0.0.0-test",
+            capabilities: {
+              repositoryIdentity: true,
+            },
+          },
+          { status: 200 },
+        ),
+        Response.json(
+          {
+            authenticated: true,
+            auth: {
+              policy: "remote-reachable",
+              bootstrapMethods: ["one-time-token"],
+              sessionMethods: ["browser-session-cookie", "bearer-access-token"],
+              sessionCookieName: "t3_session",
+            },
+            scopes: [
+              "orchestration:read",
+              "orchestration:operate",
+              "terminal:operate",
+              "review:write",
+              "relay:read",
+            ],
+            sessionMethod: "bearer-access-token",
+            expiresAt: "2026-05-01T12:00:00.000Z",
+          },
+          { status: 200 },
+        ),
+        Response.json(
+          {
+            ticket: "ws-ticket",
+            expiresAt: "2026-05-01T12:05:00.000Z",
+          },
+          { status: 200 },
+        ),
+      );
+
+      const environment = yield* fetchRemoteEnvironmentDescriptor({
+        httpBaseUrl: "https://remote.example.com/",
+      }).pipe(provideRemoteHttp(fetch.fetchFn));
+      expect(environment).toMatchObject({
+        environmentId: "environment-remote",
+        label: "Remote environment",
+      });
+
+      const session = yield* fetchRemoteSessionState({
+        httpBaseUrl: "https://remote.example.com/",
+        bearerToken: "bearer-token",
+      }).pipe(provideRemoteHttp(fetch.fetchFn));
+      expect(session).toMatchObject({
+        authenticated: true,
+        scopes: [
+          "orchestration:read",
+          "orchestration:operate",
+          "terminal:operate",
+          "review:write",
+          "relay:read",
+        ],
+      });
+
+      const ticket = yield* issueRemoteWebSocketTicket({
+        httpBaseUrl: "https://remote.example.com/",
+        bearerToken: "bearer-token",
+      }).pipe(provideRemoteHttp(fetch.fetchFn));
+      expect(ticket).toMatchObject({
+        ticket: "ws-ticket",
+      });
+
+      expectFetchCall(fetch.calls, 1, {
+        url: "https://remote.example.com/.well-known/t3/environment",
+        method: "GET",
+      });
+      expectFetchCall(fetch.calls, 2, {
+        url: "https://remote.example.com/api/auth/session",
+        method: "GET",
+        headers: {
+          authorization: "Bearer bearer-token",
+        },
+      });
+      expectFetchCall(fetch.calls, 3, {
+        url: "https://remote.example.com/api/auth/websocket-ticket",
+        method: "POST",
+        headers: {
+          authorization: "Bearer bearer-token",
+        },
+      });
+    }),
+  );
+
+  it.effect("fails hung fetch requests on the configured timeout", () =>
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<void>();
+      const fetchFn = ((_input, _init) => {
+        Effect.runSync(Deferred.succeed(started, undefined));
+        return new Promise<Response>(() => {});
+      }) satisfies typeof fetch;
+      const pending = yield* fetchRemoteEnvironmentDescriptor({
+        httpBaseUrl: "http://remote.example.com/", timeoutMs: 25,
+      }).pipe(provideRemoteHttp(fetchFn), Effect.flip, Effect.forkChild);
+      yield* Deferred.await(started);
+      yield* TestClock.adjust(Duration.millis(25));
+      const error = yield* Fiber.join(pending);
+      expect(error).toBeInstanceOf(RpcHttp.RemoteEnvironmentAuthTimeoutError);
+      expect(error.message).toBe(
+        "Remote environment endpoint http://remote.example.com/.well-known/t3/environment timed out after 25ms.");
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
   it.effect("exchanges managed credentials and admits websocket requests with DPoP", () =>
@@ -271,131 +410,24 @@ describe("remote environment authorization", () => {
         scopes: ["orchestration:read"],
       }).pipe(provideRemoteHttp(fetch.fetchFn));
 
+      const dpop = recordedFetch(Response.json({ access_token: "dpop-read-only",
+        issued_token_type: "urn:ietf:params:oauth:token-type:access_token", token_type: "DPoP",
+        expires_in: 3600, scope: "orchestration:read" }));
+      yield* exchangeRemoteDpopAccessToken({ httpBaseUrl: "https://remote.example.com/",
+        credential: "pairing-token", dpopProof: "proof", scopes: ["orchestration:read"],
+      }).pipe(provideRemoteHttp(dpop.fetchFn));
+      const dpopBody = dpop.calls[0]?.[1].body;
+      const encoded = typeof dpopBody === "string" ? dpopBody
+        : dpopBody instanceof Uint8Array ? new TextDecoder().decode(dpopBody) : "";
+      expect(new URLSearchParams(encoded).get("scope")).toBe("orchestration:read");
+      expect(dpop.calls).toHaveLength(1);
+
       expectFetchCall(fetch.calls, 1, {
         url: "https://remote.example.com/oauth/token",
         method: "POST",
         body: "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange&subject_token=pairing-token&subject_token_type=urn%3At3%3Aparams%3Aoauth%3Atoken-type%3Aenvironment-bootstrap&requested_token_type=urn%3Aietf%3Aparams%3Aoauth%3Atoken-type%3Aaccess_token&scope=orchestration%3Aread",
       });
     }),
-  );
-
-  it.effect("loads remote session state and websocket tickets over bearer auth", () =>
-    Effect.gen(function* () {
-      const fetch = recordedFetch(
-        Response.json(
-          {
-            environmentId: "environment-remote",
-            label: "Remote environment",
-            platform: {
-              os: "linux",
-              arch: "x64",
-            },
-            serverVersion: "0.0.0-test",
-            capabilities: {
-              repositoryIdentity: true,
-            },
-          },
-          { status: 200 },
-        ),
-        Response.json(
-          {
-            authenticated: true,
-            auth: {
-              policy: "remote-reachable",
-              bootstrapMethods: ["one-time-token"],
-              sessionMethods: ["browser-session-cookie", "bearer-access-token"],
-              sessionCookieName: "t3_session",
-            },
-            scopes: [
-              "orchestration:read",
-              "orchestration:operate",
-              "terminal:operate",
-              "review:write",
-              "relay:read",
-            ],
-            sessionMethod: "bearer-access-token",
-            expiresAt: "2026-05-01T12:00:00.000Z",
-          },
-          { status: 200 },
-        ),
-        Response.json(
-          {
-            ticket: "ws-ticket",
-            expiresAt: "2026-05-01T12:05:00.000Z",
-          },
-          { status: 200 },
-        ),
-      );
-
-      const environment = yield* fetchRemoteEnvironmentDescriptor({
-        httpBaseUrl: "https://remote.example.com/",
-      }).pipe(provideRemoteHttp(fetch.fetchFn));
-      expect(environment).toMatchObject({
-        environmentId: "environment-remote",
-        label: "Remote environment",
-      });
-
-      const session = yield* fetchRemoteSessionState({
-        httpBaseUrl: "https://remote.example.com/",
-        bearerToken: "bearer-token",
-      }).pipe(provideRemoteHttp(fetch.fetchFn));
-      expect(session).toMatchObject({
-        authenticated: true,
-        scopes: [
-          "orchestration:read",
-          "orchestration:operate",
-          "terminal:operate",
-          "review:write",
-          "relay:read",
-        ],
-      });
-
-      const ticket = yield* issueRemoteWebSocketTicket({
-        httpBaseUrl: "https://remote.example.com/",
-        bearerToken: "bearer-token",
-      }).pipe(provideRemoteHttp(fetch.fetchFn));
-      expect(ticket).toMatchObject({
-        ticket: "ws-ticket",
-      });
-
-      expectFetchCall(fetch.calls, 1, {
-        url: "https://remote.example.com/.well-known/t3/environment",
-        method: "GET",
-      });
-      expectFetchCall(fetch.calls, 2, {
-        url: "https://remote.example.com/api/auth/session",
-        method: "GET",
-        headers: {
-          authorization: "Bearer bearer-token",
-        },
-      });
-      expectFetchCall(fetch.calls, 3, {
-        url: "https://remote.example.com/api/auth/websocket-ticket",
-        method: "POST",
-        headers: {
-          authorization: "Bearer bearer-token",
-        },
-      });
-    }),
-  );
-
-  it.effect("fails hung fetch requests on the configured timeout", () =>
-    Effect.gen(function* () {
-      const fetch = hangingFetch();
-
-      const errorFiber = yield* fetchRemoteEnvironmentDescriptor({
-        httpBaseUrl: "http://remote.example.com/",
-        timeoutMs: 25,
-      }).pipe(provideRemoteHttp(fetch.fetchFn), Effect.flip, Effect.forkScoped);
-      yield* Effect.yieldNow;
-      yield* TestClock.adjust(Duration.millis(25));
-      const error = yield* Fiber.join(errorFiber);
-
-      expect(error).toBeInstanceOf(RemoteEnvironmentAuthTimeoutError);
-      expect(error.message).toBe(
-        "Remote environment endpoint http://remote.example.com/.well-known/t3/environment timed out after 25ms.",
-      );
-    }).pipe(Effect.provide(TestClock.layer())),
   );
 
   it.effect("revives declared typed errors from remote auth failures", () =>
@@ -422,34 +454,6 @@ describe("remote environment authorization", () => {
         expect(error.reason).toBe("missing_credential");
         expect(error.traceId).toBe("trace-auth-test");
       }
-    }),
-  );
-
-  it.effect("classifies malformed successful remote auth responses as invalid responses", () =>
-    Effect.gen(function* () {
-      const fetch = recordedFetch(
-        Response.json(
-          {
-            access_token: "",
-            issued_token_type: "urn:ietf:params:oauth:token-type:access_token",
-            token_type: "Bearer",
-            expires_in: 3600,
-            scope:
-              "orchestration:read orchestration:operate terminal:operate review:write relay:read",
-          },
-          { status: 200 },
-        ),
-      );
-
-      const error = yield* bootstrapRemoteBearerSession({
-        httpBaseUrl: "https://remote.example.com/",
-        credential: "pairing-token",
-      }).pipe(provideRemoteHttp(fetch.fetchFn), Effect.flip);
-
-      expect(error).toBeInstanceOf(RemoteEnvironmentAuthInvalidJsonError);
-      expect(error.message).toBe(
-        "Remote environment endpoint returned an invalid response from https://remote.example.com/oauth/token.",
-      );
     }),
   );
 
@@ -483,6 +487,161 @@ describe("remote environment authorization", () => {
       expect(url).toBe(
         "wss://remote.example.com/ws?wsTicket=ws-ticket&clientSurface=mobile&clientAppVersion=1.2.3&clientDeviceType=phone&clientOs=Android&clientOsMajorVersion=15&clientDeviceModel=Pixel+9&connectionMethod=relay",
       );
+    }),
+  );
+
+  it.effect("binds a DPoP client's rpc ticket to its key and proves the upgrade", () =>
+    Effect.gen(function* () {
+      const fetch = recordedFetch(
+        Response.json({ ticket: "ws-ticket", expiresAt: "2026-05-01T12:05:00.000Z" }),
+      );
+      const proofs: Array<{ method: string; url: string; accessToken: string }> = [];
+
+      const url = yield* resolveRemoteDpopWebSocketConnectionUrl({
+        wsBaseUrl: "wss://remote.example.com/",
+        httpBaseUrl: "https://remote.example.com/",
+        accessToken: "dpop-access-token",
+        createProof: (input) => {
+          proofs.push(input);
+          return Effect.succeed(`proof-${proofs.length}`);
+        },
+        connectionMethod: "relay",
+      }).pipe(provideRemoteHttp(fetch.fetchFn));
+
+      expectFetchCall(fetch.calls, 1, {
+        url: "https://remote.example.com/api/auth/websocket-ticket/rpc",
+        method: "POST",
+        headers: { authorization: "DPoP dpop-access-token", dpop: "proof-1" },
+      });
+      expect(proofs).toEqual([
+        {
+          method: "POST",
+          url: "https://remote.example.com/api/auth/websocket-ticket/rpc",
+          accessToken: "dpop-access-token",
+        },
+        { method: "GET", url: "https://remote.example.com/ws", accessToken: "ws-ticket" },
+      ]);
+      expect(url).toBe(
+        "wss://remote.example.com/ws?wsTicket=ws-ticket&dpop=proof-2&connectionMethod=relay",
+      );
+    }),
+  );
+
+  it.effect("requests the audience route even without a fallback proof", () =>
+    Effect.gen(function* () {
+      const fetch = recordedFetch(
+        Response.json({ ticket: "media-ticket", expiresAt: "2026-05-01T12:05:00.000Z" }),
+      );
+      yield* issueRemoteDpopWebSocketTicket({
+        httpBaseUrl: "https://remote.example.com/",
+        accessToken: "dpop-access-token",
+        dpopProof: "media-proof",
+        use: "media",
+      }).pipe(provideRemoteHttp(fetch.fetchFn));
+      expectFetchCall(fetch.calls, 1, {
+        url: "https://remote.example.com/api/auth/websocket-ticket/media",
+        method: "POST",
+        headers: { dpop: "media-proof" },
+      });
+    }),
+  );
+
+  it.effect.each([401, 403])("does not fall back after ticket authorization denial %s", (status) =>
+    Effect.gen(function* () {
+      const denied = () => Response.json({ message: "Denied" }, { status });
+      const fallback = () => Response.json({ ticket: "must-not-be-used", expiresAt: "2026-05-01T12:05:00.000Z" });
+      const bearer = recordedFetch(denied(), fallback());
+      yield* issueRemoteWebSocketTicket({ httpBaseUrl: "https://remote.example.com/",
+        bearerToken: "restricted-token", use: "media" }).pipe(provideRemoteHttp(bearer.fetchFn), Effect.flip);
+      expect(bearer.calls).toHaveLength(1);
+      expect(String(bearer.calls[0]?.[0])).toBe("https://remote.example.com/api/auth/websocket-ticket/media");
+
+      let fallbackProofs = 0;
+      const dpop = recordedFetch(denied(), fallback());
+      yield* issueRemoteDpopWebSocketTicket({ httpBaseUrl: "https://remote.example.com/",
+        accessToken: "restricted-token", dpopProof: "scoped-proof", use: "media",
+        fallbackProof: Effect.sync(() => { fallbackProofs += 1; return "must-not-be-used"; }),
+      }).pipe(provideRemoteHttp(dpop.fetchFn), Effect.flip);
+      expect(dpop.calls).toHaveLength(1);
+      expect(fallbackProofs).toBe(0);
+    }),
+  );
+
+  it.effect("falls back to the bare ticket path on a server without the audience route", () =>
+    Effect.gen(function* () {
+      const fetch = recordedFetch(
+        Response.json({ message: "Not Found" }, { status: 404 }),
+        Response.json({ ticket: "old-ticket", expiresAt: "2026-05-01T12:05:00.000Z" }),
+      );
+      const proofs: Array<{ method: string; url: string; accessToken: string }> = [];
+
+      const url = yield* resolveRemoteDpopWebSocketConnectionUrl({
+        wsBaseUrl: "wss://remote.example.com/",
+        httpBaseUrl: "https://remote.example.com/",
+        accessToken: "dpop-access-token",
+        createProof: (input) => {
+          proofs.push(input);
+          return Effect.succeed(`proof-${proofs.length}`);
+        },
+      }).pipe(provideRemoteHttp(fetch.fetchFn));
+
+      expect(fetch.calls.map(([target]) => String(target))).toEqual([
+        "https://remote.example.com/api/auth/websocket-ticket/rpc",
+        "https://remote.example.com/api/auth/websocket-ticket",
+      ]);
+      expect(proofs).toEqual([
+        {
+          method: "POST",
+          url: "https://remote.example.com/api/auth/websocket-ticket/rpc",
+          accessToken: "dpop-access-token",
+        },
+        {
+          method: "POST",
+          url: "https://remote.example.com/api/auth/websocket-ticket",
+          accessToken: "dpop-access-token",
+        },
+        { method: "GET", url: "https://remote.example.com/ws", accessToken: "old-ticket" },
+      ]);
+      expectFetchCall(fetch.calls, 2, {
+        url: "https://remote.example.com/api/auth/websocket-ticket",
+        method: "POST",
+        headers: { dpop: "proof-2" },
+      });
+      expect(new URL(url).searchParams.get("wsTicket")).toBe("old-ticket");
+      expect(new URL(url).searchParams.get("dpop")).toBe("proof-3");
+    }),
+  );
+
+  it.effect("names the signed-in Connect account and this device by hash only", () =>
+    Effect.gen(function* () {
+      const fetch = recordedFetch(
+        Response.json({ ticket: "ws-ticket", expiresAt: "2026-05-01T12:05:00.000Z" }),
+      );
+
+      const url = new URL(
+        yield* resolveRemoteWebSocketConnectionUrl({
+          wsBaseUrl: "wss://remote.example.com/",
+          httpBaseUrl: "https://remote.example.com/",
+          bearerToken: "bearer-token",
+        }).pipe(
+          provideRemoteHttp(fetch.fetchFn),
+          Effect.provideService(
+            ClientCapabilities.CloudSession,
+            ClientCapabilities.CloudSession.of({
+              identity: Effect.succeedSome({ accountId: "user_connect" }),
+              clerkToken: Effect.succeed("clerk-token"),
+            }),
+          ),
+          Effect.provideService(ClientCapabilities.AnalyticsDevice, {
+            id: Effect.succeedSome("device-1"),
+          }),
+        ),
+      );
+
+      expect(url.searchParams.get("clientOwner")).toBe(hashTelemetryId("user_connect"));
+      expect(url.searchParams.get("clientDevice")).toBe(hashTelemetryId("device-1"));
+      expect(url.toString()).not.toContain("user_connect");
+      expect(url.toString()).not.toContain("device-1");
     }),
   );
 });

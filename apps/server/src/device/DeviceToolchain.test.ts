@@ -4,13 +4,15 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
-import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as ProcessRunner from "../processRunner.ts";
 import {
+  AGENT_DEVICE_VERSION,
   deviceToolVersions,
   DEVICE_HUB_VERSION,
   ensureDeviceHub,
+  installedAgentDeviceEntry,
   isDeviceHubInstalled,
 } from "./DeviceToolchain.ts";
 
@@ -135,4 +137,38 @@ it.effect("unreadable inventory stays unknown instead of reporting no installs",
     ),
     Effect.provide(NodeServices.layer),
   ),
+);
+
+it.effect("selects only completed agent versions inside the managed tool directory", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const base = yield* fs.makeTempDirectoryScoped();
+    const toolRoot = path.join(base, "tools", "agent-device");
+    const escaped = "../foreign";
+    const previous = "0.20.0";
+    const entries = new Map<string, string>();
+    for (const [version, completed] of [
+      [escaped, true],
+      [previous, true],
+      ["0.20.1", false],
+      [AGENT_DEVICE_VERSION, true],
+    ] as const) {
+      const dir = path.join(toolRoot, version);
+      const bin = path.join(dir, "node_modules", "agent-device", "bin");
+      yield* fs.makeDirectory(bin, { recursive: true });
+      const entry = path.join(bin, "agent-device.mjs");
+      yield* fs.writeFileString(entry, "");
+      if (completed) yield* fs.writeFileString(path.join(dir, ".install-complete"), version);
+      entries.set(version, entry);
+    }
+
+    expect(yield* installedAgentDeviceEntry(base, [escaped])).toBeNull();
+    expect(yield* installedAgentDeviceEntry(base, [previous, AGENT_DEVICE_VERSION])).toBe(
+      entries.get(previous),
+    );
+    expect(yield* installedAgentDeviceEntry(base, ["0.20.1", AGENT_DEVICE_VERSION])).toBe(
+      entries.get(AGENT_DEVICE_VERSION),
+    );
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );

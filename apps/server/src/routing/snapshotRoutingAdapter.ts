@@ -1,17 +1,22 @@
-import type { ChatRoutingMode, OrchestrationThreadShell } from "@j1code/contracts";
+import type { ChatRoutingMode } from "@j1code/contracts";
 import { Effect } from "effect";
 import type { RoutingPorts } from "../mcp/toolkits/routing/boundary.ts";
 import { DeliveryDispatchError, type DeliveryEndpointState } from "./deliveryDispatcher.ts";
 import type { RouteEndpoint } from "./routeState.ts";
 
-type Shell = Pick<
-  OrchestrationThreadShell,
-  "id" | "projectId" | "archivedAt" | "session" | "hasPendingApprovals" | "hasPendingUserInput"
->;
+/** Read-only endpoint facts. Session markers describe busy state, never native delivery identity. */
+type Shell = {
+  readonly id: string;
+  readonly projectId: string;
+  readonly archivedAt: unknown;
+  readonly session: { readonly activeTurnId?: string | null; readonly status: string } | null;
+  readonly hasPendingApprovals: boolean;
+  readonly hasPendingUserInput: boolean;
+};
 
 export interface SnapshotRoutingFacts {
   readonly environmentId: string;
-  /** Adapt ProjectionSnapshotQuery.getThreadShellById; absence also covers deleted threads. */
+  /** Adapt current endpoint projections; absence also covers deleted threads. */
   readonly thread: (threadId: string) => Effect.Effect<Shell | null, string>;
   /** Read current ServerSettings.chatRoutingMode, never a tool argument. */
   readonly settings: () => Effect.Effect<{ readonly chatRoutingMode: ChatRoutingMode }, string>;

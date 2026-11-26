@@ -161,7 +161,7 @@ export const make = Effect.gen(function* () {
     );
   }).pipe(Effect.catchCause((cause) => logError("Could not create J1 tray controls", { cause })));
   return DesktopTray.of({
-    requestClose: Ref.get(closeHandler).pipe(Effect.flatMap((action) => action)),
+    requestClose: Ref.get(closeHandler).pipe(Effect.flatten),
     active: Ref.get(active),
     exitAllowed: Ref.get(exitAllowed),
     allowExit,

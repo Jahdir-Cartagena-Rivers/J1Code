@@ -22,7 +22,7 @@ export class ElectronTray extends Context.Service<
 >()("@j1code/desktop/electron/ElectronTray") {}
 
 export const layer = Layer.succeed(ElectronTray, {
-  create: (icon, open) =>
+  create: Effect.fn("ElectronTray.create")((icon, open) =>
     Effect.acquireRelease(
       Effect.sync(() => {
         const tray = new Electron.Tray(icon);
@@ -32,12 +32,13 @@ export const layer = Layer.succeed(ElectronTray, {
       }),
       (tray) => Effect.sync(() => tray.destroy()),
     ).pipe(
-      Effect.map((tray) => ({
+      Effect.map((tray): TrayHandle => ({
         update: (status, menu) =>
           Effect.sync(() => {
-            tray.setToolTip(`J1 Code — ${status}`);
+            tray.setToolTip(`J1 Code â€” ${status}`);
             tray.setContextMenu(Electron.Menu.buildFromTemplate(menu));
           }),
       })),
     ),
+  ),
 });

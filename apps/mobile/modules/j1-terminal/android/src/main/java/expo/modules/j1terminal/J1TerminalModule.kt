@@ -11,9 +11,17 @@ class J1TerminalModule : Module() {
     // logs so a stale native binary is distinguishable from a broken key pipeline.
     Constants(
       "hardwareKeyRevision" to 2,
+      "outputRevision" to 1,
     )
 
     View(J1TerminalView::class) {
+      AsyncFunction("writeOutput") { view: J1TerminalView, data: String, reset: Boolean ->
+        view.writeOutput(data, reset)
+      }
+
+      // The Android input field already clears after every change.
+      AsyncFunction("resetInput") { _: J1TerminalView -> }
+
       Prop("terminalKey") { view: J1TerminalView, terminalKey: String ->
         view.terminalKey = terminalKey
       }
@@ -28,6 +36,10 @@ class J1TerminalModule : Module() {
 
       Prop("focusRequest") { view: J1TerminalView, focusRequest: Double ->
         view.focusRequest = focusRequest
+      }
+
+      Prop("readOnly") { view: J1TerminalView, readOnly: Boolean ->
+        view.readOnly = readOnly
       }
 
       Prop("autoFocus") { view: J1TerminalView, autoFocus: Boolean ->
@@ -57,7 +69,15 @@ class J1TerminalModule : Module() {
       Prop("captureRequest") { view: J1TerminalView, request: Double ->
         view.captureRequest = request
       }
+
+      Prop("sharedGrid") { view: J1TerminalView, sharedGrid: List<Int> ->
+        view.sharedGrid = sharedGrid
+      }
       Events("onInput", "onResize", "onCapture")
+
+      OnViewDidUpdateProps { view: J1TerminalView ->
+        view.applyPendingBuffer()
+      }
 
       OnViewDestroys { view: J1TerminalView ->
         view.cleanup()

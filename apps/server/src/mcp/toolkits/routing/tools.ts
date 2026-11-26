@@ -1,10 +1,8 @@
 import * as Schema from "effect/Schema";
-import * as Tool from "effect/unstable/ai/Tool";
-import * as Toolkit from "effect/unstable/ai/Toolkit";
-import { McpInvocationContext } from "../../McpInvocationContext.ts";
-import { RouteInput, RoutingBoundaryPorts } from "./boundary.ts";
+import { Tool, Toolkit } from "effect/ai";
+import { nativeAgentCallerDependencies, RouteInput, RoutingBoundaryPorts } from "./boundary.ts";
 
-const dependencies = [McpInvocationContext, RoutingBoundaryPorts];
+const dependencies = [...nativeAgentCallerDependencies, RoutingBoundaryPorts];
 const Status = Schema.Struct({
   requestId: Schema.String,
   status: Schema.String,

@@ -1,6 +1,6 @@
-import { legacyThreadPullRequestKey } from "@j1code/shared/threadPullRequests";
+import { legacyThreadPullRequestKey } from "./legacyThreadPullRequestKey.ts";
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 interface LegacyLinkedThreadRow {
   readonly threadId: string;

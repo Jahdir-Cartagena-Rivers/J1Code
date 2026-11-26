@@ -20,11 +20,20 @@ const message = {
   modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "configured" },
   createdAt: "2026-11-01T00:00:00.000Z",
 };
-it("retains explicit Auto across durable queue encoding while legacy entries remain manual", () => {
-  expect(
-    decodeQueuedThreadMessage(encodeQueuedThreadMessage({ ...message, autoRouting: true }))
-      .autoRouting,
-  ).toBe(true);
+it("retains Auto and dispatch settings across durable encoding while legacy entries remain manual", () => {
+  const queued = {
+    ...message,
+    autoRouting: true,
+    dispatchMode: "queue" as const,
+    compactBeforeSend: true,
+    freshContext: true,
+  };
+  expect(decodeQueuedThreadMessage(encodeQueuedThreadMessage(queued))).toMatchObject({
+    autoRouting: true,
+    dispatchMode: "queue",
+    compactBeforeSend: true,
+    freshContext: true,
+  });
   expect(decodeQueuedThreadMessage(encodeQueuedThreadMessage(message)).autoRouting).toBeUndefined();
 });
 it("omits the manual turn override for Auto but preserves bootstrap identity and attachments", () => {

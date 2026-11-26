@@ -1,143 +1,103 @@
-import { type OrchestrationEvent } from "@j1code/contracts";
-import { Effect, Option, Schema, Semaphore, Stream } from "effect";
-import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
+import { Effect } from "effect";
+import type * as Scope from "effect/Scope";
+import * as SqlClient from "effect/sql/SqlClient";
+import type { OrchestrationV2StoredEvent } from "@j1code/contracts";
+
+import type { CommandReceiptStoreV2 } from "../orchestration-v2/CommandReceiptStore.ts";
+import type { EventSinkV2 } from "../orchestration-v2/EventSink.ts";
+import { EffectOutboxV2 } from "../orchestration-v2/EffectOutbox.ts";
 import { makeDurableRoutingStore } from "./durableRoutingStore.ts";
-import { makeRouteSourceNotifier } from "./sourceActivity.ts";
+import type { makeRouteSourceNotifier } from "./sourceActivity.ts";
+import { reconcileClaimedV2StrictDelivery, type WithStrictRouteFence } from "./v2StrictAdmission.ts";
 
-const Transport = Schema.Struct({
-  routeId: Schema.String,
-  sourceThreadId: Schema.String,
-  receivingThreadId: Schema.String,
-  commandId: Schema.String,
-  messageId: Schema.String,
-  outcome: Schema.Literals(["sent", "outcome-unknown"]),
-});
+export function strictRouteWakeCommand(event: OrchestrationV2StoredEvent) {
+  return event.event.type === "message.updated" && event.event.payload.strictSteer !== undefined
+    ? event.commandId
+    : null;
+}
 
-class RouteTransportContention extends Schema.TaggedError<RouteTransportContention>()(
-  "RouteTransportContention",
-  { message: Schema.String },
-) {}
+/** Owned by the single environment drain. Events only wake a persisted outbox evidence read. */
+export const makeRouteTransportConsumer = Effect.fn("routing.makeRouteTransportConsumer")(
+  function* (input: {
+    readonly withRouteFence: WithStrictRouteFence;
+    readonly notify: Effect.Success<typeof makeRouteSourceNotifier>;
+    readonly scope: Scope.Scope;
+    readonly wake: Effect.Effect<void>;
+  }) {
+    const store = yield* makeDurableRoutingStore;
+    const sql = yield* SqlClient.SqlClient;
+    const outbox = yield* EffectOutboxV2;
+    const evidenceServices = yield* Effect.context<CommandReceiptStoreV2 | EventSinkV2 | EffectOutboxV2>();
+    const watching = new Set<string>();
 
-const decodeTransport = Schema.decodeUnknownOption(Transport);
-
-/** Subscribe before replay to close the startup gap.
- * Only persisted infrastructure activities are evidence; prose and tool outputs are ignored. */
-export const makeRouteTransportConsumer = Effect.gen(function* () {
-  const engine = yield* OrchestrationEngineService;
-  const store = yield* makeDurableRoutingStore;
-  const notify = yield* makeRouteSourceNotifier;
-  const mutex = yield* Semaphore.make(1);
-  const consume = Effect.fn("RouteTransportConsumer.consume")(function* (
-    candidate: OrchestrationEvent,
-  ) {
-    if (
-      candidate.type !== "thread.activity-appended" ||
-      candidate.payload.activity.kind !== "route.transport"
-    )
-      return;
-    // Re-read the authoritative event, never apply the caller's supplied activity body.
-    const persisted = yield* engine.readEvents(candidate.sequence - 1, 1).pipe(Stream.runHead);
-    if (Option.isNone(persisted)) return;
-    const event = persisted.value;
-    if (
-      event.sequence !== candidate.sequence ||
-      event.eventId !== candidate.eventId ||
-      event.type !== "thread.activity-appended" ||
-      event.payload.activity.kind !== "route.transport" ||
-      event.metadata.origin !== undefined
-    )
-      return;
-    const decoded = decodeTransport(event.payload.activity.payload);
-    if (Option.isNone(decoded)) return;
-    const evidence = decoded.value;
-    const identity = [
-      evidence.routeId,
-      evidence.commandId,
-      evidence.messageId,
-      evidence.receivingThreadId,
-      evidence.outcome,
-    ]
-      .map(encodeURIComponent)
-      .join(":");
-    const receiptId = `route-transport:${identity}`;
-    if (
-      event.commandId !== receiptId ||
-      event.payload.activity.id !== receiptId ||
-      event.payload.threadId !== evidence.receivingThreadId ||
-      event.aggregateId !== evidence.receivingThreadId
-    )
-      return;
-    // Admission and receipt consumers may race. Re-read after a failed CAS; never dispatch again.
-    for (let attempt = 0; attempt < 8; attempt++) {
-      const row = yield* store.get(evidence.routeId);
-      if (!row) return;
-      const { state } = row;
-      if (
-        state.attemptId !== evidence.commandId ||
-        state.request.source.threadId !== evidence.sourceThreadId ||
-        state.request.destination?.threadId !== evidence.receivingThreadId ||
-        evidence.messageId !== `route:${evidence.routeId}` ||
-        !["sending", "admitted", "uncertain"].includes(state.status)
-      )
-        return;
-      if (evidence.outcome === "outcome-unknown" && state.status === "uncertain") return;
-      const result = yield* store
-        .transition(
-          evidence.routeId,
-          row.revision,
-          evidence.outcome === "sent"
-            ? {
-                type: "receipt",
-                receipt: {
-                  receiptId,
-                  requestId: evidence.routeId,
-                  fingerprint: state.fingerprint,
-                  attemptId: evidence.commandId,
-                  destination: state.request.destination!,
-                  kind: "delivered",
-                },
-              }
-            : { type: "send-interrupted" },
-        )
-        .pipe(Effect.result);
-      if (result._tag === "Success") {
-        yield* notify(result.success);
-        return;
+    const reconcile = Effect.fn("RouteTransportConsumer.reconcile")(function* (requestId: string) {
+      let previousRevision: number | undefined;
+      const result = yield* reconcileClaimedV2StrictDelivery({
+        requestId,
+        store,
+        withRouteFence: (id, work) => input.withRouteFence(id, Effect.gen(function* () {
+          previousRevision = (yield* store.get(id).pipe(Effect.orDie))?.revision;
+          return yield* work;
+        })),
+      }).pipe(Effect.provide(evidenceServices));
+      if (result === null) return;
+      if (previousRevision !== undefined && result.row.revision !== previousRevision) {
+        yield* input.notify(result.row);
       }
-      const current = yield* store.get(evidence.routeId);
-      if (current?.revision === row.revision) return yield* Effect.fail(result.failure);
-    }
-    return yield* new RouteTransportContention({
-      message: "Route transport CAS contention; replay required",
+      return result.evidence;
     });
-  });
-  const accept = (event: OrchestrationEvent) => mutex.withPermits(1)(consume(event));
-  const reconcile = Effect.gen(function* () {
-    let cursor = 0;
-    while (true) {
-      // Transport evidence has a reserved command namespace; unrelated chat history
-      // must not be decoded or traced before the HTTP listener can become ready.
-      const page = yield* engine
-        .readEvents(cursor, 256, { commandIdPrefix: "route-transport:" })
-        .pipe(Stream.runCollect);
-      if (page.length === 0) break;
-      for (const event of page) yield* accept(event);
-      cursor = page[page.length - 1]!.sequence;
-    }
-  });
-  const start = Effect.gen(function* () {
-    const events = yield* engine.subscribeDomainEvents;
-    yield* reconcile;
-    yield* events.pipe(
-      Stream.runForEach((event) =>
-        accept(event).pipe(
-          Effect.catchCause((cause) =>
-            Effect.logError("Route transport consumption failed; replay required", cause),
-          ),
-        ),
-      ),
-      Effect.forkScoped,
-    );
-  });
-  return { consume: accept, reconcile, start };
-});
+
+    const observe = Effect.fn("RouteTransportConsumer.observe")(function* (requestId: string) {
+      const evidence = yield* reconcile(requestId);
+      if (evidence?.status === "admitted" && !watching.has(evidence.effectId)) {
+        const { effectId } = evidence;
+        watching.add(effectId);
+        yield* outbox.awaitSettled(effectId).pipe(
+          Effect.andThen(reconcile(requestId)),
+          Effect.andThen(input.wake),
+          Effect.catchCause((cause) => Effect.logWarning("Strict route settlement needs reconciliation", { cause })),
+          Effect.ensuring(Effect.sync(() => { watching.delete(effectId); })),
+          Effect.forkIn(input.scope),
+        );
+      }
+    });
+
+    const consume = Effect.fn("RouteTransportConsumer.consume")(function* (event: OrchestrationV2StoredEvent) {
+      const commandId = strictRouteWakeCommand(event);
+      if (commandId === null) return;
+      const matches = yield* sql<{ request_id: string }>`
+        SELECT request_id FROM durable_routes
+        WHERE json_extract(state_json, '$.strictSubmission.delivery.command.commandId') = ${commandId}
+        LIMIT 2
+      `;
+      if (matches.length === 1 && matches[0] !== undefined) yield* observe(matches[0].request_id);
+    });
+
+    const recover = Effect.fn("RouteTransportConsumer.recover")(function* () {
+      const bounds = yield* sql<{ last_id: string | null }>`
+        SELECT MAX(request_id) AS last_id FROM durable_routes
+        WHERE status IN ('sending', 'admitted', 'uncertain')
+          AND json_type(state_json, '$.strictSubmission') = 'object'
+      `;
+      const lastId = bounds[0]?.last_id;
+      if (lastId == null) return;
+      let after = "";
+      while (true) {
+        const rows = yield* sql<{ request_id: string }>`
+          SELECT request_id FROM durable_routes
+          WHERE status IN ('sending', 'admitted', 'uncertain')
+            AND json_type(state_json, '$.strictSubmission') = 'object'
+            AND request_id > ${after} AND request_id <= ${lastId}
+          ORDER BY request_id LIMIT 128
+        `;
+        const last = rows.at(-1);
+        if (last === undefined) return;
+        for (const row of rows) yield* observe(row.request_id).pipe(
+          Effect.catchCause((cause) => Effect.logWarning("Could not recover a strict route", { cause })),
+        );
+        after = last.request_id;
+      }
+    });
+    return { observe, consume, recover };
+  },
+);

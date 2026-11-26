@@ -70,7 +70,7 @@ export function groupHomeList(input: {
     rows = [];
   };
   for (const item of input.items) {
-    if (item.type === "v2-snoozed-shelf" || item.type === "v2-settled-shelf") {
+    if (item.type === "v2-working-shelf" || item.type === "v2-snoozed-shelf" || item.type === "v2-settled-shelf") {
       flush();
       section = item.key;
       result.push(item);

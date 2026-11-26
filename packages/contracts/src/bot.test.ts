@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
-import { BotProfiles } from "./bot.ts";
+import { BotId, BotProfiles } from "./bot.ts";
 import { ServerSettings, ServerSettingsPatch } from "./settings.ts";
 
 const decodeSettings = Schema.decodeUnknownSync(ServerSettings);
@@ -9,7 +9,7 @@ const decodePatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const decodeProfiles = Schema.decodeUnknownSync(BotProfiles);
 
 const bot = {
-  id: "garden-helper",
+  id: BotId.make("garden-helper"),
   name: "Garden helper",
   description: "Track garden work",
   instructions: "Use the supplied garden records.",

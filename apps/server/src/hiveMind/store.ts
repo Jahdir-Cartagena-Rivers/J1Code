@@ -121,7 +121,7 @@ function automaticRelevance(memory: HiveMemory, terms: ReadonlyArray<string>): n
 
 // Greeting detection belongs to automatic injection, not explicit memory search:
 // provider names must remain searchable when the user asks about them.
-function isConversationalOnly(query: string): boolean {
+export function isConversationalOnly(query: string): boolean {
   const text = key(query)
     .replace(/[^\p{L}\p{N}\s.:-]/gu, " ")
     .replace(/\s+/g, " ")

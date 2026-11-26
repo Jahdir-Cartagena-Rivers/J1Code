@@ -112,6 +112,8 @@ describe("parseMarkdownFileLink", () => {
     "https://example.com/docs",
     "mailto:someone@example.com",
     "javascript:alert(1)",
+    "data:text/html,<script>alert(1)</script>",
+    "https://example.com/private.png?token=secret",
     "/chat/settings",
     "/chat/settings#L3",
     "/app#L1",

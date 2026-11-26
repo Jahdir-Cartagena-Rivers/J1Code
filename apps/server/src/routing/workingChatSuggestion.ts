@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { SqlClient } from "effect/unstable/sql";
+import * as SqlClient from "effect/sql/SqlClient";
 import type { RouteEndpoint } from "./routeState.ts";
 
 const ignoredWords = new Set([
@@ -51,9 +51,14 @@ export const suggestWorkingChat = Effect.fnUntraced(function* (
 ) {
   const sql = yield* SqlClient.SqlClient;
   const rows = yield* sql<{ thread_id: string; title: string; status: string | null }>`
-    SELECT t.thread_id, t.title, s.status FROM projection_threads t
-    LEFT JOIN projection_thread_sessions s ON s.thread_id = t.thread_id
-    WHERE t.project_id = ${source.projectId} AND t.thread_id <> ${source.threadId} AND t.archived_at IS NULL`;
+    SELECT t.thread_id, t.title, (
+      SELECT r.status FROM orchestration_v2_projection_runs r
+      WHERE r.thread_id = t.thread_id AND r.status IN ('starting', 'running')
+      ORDER BY r.ordinal DESC LIMIT 1
+    ) AS status
+    FROM orchestration_v2_projection_threads t
+    WHERE t.project_id = ${source.projectId} AND t.thread_id <> ${source.threadId}
+      AND t.archived_at IS NULL AND t.deleted_at IS NULL`;
   const threadId = rankWorkingChats(request, rows);
   return threadId ? { ...source, threadId } : null;
 });

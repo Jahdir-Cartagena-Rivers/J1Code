@@ -1,525 +1,325 @@
-// @effect-diagnostics nodeBuiltinImport:off - Native temporary files exercise the real attachment boundary.
-import { it, assert } from "@effect/vitest";
-import { vi } from "vite-plus/test";
-import * as Effect from "effect/Effect";
+﻿// @effect-diagnostics nodeBuiltinImport:off
+import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import {
+  ChatAttachmentId, EnvironmentId, MessageId, NodeId, ProjectId, ProviderInstanceId, ProviderSessionId, ProviderTurnId,
+  RunAttemptId, RunId, ThreadId, type OrchestrationV2AppThread,
+} from "@j1code/contracts";
+import type { ProviderAdapterV2TurnInput } from "@j1code/provider-core/server/ProviderAdapter";
+import * as McpProviderSessions from "@j1code/provider-core/server/McpProviderSessions";
+import * as Effect from "effect/Effect";
+import * as DateTime from "effect/DateTime";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
+import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
-import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
-import { ApprovalRequestId, ProviderInstanceId, ThreadId } from "@j1code/contracts";
-import type { createDeepAIAgent } from "./DeepAIAgent.ts";
+import * as HostProcess from "@j1code/shared/HostProcess";
+import * as Layer from "effect/Layer";
+import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { makeDeepAIAdapter } from "./DeepAIAdapter.ts";
-import type { CommandJobResult } from "./CommandJobs.ts";
+import type { createDeepAIAgent } from "./DeepAIAgent.ts";
+import { DEEPAI_INVOCATION_HEADER, deepAIMcpFetch, resolveDeepAIInvocation } from "./DeepAIMcpInvocation.ts";
 
-const harness = vi.hoisted(() => ({
-  prompt: vi.fn(async (..._args: unknown[]) => {}),
-  effort: vi.fn(),
-  messages: [] as Array<{ role: "assistant"; stopReason: "error"; errorMessage: string }>,
-  options: undefined as Parameters<typeof createDeepAIAgent>[0] | undefined,
-  waitPrompt: undefined as (() => Promise<void>) | undefined,
-  interruptCommands: vi.fn(),
-}));
-vi.mock("./DeepAIAgent.ts", () => ({
-  createDeepAIAgent: async (options: Parameters<typeof createDeepAIAgent>[0]) => {
-    harness.options = options;
-    return {
-      sessionFile: `${options.sessionDir}/fixture.jsonl`,
-      interruptCommands: harness.interruptCommands,
-      checkpoint: () => () => {
-        harness.messages.length = 0;
-      },
-      session: {
-        prompt: async (...args: unknown[]) => {
-          await harness.prompt(...args);
-          await harness.waitPrompt?.();
-        },
-        getAvailableThinkingLevels: () => ["low", "medium", "high"],
-        setThinkingLevel: harness.effort,
-        abort: async () => {},
-        messages: harness.messages,
-      },
-      stop: async () => {},
-    };
-  },
-}));
-const thread = ThreadId.make("deepai-test");
-const instanceId = ProviderInstanceId.make("deepai-test");
-const make = (
-  attachmentsDir?: string,
-  imageCapable = true,
-  describeImages?: (
-    question: string,
-    images: ReadonlyArray<{ data: string; mimeType: string }>,
-  ) => Promise<string>,
-) =>
-  makeDeepAIAdapter({
-    instanceId,
-    ...(attachmentsDir ? { attachmentsDir } : {}),
-    ...(describeImages ? { describeImages } : {}),
-    directory: "C:/isolated-deepai",
-    credentials: async () => "test-only",
-    catalog: async () => ({
-      default: "pilot",
-      models: [
-        {
-          id: "pilot",
-          name: "Pilot",
-          reasoning: true,
-          input: imageCapable ? ["text", "image"] : ["text"],
-          contextWindow: 4096,
-          maxTokens: 512,
-        },
-      ],
-    }),
-  }).pipe(Effect.provide(NodeServices.layer));
-
-it.effect("routes approvals to the owning thread and denial reaches the tool hook", () =>
-  Effect.gen(function* () {
-    const adapter = yield* make();
-    const queue = yield* adapter.streamEvents.pipe(Stream.toQueue({ capacity: "unbounded" }));
-    yield* Effect.yieldNow;
-    yield* adapter.startSession({
-      threadId: thread,
-      runtimeMode: "approval-required",
-      modelSelection: { instanceId, model: "pilot" },
-    });
-    yield* Queue.take(queue);
-    const options = harness.options!;
-    const authorization = yield* Effect.promise(() =>
-      options.authorize("write", { path: "fixture.txt" }, new AbortController().signal),
-    ).pipe(Effect.forkScoped);
-    const event = yield* Queue.take(queue);
-    assert.strictEqual(event.type, "request.opened");
-    assert.isDefined(event.requestId);
-    const rejected = yield* adapter
-      .respondToRequest(ThreadId.make("other"), ApprovalRequestId.make(event.requestId!), "accept")
-      .pipe(Effect.result);
-    assert.strictEqual(rejected._tag, "Failure");
-    yield* adapter.respondToRequest(thread, ApprovalRequestId.make(event.requestId!), "decline");
-    assert.isFalse(yield* Fiber.join(authorization));
-  }).pipe(Effect.scoped),
-);
-
-it.effect("publishes tool lifecycle and preserves a background job's original turn", () =>
-  Effect.gen(function* () {
-    const done = Promise.withResolvers<void>();
-    harness.waitPrompt = () => done.promise;
-    const adapter = yield* make();
-    const queue = yield* adapter.streamEvents.pipe(Stream.toQueue({ capacity: "unbounded" }));
-    yield* Effect.yieldNow;
-    yield* adapter.startSession({ threadId: thread, runtimeMode: "full-access" });
-    yield* Queue.take(queue);
-    const turn = yield* adapter.sendTurn({ threadId: thread, input: "scan" });
-    yield* Queue.take(queue);
-    yield* Queue.take(queue);
-    const options = harness.options!;
-    options.onEvent({
-      type: "tool_execution_start",
-      toolCallId: "scan",
-      toolName: "bash",
-      args: { command: "scan fixture" },
-    });
-    const started = yield* Queue.take(queue);
-    assert.strictEqual(started.type, "item.started");
-    if (started.type !== "item.started") throw new Error("Expected tool start");
-    assert.strictEqual(started.payload.itemType, "command_execution");
-    const job: CommandJobResult = {
-      id: "owned-job",
-      key: "scan fixture",
-      state: "running",
-      output: "partial",
-      outputTruncated: false,
-      cancelRequested: false,
-      elapsedMs: 10000,
-      outputChars: 7,
-      msSinceOutput: 2000,
-    };
-    options.onCommandJob!(job, false);
-    options.onCommandJob!(job, true);
-    assert.strictEqual((yield* Queue.take(queue)).type, "task.started");
-    assert.strictEqual((yield* Queue.take(queue)).type, "task.progress");
-    done.resolve();
-    yield* Queue.take(queue);
-    assert.strictEqual((yield* Queue.take(queue)).type, "turn.completed");
-    harness.waitPrompt = undefined;
-    const nextDone = Promise.withResolvers<void>();
-    harness.waitPrompt = () => nextDone.promise;
-    const next = yield* adapter.sendTurn({ threadId: thread, input: "status" });
-    yield* Queue.take(queue);
-    yield* Queue.take(queue);
-    options.onCommandJob!({ ...job, state: "failed", exitCode: 2 }, false);
-    const completed = yield* Queue.take(queue);
-    assert.strictEqual(completed.type, "task.completed");
-    if (completed.type !== "task.completed") throw new Error("Expected task completion");
-    assert.strictEqual(completed.turnId, turn.turnId);
-    assert.notStrictEqual(completed.turnId, next.turnId);
-    assert.strictEqual(completed.payload.status, "failed");
-    yield* adapter.interruptTurn(thread);
-    assert.isTrue(harness.interruptCommands.mock.calls.length > 0);
-    nextDone.resolve();
-    harness.waitPrompt = undefined;
-    yield* Queue.take(queue);
-    yield* Queue.take(queue);
-  }).pipe(Effect.scoped),
-);
-
-it.effect("allows owned status reads while cancellation still needs approval", () =>
-  Effect.gen(function* () {
-    const adapter = yield* make();
-    const queue = yield* adapter.streamEvents.pipe(Stream.toQueue({ capacity: "unbounded" }));
-    yield* Effect.yieldNow;
-    yield* adapter.startSession({ threadId: thread, runtimeMode: "approval-required" });
-    yield* Queue.take(queue);
-    assert.isTrue(
-      yield* Effect.promise(() =>
-        harness.options!.authorize("command_status", {}, new AbortController().signal),
-      ),
-    );
-    const cancel = yield* Effect.promise(() =>
-      harness.options!.authorize("command_cancel", {}, new AbortController().signal),
-    ).pipe(Effect.forkScoped);
-    const request = yield* Queue.take(queue);
-    assert.strictEqual(request.type, "request.opened");
-    yield* adapter.respondToRequest(thread, ApprovalRequestId.make(request.requestId!), "decline");
-    assert.isFalse(yield* Fiber.join(cancel));
-  }).pipe(Effect.scoped),
-);
-
-it.effect("ignores callbacks retained by a stopped session after its replacement starts", () =>
-  Effect.gen(function* () {
-    const adapter = yield* make();
-    const queue = yield* adapter.streamEvents.pipe(Stream.toQueue({ capacity: "unbounded" }));
-    yield* Effect.yieldNow;
-    yield* adapter.startSession({ threadId: thread, runtimeMode: "full-access" });
-    yield* Queue.take(queue);
-    const old = harness.options!;
-    yield* adapter.stopSession(thread);
-    yield* adapter.startSession({ threadId: thread, runtimeMode: "full-access" });
-    yield* Queue.take(queue);
-    const done = Promise.withResolvers<void>();
-    harness.waitPrompt = () => done.promise;
-    yield* adapter.sendTurn({ threadId: thread, input: "new turn" });
-    yield* Queue.take(queue);
-    yield* Queue.take(queue);
-    const event = {
-      type: "tool_execution_start",
-      toolCallId: "fixture",
-      toolName: "read",
-      args: {},
-    } as const;
-    old.onEvent({ ...event, toolCallId: "stale" });
-    harness.options!.onEvent(event);
-    const current = yield* Queue.take(queue);
-    assert.isTrue(current.itemId?.endsWith(":fixture"));
-    assert.isFalse(
-      yield* Effect.promise(() => old.authorize("read", {}, new AbortController().signal)),
-    );
-    done.resolve();
-    harness.waitPrompt = undefined;
-    yield* Queue.take(queue);
-    yield* Queue.take(queue);
-  }).pipe(Effect.scoped),
-);
-
-it.effect("stopping a session releases pending approvals and removes ownership", () =>
-  Effect.gen(function* () {
-    const adapter = yield* make();
-    const queue = yield* adapter.streamEvents.pipe(Stream.toQueue({ capacity: "unbounded" }));
-    yield* Effect.yieldNow;
-    yield* adapter.startSession({ threadId: thread, runtimeMode: "approval-required" });
-    yield* Queue.take(queue);
-    const authorization = yield* Effect.promise(() =>
-      harness.options!.authorize("read", {}, new AbortController().signal),
-    ).pipe(Effect.forkScoped);
-    yield* Queue.take(queue);
-    yield* adapter.stopSession(thread);
-    assert.isFalse(yield* Fiber.join(authorization));
-    assert.isFalse(yield* adapter.hasSession(thread));
-  }).pipe(Effect.scoped),
-);
-
-it.effect("rejects resume files outside the thread-owned session directory", () =>
-  Effect.gen(function* () {
-    const adapter = yield* make();
-    const result = yield* adapter
-      .startSession({
-        threadId: thread,
-        runtimeMode: "full-access",
-        resumeCursor: { sessionFile: "C:/other/private.jsonl" },
-      })
-      .pipe(Effect.result);
-    assert.strictEqual(result._tag, "Failure");
-    assert.isFalse(yield* adapter.hasSession(thread));
-  }).pipe(Effect.scoped),
-);
-
-it.effect("full access needs no approval and unsupported attachments fail explicitly", () =>
-  Effect.gen(function* () {
-    const adapter = yield* make();
-    yield* adapter.startSession({ threadId: thread, runtimeMode: "full-access" });
-    assert.isTrue(
-      yield* Effect.promise(() =>
-        harness.options!.authorize("read", {}, new AbortController().signal),
-      ),
-    );
-    const result = yield* adapter
-      .sendTurn({ threadId: thread, input: "Plan", interactionMode: "plan" })
-      .pipe(Effect.result);
-    assert.strictEqual(result._tag, "Failure");
-  }).pipe(Effect.scoped),
-);
-
-it.effect("sends stored images and selected effort to the model runtime", () =>
-  Effect.gen(function* () {
-    const directory = yield* Effect.promise(() =>
-      NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "deepai-image-")),
-    );
-    yield* Effect.addFinalizer(() =>
-      Effect.promise(() => NodeFSP.rm(directory, { recursive: true })),
-    );
-    const id = "deepai-test-12345678-1234-1234-1234-123456789abc";
-    yield* Effect.promise(() =>
-      NodeFSP.writeFile(NodePath.join(directory, `${id}.png`), Buffer.from("fixture")),
-    );
-    harness.prompt.mockClear();
-    harness.effort.mockClear();
-    const vision = vi.fn(async () => "Should not run");
-    const adapter = yield* make(directory, true, vision);
-    const queue = yield* adapter.streamEvents.pipe(Stream.toQueue({ capacity: "unbounded" }));
-    yield* Effect.yieldNow;
-    yield* adapter.startSession({ threadId: thread, runtimeMode: "full-access" });
-    yield* Queue.take(queue);
-    yield* adapter.sendTurn({
-      threadId: thread,
-      input: "Describe",
-      modelSelection: {
-        instanceId,
-        model: "pilot",
-        options: [{ id: "reasoningEffort", value: "high" }],
-      },
-      attachments: [{ type: "image", id, name: "test.png", mimeType: "image/png", sizeBytes: 7 }],
-    });
-    let event = yield* Queue.take(queue);
-    while (event.type !== "turn.completed") event = yield* Queue.take(queue);
-    assert.strictEqual(event.payload.state, "completed");
-    assert.deepStrictEqual(harness.prompt.mock.calls[0], [
-      "Describe",
-      {
-        images: [
-          { type: "image", mimeType: "image/png", data: Buffer.from("fixture").toString("base64") },
-        ],
-      },
-    ]);
-    assert.deepStrictEqual(harness.effort.mock.calls.at(-1), ["high"]);
-    assert.strictEqual(vision.mock.calls.length, 0);
-  }).pipe(Effect.scoped),
-);
-
-it.effect("rejects images for text models and reports the reason without starting a turn", () =>
-  Effect.gen(function* () {
-    const adapter = yield* make("C:/isolated", false);
-    yield* adapter.startSession({ threadId: thread, runtimeMode: "full-access" });
-    const result = yield* adapter
-      .sendTurn({
-        threadId: thread,
-        input: "Describe",
-        attachments: [
-          {
-            type: "image",
-            id: "deepai-test-12345678-1234-1234-1234-123456789abc",
-            name: "test.png",
-            mimeType: "image/png",
-            sizeBytes: 7,
+const threadId = ThreadId.make("deepai-thread");
+const instanceId = ProviderInstanceId.make("deepai-instance");
+const modelSelection = { instanceId, model: "pilot" };
+const runtimePolicy = { runtimeMode: "approval-required", interactionMode: "default", cwd: process.cwd() } as const;
+type AgentOptions = Parameters<typeof createDeepAIAgent>[0];
+type FixtureInput = Pick<Parameters<typeof makeDeepAIAdapter>[0],
+  "directory" | "legacyHistory" | "attachmentsDir" | "describeImages">;
+const setup = Effect.fn("DeepAIAdapterTest.setup")(function* (fixture?: Partial<FixtureInput> & {
+  prompt?: (text: string, input: { images?: ReadonlyArray<{ data: string; mimeType: string }> },
+    options: AgentOptions) => Promise<void>;
+}) {
+  let agentOptions: Parameters<typeof createDeepAIAgent>[0] | undefined;
+  let resolvePrompt: (() => void) | undefined;
+  let prompts = 0;
+  let credentialReads = 0;
+  const model = {
+    id: "pilot", name: "Pilot", reasoning: true, input: ["text", "image"] as const,
+    contextWindow: 4096, maxTokens: 512,
+  };
+  const adapter = yield* makeDeepAIAdapter({
+    instanceId, directory: process.cwd(),
+    ...fixture,
+    credentials: async () => { credentialReads++; return "fixture-key"; },
+    catalog: async () => ({ default: model.id, models: [model] }),
+    createAgent: async (options) => {
+      agentOptions = options;
+      return {
+        sessionFile: options.sessionFile ?? NodePath.join(options.sessionDir, "fixture.jsonl"),
+        interruptCommands: () => {},
+        checkpoint: () => () => {},
+        stop: async () => { resolvePrompt?.(); },
+        session: {
+          getAvailableThinkingLevels: () => ["medium"],
+          setThinkingLevel: () => {},
+          messages: [],
+          prompt: async (text: string, input = {}) => {
+            prompts++;
+            if (fixture?.prompt) return fixture.prompt(text, input, options);
+            await new Promise<void>((resolve) => { resolvePrompt = resolve; });
           },
-        ],
-      })
-      .pipe(Effect.result);
-    assert.strictEqual(result._tag, "Failure");
-    if (result._tag === "Failure") assert.include(String(result.failure), "does not accept images");
-    assert.strictEqual((yield* adapter.listSessions())[0]?.status, "ready");
-  }).pipe(Effect.scoped),
-);
-
-it.effect("failed attachment preparation and invalid effort leave the session reusable", () =>
-  Effect.gen(function* () {
-    const adapter = yield* make("C:/missing-deepai-fixture");
-    yield* adapter.startSession({ threadId: thread, runtimeMode: "full-access" });
-    const missing = yield* adapter
-      .sendTurn({
-        threadId: thread,
-        attachments: [
-          {
-            type: "image",
-            id: "deepai-test-12345678-1234-1234-1234-123456789abc",
-            name: "test.png",
-            mimeType: "image/png",
-            sizeBytes: 7,
-          },
-        ],
-      })
-      .pipe(Effect.result);
-    assert.strictEqual(missing._tag, "Failure");
-    if (missing._tag === "Failure") assert.include(String(missing.failure), "could not be read");
-    const invalid = yield* adapter
-      .sendTurn({
-        threadId: thread,
-        input: "Hello",
-        modelSelection: {
-          instanceId,
-          model: "pilot",
-          options: [{ id: "reasoningEffort", value: "invalid" }],
+          abort: async () => { resolvePrompt?.(); },
         },
-      })
-      .pipe(Effect.result);
-    assert.strictEqual(invalid._tag, "Failure");
-    assert.strictEqual((yield* adapter.listSessions())[0]?.status, "ready");
-    const queue = yield* adapter.streamEvents.pipe(Stream.toQueue({ capacity: "unbounded" }));
-    yield* Effect.yieldNow;
-    yield* adapter.sendTurn({ threadId: thread, input: "Hello" });
-    let event = yield* Queue.take(queue);
-    while (event.type !== "turn.completed") event = yield* Queue.take(queue);
-    assert.strictEqual(event.payload.state, "completed");
-  }).pipe(Effect.scoped),
+      };
+    },
+  });
+  const open = {
+    providerSessionId: ProviderSessionId.make("deepai-session"),
+    threadId, modelSelection, runtimePolicy,
+  };
+  const runtime = yield* adapter.openSession(open);
+  const providerThread = yield* runtime.ensureThread(open);
+  const now = yield* DateTime.now;
+  const appThread: OrchestrationV2AppThread = {
+    id: threadId, title: "DeepAI fixture", projectId: ProjectId.make("project"),
+    providerInstanceId: instanceId, modelSelection,
+    runtimeMode: runtimePolicy.runtimeMode, interactionMode: runtimePolicy.interactionMode,
+    createdBy: "user", creationSource: "web", createdAt: now, updatedAt: now,
+    branch: null, worktreePath: null, activeProviderThreadId: providerThread.id,
+    lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+    forkedFrom: null, archivedAt: null, deletedAt: null, settledAt: null,
+    settledOverride: null, lastVisitedAt: null,
+  };
+  const turn: ProviderAdapterV2TurnInput = {
+    appThread,
+    threadId, providerThread, modelSelection, runtimePolicy, runOrdinal: 1, providerTurnOrdinal: 1,
+    runId: RunId.make("run"), attemptId: RunAttemptId.make("attempt"), rootNodeId: NodeId.make("root"),
+    message: { messageId: MessageId.make("message"), text: "one prompt", attachments: [],
+      createdBy: "user", creationSource: "web" },
+  };
+  return { adapter, open, runtime, turn, getOptions: () => agentOptions!,
+    prompts: () => prompts, credentialReads: () => credentialReads };
+});
+
+it.effect("uses the thread's MCP credential ID for authored prompts and keeps ordinary tools available", () =>
+  Effect.gen(function* () {
+    const sessions = yield* McpProviderSessions.McpProviderSessions;
+    const environmentId = EnvironmentId.make("env");
+    const projectId = ProjectId.make("project");
+    const providerSessionId = "mcp-credential";
+    const endpoint = "http://localhost/mcp";
+    yield* sessions.set({
+      threadId, environmentId, providerSessionId, endpoint, providerInstanceId: instanceId,
+      authorizationHeader: "Bearer fixture", browserToolsAvailable: false,
+    });
+    const calls: unknown[] = [];
+    const f = yield* setup({
+      prompt: async (_text, _input, options) => {
+        const transport = deepAIMcpFetch(options.mcp!.endpoint, async (_url, init) => {
+          const token = new Headers(init?.headers).get(DEEPAI_INVOCATION_HEADER) ?? undefined;
+          calls.push(resolveDeepAIInvocation(token, { threadId, environmentId, providerSessionId }));
+          return new Response(null, { status: 204 });
+        });
+        await transport(endpoint);
+      },
+    });
+    assert.notEqual(f.open.providerSessionId, providerSessionId);
+    assert.equal(f.getOptions().mcp?.endpoint, endpoint);
+    const queue = yield* f.runtime.events.pipe(Stream.toQueue({ capacity: "unbounded" }));
+    const turn = { ...f.turn, appThread: { ...f.turn.appThread, projectId } };
+    yield* f.runtime.startTurn(turn);
+    yield* Effect.repeat(Queue.take(queue), { until: (event) => event.type === "turn.terminal" });
+    yield* f.runtime.startTurn({
+      ...turn, runOrdinal: 2, providerTurnOrdinal: 2, runId: RunId.make("authored-run"),
+      routingIntake: { subject: "user:owner", environmentId },
+    });
+    yield* Effect.repeat(Queue.take(queue), { until: (event) => event.type === "turn.terminal" });
+    assert.deepEqual(calls, [undefined, {
+      subject: "user:owner", environmentId, projectId, threadId, providerSessionId,
+      runId: "authored-run", messageId: f.turn.message.messageId,
+    }]);
+  }).pipe(Effect.provide(Layer.merge(McpProviderSessions.layer, NodeServices.layer))),
 );
 
-it.effect("explains upstream image rejection without exposing upstream payloads", () =>
+it.effect("refuses cross-account opens, duplicate native owners, foreign history and promptless Resume", () =>
   Effect.gen(function* () {
-    const adapter = yield* make();
-    yield* adapter.startSession({ threadId: thread, runtimeMode: "full-access" });
-    harness.messages.push({
-      role: "assistant",
-      stopReason: "error",
-      errorMessage: "secret-prompt ValueError: multimodal processing is not enabled",
-    });
-    yield* Effect.addFinalizer(() =>
-      Effect.sync(() => {
-        harness.messages.length = 0;
+    const f = yield* setup();
+    const foreign = {
+      ...f.open, modelSelection: { ...modelSelection, instanceId: ProviderInstanceId.make("another") },
+    };
+    assert.equal((yield* f.adapter.openSession(foreign).pipe(Effect.result))._tag, "Failure");
+    const contender = yield* f.adapter.openSession({ ...f.open, providerSessionId: ProviderSessionId.make("other") });
+    assert.equal((yield* contender.ensureThread(f.open).pipe(Effect.result))._tag, "Failure");
+    assert.equal((yield* f.runtime.resumeThread({
+      providerThread: { ...f.turn.providerThread, appThreadId: ThreadId.make("foreign") },
+    }).pipe(Effect.result))._tag, "Failure");
+    assert.equal((yield* f.runtime.resumeThread({
+      providerThread: { ...f.turn.providerThread, nativeThreadRef: { driver: f.turn.providerThread.driver, strength: "strong", nativeId: null } },
+    }).pipe(Effect.result))._tag, "Failure");
+    assert.equal((yield* f.runtime.startTurn({ ...f.turn, resume: true }).pipe(Effect.result))._tag, "Failure");
+    assert.equal(f.credentialReads(), 1);
+    assert.equal(f.prompts(), 0);
+    // A different chat with the same account still opens normally.
+    const neighbor = { ...f.open, threadId: ThreadId.make("deepai-neighbor"), providerSessionId: ProviderSessionId.make("neighbor") };
+    const ordinary = yield* f.adapter.openSession(neighbor);
+    assert.equal((yield* ordinary.ensureThread(neighbor)).appThreadId, neighbor.threadId);
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("reopens the exact managed history and rejects foreign bindings and escaped files before opening an agent", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const directory = yield* fs.makeTempDirectoryScoped();
+    const nativeDirectory = (id: ThreadId) =>
+      NodePath.join(directory, NodeCrypto.createHash("sha256").update(id).digest("hex"));
+    yield* fs.makeDirectory(nativeDirectory(threadId));
+    const original = NodePath.join(nativeDirectory(threadId), "original.jsonl");
+    const savedHistory = '{"type":"fixture","text":"old question and answer"}\n';
+    yield* fs.writeFileString(original, savedHistory);
+    const outside = yield* fs.makeTempDirectoryScoped();
+    const outsideFile = NodePath.join(outside, "escaped.jsonl");
+    yield* fs.writeFileString(outsideFile, savedHistory);
+    const linkedThread = ThreadId.make("legacy-linked");
+    const platform = yield* HostProcess.Platform;
+    yield* Effect.promise(() => NodeFSP.symlink(outside, nativeDirectory(linkedThread),
+      platform === "win32" ? "junction" : "dir"));
+    const requested: string[] = [];
+    const f = yield* setup({
+      directory,
+      legacyHistory: (id) => Effect.succeed(id === "ordinary-new" ? undefined : {
+        threadId: id === "legacy-other-thread" ? threadId : id,
+        providerName: id === "legacy-other-provider" ? "codex" : "deepai",
+        providerInstanceId: id === "legacy-other-account" ? ProviderInstanceId.make("other") : instanceId,
+        sessionFile: id === "legacy-outside" ? outsideFile :
+          NodePath.join(nativeDirectory(id), id === linkedThread ? "escaped.jsonl" : "original.jsonl"),
       }),
-    );
-    const queue = yield* adapter.streamEvents.pipe(Stream.toQueue({ capacity: "unbounded" }));
-    yield* Effect.yieldNow;
-    yield* adapter.sendTurn({ threadId: thread, input: "Describe" });
-    let event = yield* Queue.take(queue);
-    while (event.type !== "runtime.error") event = yield* Queue.take(queue);
-    assert.include(event.payload.message, "image processing disabled");
-    assert.notInclude(event.payload.message, "secret-prompt");
-    while (event.type !== "turn.completed") event = yield* Queue.take(queue);
-    assert.strictEqual(event.payload.state, "failed");
-  }).pipe(Effect.scoped),
-);
-
-it.effect("passes file attachments as references instead of reading them into context", () =>
-  Effect.gen(function* () {
-    const adapter = yield* make("C:/isolated-deepai-attachments");
-    yield* adapter.startSession({ threadId: thread, runtimeMode: "full-access" });
-    harness.prompt.mockClear();
-    const queue = yield* adapter.streamEvents.pipe(Stream.toQueue({ capacity: "unbounded" }));
-    yield* Effect.yieldNow;
-    yield* adapter.sendTurn({
-      threadId: thread,
-      input: "Read the file",
-      attachments: [
-        {
-          type: "file",
-          id: "deepai-test-12345678-1234-1234-1234-123456789abc-txt",
-          name: "notes.txt",
-          mimeType: "text/plain",
-          sizeBytes: 7,
-        },
-      ],
+      prompt: async (text) => { requested.push(text); },
     });
-    let event = yield* Queue.take(queue);
-    while (event.type !== "turn.completed") event = yield* Queue.take(queue);
-    assert.include(String(harness.prompt.mock.calls[0]?.[0]), "Attached file");
-    assert.include(String(harness.prompt.mock.calls[0]?.[0]), "notes.txt");
-    assert.include(String(harness.prompt.mock.calls[0]?.[0]), "123456789abc-txt.txt");
-  }).pipe(Effect.scoped),
-);
-
-it.effect("tries DeepAI before vision, restores rejected context and retries without images", () =>
-  Effect.gen(function* () {
-    const directory = yield* Effect.promise(() =>
-      NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "deepai-first-")),
-    );
-    yield* Effect.addFinalizer(() =>
-      Effect.promise(() => NodeFSP.rm(directory, { recursive: true })),
-    );
-    const id = "deepai-test-12345678-1234-1234-1234-123456789abc";
-    yield* Effect.promise(() =>
-      NodeFSP.writeFile(NodePath.join(directory, `${id}.png`), Buffer.from("fixture")),
-    );
-    const order: string[] = [];
-    const describe = vi.fn(async () => {
-      order.push("vision");
-      return "[Codex vision] red square";
-    });
-    harness.prompt.mockImplementationOnce(async () => {
-      order.push("deepai");
-      harness.messages.push({
-        role: "assistant",
-        stopReason: "error",
-        errorMessage: "multimodal processing is not enabled",
-      });
-    });
-    const adapter = yield* make(directory, true, describe);
-    yield* adapter.startSession({ threadId: thread, runtimeMode: "full-access" });
-    harness.prompt.mockClear();
-    const queue = yield* adapter.streamEvents.pipe(Stream.toQueue({ capacity: "unbounded" }));
-    yield* Effect.yieldNow;
-    yield* adapter.sendTurn({
-      threadId: thread,
-      input: "Shape?",
-      attachments: [
-        { type: "image", id, name: "fixture.png", mimeType: "image/png", sizeBytes: 7 },
-      ],
-    });
-    let event = yield* Queue.take(queue);
-    while (event.type !== "turn.completed") event = yield* Queue.take(queue);
-    assert.deepStrictEqual(order, ["deepai", "vision"]);
-    assert.strictEqual(harness.prompt.mock.calls.length, 2);
-    assert.include(String(harness.prompt.mock.calls[1]?.[0]), "Codex vision");
-    assert.strictEqual(harness.prompt.mock.calls[1]?.[1], undefined);
-    assert.strictEqual(event.payload.state, "completed");
-  }).pipe(Effect.scoped),
-);
-
-it.effect("authentication and usage errors never invoke a vision fallback", () =>
-  Effect.gen(function* () {
-    const directory = yield* Effect.promise(() =>
-      NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "deepai-auth-")),
-    );
-    yield* Effect.addFinalizer(() =>
-      Effect.promise(() => NodeFSP.rm(directory, { recursive: true })),
-    );
-    const id = "deepai-test-12345678-1234-1234-1234-123456789abc";
-    yield* Effect.promise(() =>
-      NodeFSP.writeFile(NodePath.join(directory, `${id}.png`), Buffer.from("fixture")),
-    );
-    const describe = vi.fn(async () => "Should not run");
-    const adapter = yield* make(directory, true, describe);
-    yield* adapter.startSession({ threadId: thread, runtimeMode: "full-access" });
-    const queue = yield* adapter.streamEvents.pipe(Stream.toQueue({ capacity: "unbounded" }));
-    yield* Effect.yieldNow;
-    for (const errorMessage of [
-      "Sign in again (401)",
-      "Daily connection check-in limit (429)",
-      "network failure",
-    ]) {
-      harness.prompt.mockImplementationOnce(async () => {
-        throw new Error(errorMessage);
-      });
-      yield* adapter.sendTurn({
-        threadId: thread,
-        input: "Describe",
-        attachments: [{ type: "image", id, name: "test.png", mimeType: "image/png", sizeBytes: 7 }],
-      });
-      let event = yield* Queue.take(queue);
-      while (event.type !== "turn.completed") event = yield* Queue.take(queue);
-      assert.strictEqual(event.payload.state, "failed");
+    const opened = f.getOptions();
+    assert.equal(opened.sessionFile, yield* fs.realPath(original));
+    assert.equal(f.turn.providerThread.nativeThreadRef?.nativeId, opened.sessionFile);
+    assert.equal(f.turn.providerThread.id, "deepai:" + NodeCrypto.createHash("sha256").update(opened.sessionFile ?? "").digest("hex"));
+    assert.deepEqual(requested, []);
+    for (const key of ["legacy-other-thread", "legacy-other-provider", "legacy-other-account", "legacy-outside", linkedThread]) {
+      const open = { ...f.open, threadId: ThreadId.make(key), providerSessionId: ProviderSessionId.make(key) };
+      const runtime = yield* f.adapter.openSession(open);
+      assert.equal((yield* runtime.ensureThread(open).pipe(Effect.result))._tag, "Failure", key);
+      assert.equal(f.credentialReads(), 1, key);
+      assert.strictEqual(f.getOptions(), opened, key);
     }
-    assert.strictEqual(describe.mock.calls.length, 0);
-  }).pipe(Effect.scoped),
+    const queue = yield* f.runtime.events.pipe(Stream.toQueue({ capacity: "unbounded" }));
+    yield* f.runtime.startTurn(f.turn);
+    const terminal = yield* Effect.repeat(Queue.take(queue), { until: (event) => event.type === "turn.terminal" });
+    assert.equal(terminal.type === "turn.terminal" && terminal.status, "completed");
+    assert.deepEqual(requested, [f.turn.message.text]);
+    assert.equal(yield* fs.readFileString(original), savedHistory);
+    const neighbor = { ...f.open, threadId: ThreadId.make("ordinary-new"), providerSessionId: ProviderSessionId.make("new") };
+    const runtime = yield* f.adapter.openSession(neighbor);
+    assert.equal((yield* runtime.ensureThread(neighbor)).appThreadId, neighbor.threadId);
+    assert.isUndefined(f.getOptions().sessionFile);
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect.each(["fallback", "tool started", "cancelled"] as const)(
+  "handles image rejection with %s", (scenario) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const attachmentsDir = yield* fs.realPath(yield* fs.makeTempDirectoryScoped());
+      const image = { id: ChatAttachmentId.make("fixture-image"), type: "image" as const,
+        name: "photo.png", mimeType: "image/png", sizeBytes: 3 };
+      const attachmentPath = resolveAttachmentPath({ attachmentsDir, attachment: image })!;
+      yield* fs.writeFile(attachmentPath, Uint8Array.from([1, 2, 3]));
+      const attempts: Array<{ text: string; imageCount: number }> = [];
+      const visionStarted = Promise.withResolvers<AbortSignal | undefined>();
+      const visionResult = Promise.withResolvers<string>();
+      let interpretations = 0;
+      const f = yield* setup({
+        directory: attachmentsDir, attachmentsDir,
+        prompt: async (text, input, options) => {
+          attempts.push({ text, imageCount: input.images?.length ?? 0 });
+          if (attempts.length > 1) return;
+          if (scenario === "tool started") {
+            options.onEvent({ type: "tool_execution_start", toolCallId: "tool", toolName: "write", args: {} });
+          }
+          throw new Error("multimodal processing is not enabled");
+        },
+        describeImages: async (question, images, signal) => {
+          interpretations++;
+          assert.equal(question, "one prompt");
+          const expectedImages = [{ type: "image", data: "AQID", mimeType: "image/png" }];
+          assert.deepEqual(images, expectedImages);
+          visionStarted.resolve(signal);
+          return scenario === "cancelled" ? visionResult.promise : "interpreted photo";
+        },
+      });
+      const queue = yield* f.runtime.events.pipe(Stream.toQueue({ capacity: "unbounded" }));
+      yield* f.runtime.startTurn({ ...f.turn, message: { ...f.turn.message, attachments: [image] } });
+      const started = yield* Queue.take(queue);
+      if (started.type !== "provider_turn.updated") return yield* Effect.die("Missing turn start");
+      if (scenario === "cancelled") {
+        const signal = yield* Effect.promise(() => visionStarted.promise);
+        yield* f.runtime.interruptTurn({ providerThread: f.turn.providerThread, providerTurnId: started.providerTurn.id });
+        assert.isTrue(signal?.aborted);
+        visionResult.resolve("late vision result");
+      }
+      const terminal = yield* Effect.repeat(Queue.take(queue), { until: (event) => event.type === "turn.terminal" });
+      assert.equal(terminal.type === "turn.terminal" && terminal.status,
+        scenario === "fallback" ? "completed" : scenario === "cancelled" ? "interrupted" : "failed");
+      const first = { text: f.turn.message.text, imageCount: 1 };
+      assert.deepEqual(attempts, scenario === "fallback"
+        ? [first, { text: f.turn.message.text + "\n\ninterpreted photo", imageCount: 0 }]
+        : [first]);
+      assert.equal(interpretations, scenario === "tool started" ? 0 : 1);
+    }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("isolates approval ownership and issues one interrupted terminal for the owned turn", () =>
+  Effect.gen(function* () {
+    const f = yield* setup();
+    const queue = yield* f.runtime.events.pipe(Stream.toQueue({ capacity: "unbounded" }));
+    yield* f.runtime.startTurn(f.turn);
+    const started = yield* Queue.take(queue);
+    if (started.type !== "provider_turn.updated") return yield* Effect.die("Missing turn start");
+    assert.equal((yield* f.runtime.interruptTurn({
+      providerThread: f.turn.providerThread, providerTurnId: ProviderTurnId.make("foreign"),
+    }).pipe(Effect.result))._tag, "Failure");
+    const approval = yield* Effect.promise(() =>
+      f.getOptions().authorize("write", {}, new AbortController().signal),
+    ).pipe(Effect.forkScoped);
+    yield* Queue.take(queue);
+    const request = yield* Queue.take(queue);
+    if (request.type !== "runtime_request.updated") return yield* Effect.die("Missing approval");
+    const other = yield* f.adapter.openSession({
+      ...f.open, threadId: ThreadId.make("neighbor"), providerSessionId: ProviderSessionId.make("other"),
+    });
+    assert.equal((yield* other.respondToRuntimeRequest({
+      requestId: request.runtimeRequest.id, decision: "accept",
+    }).pipe(Effect.result))._tag, "Failure");
+    yield* f.runtime.respondToRuntimeRequest({ requestId: request.runtimeRequest.id, decision: "decline" });
+    assert.isFalse(yield* Fiber.join(approval));
+    yield* f.runtime.interruptTurn({ providerThread: f.turn.providerThread, providerTurnId: started.providerTurn.id });
+    const terminal = yield* Effect.repeat(Queue.take(queue), { until: (event) => event.type === "turn.terminal" });
+    assert.equal(terminal.type === "turn.terminal" && terminal.status, "interrupted");
+    assert.equal(f.prompts(), 1);
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("keeps read-only sandbox restrictions even with full access", () =>
+  Effect.gen(function* () {
+    const f = yield* setup({
+      prompt: async (_text, _input, options) => {
+        const signal = new AbortController().signal;
+        assert.isTrue(await options.authorize("command_status", {}, signal));
+        assert.isFalse(await options.authorize("write", {}, signal));
+      },
+    });
+    const queue = yield* f.runtime.events.pipe(Stream.toQueue({ capacity: "unbounded" }));
+    yield* f.runtime.startTurn({ ...f.turn, runtimePolicy: {
+      ...f.turn.runtimePolicy, runtimeMode: "full-access", sandboxPolicy: "read-only",
+    } });
+    const seen = [];
+    let event = yield* Queue.take(queue);
+    while (event.type !== "turn.terminal") {
+      seen.push(event.type);
+      event = yield* Queue.take(queue);
+    }
+    assert.equal(event.status, "completed");
+    assert.notInclude(seen, "runtime_request.updated");
+    assert.equal(f.prompts(), 1);
+  }).pipe(Effect.provide(NodeServices.layer)),
 );

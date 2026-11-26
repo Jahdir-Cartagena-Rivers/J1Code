@@ -4,9 +4,12 @@ import * as Effect from "effect/Effect";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Path from "effect/Path";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcessSpawner } from "effect/process";
 import { describeWithCodex } from "../deepai/DeepAICodexVision.ts";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
+import * as SecureRandom from "effect/crypto/SecureRandom";
+import * as SqlClient from "effect/sql/SqlClient";
+import * as ProviderSessionRuntime from "../../persistence/ProviderSessionRuntime.ts";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -14,12 +17,12 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import { ServerConfig } from "../../config.ts";
 import { ServerSecretStore } from "../../auth/ServerSecretStore.ts";
 import * as ProviderCredentialStore from "../ProviderCredentialStore.ts";
-import * as ProviderAuthFlow from "../ProviderAuthFlow.ts";
-import type { ProviderDriver } from "../ProviderDriver.ts";
-import { defaultProviderContinuationIdentity } from "../ProviderDriver.ts";
-import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
-import { buildServerProvider } from "../providerSnapshot.ts";
-import { withInstanceIdentity } from "./instanceIdentity.ts";
+import * as ProviderAuthFlow from "@j1code/provider-core/server/providerAuthFlow";
+import type { ProviderDriver } from "@j1code/provider-core/server/driver";
+import { defaultProviderContinuationIdentity } from "@j1code/provider-core/server/driver";
+import { makeManualOnlyProviderMaintenanceCapabilities } from "@j1code/provider-core/server/maintenanceResolver";
+import { buildServerProvider } from "@j1code/provider-core/server/snapshotProbe";
+import { withInstanceIdentity } from "@j1code/provider-core/server/instanceIdentity";
 import { makeDeepAIAdapter } from "../deepai/DeepAIAdapter.ts";
 import { DeepAIRequestError, makeDeepAIClient } from "../deepai/DeepAIClient.ts";
 import { makeDeepAITextGeneration } from "../deepai/DeepAITextGeneration.ts";
@@ -47,7 +50,9 @@ export type DeepAIDriverEnv =
   | ServerConfig
   | ServerSecretStore
   | FileSystem.FileSystem
-  | Crypto.Crypto
+  | Digest.Digest
+  | SecureRandom.SecureRandom
+  | SqlClient.SqlClient
   | Path.Path
   | ChildProcessSpawner.ChildProcessSpawner;
 
@@ -74,12 +79,29 @@ export const DeepAIDriver: ProviderDriver<typeof Config.Type, DeepAIDriverEnv> =
         return new TextDecoder().decode(stored.value);
       };
       const catalog = () => client.models(AbortSignal.timeout(15000));
-      const adapter = yield* makeDeepAIAdapter({
+      const runtimeBindings = yield* ProviderSessionRuntime.ProviderSessionRuntimeRepository.pipe(
+        Effect.provide(ProviderSessionRuntime.layer),
+      );
+      const orchestrationAdapter = yield* makeDeepAIAdapter({
         client,
         instanceId,
         credentials,
         catalog,
         attachmentsDir: config.attachmentsDir,
+        legacyHistory: (threadId) => runtimeBindings.getByThreadId({ threadId }).pipe(
+          Effect.map((binding) => {
+            if (Option.isNone(binding)) return undefined;
+            const cursor = binding.value.resumeCursor;
+            if (cursor === null || typeof cursor !== "object" || !("sessionFile" in cursor)) return undefined;
+            if (typeof cursor.sessionFile !== "string") return undefined;
+            return {
+              threadId: binding.value.threadId,
+              providerName: binding.value.providerName,
+              providerInstanceId: binding.value.providerInstanceId,
+              sessionFile: cursor.sessionFile,
+            };
+          }),
+        ),
         ...(providerConfig.codexVisionFallback
           ? {
               visionLabel: "Codex vision (uses Codex subscription allowance)",
@@ -184,8 +206,8 @@ export const DeepAIDriver: ProviderDriver<typeof Config.Type, DeepAIDriverEnv> =
             presentation: {
               displayName: "DeepAI",
               supportsConversationRollback: false,
-              requiresNewThreadForModelChange: true,
               showInteractionModeToggle: false,
+              requiresNewThreadForModelChange: true,
             },
             enabled,
             checkedAt: DateTime.formatIso(DateTime.makeUnsafe(clock.currentTimeMillisUnsafe())),
@@ -219,7 +241,7 @@ export const DeepAIDriver: ProviderDriver<typeof Config.Type, DeepAIDriverEnv> =
         displayName,
         enabled,
         ...(accentColor ? { accentColor } : {}),
-        adapter,
+        orchestrationAdapter,
         auth,
         snapshot: {
           resolveMaintenance: () =>

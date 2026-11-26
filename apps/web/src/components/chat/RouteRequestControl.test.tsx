@@ -251,3 +251,40 @@ it("keeps a failed request read visible and retryable in history", async () => {
   expect(container.textContent).toContain("Refresh requests");
   expect(commands.confirm).not.toHaveBeenCalled();
 });
+it("uses only verified message IDs and keeps unknown origins outside history rows", async () => {
+  const known = {
+    requestId: "anchored", status: "completed", sourceMessageId: "original",
+    summary: "Verified origin", destination: null, reason: null,
+  };
+  const unknown = { ...known, requestId: "unknown", sourceMessageId: null, summary: "Older request" };
+  commands.list.mockResolvedValue({ _tag: "Success", value: [known, unknown] });
+  const mount = (showOriginal: boolean, revision: number) => (
+    <RouteRequestControl
+      environmentId={EnvironmentId.make("local")}
+      projectId="home"
+      threadId="source"
+      exactMessageAnchors
+      revision={revision}
+      messages={[{ id: "unrelated", role: "user", text: "Verified origin", createdAt: "2026-01-01T00:00:00Z" }]}
+    >
+      {(render) => (
+        <>
+          <article data-anchor="unrelated">{render("unrelated")}</article>
+          {showOriginal ? <article data-anchor="original">{render("original")}</article> : null}
+        </>
+      )}
+    </RouteRequestControl>
+  );
+  await act(async () => root.render(mount(false, 1)));
+  expect(container.querySelector('[data-anchor="unrelated"]')?.textContent).toBe("");
+  expect(container.querySelector('[data-route-request-id="anchored"]')).toBeNull();
+  const unknownCard = container.querySelector('[data-route-request-id="unknown"]');
+  expect(unknownCard?.closest("article")).toBeNull();
+  expect(unknownCard?.textContent).toContain("Original message unavailable.");
+  commands.list.mockResolvedValue({ _tag: "Success", value: [{ ...known, revision: 2, status: "accepted" }, unknown] });
+  await act(async () => root.render(mount(true, 2)));
+  expect(container.querySelector('[data-anchor="original"] [data-route-request-id="anchored"]')).toBeTruthy();
+  expect(container.querySelector('[data-anchor="unrelated"]')?.textContent).toBe("");
+  expect(commands.prepare).not.toHaveBeenCalled();
+  expect(commands.confirm).not.toHaveBeenCalled();
+});

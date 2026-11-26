@@ -18,7 +18,8 @@ import {
   materializeHiveImage,
   requestHive,
 } from "../../../hiveMind/backend.ts";
-import { McpInvocationContext } from "../../McpInvocationContext.ts";
+import { nativeAgentCaller } from "../routing/boundary.ts";
+import type { ThreadId } from "@j1code/contracts";
 import { HiveMindError, HiveMindToolkit } from "./tools.ts";
 
 const fromPromise = <T>(run: () => Promise<T>) =>
@@ -27,90 +28,60 @@ const fromPromise = <T>(run: () => Promise<T>) =>
     catch: (error) => new HiveMindError({ message: String(error) }),
   });
 
+// Authenticate before calling the selected backend, including operations that do not carry provenance.
+const forCaller = <A>(run: (threadId: ThreadId) => Promise<A>) =>
+  nativeAgentCaller.pipe(
+    Effect.mapError((message) => new HiveMindError({ message })),
+    Effect.flatMap(({ scope }) => fromPromise(() => run(scope.thread.threadId))),
+  );
+
 export const HiveMindToolkitHandlersLive = HiveMindToolkit.toLayer(
   Effect.gen(function* () {
     const config = yield* ServerConfig.ServerConfig;
     const filePath = NodePath.join(config.stateDir, "hive-mind.json");
     return HiveMindToolkit.of({
       hive_mind_continuity: ({ operation, input }) =>
-        McpInvocationContext.pipe(
-          Effect.flatMap((invocation) =>
-            fromPromise(() =>
-              operateHiveContinuity(filePath, operation, input, String(invocation.threadId)),
-            ),
-          ),
-        ),
+        forCaller((threadId) => {
+          // Legacy callers could supply owner/source fields. The selected backend stamps provenance.
+          const payload = { ...input };
+          delete payload.owner;
+          delete payload.source;
+          delete payload.sourceThreadId;
+          return operateHiveContinuity(filePath, operation, payload, threadId);
+        }),
       hive_mind_continue_task: ({ taskId }) =>
-        McpInvocationContext.pipe(
-          Effect.flatMap((invocation) =>
-            fromPromise(() => bindHiveTask(filePath, String(invocation.threadId), taskId)),
-          ),
-        ),
+        forCaller((threadId) => bindHiveTask(filePath, threadId, taskId)),
       hive_mind_retain_reference: (input) =>
-        McpInvocationContext.pipe(
-          Effect.flatMap((invocation) =>
-            fromPromise(async () => ({
-              ...(await retainHiveAttachment(
-                filePath,
-                input,
-                config.attachmentsDir,
-                String(invocation.threadId),
-              )),
-            })),
-          ),
-        ),
+        forCaller((threadId) => retainHiveAttachment(filePath, input, config.attachmentsDir, threadId)),
       hive_mind_read_reference: ({ id }) =>
-        McpInvocationContext.pipe(
-          Effect.flatMap((invocation) =>
-            fromPromise(async () => {
-              const connection = await selectedHiveConnection(filePath);
-              if (!connection)
-                throw new Error("Select external Hive Mind to retrieve retained images.");
-              const result = await materializeHiveImage(
-                connection,
-                id,
-                config.attachmentsDir,
-                String(invocation.threadId),
-              );
-              return { path: result.path, mimeType: result.attachment.mimeType };
-            }),
-          ),
-        ),
+        forCaller(async (threadId) => {
+          const connection = await selectedHiveConnection(filePath);
+          if (!connection) throw new Error("Select external Hive Mind to retrieve retained images.");
+          const result = await materializeHiveImage(connection, id, config.attachmentsDir, threadId);
+          return { path: result.path, mimeType: result.attachment.mimeType };
+        }),
       hive_mind_active_chats: () =>
-        McpInvocationContext.pipe(
-          Effect.flatMap((invocation) =>
-            fromPromise(async () => {
-              const connection = await selectedHiveConnection(filePath);
-              if (!connection)
-                throw new Error("Live chat status requires the external Hive Mind backend.");
-              return Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown))(
-                await requestHive(connection, "/v1/presence/list", {
-                  excludeChatId: String(invocation.threadId),
-                }),
-              );
-            }),
-          ),
-        ),
-      hive_mind_status: () => fromPromise(() => hiveMindStatus(filePath)),
-      hive_mind_sync: () => fromPromise(() => syncHiveMind(filePath)),
-      hive_mind_recall: ({ query, project }) =>
-        fromPromise(() => recallHiveMind(filePath, query, project)),
+        forCaller(async (threadId) => {
+          const connection = await selectedHiveConnection(filePath);
+          if (!connection) throw new Error("Live chat status requires the external Hive Mind backend.");
+          return Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown))(
+            await requestHive(connection, "/v1/presence/list", { excludeChatId: threadId }),
+          );
+        }),
+      hive_mind_status: () => forCaller(() => hiveMindStatus(filePath)),
+      hive_mind_sync: () => forCaller(() => syncHiveMind(filePath)),
+      hive_mind_recall: ({ query, project }) => forCaller(() => recallHiveMind(filePath, query, project)),
       hive_mind_remember: ({ scope, project, subject, fact }) =>
-        McpInvocationContext.pipe(
-          Effect.flatMap((invocation) =>
-            fromPromise(async () => ({
-              memory: await rememberHiveMind(filePath, {
-                scope,
-                project: project ?? null,
-                subject,
-                fact,
-                sourceThreadId: String(invocation.threadId),
-              }),
-            })),
-          ),
-        ),
-      hive_mind_forget: ({ id }) =>
-        fromPromise(async () => ({ removed: await forgetHiveMind(filePath, id) })),
+        forCaller(async (threadId) => ({
+          memory: await rememberHiveMind(filePath, {
+            scope,
+            project: project ?? null,
+            subject,
+            fact,
+            sourceThreadId: threadId,
+          }),
+        })),
+      hive_mind_forget: ({ id }) => forCaller(async () => ({ removed: await forgetHiveMind(filePath, id) })),
     });
   }),
 );

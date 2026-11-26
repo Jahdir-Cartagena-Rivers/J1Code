@@ -5,14 +5,14 @@ import type { HiveMindConfig, HiveMindMemory, HiveMindSnapshot } from "@j1code/c
 import { squashAtomCommandFailure } from "@j1code/client-runtime/state/runtime";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, TextInput, View } from "react-native";
-import { AppText as Text } from "../../components/AppText";
+import { AppText as Text } from "../../components/ui/AppText";
 import { hiveMind } from "../../state/hiveMind";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
-import { SettingsActionRow } from "./components/SettingsActionRow";
+import { ListActionRow as SettingsActionRow } from "../../components/ui/ListActionRow";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
-import { ScreenScrollView } from "../../components/ScreenScrollView";
+import { ScreenScrollView } from "../../components/ui/ScreenScrollView";
 import type { EnvironmentId } from "@j1code/contracts";
 
 export function SettingsHiveMindRouteScreen({

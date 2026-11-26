@@ -3,22 +3,66 @@ import { Image } from "astro:assets";
 import appIcon from "../assets/icon.webp";
 import Layout from "../layouts/Layout.astro";
 import { GITHUB_REPOSITORY_URL } from "../lib/site";
+import RetroIcon from "../components/RetroIcon.astro";
+const agents = [
+  {
+    name: "Claude Code",
+    slug: "claude-code",
+    caption: "Now with manners.",
+    artwork: "Cream and orange software box with a bow-tied desktop computer and a gold PLEASE sticker.",
+  },
+  {
+    name: "Codex",
+    slug: "codex",
+    caption: "Some assembly automated.",
+    artwork: "Silver and green software box with a robot hand stacking glowing code blocks.",
+  },
+  {
+    name: "Cursor",
+    slug: "cursor",
+    caption: "Point. Click. Question everything.",
+    artwork: "Black and chrome software box with an enormous silver arrow and lightning bolts.",
+  },
+  {
+    name: "Grok",
+    slug: "grok",
+    caption: "Adult supervision sold separately.",
+    artwork: "Black and red software box with a spacecraft and an UH OH sticker.",
+  },
+  {
+    name: "OpenCode",
+    slug: "opencode",
+    caption: "Please copy this floppy.",
+    artwork: "Purple shareware box with floppy disks spilling from an open carton.",
+  },
+  {
+    name: "Antigravity",
+    slug: "antigravity",
+    caption: "System requirement: no gravity.",
+    artwork: "Blue and violet software box with a floating chrome triangle and metallic spheres.",
+  },
+];
 ---
 <Layout title="J1 Code — Retro edition">
   <section class="container retro">
     <div class="title-bar">J1 Code.exe</div>
     <div class="content">
       <Image src={appIcon} width={112} height={112} alt="J1 Code logo" />
-      <h1>J1 Code</h1>
+      <h1><RetroIcon name="computer" /> J1 Code</h1>
       <p>Your coding agents, shared memory, and projects in one workspace.</p>
       <a class="btn btn-primary" href="/download">Get J1 Code</a>
       <a href={GITHUB_REPOSITORY_URL}>Open the source</a>
-      <p>Bring your own providers and configuration. Distributed under the MIT license.</p>
+      <p>Bring your own providers and configuration. See the source LICENSE for mixed licensing and preserved upstream permissions.</p>
+      <div class="agent-catalog">
+        {agents.map((agent) => <article><h2>{agent.name}</h2><p>{agent.caption}</p></article>)}
+      </div>
     </div>
   </section>
 </Layout>
 <style>
   .retro { max-width: 720px; margin: 72px auto; padding: 4px; background: #c0c0c0; border: 3px outset white; color: black; font-family: monospace; }
+  .agent-catalog { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
+  .agent-catalog article { border: 2px inset white; padding: 12px; }
   .title-bar { padding: 8px 12px; background: navy; color: white; font-weight: bold; }
   .content { padding: 36px; text-align: center; }
   img { margin: 0 auto 24px; }

@@ -1,6 +1,16 @@
 import { describe, expect, it } from "@effect/vitest";
-import { MessageId, ThreadId, type OrchestrationMessage } from "@j1code/contracts";
-import { reconcileAgentHistory } from "./AgentSessionHistory.ts";
+import {
+  MessageId,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  ProviderThreadId,
+  ThreadId,
+} from "@j1code/contracts";
+import {
+  agentHistorySourceMessageId,
+  ownsSourceImportedNativeHistory,
+  reconcileAgentHistory,
+} from "./AgentSessionHistory.ts";
 import type { AgentSessionThreadMessage } from "./AgentSessionScanner.ts";
 
 const threadId = ThreadId.make("import:claudeAgent:compact-session");
@@ -10,18 +20,56 @@ const source: Array<AgentSessionThreadMessage> = Array.from({ length: 350 }, (_,
   createdAt: "2026-09-30T12:00:00.000Z",
   sourceMessageId: `source-${index}`,
 }));
-const saved = (messages: ReadonlyArray<AgentSessionThreadMessage>): Array<OrchestrationMessage> =>
+const saved = (messages: ReadonlyArray<AgentSessionThreadMessage>) =>
   messages.map((message, index) => ({
     id: MessageId.make(`${threadId}:${String(index).padStart(6, "0")}`),
     role: message.role,
     text: message.text,
     createdAt: "2026-09-29T12:00:00.000Z",
-    updatedAt: "2026-09-29T12:00:00.000Z",
-    turnId: null,
-    streaming: false,
   }));
 
 describe("external history continuity", () => {
+  it("requires the saved native session identity while preserving Pi transcript paths", () => {
+    type Thread = Parameters<typeof ownsSourceImportedNativeHistory>[0];
+    type Provider = NonNullable<Parameters<typeof ownsSourceImportedNativeHistory>[1]>;
+    const thread: Thread = {
+      id: ThreadId.make("import:account:session"),
+      historyOrigin: "v1_import",
+      activeProviderThreadId: ProviderThreadId.make("provider-thread"),
+      providerInstanceId: ProviderInstanceId.make("account"),
+    };
+    const nativeThreadRef = {
+      strength: "strong",
+      driver: ProviderDriverKind.make("codex"),
+      nativeId: "session",
+    } satisfies NonNullable<Provider["nativeThreadRef"]>;
+    const provider: Provider = {
+      id: ProviderThreadId.make("provider-thread"),
+      appThreadId: thread.id,
+      providerInstanceId: ProviderInstanceId.make("account"),
+      ownerNodeId: null,
+      driver: ProviderDriverKind.make("codex"),
+      nativeThreadRef,
+    };
+    expect(ownsSourceImportedNativeHistory(thread, provider)).toBe(true);
+    expect(ownsSourceImportedNativeHistory(thread, {
+      ...provider, nativeThreadRef: { ...nativeThreadRef, nativeId: "foreign-session" },
+    })).toBe(false);
+    expect(ownsSourceImportedNativeHistory(thread, {
+      ...provider, nativeThreadRef: { ...nativeThreadRef, nativeId: "" },
+    })).toBe(false);
+    expect(ownsSourceImportedNativeHistory(thread, {
+      ...provider, nativeThreadRef: { ...nativeThreadRef, nativeId: null },
+    })).toBe(false);
+    expect(ownsSourceImportedNativeHistory(thread, undefined)).toBe(false);
+    expect(ownsSourceImportedNativeHistory(thread, {
+      ...provider, providerInstanceId: ProviderInstanceId.make("foreign-account"),
+    })).toBe(false);
+    expect(ownsSourceImportedNativeHistory(thread, {
+      ...provider, driver: ProviderDriverKind.make("pi"),
+      nativeThreadRef: { strength: "strong", driver: ProviderDriverKind.make("pi"), nativeId: "/saved/session.jsonl" },
+    })).toBe(true);
+  });
   it("preserves an exact legacy prefix even when later messages repeat its tail", () => {
     const before = saved(source.slice(0, 6)).map((message) => ({
       ...message,
@@ -66,6 +114,16 @@ describe("external history continuity", () => {
       ),
     ).toBeNull();
     expect(reconcileAgentHistory(threadId, before, [...source, ...source.slice(3, 6)])).toBeNull();
+  });
+
+  it("preserves persisted SHA-256 message IDs for UTF-8 source identities", () => {
+    const sourceMessageId = "source-\u2603";
+    const id = agentHistorySourceMessageId(threadId, sourceMessageId);
+    expect(id).toBe(
+      `${threadId}:source:0d1532702ff7c6a16859721c5aab02268d84e9b7077d7f31c74a12bb8cebdf46`,
+    );
+    expect(reconcileAgentHistory(threadId, [], [{ ...source[0]!, sourceMessageId }])?.[0]?.messageId)
+      .toBe(id);
   });
 
   it("uses stable identities to distinguish repeated prompts", () => {

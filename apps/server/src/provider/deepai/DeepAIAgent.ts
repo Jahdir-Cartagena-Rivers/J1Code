@@ -1,10 +1,11 @@
 // @effect-diagnostics nodeBuiltinImport:off - The Promise-based Pi SDK boundary uses native paths outside Effect.
+import { deepAIMcpFetch } from "./DeepAIMcpInvocation.ts";
 import { recoverDeepAIImageHistory } from "./DeepAIImageHistory.ts";
 import type { NativeComputerDescriptor } from "../../mausbot/NativeComputer.ts";
 import * as NodeModule from "node:module";
 import * as NodePath from "node:path";
 import * as NodeStringDecoder from "node:string_decoder";
-import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type { AgentSessionEvent, McpTransportFactory } from "@earendil-works/pi-coding-agent";
 import { makeDeepAIClient, type DeepAIModel } from "./DeepAIClient.ts";
 import { CommandJobs, type CommandJobResult } from "./CommandJobs.ts";
 
@@ -51,6 +52,34 @@ export async function createDeepAIAgent(input: {
   } = NodeModule.createRequire(import.meta.url)(
     NodePath.join(NodePath.dirname(packageFile), "dist", "index.js"),
   ) as typeof import("@earendil-works/pi-coding-agent");
+  const createTransport: McpTransportFactory | undefined = input.mcp
+    ? (() => {
+        const requireFromPi = NodeModule.createRequire(packageFile);
+        const mcpPackage = NodeModule.findPackageJSON("@earendil-works/pi-mcp", packageFile);
+        if (!mcpPackage) throw new Error("The bundled Pi MCP transport is missing.");
+        const { StreamableHttpTransport } = requireFromPi(
+          NodePath.join(NodePath.dirname(mcpPackage), "dist", "index.js"),
+        ) as {
+          StreamableHttpTransport: new (options: {
+            url: string;
+            headers: Record<string, string>;
+            fetch: ReturnType<typeof deepAIMcpFetch>;
+          }) => ReturnType<McpTransportFactory>;
+        };
+        const { createDefaultTransport } = requireFromPi(
+          "./dist/extensions/mcp/runtime.js",
+        ) as { createDefaultTransport: McpTransportFactory };
+        const { endpoint, authorizationHeader } = input.mcp!;
+        return (entry, cwd, authProvider) =>
+          entry.name === "t3" && "url" in entry.config && entry.config.url === endpoint
+            ? new StreamableHttpTransport({
+                url: endpoint,
+                headers: { Authorization: authorizationHeader },
+                fetch: deepAIMcpFetch(endpoint),
+              })
+            : createDefaultTransport(entry, cwd, authProvider);
+      })()
+    : undefined;
   const runtime = await ModelRuntime.create({
     credentials: {
       read: async () => undefined,
@@ -105,6 +134,7 @@ export async function createDeepAIAgent(input: {
       ...(input.mcp || input.computer
         ? [
             createMcpExtension({
+              ...(createTransport ? { createTransport } : {}),
               loadConfig: () => ({
                 servers: [
                   ...(input.computer

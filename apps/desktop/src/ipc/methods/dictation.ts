@@ -29,14 +29,13 @@ export const startDictation = DesktopIpc.makeIpcMethod({
   channel: "desktop:dictation-start",
   payload: Request,
   result: Schema.String,
-  handler: ({ requestId }) =>
-    Effect.gen(function* () {
-      const platform = yield* HostProcessPlatform;
-      return yield* Effect.tryPromise({
-        try: () => startWindowsDictation(requestId, platform),
-        catch: (cause) => new DictationError({ message: String(cause) }),
-      });
-    }),
+  handler: Effect.fn("desktop.ipc.startDictation")(function* ({ requestId }) {
+    const platform = yield* HostProcessPlatform;
+    return yield* Effect.tryPromise({
+      try: () => startWindowsDictation(requestId, platform),
+      catch: (cause) => new DictationError({ message: String(cause) }),
+    });
+  }),
 });
 export const cancelDictation = DesktopIpc.makeIpcMethod({
   channel: "desktop:dictation-cancel",

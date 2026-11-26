@@ -1,5 +1,5 @@
 import { routeRequestAnchors } from "@j1code/shared/routeRequestAnchors";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   manualRouteReasonLabel,
   manualRouteStatusLabel,
@@ -25,6 +25,7 @@ export function RouteRequestControl({
   projectId,
   threadId,
   revision = 0,
+  exactMessageAnchors = false,
   messages = EMPTY_MESSAGES,
   activities = EMPTY_ACTIVITIES,
   children,
@@ -33,6 +34,7 @@ export function RouteRequestControl({
   projectId: string;
   threadId: string;
   revision?: number;
+  exactMessageAnchors?: boolean;
   messages?: Parameters<typeof routeRequestAnchors>[1];
   activities?: Parameters<typeof routeRequestAnchors>[2];
   children?: (render: (messageId: string) => ReactNode) => ReactNode;
@@ -40,6 +42,8 @@ export function RouteRequestControl({
   const list = useAtomCommand(serverEnvironment.routingList, { reportFailure: false });
   const prepare = useAtomCommand(serverEnvironment.routingPrepare, { reportFailure: false });
   const confirm = useAtomCommand(serverEnvironment.routingConfirm, { reportFailure: false });
+  const mounted = useRef(true);
+  const refreshSequence = useRef(0);
   const [requests, setRequests] = useState<ReadonlyArray<typeof ManualRouteStatus.Type>>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
@@ -56,22 +60,27 @@ export function RouteRequestControl({
     (thread) => thread.environmentId === environmentId && thread.id !== threadId,
   );
   const refresh = useCallback(async () => {
-    if (!threadId) return;
+    if (!threadId || !mounted.current) return;
+    const sequence = ++refreshSequence.current;
     const result = await list({
       environmentId,
       input: { source: { environmentId, projectId, threadId } },
     });
+    if (!mounted.current || sequence !== refreshSequence.current) return;
     if (result._tag === "Success") {
       setRequests((current) =>
         JSON.stringify(current) === JSON.stringify(result.value) ? current : result.value,
       );
       setNotice((value) => (value === "Could not load requests. Try again." ? "" : value));
     } else {
+      setRequests([]);
+      setSelected(null);
       setNoticeRequestId(null);
       setNotice("Could not load requests. Try again.");
     }
   }, [environmentId, projectId, threadId, list]);
   useEffect(() => {
+    mounted.current = true;
     let disposed = false;
     const update = () => {
       if (!disposed && document.visibilityState === "visible") void refresh();
@@ -84,6 +93,8 @@ export function RouteRequestControl({
     document.addEventListener("visibilitychange", update);
     return () => {
       disposed = true;
+      mounted.current = false;
+      ++refreshSequence.current;
       window.clearInterval(timer);
       window.removeEventListener("focus", update);
       document.removeEventListener("visibilitychange", update);
@@ -128,15 +139,22 @@ export function RouteRequestControl({
       setBusy(false);
     }
   };
-  const anchors = routeRequestAnchors(requests, messages, activities);
-  const render = (messageId?: string) => {
-    const visible = messageId
+  const anchors = exactMessageAnchors
+    ? new Map(requests.flatMap((request) =>
+        request.sourceMessageId ? [[request.requestId, request.sourceMessageId] as const] : [],
+      ))
+    : routeRequestAnchors(requests, messages, activities);
+  const render = (messageId?: string, unanchored = false) => {
+    const visible = unanchored
+      ? requests.filter((request) => !anchors.has(request.requestId))
+      : messageId
       ? requests.filter((request) => anchors.get(request.requestId) === messageId)
       : requests;
     const pending = visible.filter((request) => request.status === "suggested");
     const selectedRequest =
       selected ?? pending.find((request) => !deferred.has(request.requestId))?.requestId;
     const relevantNotice =
+      (!exactMessageAnchors || unanchored || noticeRequestId !== null) &&
       notice &&
       (noticeRequestId === null
         ? !messageId || messageId === messages.find((message) => message.role === "user")?.id
@@ -145,6 +163,7 @@ export function RouteRequestControl({
       if (
         noticeRequestId !== null ||
         !notice ||
+        (exactMessageAnchors && !unanchored && noticeRequestId === null) ||
         (messageId && messageId !== messages.find((message) => message.role === "user")?.id)
       )
         return null;
@@ -172,6 +191,9 @@ export function RouteRequestControl({
               data-route-request-id={request.requestId}
               className="space-y-2 border-b pb-3 last:border-b-0 last:pb-0"
             >
+              {exactMessageAnchors && !request.sourceMessageId ? (
+                <p className="text-sm text-muted-foreground">Original message unavailable.</p>
+              ) : null}
               <p className="whitespace-pre-wrap break-words">
                 {request.summary || "Forwarded request"}
               </p>
@@ -269,5 +291,10 @@ export function RouteRequestControl({
       </section>
     );
   };
-  return children ? children(render) : render();
+  return children ? (
+    <>
+      {exactMessageAnchors ? render(undefined, true) : null}
+      {children(render)}
+    </>
+  ) : render();
 }

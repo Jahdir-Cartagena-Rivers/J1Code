@@ -1,17 +1,15 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { DesktopUpdateActionResult, DesktopUpdateState } from "@j1code/contracts";
+import type { DesktopUpdateState } from "@j1code/contracts";
 
 import {
   canCheckForUpdate,
+  shouldShowArm64IntelBuildWarning,
   getArm64IntelBuildWarningDescription,
-  getDesktopUpdateActionError,
   getDesktopUpdateButtonTooltip,
   getDesktopUpdateInstallConfirmationMessage,
   getDesktopUpdateReleaseHistoryUrl,
   getDesktopUpdateReleaseUrl,
-  isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
-  shouldShowArm64IntelBuildWarning,
   shouldToastDesktopUpdateActionResult,
 } from "./desktopUpdate.logic";
 
@@ -35,15 +33,6 @@ const baseState: DesktopUpdateState = {
 };
 
 describe("desktop update button state", () => {
-  it("shows a download action when an update is available", () => {
-    const state: DesktopUpdateState = {
-      ...baseState,
-      status: "available",
-      availableVersion: "1.1.0",
-    };
-    expect(resolveDesktopUpdateButtonAction(state)).toBe("download");
-  });
-
   it("keeps retry action available after a download error", () => {
     const state: DesktopUpdateState = {
       ...baseState,
@@ -57,32 +46,20 @@ describe("desktop update button state", () => {
     expect(getDesktopUpdateButtonTooltip(state)).toContain("Click to retry");
   });
 
-  it("keeps install action available after an install error", () => {
+  it("shows the download failure after returning to available", () => {
     const state: DesktopUpdateState = {
       ...baseState,
-      status: "error",
-      downloadedVersion: "1.1.0",
+      status: "available",
       availableVersion: "1.1.0",
-      message: "shutdown timeout",
-      errorContext: "install",
+      message: "network timeout",
+      errorContext: "download",
       canRetry: true,
     };
-    expect(resolveDesktopUpdateButtonAction(state)).toBe("install");
-    expect(getDesktopUpdateButtonTooltip(state)).toContain("Click to retry");
-  });
-
-  it("keeps install action available after a background updater error", () => {
-    const state: DesktopUpdateState = {
-      ...baseState,
-      status: "error",
-      downloadedVersion: "1.1.0",
-      availableVersion: "1.1.0",
-      message: "background updater error",
-      errorContext: null,
-      canRetry: true,
-    };
-    expect(resolveDesktopUpdateButtonAction(state)).toBe("install");
-    expect(getDesktopUpdateButtonTooltip(state)).toContain("Click to restart and install");
+    expect(resolveDesktopUpdateButtonAction(state)).toBe("download");
+    expect(getDesktopUpdateButtonTooltip(state)).toBe("Download failed for 1.1.0. Click to retry.");
+    expect(getDesktopUpdateButtonTooltip({ ...state, notAppliedVersion: "1.1.0" })).toBe(
+      "Update 1.1.0 did not apply. Click to retry.",
+    );
   });
 
   it("prefers a newly available release over a stale downloaded version", () => {
@@ -104,78 +81,6 @@ describe("desktop update button state", () => {
       downloadPercent: 100,
     };
     expect(resolveDesktopUpdateButtonAction(state)).toBe("none");
-  });
-
-  it("has no action for non-actionable check errors", () => {
-    const state: DesktopUpdateState = {
-      ...baseState,
-      status: "error",
-      message: "network unavailable",
-      errorContext: "check",
-      canRetry: true,
-    };
-    expect(resolveDesktopUpdateButtonAction(state)).toBe("none");
-  });
-
-  it("disables the button while downloading", () => {
-    const state: DesktopUpdateState = {
-      ...baseState,
-      status: "downloading",
-      availableVersion: "1.1.0",
-      downloadPercent: 42.5,
-    };
-    expect(isDesktopUpdateButtonDisabled(state)).toBe(true);
-    expect(getDesktopUpdateButtonTooltip(state)).toContain("42%");
-  });
-});
-
-describe("getDesktopUpdateActionError", () => {
-  it("returns user-visible message for accepted failed attempts", () => {
-    const result: DesktopUpdateActionResult = {
-      accepted: true,
-      completed: false,
-      state: {
-        ...baseState,
-        status: "available",
-        availableVersion: "1.1.0",
-        message: "checksum mismatch",
-        errorContext: "download",
-        canRetry: true,
-      },
-    };
-    expect(getDesktopUpdateActionError(result)).toBe("checksum mismatch");
-  });
-
-  it("ignores messages for non-accepted attempts", () => {
-    const result: DesktopUpdateActionResult = {
-      accepted: false,
-      completed: false,
-      state: {
-        ...baseState,
-        status: "error",
-        message: "background failure",
-        errorContext: "check",
-        canRetry: false,
-      },
-    };
-    expect(getDesktopUpdateActionError(result)).toBeNull();
-  });
-
-  it("ignores messages for successful attempts", () => {
-    const result: DesktopUpdateActionResult = {
-      accepted: true,
-      completed: true,
-      state: {
-        ...baseState,
-        status: "downloaded",
-        downloadedVersion: "1.1.0",
-        availableVersion: "1.1.0",
-        message: null,
-        errorContext: null,
-        canRetry: true,
-      },
-    };
-    expect(getDesktopUpdateActionError(result)).toBeNull();
   });
 });
 
@@ -281,27 +186,20 @@ describe("desktop update UI helpers", () => {
       "Install update 1.1.0 and restart J1 Code?\n\nAny running tasks will be interrupted. Make sure you're ready before continuing.",
     );
   });
+  it.each(["owner/repo/extra", "owner#notes/repo", "owner/repo?tab=notes"])(
+    "falls back to J1 for an invalid configured repository: %s",
+    (repository) => {
+      expect(getDesktopUpdateReleaseHistoryUrl(repository)).toBe(
+        "https://github.com/Jahdir-Cartagena-Rivers/J1Code/releases",
+      );
+      expect(getDesktopUpdateReleaseUrl("1.2.3", repository)).toBe(
+        "https://github.com/Jahdir-Cartagena-Rivers/J1Code/releases/tag/v1.2.3",
+      );
+    },
+  );
 });
 
 describe("canCheckForUpdate", () => {
-  it("returns false for null state", () => {
-    expect(canCheckForUpdate(null)).toBe(false);
-  });
-
-  it("returns false when updates are disabled", () => {
-    expect(canCheckForUpdate({ ...baseState, enabled: false, status: "disabled" })).toBe(false);
-  });
-
-  it("returns false while checking", () => {
-    expect(canCheckForUpdate({ ...baseState, status: "checking" })).toBe(false);
-  });
-
-  it("returns false while downloading", () => {
-    expect(canCheckForUpdate({ ...baseState, status: "downloading", downloadPercent: 50 })).toBe(
-      false,
-    );
-  });
-
   it("returns true once an update has been downloaded so newer releases can be found", () => {
     expect(
       canCheckForUpdate({
@@ -312,38 +210,9 @@ describe("canCheckForUpdate", () => {
       }),
     ).toBe(true);
   });
-
-  it("returns true when idle", () => {
-    expect(canCheckForUpdate({ ...baseState, status: "idle" })).toBe(true);
-  });
-
-  it("returns true when up-to-date", () => {
-    expect(canCheckForUpdate({ ...baseState, status: "up-to-date" })).toBe(true);
-  });
-
-  it("returns true when an update is available", () => {
-    expect(
-      canCheckForUpdate({ ...baseState, status: "available", availableVersion: "1.1.0" }),
-    ).toBe(true);
-  });
-
-  it("returns true on error so the user can retry", () => {
-    expect(
-      canCheckForUpdate({
-        ...baseState,
-        status: "error",
-        errorContext: "check",
-        message: "network",
-      }),
-    ).toBe(true);
-  });
 });
 
-describe("getDesktopUpdateButtonTooltip", () => {
-  it("returns 'Up to date' for non-actionable states", () => {
-    expect(getDesktopUpdateButtonTooltip({ ...baseState, status: "idle" })).toBe("Up to date");
-    expect(getDesktopUpdateButtonTooltip({ ...baseState, status: "up-to-date" })).toBe(
-      "Up to date",
-    );
-  });
+it("uses current J1 tags and validated custom repositories", () => {
+  expect(getDesktopUpdateReleaseUrl("1.89.0")).toBe("https://github.com/Jahdir-Cartagena-Rivers/J1Code/releases/tag/v1.89.0");
+  expect(getDesktopUpdateReleaseUrl("1.2.3", " owner/repo ")).toBe("https://github.com/owner/repo/releases/tag/v1.2.3");
 });

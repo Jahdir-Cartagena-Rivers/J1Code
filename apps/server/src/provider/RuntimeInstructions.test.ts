@@ -52,6 +52,16 @@ describe("buildRuntimeInstructions", () => {
     expect(instructions).toContain("call list_thread_pull_requests and link any PR");
   });
 
+  it("retains shared PR monitoring and can omit linking already carried by the session", () => {
+    const full = buildRuntimeInstructions({ harness: "Codex" });
+    expect(full).toContain("watch_pull_request");
+    expect(full).toContain("Unwatch before handing back");
+    const linked = buildRuntimeInstructions({ harness: "Codex", pullRequestLinking: false });
+    expect(linked).not.toContain("<pull_request_linking>");
+    expect(linked).toContain("<authorization_decisions>");
+    expect(linked).toContain("J1 Code's files viewer");
+  });
+
   it("keeps known model and effort metadata on one line", () => {
     expect(
       buildRuntimeInstructions({

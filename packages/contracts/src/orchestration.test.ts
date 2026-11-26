@@ -37,6 +37,7 @@ import {
   isProviderSendTurnSupportedImageMimeType,
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
 } from "./orchestration.ts";
+import { RepositoryIdentity as CurrentRepositoryIdentity } from "./environment.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
 const decodeTurnDiffInput = Schema.decodeUnknownEffect(OrchestrationGetTurnDiffInput);
@@ -725,7 +726,7 @@ it.effect("defaults settled fields when decoding historical thread data", () =>
     const oldLinkFields = Schema.Struct({
       linkedPullRequest: Schema.optional(ThreadLinkedPullRequest),
     });
-    const newServerWire = yield* Schema.encodeEffect(OrchestrationThreadShell)({
+    const newServerWire = yield* encodeOrchestrationThreadShell({
       ...oldServerShell,
       pullRequests: [
         {
@@ -1396,20 +1397,10 @@ it.effect("preserves proposed plan implementation metadata when present", () =>
   }),
 );
 
-// ── ModelSelection: instance-keyed wire shape + legacy decoder ────────
-//
-// `ModelSelection` is routing-keyed on `instanceId` — never a driver kind.
-// Persisted and in-flight payloads from pre-instance builds carry a
-// `provider` field whose value was a driver kind; those payloads are migrated
-// at the wire boundary by
-// promoting `provider` to the default instance id for that driver
-// (built-in drivers use the driver kind slug as their default instance id, so
-// the migration is a 1:1 rename).
-//
-// These tests pin the rollback/fork tolerance invariant: legacy payloads
-// decode cleanly for fork-provided drivers, and the decoded form uses
-// `instanceId` uniformly regardless of origin.
+// Older wire payloads use `provider` instead of `instanceId`.
+// The decoder promotes the driver slug to its default instance ID, including fork drivers.
 
+const encodeOrchestrationThreadShell = Schema.encodeEffect(OrchestrationThreadShell);
 const decodeModelSelection = Schema.decodeUnknownEffect(ModelSelection);
 const encodeModelSelection = Schema.encodeUnknownEffect(ModelSelection);
 
@@ -1686,5 +1677,60 @@ it.effect("encodes compatible icons inside snapshots and client commands", () =>
     });
     if (command.type !== "project.meta.update") throw new Error("Unexpected command");
     assert.deepEqual(yield* decodeNightlyIcon(command.projectIcon), fallback);
+  }),
+);
+
+
+const decodeCurrentRepositoryIdentity = Schema.decodeEffect(CurrentRepositoryIdentity);
+
+it.effect("retains saved V1 provider names without weakening current repository identities", () =>
+  Effect.gen(function* () {
+    const identity = {
+      canonicalKey: "example.test/team/repo",
+      locator: { source: "git-remote" as const, remoteName: "origin", remoteUrl: "https://example.test/team/repo.git" },
+      provider: "Custom Hosting Provider",
+    };
+    const payload = {
+      projectId: "project-saved", title: "Saved project", workspaceRoot: "/saved/project",
+      repositoryIdentity: identity, defaultModelSelection: null, scripts: [],
+      createdAt: "2026-11-18T00:00:00.000Z", updatedAt: "2026-11-18T00:00:00.000Z",
+    };
+    assert.deepStrictEqual((yield* decodeProjectCreatedPayload(payload)).repositoryIdentity, identity);
+    const current = yield* Effect.exit(decodeCurrentRepositoryIdentity(identity));
+    assert.strictEqual(current._tag, "Failure");
+    const workingNeighbor = yield* decodeCurrentRepositoryIdentity({ ...identity, provider: "custom-host" });
+    assert.strictEqual(workingNeighbor.provider, "custom-host");
+  }),
+);
+
+it.effect("does not repair an explicit invalid model instance using a legacy provider", () =>
+  Effect.gen(function* () {
+    for (const instanceId of [null, "", "1invalid", "wrong/id"]) {
+      const result = yield* Effect.exit(decodeModelSelection({ provider: "codex", instanceId, model: "auto" }));
+      assert.strictEqual(result._tag, "Failure");
+    }
+    const nullOptions = yield* Effect.exit(decodeModelSelection({ provider: "codex", model: "auto", options: null }));
+    assert.strictEqual(nullOptions._tag, "Failure");
+    assert.strictEqual((yield* decodeModelSelection({ provider: "custom_fork", model: "auto" })).instanceId, "custom_fork");
+  }),
+);
+
+it.effect("roundtrips saved bot identity and explicit Full Access without creating a new identity", () =>
+  Effect.gen(function* () {
+    const payload = {
+      threadId: "saved-thread", projectId: "saved-project", title: "Saved bot history",
+      bot: { id: "saved-bot", name: "Lin", instructions: "Saved instructions" },
+      modelSelection: { provider: "custom_fork", model: "auto" },
+      runtimeMode: "full-access", interactionMode: "default", branch: null, worktreePath: null,
+      createdAt: "2026-11-18T00:00:00.000Z", updatedAt: "2026-11-18T00:00:00.000Z",
+    };
+    const first = yield* decodeThreadCreatedPayload(payload);
+    const second = yield* decodeThreadCreatedPayload(yield* encodeThreadCreatedPayload(first));
+    assert.deepStrictEqual(second.bot, payload.bot);
+    assert.strictEqual(second.threadId, payload.threadId);
+    assert.strictEqual(second.runtimeMode, "full-access");
+    assert.strictEqual(second.modelSelection.instanceId, "custom_fork");
+    const rejected = yield* Effect.exit(decodeThreadCreatedPayload({ ...payload, runtimeMode: "admin" }));
+    assert.strictEqual(rejected._tag, "Failure");
   }),
 );

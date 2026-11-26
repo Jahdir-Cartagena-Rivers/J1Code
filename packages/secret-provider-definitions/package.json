@@ -1,0 +1,18 @@
+{
+  "name": "@j1code/secret-provider-definitions",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./registry": {
+      "types": "./src/registry.ts",
+      "import": "./src/registry.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "effect-tsgo tsrs --noEmit"
+  },
+  "dependencies": {
+    "@j1code/secret-provider-core": "workspace:*",
+    "@j1code/secret-provider-onepassword": "workspace:*"
+  }
+}

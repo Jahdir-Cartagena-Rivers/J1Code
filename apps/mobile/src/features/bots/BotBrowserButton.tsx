@@ -7,8 +7,8 @@ import { WebView } from "react-native-webview";
 import { botBrowserPage, actOnBotBrowser } from "../../state/botBrowser";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { AppText } from "../../components/AppText";
-import { MaterialButton } from "../../components/MaterialButton";
+import { AppText } from "../../components/ui/AppText";
+import { Button as MaterialButton } from "../../components/ui/Button";
 import { browserViewDocument } from "./browserViewDocument";
 
 export function BotBrowserButton(props: {

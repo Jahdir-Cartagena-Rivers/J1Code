@@ -5,8 +5,8 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
-import { McpSchema, McpServer } from "effect/unstable/ai";
-import { ExitCode } from "effect/unstable/process/ChildProcessSpawner";
+import { McpSchema, McpServer } from "effect/ai";
+import { ExitCode } from "effect/process/ChildProcessSpawner";
 import * as Desktop from "../desktop/DesktopAutomation.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as ServerConfig from "../config.ts";
@@ -20,9 +20,9 @@ const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
 const invocation: McpInvocationScope = {
   environmentId: EnvironmentId.make("desktop-mcp"),
-  threadId: ThreadId.make("desktop-mcp-thread"),
-  providerSessionId: "session",
-  providerInstanceId: ProviderInstanceId.make("codex"),
+  requestNamespace: "desktop-fixture",
+  thread: { threadId: ThreadId.make("desktop-mcp-thread"), providerSessionId: "session", providerInstanceId: ProviderInstanceId.make("codex") },
+  client: undefined,
   capabilities: new Set(["desktop"]),
   issuedAt: 1,
 };
@@ -109,7 +109,7 @@ it.effect(
         expect.arrayContaining([
           expect.objectContaining({
             type: "text",
-            text: expect.stringContaining("Agent desktop access is disabled"),
+            text: expect.stringContaining("This tool is unavailable for the calling session."),
           }),
         ]),
       );

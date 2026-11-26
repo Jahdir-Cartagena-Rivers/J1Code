@@ -11,6 +11,8 @@ interface FixtureElement {
 }
 const browser = globalThis as unknown as {
   eval(script: string): unknown;
+  history: { replaceState(data: unknown, unused: string, url: string): void };
+  location: { href: string };
   document: { body: { innerHTML: string }; querySelector(selector: string): FixtureElement | null };
 };
 const evaluate = (script: string) => browser.eval(script);
@@ -73,4 +75,35 @@ it("keeps a revision stable while the document and controls remain unchanged", (
   const first = snapshot("first");
   expect(snapshot("second").revision).toBe(first.revision);
   expect(snapshot("third", first.revision).html).toBe("");
+});
+
+it("rejects old controls after same-document navigation until the view is refreshed", () => {
+  const originalUrl = browser.location.href;
+  browser.document.body.innerHTML = '<input value="before"><button>Apply</button>';
+  const input = browser.document.querySelector("input")!;
+  let clicks = 0;
+  browser.document.querySelector("button")!.addEventListener("click", () => clicks++);
+
+  try {
+    const first = snapshot("before-navigation");
+    const action = {
+      type: "click" as const,
+      revision: first.revision,
+      node: 1,
+      edits: [{ node: 0, value: "after" }],
+    };
+    browser.history.replaceState(null, "", "#new-view");
+
+    expect(() => evaluate(browserActionScript(action))).toThrow("Page changed");
+    expect(input.value).toBe("before");
+    expect(clicks).toBe(0);
+
+    const current = snapshot("after-navigation");
+    expect(current.revision).not.toBe(first.revision);
+    evaluate(browserActionScript({ ...action, revision: current.revision }));
+    expect(input.value).toBe("after");
+    expect(clicks).toBe(1);
+  } finally {
+    browser.history.replaceState(null, "", originalUrl);
+  }
 });

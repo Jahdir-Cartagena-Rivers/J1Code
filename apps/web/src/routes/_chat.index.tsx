@@ -1,27 +1,26 @@
+import { workspaceAreaProps } from "../lib/workspaceFocus";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { scopeProjectRef } from "@j1code/client-runtime/environment";
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { LinkIcon, PlusIcon } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 
-import { isLocalEnvironmentDisabled } from "../localEnvironment";
 import { isElectron } from "../env";
 import { NoProjectsHero } from "../components/NoProjectsHero";
 import { sortScopedProjectsForSidebar } from "../components/Sidebar.logic";
 import { Button } from "../components/ui/button";
+import { HostedEmptyState } from "../components/HostedEmptyState";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../components/ui/empty";
 import { SidebarInset } from "../components/ui/sidebar";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import {
+  readProject,
   useAllEnvironmentShellsBootstrapped,
   useProjects,
-  useThreadShells,
+  useVisibleThreadShells,
 } from "../state/entities";
 import { usePrimaryEnvironment } from "../state/environments";
 import { useEnvironments } from "../state/environments";
-import { APP_DISPLAY_NAME } from "~/branding";
-import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { WorkspaceStatus } from "../components/WorkspaceStatus";
 
 function ChatIndexRouteView() {
@@ -31,7 +30,7 @@ function ChatIndexRouteView() {
 
   if (authGateState.status === "hosted-static") {
     if (!isReady) return null;
-    if (environments.length === 0) return <HostedStaticOnboardingState />;
+    if (environments.length === 0) return <HostedEmptyState />;
   }
 
   // The unified workspace owns the landing view; retained Home data is never recreated or deleted.
@@ -44,44 +43,71 @@ function ChatIndexRouteView() {
 /** A server without the bundled workspace can still open an existing project's draft. */
 function IndexDraftLanding() {
   const projects = useProjects();
-  const threads = useThreadShells();
+  const threads = useVisibleThreadShells();
   const bootstrapped = useAllEnvironmentShellsBootstrapped();
   const handleNewThread = useNewThreadHandler();
-  const startingRef = useRef(false);
+  const router = useRouter();
+  // Read at effect time; this page can stay mounted while the router is already navigating away.
+  const isStillOnIndex = useEffectEvent(() => router.state.location.pathname === "/");
+  const startedAttemptRef = useRef<number | null>(null);
   const [startState, setStartState] = useState({ failed: false, retryRequest: 0 });
-  const project = useMemo(
-    () =>
-      sortScopedProjectsForSidebar(
-        projects.filter((item) => item.id !== "j1-home"),
-        threads,
-        "updated_at",
-      )[0] ?? null,
-    [projects, threads],
-  );
+
+  const mostRecentProject =
+    sortScopedProjectsForSidebar(
+      projects.filter((project) => project.id !== "j1-home" && project.archivedAt == null),
+      threads,
+      "updated_at",
+    )[0] ?? null;
+  const attempt = startState.retryRequest;
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- starts a draft thread in the most recent project and navigates to it while still on the index
   useEffect(() => {
-    if (!bootstrapped || !project || startingRef.current) return;
-    startingRef.current = true;
-    void handleNewThread(scopeProjectRef(project.environmentId, project.id), {
-      replace: true,
-    }).catch(() => {
-      startingRef.current = false;
-      setStartState((state) => ({ ...state, failed: true }));
-    });
-  }, [bootstrapped, project, handleNewThread, startState.retryRequest]);
-  if (startState.failed)
-    return (
+    // Starting a draft after the user has left would replace the page they picked.
+    if (
+      !bootstrapped ||
+      mostRecentProject === null ||
+      startedAttemptRef.current === attempt ||
+      !isStillOnIndex()
+    ) {
+      return;
+    }
+    const projectRef = scopeProjectRef(mostRecentProject.environmentId, mostRecentProject.id);
+    if (readProject(projectRef) === null) {
+      return;
+    }
+    startedAttemptRef.current = attempt;
+    void handleNewThread(projectRef, { replace: true })
+      .then((opened) => {
+        if (opened === null) {
+          setStartState((state) => ({ ...state, retryRequest: state.retryRequest + 1 }));
+        }
+      })
+      .catch(() => {
+        setStartState((state) => ({ ...state, failed: true }));
+      });
+  }, [attempt, bootstrapped, handleNewThread, mostRecentProject]);
+
+  if (mostRecentProject !== null) {
+    return startState.failed ? (
       <DraftStartError
         onRetry={() =>
           setStartState((state) => ({ failed: false, retryRequest: state.retryRequest + 1 }))
         }
       />
-    );
-  return bootstrapped && !project ? <NoProjectsHero /> : null;
+    ) : null;
+  }
+  // A pending environment cannot prove the workspace is empty.
+  return bootstrapped ? <NoProjectsHero /> : null;
 }
 
 function DraftStartError({ onRetry }: { readonly onRetry: () => void }) {
+  const contentArea = workspaceAreaProps("home", 1, "Home");
   return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none">
+    <SidebarInset
+      {...contentArea}
+      role="main"
+      className="h-dvh min-h-0 overflow-hidden overscroll-y-none"
+    >
       {isElectron ? <WorkspacePageHeader electron /> : null}
       <Empty className="flex-1">
         <EmptyHeader className="max-w-md">
@@ -104,49 +130,3 @@ function DraftStartError({ onRetry }: { readonly onRetry: () => void }) {
 export const Route = createFileRoute("/_chat/")({
   component: ChatIndexRouteView,
 });
-
-function HostedStaticOnboardingState() {
-  const cloudEnabled = hasCloudPublicConfig();
-  const localEnvironmentOff = isLocalEnvironmentDisabled();
-  const description = localEnvironmentOff
-    ? "The local environment is turned off. Connect a remote environment, or turn the local environment back on in Connections."
-    : cloudEnabled
-      ? "Enable J1 Connect on that machine, then open Connections here to sign in with the same account. You can also add the machine using a pairing link."
-      : "Open Connections and add that machine using its pairing link. This app must be able to reach it.";
-
-  return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
-        <WorkspacePageHeader electron={isElectron} className="border-b border-border">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-foreground md:text-muted-foreground/60">
-              {APP_DISPLAY_NAME}
-            </span>
-          </div>
-        </WorkspacePageHeader>
-
-        <Empty className="flex-1">
-          <div className="w-full max-w-xl rounded-3xl border border-border/55 bg-card/20 px-8 py-12 shadow-sm/5">
-            <EmptyHeader className="max-w-none">
-              <div className="mx-auto mb-5 flex size-11 items-center justify-center rounded-xl border border-border/70 bg-background/70 text-muted-foreground">
-                <LinkIcon className="size-5" />
-              </div>
-              <EmptyTitle>Connect to a computer running J1 Code</EmptyTitle>
-              <EmptyDescription>
-                This app connects to J1 Code running on your computer or a server. Start the J1 Code
-                desktop app or command-line server on that machine and keep it running.
-              </EmptyDescription>
-              <EmptyDescription>{description}</EmptyDescription>
-              <div className="mt-6 flex justify-center">
-                <Button render={<Link to="/settings/connections" />} size="sm">
-                  <PlusIcon className="size-4" />
-                  Open Connections
-                </Button>
-              </div>
-            </EmptyHeader>
-          </div>
-        </Empty>
-      </div>
-    </SidebarInset>
-  );
-}

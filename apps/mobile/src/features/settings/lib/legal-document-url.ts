@@ -36,7 +36,7 @@ export const SECURITY_POLICY_URL = marketingSiteDocumentUrl(
 export const TERMS_OF_SERVICE_URL = marketingSiteDocumentUrl("terms-of-service", "LICENSE");
 export const LEGAL_URL = marketingSiteDocumentUrl("legal", "docs/user/open-source-licenses.md");
 
-export const ALLOWED_LEGAL_DOCUMENT_URLS = [
+const ALLOWED_LEGAL_DOCUMENT_URLS = [
   LEGAL_URL,
   PRIVACY_POLICY_URL,
   TERMS_OF_SERVICE_URL,

@@ -61,7 +61,7 @@ export function browserActionScript(
     const view=globalThis.__j1BrowserView;
     const validate = index => {
       const node=view && view.nodes[index];
-      if (!view || view.revision !== action.revision || !node || !node.isConnected || node.disabled) throw new Error('Page changed; refresh before trying again');
+      if (!view || view.revision !== action.revision || view.url !== location.href || !node || !node.isConnected || node.disabled) throw new Error('Page changed; refresh before trying again');
       const signature=JSON.stringify([node.tagName,node.id,node.getAttribute('href'),node.getAttribute('type'),node.disabled===true,(node.textContent||'').slice(0,512),node.value||'']);
       if(signature!==view.signatures[index])throw new Error('Page changed; refresh before trying again');
       return node;

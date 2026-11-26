@@ -1,8 +1,10 @@
+import { buildRuntimeInstructions as buildProviderRuntimeInstructions } from "@j1code/provider-core/server/runtimeInstructions";
 import { DESKTOP_RUNTIME_INSTRUCTIONS } from "./DesktopRuntimeInstructions.ts";
 import { AUTHORIZATION_INSTRUCTIONS } from "./AuthorizationInstructions.ts";
 
 const PULL_REQUEST_LINKING_INSTRUCTIONS = `<pull_request_linking>
 When the t3-code MCP server exposes link_pull_request, you must use it to register every pull request you create or work on for this thread. Call link_pull_request with the full PR URL immediately after creating a PR or starting work on an existing PR. For a stack, call it for every layer, not just the current branch or the top PR. This applies when creating or updating PRs through gh, gh stack, another CLI, or the host API: those operations do not register the PRs with this thread. Linking an already-linked PR is safe. Before finishing PR work, call list_thread_pull_requests and link any PR from your work that is missing. Do not link unrelated PRs mentioned only as background. If a linking call fails, report that failure instead of claiming the PR is linked.
+Skip PRs you only read and PRs named only as background. Link PRs you take over or push to. Use link_pull_requests when registering several. Watch only when asked to monitor or when requested work still depends on checks or reviews. Finish needed updates and pushes before starting the watch. Wait through watch_pull_request and end the turn instead of polling with shell commands, sleeps or scheduled checks. Unwatch before handing back completed work. Delegated children report the PR URL, head SHA, checks and reviews in their last line and leave watching to the parent.
 </pull_request_linking>`;
 
 const AGENT_DELEGATION_INSTRUCTIONS = `<agent_delegation>
@@ -39,18 +41,12 @@ export function buildRuntimeInstructions(runtime: {
   readonly model?: string | undefined;
   readonly modelName?: string | undefined;
   readonly reasoningEffort?: string | undefined;
+  readonly pullRequestLinking?: boolean;
 }): string {
-  const harness = toSingleLine(runtime.harness);
-  const model = toSingleLine(runtime.model ?? "");
-  const modelName = toSingleLine(runtime.modelName ?? "");
-  const effort = toSingleLine(runtime.reasoningEffort ?? "");
-  const modelLabel =
-    modelName && modelName !== model ? `${modelName} (model slug: ${model})` : model;
-  const modelInfo = model && model !== "auto" && model !== "default" ? `, as ${modelLabel}` : "";
-  const effortInfo = effort ? ` with ${effort} reasoning effort` : "";
-  return `<runtime_info>In case you're asked: you are running in J1 Code through the ${harness} harness${modelInfo}${effortInfo}. No need to mention this otherwise. You can embed images and videos in your response using Markdown with absolute file paths.</runtime_info>\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}\n\n${AGENT_DELEGATION_INSTRUCTIONS}\n\n${HIVE_MIND_INSTRUCTIONS}\n\n${HOME_CHAT_INSTRUCTIONS}\n\n${AUTHORIZATION_INSTRUCTIONS}\n\n${DESKTOP_RUNTIME_INSTRUCTIONS}\n\n${WORKFLOW_INSTRUCTIONS}${harness === "DeepAI" ? `\n\n${DEEPAI_COMMAND_INSTRUCTIONS}` : ""}`;
-}
-
-function toSingleLine(value: string): string {
-  return value.replaceAll(/\s+/g, " ").trim();
+  const harness = runtime.harness.trim();
+  const metadata = buildProviderRuntimeInstructions({ ...runtime, pullRequestLinking: false })
+    .replace("running in T3 Code through", "running in J1 Code through")
+    .replace("in T3 Code's files viewer", "in J1 Code's files viewer");
+  const linking = runtime.pullRequestLinking === false ? "" : `\n\n${PULL_REQUEST_LINKING_INSTRUCTIONS}`;
+  return `${metadata}${linking}\n\n${AGENT_DELEGATION_INSTRUCTIONS}\n\n${HIVE_MIND_INSTRUCTIONS}\n\n${HOME_CHAT_INSTRUCTIONS}\n\n${AUTHORIZATION_INSTRUCTIONS}\n\n${DESKTOP_RUNTIME_INSTRUCTIONS}\n\n${WORKFLOW_INSTRUCTIONS}${harness === "DeepAI" ? `\n\n${DEEPAI_COMMAND_INSTRUCTIONS}` : ""}`;
 }

@@ -31,7 +31,7 @@ jobs:
             !/.repos/
           sparse-checkout-cone-mode: false
       - name: Install native Linux prerequisites
-        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config patchelf
       - uses: dtolnay/rust-toolchain@stable
       - uses: voidzero-dev/setup-vp@v1
         with:

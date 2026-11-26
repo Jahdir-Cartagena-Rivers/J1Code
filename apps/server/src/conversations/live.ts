@@ -1,19 +1,19 @@
-import { Effect, Layer } from "effect";
-import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
-import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { ProjectionThreadMessageRepository } from "../persistence/Services/ProjectionThreadMessages.ts";
+﻿import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import { ServerEnvironmentIdentity } from "../environment/ServerEnvironment.ts";
+import { ThreadManagementService } from "../orchestration-v2/ThreadManagementService.ts";
+import { ThreadSearch } from "../orchestration-v2/ThreadSearch.ts";
 import { ExternalConversations, makeExternalConversations } from "./ExternalConversations.ts";
 import { makeJ1ConversationSource } from "./J1ConversationSource.ts";
-import { ProjectionThreadMessageRepositoryLive } from "../persistence/Layers/ProjectionThreadMessages.ts";
 
 export const ExternalConversationsLive = Layer.effect(
   ExternalConversations,
   Effect.gen(function* () {
-    const environmentId = yield* (yield* ServerEnvironment).getEnvironmentId;
-    const snapshots = yield* ProjectionSnapshotQuery;
-    const messages = yield* ProjectionThreadMessageRepository;
+    const environmentId = yield* (yield* ServerEnvironmentIdentity).getEnvironmentId;
+    const threads = yield* ThreadManagementService;
+    const search = yield* ThreadSearch;
     const directory = makeExternalConversations();
-    directory.register(makeJ1ConversationSource(environmentId, snapshots, messages));
+    directory.register(makeJ1ConversationSource(environmentId, threads, search));
     return directory;
   }),
-).pipe(Layer.provide(ProjectionThreadMessageRepositoryLive));
+);

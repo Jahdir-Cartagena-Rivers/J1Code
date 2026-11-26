@@ -1,86 +1,60 @@
-import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
-import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
-import { Argument, Command } from "effect/unstable/cli";
-import * as CliError from "effect/unstable/cli/CliError";
+// @effect-diagnostics nodeBuiltinImport:off -- The service launcher starts before the CLI runtime.
+import * as NodeModule from "node:module";
+import * as NodeSea from "node:sea";
+import * as NodeURL from "node:url";
 
-import * as NetService from "@j1code/shared/Net";
-import packageJson from "../package.json" with { type: "json" };
-import { authCommand } from "./cli/auth.ts";
-import { appCommand } from "./cli/app.ts";
-import { connectCommand } from "./cli/connect.ts";
-import { pairCommand } from "./cli/pair.ts";
-import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
-import { sharedServerCommandFlags } from "./cli/config.ts";
 import { isEntrypoint } from "./entrypoint.ts";
-import { projectCommand } from "./cli/project.ts";
-import { runServerCommand, serveCommand, startCommand } from "./cli/server.ts";
-import { serviceCommand } from "./cli/service.ts";
-import { uninstallCommand } from "./cli/uninstall.ts";
-import { updateCommand } from "./cli/update.ts";
-import { claudeHistoryCommand } from "./cli/claudeHistory.ts";
-import { serviceLauncherCommand } from "./cli/serviceLauncher.ts";
-import { servicePreflightCommand } from "./cli/servicePreflight.ts";
-import { sshHelperCommand } from "./cli/sshHelper.ts";
-import { themeCommand } from "./cli/theme.ts";
-import { traceCommand } from "./cli/trace.ts";
-import { transferCommand } from "./cli/transfer.ts";
-import { triageCommand } from "./cli/triage.ts";
 
-const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
+// Loads the CLI outside the launcher's module graph. Packaged builds embed it as a raw asset.
+async function loadCliMain(): Promise<typeof import("./binMain.ts")> {
+  if (!NodeSea.isSea()) return import("./binMain.ts");
 
-const connectPublicConfigMissingMessage =
-  "J1 Connect commands are unavailable: this build is missing J1 Connect public configuration.";
-
-class ConnectPublicConfigMissingError extends CliError.UserError {
-  override get message() {
-    return connectPublicConfigMissingMessage;
+  // Keep the executable's module URL so the CLI finds the web client and native packages beside it.
+  const require = NodeModule.createRequire(import.meta.url);
+  // require() resolves links in the executable path, such as a Windows junction.
+  const cliUrl = NodeURL.pathToFileURL(require.resolve(process.execPath)).href;
+  const hook = NodeModule.registerHooks({
+    load(url, context, next) {
+      if (url !== cliUrl) return next(url, context);
+      return {
+        format: "module",
+        source: new Uint8Array(NodeSea.getRawAsset("binMain.mjs")),
+        shortCircuit: true,
+      };
+    },
+  });
+  try {
+    return require(process.execPath) as typeof import("./binMain.ts");
+  } finally {
+    hook.deregister();
   }
 }
 
-const connectUnavailableCommand = Command.make("connect", {
-  command: Argument.String("command").pipe(Argument.variadic),
-}).pipe(
-  Command.withDescription("J1 Connect is unavailable in builds without public configuration."),
-  Command.unlisted,
-  Command.withHandler(() =>
-    Effect.fail(
-      new CliError.ShowHelp({
-        commandPath: ["j1", "connect"],
-        errors: [new ConnectPublicConfigMissingError({ cause: connectPublicConfigMissingMessage })],
-      }),
-    ),
-  ),
-);
+function ignoreOutputError(): void {}
 
-export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
-  Command.make("j1", { ...sharedServerCommandFlags }).pipe(
-    Command.withDescription("Run the J1 Code server."),
-    Command.withHandler((flags) => runServerCommand(flags)),
-    Command.withSubcommands([
-      startCommand,
-      serveCommand,
-      appCommand,
-      pairCommand,
-      authCommand,
-      projectCommand,
-      serviceCommand,
-      updateCommand,
-      uninstallCommand,
-      serviceLauncherCommand,
-      claudeHistoryCommand,
-      servicePreflightCommand,
-      sshHelperCommand,
-      themeCommand,
-      traceCommand,
-      triageCommand,
-      transferCommand,
-      cloudEnabled ? connectCommand : connectUnavailableCommand,
-    ]),
-  );
+const loadServiceLauncher = () => import("./cli/serviceLauncher.ts");
 
-export const cli = makeCli();
+export async function dispatchEntrypoint(
+  args: ReadonlyArray<string>,
+  loaders: {
+    readonly loadCliMain: typeof loadCliMain;
+    readonly loadServiceLauncher: typeof loadServiceLauncher;
+  } = { loadCliMain, loadServiceLauncher },
+): Promise<string | undefined> {
+  const [command, ...flags] = args;
+  const help = flags.length === 1 && (flags[0] === "--help" || flags[0] === "-h");
+  if (command === "__service-launcher" && !help) {
+    const launcher = await loaders.loadServiceLauncher();
+    const options = launcher.parseServiceLauncherArgs(flags);
+    if (options === undefined) return "Invalid J1 Code service launcher arguments.";
+    // The launcher owns shutdown until its child exits.
+    await launcher.runServiceLauncherCli(options);
+  } else {
+    const { runCliCommand } = await loaders.loadCliMain();
+    await runCliCommand();
+  }
+  return undefined;
+}
 
 if (
   isEntrypoint({
@@ -89,9 +63,15 @@ if (
     runtimeMain: import.meta.main,
   })
 ) {
-  Command.run(cli, { version: packageJson.version }).pipe(
-    Effect.scoped,
-    Effect.provide(CliRuntimeLayer),
-    NodeRuntime.runMain,
-  );
+  // Logs go to stdout and stderr, which may be a closed desktop launcher pipe or a log file on
+  // a full disk. Node emits a failed write as an unhandled stream error that crashes the process
+  // and skips shutdown, so drop the line instead.
+  process.stdout.on("error", ignoreOutputError);
+  process.stderr.on("error", ignoreOutputError);
+
+  const error = await dispatchEntrypoint(process.argv.slice(2));
+  if (error !== undefined) {
+    process.stderr.write(`[service-launcher] ${error}\n`);
+    process.exitCode = 1;
+  }
 }

@@ -1,5 +1,6 @@
 import { StackActions, useNavigation } from "@react-navigation/native";
-import { resolveThreadReferenceCopyTarget } from "@j1code/shared/threadReference";
+import { Platform } from "react-native";
+import { resolveThreadReferenceCopyTarget } from "@j1code/client-runtime/thread-reference";
 import {
   createContext,
   use,
@@ -13,7 +14,11 @@ import {
   type ReactNode,
 } from "react";
 
-import { tryCopyTextWithHaptic } from "../../lib/copyTextWithHaptic";
+import { copyThreadReference } from "../../lib/copyThreadReference";
+import {
+  firstWorkspaceDetailOpen,
+  workspaceHasColumns,
+} from "../layout/workspace/workspace-selection-store";
 import { J1KeyboardCommands } from "../../native/J1KeyboardCommands";
 import { useThreadShell } from "../../state/entities";
 import type { GitActionProgress } from "../../state/use-vcs-action-state";
@@ -27,6 +32,7 @@ import {
   subscribeToHardwareKeyboardCommandRegistrations,
   type HardwareKeyboardCommand,
 } from "./hardwareKeyboardCommands";
+import { selectWorkspaceDetail } from "../layout/workspace/workspace-detail-selection";
 
 const EMPTY_COPY_FEEDBACK: GitActionProgress = {
   phase: "idle",
@@ -56,10 +62,9 @@ export function HardwareKeyboardCommandProvider({
       activeThreadRef === null
         ? null
         : resolveThreadReferenceCopyTarget({
-            threadId: activeThread?.id ?? activeThreadRef.threadId,
+            threadRef: activeThreadRef,
+            title: activeThread?.title ?? "",
             pullRequests: activeThread?.pullRequests,
-            linkedPullRequestUrl:
-              (activeThread?.linkedPullRequest ?? activeThread?.branchPullRequest)?.url ?? null,
           }),
     [activeThread, activeThreadRef],
   );
@@ -83,6 +88,7 @@ export function HardwareKeyboardCommandProvider({
       setCopyFeedback(EMPTY_COPY_FEEDBACK);
     }, COPY_FEEDBACK_DISMISS_MS);
   }, []);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- clears the copy feedback timer on unmount
   useEffect(
     () => () => {
       if (copyFeedbackTimerRef.current !== null) {
@@ -113,6 +119,7 @@ export function HardwareKeyboardCommandProvider({
       if (pathname.split("/")[4] !== "terminal") commands.add("copyThreadReference");
     }
     return [...commands];
+    // oxlint-disable-next-line react/memo-dependencies -- registrationVersion invalidates the snapshot of the external keyboard-command registry.
   }, [activeThreadRef, pathname, registrationVersion, navigation]);
 
   const onCommand = useCallback(
@@ -126,16 +133,14 @@ export function HardwareKeyboardCommandProvider({
       if (command === "copyThreadReference") {
         if (copyTarget === null) return;
         const requestId = ++copyRequestIdRef.current;
-        void tryCopyTextWithHaptic(copyTarget.value, {
-          target: copyTarget.clipboardTarget,
-        }).then((didCopy) => {
+        void copyThreadReference(copyTarget).then((didCopy) => {
           if (requestId !== copyRequestIdRef.current) return;
           showCopyFeedback(
             didCopy
               ? {
                   phase: "success",
                   label: copyTarget.successTitle,
-                  description: copyTarget.value,
+                  description: copyTarget.description,
                 }
               : {
                   phase: "error",
@@ -148,10 +153,13 @@ export function HardwareKeyboardCommandProvider({
       }
 
       if (command === "newTask") {
-        navigation.navigate("NewTaskSheet", { screen: "NewTask" });
+        navigation.dispatch(selectWorkspaceDetail({ name: "Thread", params: { draft: {} } }));
         return;
       }
       if (command === "back") {
+        // Beside a visible list, the first detail page has nothing to go back to.
+        if (Platform.OS === "ios" && workspaceHasColumns() && firstWorkspaceDetailOpen(navigation))
+          return;
         if (navigation.canGoBack()) {
           navigation.goBack();
         } else {

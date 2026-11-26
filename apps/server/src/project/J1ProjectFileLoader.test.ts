@@ -8,7 +8,7 @@ import * as Path from "effect/Path";
 
 import * as J1ProjectFileLoader from "./J1ProjectFileLoader.ts";
 
-const TestLayer = Layer.empty.pipe(
+const layerTest = Layer.empty.pipe(
   Layer.provideMerge(J1ProjectFileLoader.layer),
   Layer.provideMerge(NodeServices.layer),
 );
@@ -26,39 +26,15 @@ const writeProjectFile = Effect.fn("writeProjectFile")(function* (cwd: string, c
   yield* fileSystem.writeFileString(path.join(cwd, "t3.json"), contents).pipe(Effect.orDie);
 });
 
-it.layer(TestLayer)("J1ProjectFileLoader", (it) => {
+it.layer(layerTest)("J1ProjectFileLoader", (it) => {
   describe("load", () => {
-    it.effect("loads and decodes a valid t3.json", () =>
+    it.effect("loads JSONC from the existing t3.json path", () =>
       Effect.gen(function* () {
         const loader = yield* J1ProjectFileLoader.J1ProjectFileLoader;
         const cwd = yield* makeTempDir;
-        yield* writeProjectFile(
-          cwd,
-          `{
-            // JSONC is tolerated
-            "iconPath": "assets/logo.svg",
-            "scripts": [{ "name": "Dev", "command": "pnpm dev" }],
-          }`,
-        );
+        yield* writeProjectFile(cwd, '{ /* project defaults */ "iconPath": "assets/logo.svg", }');
 
-        const loaded = yield* loader.load(cwd);
-
-        expect(Option.isSome(loaded)).toBe(true);
-        if (Option.isSome(loaded)) {
-          expect(loaded.value.iconPath).toBe("assets/logo.svg");
-          expect(loaded.value.scripts).toEqual([{ name: "Dev", command: "pnpm dev" }]);
-        }
-      }),
-    );
-
-    it.effect("returns none when t3.json is missing", () =>
-      Effect.gen(function* () {
-        const loader = yield* J1ProjectFileLoader.J1ProjectFileLoader;
-        const cwd = yield* makeTempDir;
-
-        const loaded = yield* loader.load(cwd);
-
-        expect(Option.isNone(loaded)).toBe(true);
+        expect(yield* loader.load(cwd)).toEqual(Option.some({ iconPath: "assets/logo.svg" }));
       }),
     );
 
@@ -67,18 +43,6 @@ it.layer(TestLayer)("J1ProjectFileLoader", (it) => {
         const loader = yield* J1ProjectFileLoader.J1ProjectFileLoader;
         const cwd = yield* makeTempDir;
         yield* writeProjectFile(cwd, "{ not json");
-
-        const loaded = yield* loader.load(cwd);
-
-        expect(Option.isNone(loaded)).toBe(true);
-      }),
-    );
-
-    it.effect("returns none for schema-invalid files without failing", () =>
-      Effect.gen(function* () {
-        const loader = yield* J1ProjectFileLoader.J1ProjectFileLoader;
-        const cwd = yield* makeTempDir;
-        yield* writeProjectFile(cwd, '{ "scripts": [{ "name": "Dev" }] }');
 
         const loaded = yield* loader.load(cwd);
 

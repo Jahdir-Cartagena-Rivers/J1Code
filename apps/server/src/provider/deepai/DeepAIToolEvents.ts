@@ -1,5 +1,4 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import type { ItemLifecyclePayload } from "@j1code/contracts";
 
 function output(value: unknown): string {
   if (!value || typeof value !== "object" || !("content" in value) || !Array.isArray(value.content))
@@ -18,13 +17,7 @@ function output(value: unknown): string {
 export function deepAIToolEvent(
   event: AgentSessionEvent,
   rememberedCommand?: string,
-):
-  | {
-      type: "item.started" | "item.updated" | "item.completed";
-      callId: string;
-      payload: ItemLifecyclePayload;
-    }
-  | undefined {
+) {
   if (
     event.type !== "tool_execution_start" &&
     event.type !== "tool_execution_update" &&
@@ -75,5 +68,5 @@ export function deepAIToolEvent(
         ...(text ? { rawOutput: { content: text } } : {}),
       },
     },
-  };
+  } as const;
 }

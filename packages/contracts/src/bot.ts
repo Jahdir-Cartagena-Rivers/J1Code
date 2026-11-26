@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 import { IsoDateTime, ProjectId, TrimmedString, TrimmedNonEmptyString } from "./baseSchemas.ts";
-import { ModelSelection } from "./orchestration.ts";
+import { ModelSelection } from "./legacyModelSelection.ts";
 import { BotId, BotName, BotInstructions } from "./botIdentity.ts";
 export * from "./botIdentity.ts";
 

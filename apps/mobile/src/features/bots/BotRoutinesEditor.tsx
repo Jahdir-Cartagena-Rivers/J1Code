@@ -1,8 +1,8 @@
 import type { BotRoutine } from "@j1code/contracts";
 import { Switch, TextInput, View } from "react-native";
-import { AppText } from "../../components/AppText";
-import { ControlPill, ControlPillMenu } from "../../components/ControlPill";
-import { MaterialButton } from "../../components/MaterialButton";
+import { AppText } from "../../components/ui/AppText";
+import { ControlPill, ControlPillMenu } from "../../components/ui/ControlPill";
+import { Button as MaterialButton } from "../../components/ui/Button";
 import { uuidv4 } from "../../lib/uuid";
 
 export function BotRoutinesEditor({

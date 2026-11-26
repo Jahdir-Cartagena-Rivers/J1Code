@@ -166,10 +166,26 @@ it("rejects another sender and locked-session activation", async () => {
   shell.windows = [target()];
   const { feedback } = begin();
   await expect(feedback.activate(":1.99", "J1 Code")).rejects.toThrow("No active capture");
+  await expect(feedback.animate(":1.99", { x: 0, y: 0, width: 1, height: 1 })).rejects.toThrow("No active capture");
   shell.locked = true;
   await expect(feedback.activate(":1.23", "J1 Code")).rejects.toThrow("No active capture");
   expect(shell.activate).not.toHaveBeenCalled();
+  await expect(feedback.animate(":1.23", { x: 0, y: 0, width: 1, height: 1 })).rejects.toThrow("No active capture");
+  shell.locked = false;
+  await feedback.activate(":1.23", "J1 Code");
+  expect(shell.activate).toHaveBeenCalledOnce();
+  for (const relative of [
+    { x: NaN, y: 0, width: 1, height: 1 },
+    { x: 0, y: 0, width: 0, height: 1 },
+    { x: -0.1, y: 0, width: 1, height: 1 },
+    { x: 0.9, y: 0, width: 0.5, height: 1 },
+  ]) {
+    await expect(feedback.animate(":1.23", relative)).rejects.toThrow("Invalid capture animation destination");
+  }
+  expect(shell.actors[0].transition).toBe(undefined);
   feedback.dispose();
+  expect(shell.watchers.size).toBe(0);
+  expect(shell.timers.size).toBe(0);
 });
 
 it("disposes an abandoned flight and resolves its pending response", async () => {

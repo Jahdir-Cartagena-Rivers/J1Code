@@ -1,20 +1,20 @@
-import * as NodeCrypto from "node:crypto";
+import { hashTelemetryId as hashUtf8Sha256 } from "@j1code/shared/telemetryId";
 import { makeTaskOwnerStore } from "./taskOwnerStore.ts";
 import { ThreadId } from "@j1code/contracts";
 import { Clock, Effect, Layer, Option, Schema, Stream } from "effect";
-import { SqlClient } from "effect/unstable/sql";
-import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as SqlClient from "effect/sql/SqlClient";
+import { ProjectionStoreV2 } from "../orchestration-v2/ProjectionStore.ts";
 import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { RoutingBoundaryPorts, makeRoutingBoundary } from "../mcp/toolkits/routing/boundary.ts";
 import { ExternalRouteEndpoints } from "./ExternalRouteEndpoints.ts";
 import { DeliveryDispatchError } from "./deliveryDispatcher.ts";
 import { routeEndpointUrl } from "@j1code/shared/routeEndpointUrl";
-import type { RouteEndpoint, RouteState } from "./routeState.ts";
-import { makeDurableRoutingStore } from "./durableRoutingStore.ts";
+import { replayRouteInput, type RouteEndpoint, type RouteState } from "./routeState.ts";
+import { ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
+import { makeDurableRoutingStore, RoutingStoreError } from "./durableRoutingStore.ts";
 import { makeSnapshotRoutingAdapter } from "./snapshotRoutingAdapter.ts";
 import { makeEngineRouteDrain } from "./engineDrain.ts";
-import { makeRouteTransportConsumer } from "./transportConsumer.ts";
 import { isBuildIntegrationRequest, PROJECT_BUILD_OWNER_TASK } from "./integrationOwner.ts";
 import { makeRouteSourceNotifier } from "./sourceActivity.ts";
 import { suggestWorkingChat } from "./workingChatSuggestion.ts";
@@ -53,7 +53,8 @@ const routeSummary = (state: RouteState) => ({
 export const RoutingRuntimeLive = Layer.effect(
   RoutingBoundaryPorts,
   Effect.gen(function* () {
-    const snapshots = yield* ProjectionSnapshotQuery;
+    const projections = yield* ProjectionStoreV2;
+    const projects = yield* ProjectStoreV2;
     const environmentId = yield* (yield* ServerEnvironment).getEnvironmentId;
     const settings = yield* ServerSettingsService;
     const external = yield* Effect.serviceOption(ExternalRouteEndpoints);
@@ -61,14 +62,20 @@ export const RoutingRuntimeLive = Layer.effect(
     const store = yield* makeDurableRoutingStore;
     const notify = yield* makeRouteSourceNotifier;
     const drain = yield* makeEngineRouteDrain;
-    const consumer = yield* makeRouteTransportConsumer;
-    yield* consumer.start;
     yield* drain.start;
     const error = () => "Routing operation unavailable.";
-    const shell = (id: string) =>
-      snapshots
-        .getThreadShellById(ThreadId.make(id))
-        .pipe(Effect.map(Option.getOrNull), Effect.mapError(error));
+    const shell = (id: string) => projections.getThreadShell(ThreadId.make(id)).pipe(
+      Effect.map((thread) => thread === null || thread.deletedAt !== null ? null : {
+        ...thread,
+        hasPendingApprovals: thread.pendingRuntimeRequest !== null,
+        hasPendingUserInput: false,
+        // This preflight marker is never used as a provider/native turn identity.
+        session: thread.activeRunId === null ? null : {
+          activeTurnId: thread.activeRunId, status: thread.activityRunStatus ?? "running",
+        },
+      }),
+      Effect.mapError(error),
+    );
     const localAdapter = makeSnapshotRoutingAdapter({
       environmentId,
       thread: shell,
@@ -137,8 +144,8 @@ export const RoutingRuntimeLive = Layer.effect(
             }).pipe(Effect.mapError((message) => new DeliveryDispatchError({ message })))
           : localAdapter.inspect(endpoint),
     };
-    const owner: RoutingBoundaryPorts["Service"]["owner"] = (source, taskId, candidate, request) =>
-      Effect.gen(function* () {
+    const owner: RoutingBoundaryPorts["Service"]["owner"] = Effect.fn("owner")(
+      function* (source, taskId, candidate, request) {
         const exact = yield* sql<{
           thread_id: string;
         }>`SELECT DISTINCT thread_id FROM task_owner_bindings
@@ -171,7 +178,10 @@ export const RoutingRuntimeLive = Layer.effect(
           destination: yield* suggestWorkingChat(source, `${taskId} ${request ?? ""}`),
           ambiguous: true,
         };
-      }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.mapError(error));
+      },
+      Effect.provideService(SqlClient.SqlClient, sql),
+      Effect.mapError(error),
+    );
     const reconsider = Effect.gen(function* () {
       const settingsNow = yield* settings.getSettings;
       if (settingsNow.chatRoutingMode !== "auto") {
@@ -220,53 +230,55 @@ export const RoutingRuntimeLive = Layer.effect(
     yield* reconsider;
     const ports = RoutingBoundaryPorts.of({
       ...adapter,
-      release: (endpoint, taskId, requestId) =>
-        Effect.gen(function* () {
+      release: Effect.fn("RoutingBoundaryPorts.release")(
+        function* (endpoint, taskId, requestId) {
           const actual = yield* adapter.current(endpoint.environmentId, endpoint.threadId);
           if (!actual || actual.projectId !== endpoint.projectId)
             return yield* Effect.fail("Source unavailable.");
           const owners = yield* makeTaskOwnerStore({
-            verify: () =>
-              Effect.gen(function* () {
-                return {
-                  principalId: `thread:${endpoint.threadId}`,
-                  requestId,
-                  authenticatedAt: yield* Clock.currentTimeMillis,
-                };
-              }),
+            verify: Effect.fn("verify")(function* () {
+              return {
+                principalId: `thread:${endpoint.threadId}`,
+                requestId,
+                authenticatedAt: yield* Clock.currentTimeMillis,
+              };
+            }),
           });
           const rows = yield* sql<{
             binding_id: string;
           }>`SELECT binding_id FROM task_owner_bindings WHERE task_id = ${taskId} AND environment_id = ${endpoint.environmentId} AND project_id = ${endpoint.projectId} AND thread_id = ${endpoint.threadId} AND revocation_json IS NULL`;
           for (const row of rows) yield* owners.revoke(row.binding_id);
           yield* reconsider;
-        }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.mapError(error)),
-      claim: (endpoint, taskId, requestId) =>
-        Effect.gen(function* () {
+        },
+        Effect.provideService(SqlClient.SqlClient, sql),
+        Effect.mapError(error),
+      ),
+      claim: Effect.fn("RoutingBoundaryPorts.claim")(
+        function* (endpoint, taskId, requestId) {
           const actual = yield* adapter.current(endpoint.environmentId, endpoint.threadId);
           if (!actual || actual.projectId !== endpoint.projectId)
             return yield* Effect.fail("Source unavailable.");
           const owners = yield* makeTaskOwnerStore({
-            verify: () =>
-              Effect.gen(function* () {
-                return {
-                  principalId: `thread:${endpoint.threadId}`,
-                  requestId,
-                  authenticatedAt: yield* Clock.currentTimeMillis,
-                };
-              }),
+            verify: Effect.fn("verify")(function* () {
+              return {
+                principalId: `thread:${endpoint.threadId}`,
+                requestId,
+                authenticatedAt: yield* Clock.currentTimeMillis,
+              };
+            }),
           });
           yield* owners.bind({
             ...endpoint,
             taskId,
-            bindingId: NodeCrypto.createHash("sha256")
-              .update(yield* encodeIdentity([endpoint, taskId, requestId]))
-              .digest("hex"),
+            bindingId: hashUtf8Sha256(yield* encodeIdentity([endpoint, taskId, requestId])),
           });
           yield* reconsider;
-        }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.mapError(error)),
-      policy: (source, requestId, taskId) =>
-        Effect.gen(function* () {
+        },
+        Effect.provideService(SqlClient.SqlClient, sql),
+        Effect.mapError(error),
+      ),
+      policy: Effect.fn("RoutingBoundaryPorts.policy")(
+        function* (source, requestId, taskId) {
           const policy = yield* adapter.policy(source, requestId);
           const rows = yield* sql<{ request_id: string }>`SELECT request_id FROM durable_routes
         WHERE json_extract(state_json, '$.request.destination.threadId') = ${source.threadId}
@@ -285,10 +297,12 @@ export const RoutingRuntimeLive = Layer.effect(
             ).values(),
           ];
           return { ...policy, visited, maxHops: 8 };
-        }).pipe(Effect.mapError(error)),
+        },
+        Effect.mapError(error),
+      ),
       owner,
-      reply: (endpoint, id, replyId, message) =>
-        Effect.gen(function* () {
+      reply: Effect.fn("RoutingBoundaryPorts.reply")(
+        function* (endpoint, id, replyId, message) {
           const original = yield* store.get(id);
           if (!original) return yield* Effect.fail("Route unavailable.");
           const identity = yield* encodeIdentity(["route-reply-v1", id, endpoint, replyId]);
@@ -297,7 +311,7 @@ export const RoutingRuntimeLive = Layer.effect(
               createRouteFeedback(
                 original.state,
                 endpoint,
-                NodeCrypto.createHash("sha256").update(identity).digest("hex"),
+                hashUtf8Sha256(identity),
                 message,
               ),
             catch: () => "Route reply unavailable.",
@@ -312,9 +326,11 @@ export const RoutingRuntimeLive = Layer.effect(
           const row = existing ?? (yield* store.create(feedback));
           yield* drain.drain();
           return (yield* store.get(row.state.request.requestId))!.state;
-        }).pipe(Effect.mapError(error)),
-      receipt: (endpoint, id, kind, message) =>
-        Effect.gen(function* () {
+        },
+        Effect.mapError(error),
+      ),
+      receipt: Effect.fn("RoutingBoundaryPorts.receipt")(
+        function* (endpoint, id, kind, message) {
           const row = yield* store.get(id);
           const destination = row?.state.request.destination;
           if (
@@ -340,9 +356,18 @@ export const RoutingRuntimeLive = Layer.effect(
           });
           yield* notify(changed);
           return changed.state;
-        }).pipe(Effect.mapError(error)),
-      submit: (input) =>
-        Effect.gen(function* () {
+        },
+        Effect.mapError(error),
+      ),
+      submit: Effect.fn("RoutingBoundaryPorts.submit")(
+        function* (input) {
+          const prior = yield* store.get(input.route.requestId);
+          if (prior) {
+            return yield* Effect.try({
+              try: () => replayRouteInput(prior.state, input.fingerprint),
+              catch: (cause) => new RoutingStoreError({ operation: "replay-input", cause }),
+            });
+          }
           const source = yield* adapter.inspect(input.route.source);
           const destination = input.route.destination
             ? yield* adapter.inspect(input.route.destination)
@@ -359,26 +384,29 @@ export const RoutingRuntimeLive = Layer.effect(
               existing?.state.originalRequest.destinationPermissions ??
               destination?.permissions ??
               [],
-          });
+          }, input.fingerprint);
           yield* notify(row);
           yield* drain.drain();
           const latest = (yield* store.get(row.state.request.requestId))!;
           if (latest.revision !== row.revision) yield* notify(latest);
           return latest.state;
-        }).pipe(Effect.mapError(error)),
-      get: (id) =>
-        store.get(id).pipe(
-          Effect.map((r) => r?.state ?? null),
-          Effect.mapError(error),
-        ),
-      list: (endpoint) =>
-        Effect.gen(function* () {
+        },
+        Effect.mapError(error),
+      ),
+      get: Effect.fn("RoutingBoundaryPorts.get")(
+        (id: string) => store.get(id).pipe(Effect.map((row) => row?.state ?? null)),
+        Effect.mapError(error),
+      ),
+      list: Effect.fn("RoutingBoundaryPorts.list")(
+        function* (endpoint) {
           const rows = yield* sql<{ request_id: string }>`SELECT request_id FROM durable_routes
         WHERE json_extract(state_json, '$.request.source.threadId') = ${endpoint.threadId}
         OR json_extract(state_json, '$.request.destination.threadId') = ${endpoint.threadId}`;
           const routes = yield* Effect.forEach(rows, (r) => store.get(r.request_id));
           return routes.flatMap((r) => (r ? [r.state] : []));
-        }).pipe(Effect.mapError(error)),
+        },
+        Effect.mapError(error),
+      ),
     });
     if (Option.isSome(external)) {
       const removeReceiver = external.value.registerReceiver((event) =>
@@ -452,7 +480,7 @@ export const RoutingRuntimeLive = Layer.effect(
             case "list_chat_projects": {
               yield* decodeEmpty(input, { onExcessProperty: "error" });
               yield* boundary.routingMode;
-              return (yield* snapshots.getProjectShells()).map(({ id, title, workspaceRoot }) => ({
+              return (yield* projects.listShells()).filter((project) => project.archivedAt == null).map(({ id, title, workspaceRoot }) => ({
                 id,
                 title,
                 workspaceRoot,

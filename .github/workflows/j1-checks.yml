@@ -49,7 +49,9 @@ jobs:
         run: node --test .github/scripts/j1-release.test.cjs
       - name: Test shared bot execution and interrupted Codex update recovery
         run: >-
-          vp test run apps/server/src/mausbot/Execution.test.ts
+          vp test run apps/server/src/mausbot/ExecutionV2.test.ts
+          apps/server/src/mausbot/ExecutionV2Live.integration.test.ts
+          apps/server/src/orchestration-v2/MausbotResume.test.ts
           apps/server/src/mausbot/ExecutionAccounts.test.ts
           apps/server/src/mcp/McpInvocationContext.test.ts
           apps/server/src/mcp/toolkits/bot/handlers.test.ts
@@ -82,15 +84,17 @@ jobs:
         working-directory: apps/server
         run: >-
           vp test run src/mcp/AgentDelegation.test.ts
-          src/provider/Layers/ProviderService.test.ts
+          src/orchestration-v2/ProviderTurnStartService.test.ts
+          src/orchestration-v2/RunExecutionService.test.ts
+          src/orchestration-v2/ProviderRuntimeRecoveryService.test.ts
           src/provider/providerCompatibility.test.ts
-          src/orchestration/Layers/ProjectionSnapshotQuery.test.ts
-          src/orchestration/Layers/OrchestrationEngine.test.ts
+          src/orchestration-v2/ProjectionStore.test.ts
+          src/orchestration-v2/Orchestrator.control-reads.test.ts
+          src/orchestration-v2/Orchestrator.worker-archive.test.ts
       - name: Test chat navigation and saved settings
         working-directory: apps/web
         run: >-
-          vp test run --project unit src/components/WorkerChats.test.tsx
-          src/components/MausbotShell.layout.test.ts
+          vp test run --project unit src/components/MausbotShell.layout.test.ts
           src/workerChatStore.test.ts
           src/components/settings/settingsSearch.test.ts src/components/Sidebar.logic.test.ts
       - name: Test inline handoff folds and the sidebar updater
@@ -100,8 +104,15 @@ jobs:
           apps/mobile/src/lib/threadActivity.test.ts
           packages/shared/src/routeRequestAnchors.test.ts
           apps/web/src/components/chat/RouteRequestControl.test.tsx
-          apps/web/src/components/sidebar/SidebarUpdatePill.test.tsx
           apps/web/src/components/desktopUpdate.logic.test.ts
+      - name: Install browser test runtime
+        working-directory: apps/web
+        run: vp exec playwright install --with-deps chromium
+      - name: Test sidebar updater and worker chats in the browser
+        working-directory: apps/web
+        run: >-
+          vp test run --project browser src/components/sidebar/SidebarUpdatePill.browser.test.tsx
+          src/components/WorkerChats.browser.test.tsx
       - name: Lint the covered code
         run: >-
           vp lint scripts/build-desktop-artifact.ts scripts/build-desktop-artifact.test.ts
@@ -110,8 +121,10 @@ jobs:
           apps/server/src/hiveMind/store.ts apps/server/src/hiveMind/store.test.ts
           apps/server/src/hiveMind/importNative.test.ts
           apps/server/src/hiveMind/livePresence.ts apps/server/src/hiveMind/livePresence.test.ts
-          apps/server/src/provider/Layers/ProviderService.ts
-          apps/server/src/provider/Layers/ProviderService.test.ts
+          apps/server/src/orchestration-v2/ProviderTurnStartService.ts
+          apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts
+          apps/server/src/orchestration-v2/RunExecutionService.test.ts
+          apps/server/src/orchestration-v2/ProviderRuntimeRecoveryService.test.ts
           apps/server/src/provider/providerCompatibility.ts
           apps/server/src/provider/providerCompatibility.test.ts
           packages/shared/src/j1Brand.ts

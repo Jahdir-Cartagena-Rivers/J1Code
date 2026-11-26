@@ -3,7 +3,7 @@ import * as NodeFSP from "node:fs/promises";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Console from "effect/Console";
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import { exportServerTransfer, importServerTransfer } from "../serverTransfer/transfer.ts";
 
 export async function runTransfer(

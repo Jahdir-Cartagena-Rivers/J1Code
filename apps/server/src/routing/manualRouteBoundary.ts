@@ -56,6 +56,10 @@ export function makeManualRouteBoundary(ports: ManualRoutePorts) {
       throw new Error("Unauthorized route action");
     return session;
   };
+  const canRead = (stored: Stored, session: AuthenticatedSession) =>
+    stored.state.originalRequest.origin !== undefined
+      ? stored.state.originalRequest.origin.subject === session.subject
+      : stored.state.resolution === null || stored.state.resolution.userId === session.subject;
   const load = async (id: string, source: RouteEndpoint, session: AuthenticatedSession) => {
     if (source.environmentId !== ports.environmentId)
       throw new Error("Source environment mismatch");
@@ -64,6 +68,11 @@ export function makeManualRouteBoundary(ports: ManualRoutePorts) {
     const stored = await ports.get(id);
     if (!stored || !same(stored.state.originalRequest.source, source))
       throw new Error("Route source mismatch");
+    return stored;
+  };
+  const loadAuthorized = async (id: string, source: RouteEndpoint, session: AuthenticatedSession) => {
+    const stored = await load(id, source, session);
+    if (!canRead(stored, session)) throw new Error("Route unavailable");
     return stored;
   };
   return {
@@ -77,10 +86,12 @@ export function makeManualRouteBoundary(ports: ManualRoutePorts) {
       const rows = await Promise.all(
         ids.map(async (id) => {
           const stored = await load(id, source, session);
+          if (!canRead(stored, session)) return null;
           const state = stored.state;
           const seen = (kind: string) => state.receipts.some((receipt) => receipt.kind === kind);
           return {
             summary: state.originalRequest.content.slice(0, 200),
+            sourceMessageId: state.originalRequest.origin?.messageId ?? null,
             requestId: id,
             revision: stored.revision,
             status: state.status,
@@ -98,11 +109,11 @@ export function makeManualRouteBoundary(ports: ManualRoutePorts) {
           };
         }),
       );
-      return rows;
+      return rows.filter((row) => row !== null);
     },
     prepare: async (id: string, source: RouteEndpoint, destination: RouteEndpoint) => {
       const session = await authorize(true);
-      const stored = await load(id, source, session);
+      const stored = await loadAuthorized(id, source, session);
       if (stored.state.status !== "suggested")
         throw new Error("Route is not awaiting confirmation");
       const actual = await ports.inspect(session, destination);
@@ -131,7 +142,7 @@ export function makeManualRouteBoundary(ports: ManualRoutePorts) {
       const session = await authorize(true);
       if (session.sessionId !== action.sessionId || session.subject !== action.subject)
         throw new Error("User action session mismatch");
-      const stored = await load(action.requestId, action.source, session);
+      const stored = await loadAuthorized(action.requestId, action.source, session);
       if (stored.revision !== action.revision || stored.state.fingerprint !== action.fingerprint)
         throw new Error("Stale user action");
       const source = await ports.inspect(session, action.source);
@@ -155,12 +166,13 @@ export function makeManualRouteBoundary(ports: ManualRoutePorts) {
       return ports.commit(action.requestId, action.revision, state);
     },
     status: async (id: string, source: RouteEndpoint) => {
-      const stored = await load(id, source, await authorize(false));
+      const stored = await loadAuthorized(id, source, await authorize(false));
       const { state } = stored;
       const seen = (kind: "delivered" | "accepted" | "completed" | "failed") =>
         state.receipts.some((receipt) => receipt.kind === kind);
       return {
         requestId: id,
+        sourceMessageId: state.originalRequest.origin?.messageId ?? null,
         revision: stored.revision,
         status: state.status,
         reason: state.reason,

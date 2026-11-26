@@ -1,10 +1,10 @@
+import { pipe } from "effect/Function";
 import {
   fileBasename,
-  formatFilePathPosition,
-  splitFilePathPosition,
   stripSlashPrefixedWindowsDrive,
-} from "@j1code/client-runtime/markdown-links";
-import { isWindowsAbsolutePath } from "@j1code/shared/path";
+  isWindowsAbsolutePath,
+} from "@j1code/shared/path";
+import { formatFilePathPosition, splitFilePathPosition } from "@j1code/shared/fileLinks";
 
 function normalizePathSeparators(path: string): string {
   return path.replaceAll("\\", "/");
@@ -27,8 +27,10 @@ export function formatWorkspaceRelativePath(
 
   let displayPath = normalizedPath;
   if (workspaceRoot) {
-    const normalizedWorkspaceRoot = stripSlashPrefixedWindowsDrive(
-      normalizePathSeparators(trimTrailingPathSeparators(workspaceRoot)),
+    const normalizedWorkspaceRoot = pipe(
+      trimTrailingPathSeparators(workspaceRoot),
+      normalizePathSeparators,
+      stripSlashPrefixedWindowsDrive,
     );
     const workspaceLabel = fileBasename(normalizedWorkspaceRoot);
     const caseInsensitive = isWindowsAbsolutePath(stripSlashPrefixedWindowsDrive(workspaceRoot));
@@ -44,7 +46,7 @@ export function formatWorkspaceRelativePath(
     } else if (pathForCompare.startsWith(workspaceWithSeparator)) {
       const relativeSuffix = normalizedPath.slice(normalizedWorkspaceRoot.length + 1);
       displayPath = `${workspaceLabel}/${relativeSuffix}`;
-    } else if (!normalizedPath.startsWith("/")) {
+    } else if (!normalizedPath.startsWith("/") && !isWindowsAbsolutePath(normalizedPath)) {
       const relativePath = stripRelativePrefixes(normalizedPath);
       displayPath = pathForCompare.startsWith(workspaceLabelWithSeparator)
         ? normalizedPath

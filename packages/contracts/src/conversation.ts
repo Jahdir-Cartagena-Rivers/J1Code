@@ -1,5 +1,5 @@
 import * as Schema from "effect/Schema";
-import { RuntimeMode } from "./orchestration.ts";
+import { RuntimeMode } from "./providerPolicy.ts";
 
 export const ConversationEndpoint = Schema.Struct({
   environmentId: Schema.String,

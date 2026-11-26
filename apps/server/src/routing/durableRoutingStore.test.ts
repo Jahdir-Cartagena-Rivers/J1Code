@@ -5,7 +5,7 @@ import * as NodePath from "node:path";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, ManagedRuntime } from "effect";
 import * as NodeSqliteClient from "@j1code/shared/nodeSqliteClient";
-import migration from "../persistence/Migrations/060_DurableRoutes.ts";
+import { Migration0060 as migration } from "../persistence/J1MigrationBridge.ts";
 import {
   makeDurableRoutingStoreWithResolution,
   makeDurableRoutingStore,
@@ -316,6 +316,7 @@ it("persists immutable intent and a single competing authenticated resolution ac
     ambiguous: true,
     taskId: "task",
     sourceUrl: "j1://origin",
+    origin: { subject: "user", runId: "original-run", messageId: "original-message" },
   };
   try {
     await db.runPromise(migration);
@@ -340,6 +341,13 @@ it("persists immutable intent and a single competing authenticated resolution ac
           }),
       }),
     );
+    await expect(db.runPromise(store.commitResolution("stable", 0, {
+      authenticatedUser: true,
+      userId: "foreign",
+      source: original.source,
+      destination: request.destination!,
+      destinationPermissions: [],
+    }))).rejects.toThrow();
     const results = await Promise.allSettled(
       ["one", "two"].map((threadId) =>
         db.runPromise(store.resolve("stable", 0, { ...request.destination!, threadId })),
@@ -365,4 +373,29 @@ it("persists immutable intent and a single competing authenticated resolution ac
     await db.dispose();
     await NodeFSP.rm(dir, { recursive: true, force: true });
   }
+});
+
+it("retains original caller input across reopen and policy changes without re-admission", async () => {
+  const dir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-route-input-"));
+  const path = NodePath.join(dir, "routes.sqlite");
+  let db = runtime(path);
+  const inputFingerprint = "a".repeat(64);
+  try {
+    await db.runPromise(migration);
+    let store = await db.runPromise(makeDurableRoutingStore);
+    const first = await db.runPromise(store.create(request, inputFingerprint));
+    await db.dispose(); db = runtime(path);
+    store = await db.runPromise(makeDurableRoutingStore);
+    const replay = await db.runPromise(store.create({
+      ...request, mode: "off", destination: { ...request.destination!, threadId: "new-owner" },
+      visited: [request.source],
+    }, inputFingerprint));
+    expect(replay).toEqual(first);
+    expect(replay.state.inputFingerprint).toBe(inputFingerprint);
+    await expect(db.runPromise(store.create(request, "b".repeat(64)))).rejects.toThrow();
+    expect(await db.runPromise(store.get(request.requestId))).toEqual(first);
+    const legacy = await db.runPromise(store.create({ ...request, requestId: "legacy" }));
+    await expect(db.runPromise(store.create({ ...request, requestId: "legacy" }, inputFingerprint))).rejects.toThrow();
+    expect(await db.runPromise(store.get("legacy"))).toEqual(legacy);
+  } finally { await db.dispose(); await NodeFSP.rm(dir, { recursive: true, force: true }); }
 });

@@ -4,6 +4,7 @@ included:
   - modules/j1-native-controls/ios
   - modules/j1-terminal/ios
   - modules/j1-review-diff/ios
+  - modules/t3-voice-transcription/ios
 
 excluded:
   - ios/Pods

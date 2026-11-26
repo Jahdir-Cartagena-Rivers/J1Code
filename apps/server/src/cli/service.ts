@@ -1,28 +1,29 @@
-import { HostProcessPlatform } from "@j1code/shared/hostProcess";
+import * as NodeUtil from "node:util";
+
+import * as HostProcess from "@j1code/shared/HostProcess";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Terminal from "effect/Terminal";
-import { Command, Flag, GlobalFlag, Prompt } from "effect/unstable/cli";
-import { FetchHttpClient } from "effect/unstable/http";
+import * as Path from "effect/Path";
+import { Command, Flag, GlobalFlag, Prompt } from "effect/cli";
+import { FetchHttpClient } from "effect/http";
 
 import packageJson from "../../package.json" with { type: "json" };
 import * as BootService from "../cloud/bootService.ts";
-import { compareExactServiceVersions } from "../cloud/serviceProtocol.ts";
-import type * as ServerConfig from "../config.ts";
+import * as ServiceProtection from "../cloud/serviceProtection.ts";
+import { compareExactServiceVersions, SERVICE_ENV_FILE } from "../cloud/serviceProtocol.ts";
+import * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
+import { hostShellWord, resolveEntryPath, resolveHostCliHint } from "./invocation.ts";
 
-export const bootServiceLayer = (config: ServerConfig.ServerConfig["Service"]) =>
+export const layer = (config: ServerConfig.ServerConfig["Service"]) =>
   BootService.layer({
     baseDir: config.baseDir,
     logsDir: config.logsDir,
     cliVersion: packageJson.version,
-  }).pipe(
-    Layer.provide(ProcessRunner.layer),
-    // Archive-distributed versions download the release archive here.
-    Layer.provide(FetchHttpClient.layer),
-  );
+  }).pipe(Layer.provide(ProcessRunner.layer), Layer.provide(FetchHttpClient.layer));
 
 export type ServiceReconcileResult =
   | {
@@ -35,15 +36,101 @@ export type ServiceReconcileResult =
       readonly plan: BootService.BootServicePlan;
     };
 
-/** Install, update, or repair the service using the CLI version running this command. */
+const SERVICE_ENV_KEY = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/u;
+
+/**
+ * Sets or removes (`undefined`) entries in `service.env` text and keeps every
+ * other line, including comments, as the user wrote it.
+ */
+export const upsertServiceEnv = (
+  contents: string,
+  entries: Readonly<Record<string, string | undefined>>,
+): string => {
+  const written = new Set<string>();
+  const source = contents.split("\n");
+  const lines: string[] = [];
+  for (let index = 0, offset = 0; index < source.length;) {
+    const line = source[index]!;
+    const match = SERVICE_ENV_KEY.exec(line);
+    let end = index + 1;
+    if (match !== null) {
+      // util.parseEnv lets a quoted value run to its closing quote across lines,
+      // skipping only spaces, tabs and CRs before the opening quote.
+      const rest = line.slice(match[0].length).replace(/^[ \t\r]+/u, "");
+      const quote = rest[0];
+      if ((quote === '"' || quote === "'" || quote === "`") && !rest.includes(quote, 1)) {
+        const closing = contents.indexOf(quote, offset + line.length);
+        if (closing !== -1) {
+          end += contents.slice(offset + line.length, closing).split("\n").length - 1;
+        }
+      }
+    }
+    const span = source.slice(index, end);
+    offset += span.reduce((length, part) => length + part.length + 1, 0);
+    index = end;
+    const key = match?.[1];
+    if (key === undefined || !Object.hasOwn(entries, key)) {
+      lines.push(span.join("\n"));
+      continue;
+    }
+    const value = entries[key];
+    if (value === undefined || written.has(key)) continue;
+    written.add(key);
+    lines.push(`${key}=${value}`);
+  }
+  while (lines.at(-1) === "") lines.pop();
+  for (const [key, value] of Object.entries(entries)) {
+    if (value !== undefined && !written.has(key)) lines.push(`${key}=${value}`);
+  }
+  return lines.length === 0 ? "" : `${lines.join("\n")}\n`;
+};
+
+/** `service.env` under `baseDir`, parsed as the service launcher parses it. */
+export const readServiceEnv = Effect.fn("cli.service.read_env")(function* (baseDir: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = (yield* Path.Path).join(baseDir, SERVICE_ENV_FILE);
+  const contents = (yield* fs.exists(path)) ? yield* fs.readFileString(path) : "";
+  const entries = Object.entries(NodeUtil.parseEnv(contents)).flatMap(([key, value]) =>
+    value === undefined ? [] : [[key, value] as const],
+  );
+  return { path, contents, entries: Object.fromEntries(entries) };
+});
+
+export const writeServiceEnv = Effect.fn("cli.service.write_env")(function* (
+  baseDir: string,
+  entries: Readonly<Record<string, string | undefined>>,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const current = yield* readServiceEnv(baseDir);
+  const next = upsertServiceEnv(current.contents, entries);
+  if (next === current.contents) return;
+  yield* fs.makeDirectory(baseDir, { recursive: true });
+  yield* fs.writeFileString(current.path, next);
+});
+
 export const reconcileService = Effect.fn("cli.service.reconcile")(function* (options?: {
   readonly allowDowngrade?: boolean;
   readonly start?: boolean;
 }) {
+  const { baseDir } = yield* ServerConfig.ServerConfig;
   const service = yield* BootService.BootService;
   const status = yield* service.status;
+  // Before the downgrade check, which reads this home's state, not the service's.
+  if (status.otherBaseDir !== undefined) {
+    return yield* new BootService.BootServiceOtherBaseDirError({
+      installedBaseDir: status.otherBaseDir,
+      baseDir,
+    });
+  }
   if (status.installed && status.current) {
     return { changed: false, status } satisfies ServiceReconcileResult;
+  }
+  if (status.supported && !status.installed) {
+    // A new service listens on this machine only, until `j1 up` opens the local network.
+    const { entries } = yield* readServiceEnv(baseDir);
+    if (entries.T3CODE_LAN === undefined && entries.T3CODE_HOST === undefined) {
+      yield* writeServiceEnv(baseDir, { T3CODE_LAN: "false" });
+    }
   }
   if (
     status.installedVersion !== undefined &&
@@ -63,19 +150,61 @@ export const reconcileService = Effect.fn("cli.service.reconcile")(function* (op
   } satisfies ServiceReconcileResult;
 });
 
+export function formatServiceChange(
+  result: Extract<ServiceReconcileResult, { readonly changed: true }>,
+): string {
+  if (result.plan.handedOff === true) {
+    return `J1 Code service update to v${packageJson.version} queued. This session will disconnect.\nLog: ${result.plan.logPath}`;
+  }
+  return `J1 Code service ${result.previouslyInstalled ? "updated" : "installed"} · v${packageJson.version}\nLog: ${result.plan.logPath}`;
+}
+
+const MEMORY_CONTROLLER_DISABLED =
+  "the kernel's memory cgroup controller is disabled. Add `cgroup_enable=memory` to the kernel command line and reboot.";
+
+function formatProtection(
+  protection: ServiceProtection.ServiceProtectionState | undefined,
+): ReadonlyArray<string> {
+  if (protection === undefined) return [];
+  return [
+    !protection.memoryControllerAvailable
+      ? `  Memory protection: unavailable, ${MEMORY_CONTROLLER_DISABLED}`
+      : protection.unprotected === undefined
+        ? `  Memory protection: on${protection.setByProtect ? " (j1 service protect)" : ""}`
+        : `  Memory protection: off, ${protection.unprotected} grants none. Run \`j1 service protect\`.`,
+    ...(protection.oomScoreAdj === undefined ? [] : [`  OOM score: ${protection.oomScoreAdj}`]),
+  ];
+}
+
+const formatServiceBaseDirOption = (platform: NodeJS.Platform, baseDir: string) =>
+  platform === "win32"
+    ? `--base-dir ${hostShellWord(platform, baseDir)}`
+    : BootService.formatBootServiceBaseDirOption(baseDir);
+
 export function formatServiceStatus(
   status: BootService.BootServiceStatus,
   cliVersion: string,
+  commands: { readonly install: string; readonly restart: string; readonly update: string },
+  protection?: ServiceProtection.ServiceProtectionState,
+  platform: NodeJS.Platform = "linux",
 ): string {
   if (!status.supported) {
-    return "J1 Code service\n  Status: unavailable on this machine\n  Supported on: Linux with systemd, macOS with launchd";
+    return "J1 Code service\n  Status: unavailable on this machine\n  Supported on: Linux with systemd, macOS with launchd, Windows with Task Scheduler";
   }
   if (!status.installed) {
-    return "J1 Code service\n  Status: not installed\n  Next: Run `j1 service install`.";
+    return `J1 Code service\n  Status: not installed\n  Next: Run \`${commands.install}\`.`;
+  }
+  if (status.otherBaseDir !== undefined) {
+    return [
+      "J1 Code service",
+      "  Status: installed for another J1 home",
+      `  Base dir: ${status.otherBaseDir}`,
+      `  Next: Pass \`${formatServiceBaseDirOption(platform, status.otherBaseDir)}\` to manage it.`,
+    ].join("\n");
   }
   const installedVersion = status.installedVersion ?? cliVersion;
   const problems = (status.problems ?? []).map(
-    (problem) => `  [${problem}] ${BootService.formatBootServiceProblem(problem)}`,
+    (problem) => `  [${problem}] ${BootService.formatBootServiceProblem(problem, commands)}`,
   );
   if (
     !status.current &&
@@ -84,30 +213,32 @@ export function formatServiceStatus(
   ) {
     return [
       "J1 Code service",
-      `  Status: installed · t3@${installedVersion} (newer than this t3@${cliVersion} CLI)`,
+      `  Status: installed · v${installedVersion} (newer than this v${cliVersion} CLI)`,
       `  Unit: ${status.unitPath}`,
       `  Logs: ${status.logPath}`,
+      ...formatProtection(protection),
       ...problems,
-      `  Next: Run \`j1 update ${installedVersion}\` to match it, or pass \`--allow-downgrade\` to \`j1 service install\` explicitly.`,
+      `  Next: Run \`${commands.update}\` to match it, or pass \`--allow-downgrade\` to \`${commands.install}\` explicitly.`,
     ].join("\n");
   }
   return [
     "J1 Code service",
-    `  Status: ${status.current ? `installed · t3@${installedVersion}` : "needs an update or repair"}`,
+    `  Status: ${status.current ? `installed · v${installedVersion}` : "needs an update or repair"}`,
     `  Unit: ${status.unitPath}`,
     `  Logs: ${status.logPath}`,
+    ...formatProtection(protection),
     ...problems,
-    ...(status.current ? [] : ["  Next: Run `j1 service install` to repair it."]),
+    ...(status.current ? [] : [`  Next: Run \`${commands.install}\` to repair it.`]),
   ].join("\n");
 }
 
-const runServiceCommand = Effect.fn("cli.service.run")(function* <A, E>(
+const runServiceCommand = Effect.fn("cli.service.run")(function* <A, E, R>(
   flags: { readonly baseDir: Parameters<typeof resolveCliAuthConfig>[0]["baseDir"] },
-  run: Effect.Effect<A, E, BootService.BootService>,
+  run: Effect.Effect<A, E, R>,
 ) {
   const logLevel = yield* GlobalFlag.LogLevel;
   const config = yield* resolveCliAuthConfig(flags, logLevel);
-  return yield* run.pipe(Effect.provide(bootServiceLayer(config)));
+  return yield* run.pipe(Effect.provide(Layer.merge(layer(config), ServerConfig.layer(config))));
 });
 
 const serviceReconcileFlags = {
@@ -119,7 +250,9 @@ const serviceReconcileFlags = {
 };
 
 const serviceInstallCommand = Command.make("install", serviceReconcileFlags).pipe(
-  Command.withDescription("Install J1 Code as a background service for this user."),
+  Command.withDescription(
+    "Install J1 Code as a background service for this user. `j1 up` also chooses how your other devices reach it.",
+  ),
   Command.withHandler((flags) =>
     runServiceCommand(
       flags,
@@ -127,20 +260,20 @@ const serviceInstallCommand = Command.make("install", serviceReconcileFlags).pip
         const result = yield* reconcileService({ allowDowngrade: flags.allowDowngrade });
         if (!result.changed) {
           yield* Console.log(
-            `J1 Code service is already installed with t3@${packageJson.version}.`,
+            `J1 Code service is already installed with v${packageJson.version} (${yield* resolveEntryPath}).`,
           );
           return;
         }
-        yield* Console.log(
-          `${result.previouslyInstalled ? "Updated" : "Installed"} J1 Code service with t3@${packageJson.version}.\nLogs: ${result.plan.logPath}`,
-        );
+        yield* Console.log(formatServiceChange(result));
+        if (!result.previouslyInstalled) {
+          const upCommand = yield* resolveHostCliHint("up", flags.baseDir);
+          yield* Console.log(`Run \`${upCommand}\` to choose how your other devices reach it.`);
+        }
       }),
     ),
   ),
 );
 
-// Kept one release for muscle memory and old docs. It did what `j1 service
-// install` does; the way to move to a newer release is `j1 update`.
 const serviceUpdateCommand = Command.make("update", serviceReconcileFlags).pipe(
   Command.withDescription("Deprecated. Run `j1 update` to move to a newer release."),
   Command.unlisted,
@@ -153,12 +286,12 @@ const serviceUpdateCommand = Command.make("update", serviceReconcileFlags).pipe(
         );
         const result = yield* reconcileService({ allowDowngrade: flags.allowDowngrade });
         if (!result.changed) {
-          yield* Console.log(`J1 Code service is already using t3@${packageJson.version}.`);
+          yield* Console.log(
+            `J1 Code service is already using v${packageJson.version} (${yield* resolveEntryPath}).`,
+          );
           return;
         }
-        yield* Console.log(
-          `${result.previouslyInstalled ? "Updated" : "Installed"} J1 Code service with t3@${packageJson.version}.\nLogs: ${result.plan.logPath}`,
-        );
+        yield* Console.log(formatServiceChange(result));
       }),
     ),
   ),
@@ -174,11 +307,22 @@ const serviceRestartCommand = Command.make("restart", projectLocationFlags).pipe
       Effect.gen(function* () {
         const service = yield* BootService.BootService;
         const status = yield* service.status;
-        const restarted = yield* service.restart;
+        if (status.otherBaseDir !== undefined) {
+          const platform = yield* HostProcess.Platform;
+          const option = formatServiceBaseDirOption(platform, status.otherBaseDir);
+          return yield* Console.log(
+            `The J1 Code service serves ${status.otherBaseDir}, so it was not restarted. Pass \`${option}\` to restart it.`,
+          );
+        }
+        const outcome = yield* service.restart;
+        const onVersion =
+          status.installedVersion === undefined ? "" : ` on v${status.installedVersion}`;
         yield* Console.log(
-          restarted
-            ? `Restarted the J1 Code service${status.installedVersion === undefined ? "" : ` on t3@${status.installedVersion}`}.`
-            : "J1 Code service is not installed.",
+          outcome === "restarted"
+            ? `Restarted the J1 Code service${onVersion}.`
+            : outcome === "queued"
+              ? `Queued a restart of the J1 Code service${onVersion}. This session runs inside the service and disconnects when it goes down.\nLogs: ${status.logPath}`
+              : "J1 Code service is not installed.",
         );
       }),
     ),
@@ -192,6 +336,22 @@ const serviceUninstallCommand = Command.make("uninstall", projectLocationFlags).
       flags,
       Effect.gen(function* () {
         const service = yield* BootService.BootService;
+        const path = yield* Path.Path;
+        const { baseDir } = yield* ServerConfig.ServerConfig;
+        // An unreadable unit stays removable; only a unit known to serve another home is kept.
+        const installedBaseDir = yield* service.status.pipe(
+          Effect.map((status) => status.otherBaseDir ?? status.installedBaseDir),
+          Effect.orElseSucceed(() => undefined),
+        );
+        if (
+          installedBaseDir !== undefined &&
+          path.resolve(installedBaseDir) !== path.resolve(baseDir)
+        ) {
+          yield* Console.log(
+            `The J1 Code service serves ${installedBaseDir}, so it was not removed. Pass \`${formatServiceBaseDirOption(yield* HostProcess.Platform, installedBaseDir)}\` to remove it.`,
+          );
+          return;
+        }
         const removed = yield* service.uninstall;
         yield* Console.log(
           removed ? "Removed the J1 Code service." : "J1 Code service is not installed.",
@@ -208,84 +368,149 @@ const serviceStatusCommand = Command.make("status", projectLocationFlags).pipe(
       flags,
       Effect.gen(function* () {
         const service = yield* BootService.BootService;
-        yield* Console.log(formatServiceStatus(yield* service.status, packageJson.version));
+        const path = yield* Path.Path;
+        const status = yield* service.status;
+        const platform = yield* HostProcess.Platform;
+        const protection =
+          status.installed && status.otherBaseDir === undefined && platform === "linux"
+            ? yield* ServiceProtection.readProtection(path.dirname(status.unitPath)).pipe(
+                Effect.provide(ProcessRunner.layer),
+              )
+            : undefined;
+        const commands = {
+          install: yield* resolveHostCliHint("service install", flags.baseDir),
+          restart: yield* resolveHostCliHint("service restart", flags.baseDir),
+          update: yield* resolveHostCliHint("update", flags.baseDir, [
+            status.installedVersion ?? packageJson.version,
+          ]),
+        };
+        yield* Console.log(
+          formatServiceStatus(status, packageJson.version, commands, protection, platform),
+        );
       }),
     ),
   ),
 );
 
-export const offerServiceDuringOnboarding = Effect.gen(function* () {
-  const service = yield* BootService.BootService;
-  const status = yield* service.status;
-  const { supported, installed, current } = status;
-  if (!supported) {
-    return false;
-  }
-  if (installed && current) {
-    yield* Console.log("J1 Code is already set up to run in the background on this machine.");
-    return true;
-  }
-  for (const problem of status.problems ?? []) {
-    yield* Console.warn(`[${problem}] ${BootService.formatBootServiceProblem(problem)}`);
-  }
-  if (
-    installed &&
-    status.installedVersion !== undefined &&
-    compareExactServiceVersions(status.installedVersion, packageJson.version) > 0
-  ) {
-    yield* Console.log(
-      `A newer t3@${status.installedVersion} background service is installed. Leaving it unchanged.`,
-    );
-    // This CLI cannot verify the newer service. Keep the manual fallback available.
-    return false;
-  }
-  // A LaunchAgent starts at login and dies at logout; there is no
-  // enable-linger equivalent on macOS. Do not promise more than that.
-  const platform = yield* HostProcessPlatform;
-  const wanted = yield* Prompt.run(
-    Prompt.Confirm({
-      message: installed
-        ? "The installed J1 Code service needs an update or repair. Update it now?"
-        : platform === "darwin"
-          ? "Run J1 Code in the background whenever you log in to this Mac? " +
-            "It stays reachable through J1 Connect while you are logged in."
-          : "Run J1 Code in the background whenever this machine boots? " +
-            "It stays reachable through J1 Connect even after you log out.",
-      initial: true,
-    }),
+const formatDropIns = (dropIns: ReadonlyArray<ServiceProtection.DropIn>) =>
+  dropIns.map(
+    ({ path, contents }) => `  ${path}: ${contents.trimEnd().split("\n").slice(1).join(" ")}`,
   );
-  if (!wanted) {
-    return false;
-  }
-  const result = yield* reconcileService();
-  if (result.changed) {
-    yield* Console.log(
-      `Background service ${result.previouslyInstalled ? "updated" : "installed"}. Logs: ${result.plan.logPath}`,
-    );
-  }
-  return true;
-});
 
-export const recoverServiceOnboardingOffer = <R>(
-  offer: Effect.Effect<boolean, BootService.BootServiceError | Terminal.QuitError, R>,
-) =>
-  offer.pipe(
-    Effect.catchTags({
-      QuitError: () => Effect.succeed(false),
-      BootServiceUnsupportedError: (error) =>
-        Console.log(`Skipping background setup: ${error.message}`).pipe(Effect.as(false)),
-      BootServiceCommandError: (error) =>
-        Console.warn(`Background setup did not finish: ${error.message}`).pipe(Effect.as(false)),
-      BootServiceInstallError: (error) =>
-        Console.warn(`Background setup did not finish: ${error.message}`).pipe(Effect.as(false)),
-      BootServicePrerequisiteError: (error) =>
-        Console.warn(`Background setup did not finish: ${error.message}`).pipe(Effect.as(false)),
-      BootServiceUpdatePendingError: (error) =>
-        Console.warn(`Background setup did not finish: ${error.message}`).pipe(Effect.as(false)),
-      BootServiceDowngradeRefusedError: (error) =>
-        Console.warn(`Background setup did not finish: ${error.message}`).pipe(Effect.as(false)),
+const confirm = (yes: boolean, message: string) =>
+  yes ? Effect.succeed(true) : Prompt.run(Prompt.Confirm({ message, initial: false }));
+
+const serviceProtectCommand = Command.make("protect", {
+  ...projectLocationFlags,
+  undo: Flag.Boolean("undo").pipe(
+    Flag.withDescription("Remove the protection this command set up."),
+    Flag.withDefault(false),
+  ),
+  yes: Flag.Boolean("yes").pipe(
+    Flag.withDescription("Answer yes to every question, including SSH and Tailscale."),
+    Flag.withDefault(false),
+  ),
+}).pipe(
+  Command.withDescription(
+    "Protect the J1 Code server from agents under memory pressure (Linux with systemd). Asks for sudo.",
+  ),
+  Command.withHandler((flags) =>
+    Effect.gen(function* () {
+      const unsupported = "Service protection needs Linux with systemd.";
+      if ((yield* HostProcess.Platform) !== "linux") return yield* Console.log(unsupported);
+      // Before resolving config, which creates J1 directories that root would then own.
+      if ((yield* HostProcess.UserId) === 0) {
+        return yield* Console.log(
+          "Run `j1 service protect` as the user that runs J1 Code, without sudo. It asks for sudo when it needs root.",
+        );
+      }
+      return yield* runServiceCommand(
+        flags,
+        Effect.gen(function* () {
+          const uid = yield* HostProcess.UserId;
+          const { unitPath, otherBaseDir } = yield* (yield* BootService.BootService).status;
+          if (otherBaseDir !== undefined) {
+            return yield* Console.log(
+              `The J1 Code service serves ${otherBaseDir}. Pass \`${BootService.formatBootServiceBaseDirOption(otherBaseDir)}\` to manage its protection.`,
+            );
+          }
+          const remote = yield* ServiceProtection.detectRemoteAccessUnits;
+          if (uid === undefined || remote === undefined || unitPath === "") {
+            return yield* Console.log(unsupported);
+          }
+          const userUnitDir = (yield* Path.Path).dirname(unitPath);
+
+          if (flags.undo) {
+            const installed = yield* ServiceProtection.installedProtection(
+              ServiceProtection.protectionPlan({
+                uid,
+                userUnitDir,
+                remoteAccessUnits: ServiceProtection.REMOTE_ACCESS_UNITS,
+              }),
+            );
+            if (installed === undefined) {
+              return yield* Console.log("J1 Code service protection is not set up.");
+            }
+            yield* Console.log(
+              [
+                "Removes:",
+                ...[...installed.system, ...installed.user, installed.managerDefaults].map(
+                  ({ path, shared }) =>
+                    `  ${path}${shared === true ? " (kept while another user is protected)" : ""}`,
+                ),
+              ].join("\n"),
+            );
+            if (!(yield* confirm(flags.yes, "Remove J1 Code service protection?"))) return;
+            yield* ServiceProtection.removeProtection(installed);
+            return yield* Console.log(
+              "Removed J1 Code service protection. The server's OOM score returns to normal after `j1 service restart`.",
+            );
+          }
+
+          yield* Console.log(
+            [
+              "Keeps J1 Code running when agents fill this machine's memory:",
+              "  - reserves memory for the J1 Code server, so the kernel takes memory from agents first",
+              "  - makes the out-of-memory killer pick agents before the server",
+              "It adds systemd drop-in files and changes nothing else. Undo with `j1 service protect --undo`.",
+            ].join("\n"),
+          );
+          const names = remote.map((unit) => unit.replace(/\.service$/, "")).join(" and ");
+          const protectRemote =
+            remote.length > 0 &&
+            (yield* confirm(
+              flags.yes,
+              `Also protect ${names} so you can still reach this machine under memory pressure?`,
+            ));
+          const plan = ServiceProtection.protectionPlan({
+            uid,
+            userUnitDir,
+            remoteAccessUnits: protectRemote ? remote : [],
+          });
+          yield* Console.log(
+            [
+              "Drop-ins it writes, as root through sudo:",
+              ...formatDropIns(plan.system),
+              "As you:",
+              ...formatDropIns([plan.managerDefaults, ...plan.user]),
+            ].join("\n"),
+          );
+          const memoryController = yield* ServiceProtection.memoryControllerAvailable;
+          if (!memoryController) {
+            yield* Console.log(`Only the OOM scores can apply: ${MEMORY_CONTROLLER_DISABLED}`);
+          }
+          if (!(yield* confirm(flags.yes, "Apply these settings?"))) return;
+          yield* ServiceProtection.applyProtection(plan);
+          yield* Console.log(
+            memoryController
+              ? "Protected J1 Code. Memory protection applies now; the server takes its OOM score after `j1 service restart`. Undo with `j1 service protect --undo`."
+              : "Protected J1 Code's OOM score; the server takes it after `j1 service restart`. Memory protection applies once the kernel's memory controller is enabled. Undo with `j1 service protect --undo`.",
+          );
+        }).pipe(Effect.provide(ProcessRunner.layer)),
+      );
     }),
-  );
+  ),
+);
 
 export const serviceCommand = Command.make("service").pipe(
   Command.withDescription("Manage the J1 Code background service."),
@@ -294,6 +519,7 @@ export const serviceCommand = Command.make("service").pipe(
     serviceRestartCommand,
     serviceUninstallCommand,
     serviceStatusCommand,
+    serviceProtectCommand,
     serviceUpdateCommand,
   ]),
 );

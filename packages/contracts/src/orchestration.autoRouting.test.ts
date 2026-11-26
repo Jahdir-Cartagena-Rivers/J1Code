@@ -59,3 +59,13 @@ it("rejects malformed identity and missing or invalid escalation intent", () => 
     expect(() => decodeClient({ ...command, autoRouting })).toThrow();
   }
 });
+
+
+it("preserves an explicit false escalation intent without inferring intent from auto", () => {
+  const autoRouting = { taskId: "saved-task:1", requestEscalation: false, complexity: "unknown" };
+  const decoded = decodeClient({ ...command, autoRouting });
+  expect(decoded).toMatchObject({ type: "thread.turn.start", autoRouting });
+  expect(decodeClient(command)).not.toHaveProperty("autoRouting");
+  expect(() => decodeClient({ ...command, autoRouting: { ...autoRouting, complexity: "impossible" } })).toThrow();
+  expect(() => decodeClient({ ...command, autoRouting: { ...autoRouting, highRisk: "yes" } })).toThrow();
+});

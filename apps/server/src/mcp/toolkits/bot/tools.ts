@@ -1,6 +1,5 @@
 import * as Schema from "effect/Schema";
-import * as Tool from "effect/unstable/ai/Tool";
-import * as Toolkit from "effect/unstable/ai/Toolkit";
+import { Tool, Toolkit } from "effect/ai";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";
 
 const parameters = Schema.Struct({

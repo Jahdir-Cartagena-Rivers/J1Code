@@ -1,11 +1,9 @@
 import { describe, expect, it } from "@effect/vitest";
-import * as Schema from "effect/Schema";
-import * as McpSchema from "effect/unstable/ai/McpSchema";
-import * as Tool from "effect/unstable/ai/Tool";
+import { Tool } from "effect/ai";
 import * as Context from "effect/Context";
 import { ConversationsToolkit } from "../conversations/tools.ts";
 import { HiveMindToolkit } from "./tools.ts";
-const decodeToolSchema = Schema.decodeUnknownSync(McpSchema.ToolJsonSchema);
+import { advertisedJsonSchema } from "../../advertisedJsonSchema.ts";
 
 describe("Hive Mind wire discovery", () => {
   it("marks recall and conversation reads read-only while writes retain approval", () => {
@@ -29,9 +27,8 @@ describe("Hive Mind wire discovery", () => {
   });
   it("publishes MCP-compatible object schemas for all unified operations", () => {
     for (const tool of Object.values(HiveMindToolkit.tools)) {
-      for (const schema of [tool.parametersSchema, tool.successSchema]) {
-        expect(() => decodeToolSchema(Tool.getJsonSchemaFromSchema(schema))).not.toThrow();
-      }
+      expect(advertisedJsonSchema(tool)).toMatchObject({ type: "object" });
+      expect(Tool.getJsonSchema(tool.setParameters(tool.successSchema))).toMatchObject({ type: "object" });
     }
   });
 });

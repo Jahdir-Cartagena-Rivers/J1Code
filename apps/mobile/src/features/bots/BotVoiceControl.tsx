@@ -2,8 +2,8 @@
 import { useAtomValue } from "@effect/atom-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { View } from "react-native";
-import { AppText } from "../../components/AppText";
-import { MaterialButton } from "../../components/MaterialButton";
+import { AppText } from "../../components/ui/AppText";
+import { Button as MaterialButton } from "../../components/ui/Button";
 import { uuidv4 } from "../../lib/uuid";
 import { botVoice } from "../../native/botVoice";
 import { environmentServerConfigsAtom } from "../../state/server";

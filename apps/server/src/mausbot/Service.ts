@@ -1,6 +1,7 @@
 import * as Context from "effect/Context";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
+import type { Digest } from "effect/crypto/Digest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
@@ -39,7 +40,7 @@ import * as ProviderCredentialStore from "../provider/ProviderCredentialStore.ts
 import { makeDeepAIClient } from "../provider/deepai/DeepAIClient.ts";
 import { deepAIMachineDigest } from "../provider/deepai/DeepAIMachine.ts";
 import { resolveProviderInstanceEnabled } from "@j1code/contracts";
-import { MausbotExecution } from "./Execution.ts";
+import { MausbotExecutionHost } from "./ExecutionHost.ts";
 
 const decodeHostInvocation = Schema.decodeUnknownEffect(
   Schema.Union([MausbotConversationInvocation, MausbotRoutingInvocation, ExternalRouteHostEvent]),
@@ -78,7 +79,7 @@ export class MausbotService extends Context.Service<
     Effect.gen(function* () {
       const config = yield* ServerConfig;
       const platform = yield* HostProcessPlatform;
-      const hostContext = yield* Effect.context<ServerSecretStore>();
+      const hostContext = yield* Effect.context<ServerSecretStore | Digest>();
       const runHost = Effect.runPromiseWith(hostContext);
       const deepAIClient = makeDeepAIClient({
         resolveMachineDigest: () => deepAIMachineDigest(platform),
@@ -102,7 +103,7 @@ export class MausbotService extends Context.Service<
 
       const path = yield* Path.Path;
       const settings = yield* ServerSettingsService;
-      const execution = yield* MausbotExecution;
+      const execution = yield* MausbotExecutionHost;
       const sessions = yield* SessionStore;
       const conversations = yield* ExternalConversations;
       const environmentId = yield* (yield* ServerEnvironment).getEnvironmentId;
@@ -329,11 +330,15 @@ export class MausbotService extends Context.Service<
       }
       const authorizeView = Effect.fnUntraced(function* (key: string) {
         const now = yield* Clock.currentTimeMillis;
-        if (!grants.valid(key, now)) return false;
+        if (!grants.valid(key, now)) return undefined;
         // The CLI has its own SessionStore and cannot publish into this process's stream.
-        const active = yield* sessions.listActive().pipe(Effect.catch(() => Effect.succeed([])));
-        return grants.authorize(key, now, active);
+        const active = yield* sessions.listActive().pipe(Effect.orElseSucceed(() => []));
+        if (!grants.authorize(key, yield* Clock.currentTimeMillis, active)) return undefined;
+        return { pairedSettingsSession: grants.pairedSettingsSession(key, active) };
       });
+      const expiredView = "This assistant window expired. Reopen it from J1.";
+      const runtimeFailure = (error: unknown) =>
+        error instanceof Error ? error.message : "The assistant runtime is unavailable.";
       const forward = Effect.fn("Mausbot.forward")(function* (
         url: string,
         method: string,
@@ -341,27 +346,35 @@ export class MausbotService extends Context.Service<
         body?: Uint8Array,
         viewKey?: string,
       ) {
-        if (viewKey && !(yield* authorizeView(viewKey)))
-          return yield* Effect.fail("This assistant window expired. Reopen it from J1.");
-        const signal = viewKey ? grants.signal(viewKey, yield* Clock.currentTimeMillis) : undefined;
-        if (viewKey && !signal)
-          return yield* Effect.fail("This assistant window expired. Reopen it from J1.");
+        let view = viewKey ? yield* authorizeView(viewKey) : undefined;
+        if (viewKey && !view)
+          return yield* Effect.fail(expiredView);
         const child = yield* getRuntime();
+        const wasRunning = child.running;
+        yield* Effect.tryPromise({ try: () => child.start(), catch: runtimeFailure });
+        // start() can still await startup or a replacement while running is true.
+        const namedSettings = url === "/api/config?j1NamedCredential=1";
+        if (viewKey && (!wasRunning || namedSettings)) {
+          view = yield* authorizeView(viewKey);
+          if (!view) return yield* Effect.fail(expiredView);
+        }
+        if (namedSettings && !view?.pairedSettingsSession)
+          return new Response(null, { status: 403, headers: { "cache-control": "no-store" } });
+        const signal = viewKey ? grants.signal(viewKey, yield* Clock.currentTimeMillis) : undefined;
+        if (viewKey && !signal) return yield* Effect.fail(expiredView);
         return yield* Effect.tryPromise({
-          try: async () => {
-            await child.start();
-            return child.forward(
+          try: (requestSignal) =>
+            child.forward(
               url,
               method,
               contentType,
               body,
-              signal,
+              signal ? AbortSignal.any([signal, requestSignal]) : requestSignal,
               viewKey ? grants.frameOrigin(viewKey) : undefined,
               viewKey ? grants.clientSession(viewKey) : undefined,
-            );
-          },
-          catch: (error) =>
-            error instanceof Error ? error.message : "The assistant runtime is unavailable.",
+              view?.pairedSettingsSession,
+            ),
+          catch: runtimeFailure,
         });
       });
       const open = Effect.fn("Mausbot.open")(function* (
@@ -397,7 +410,7 @@ export class MausbotService extends Context.Service<
         })),
         forward,
         stop,
-        setApprovalMode: (session, input) =>
+        setApprovalMode: Effect.fn("MausbotService.setApprovalMode")((session, input) =>
           Effect.tryPromise({
             try: async () => {
               if (!isMausbotDesktopSession(config.mode, session))
@@ -407,9 +420,11 @@ export class MausbotService extends Context.Service<
             },
             catch: (error) =>
               error instanceof Error ? error.message : "Could not change assistant permissions.",
-          }),
+          })),
         open,
-        authorizeView,
+        authorizeView: Effect.fn("MausbotService.authorizeView")((key) =>
+          authorizeView(key).pipe(Effect.map(Boolean)),
+        ),
       });
     }),
   );

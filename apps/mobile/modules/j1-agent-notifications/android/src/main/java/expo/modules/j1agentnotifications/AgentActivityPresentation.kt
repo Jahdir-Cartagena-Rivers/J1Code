@@ -91,12 +91,6 @@ internal fun activityPhase(data: Map<String, String>, rows: List<ActivityRow>): 
     else -> rows.firstOrNull()?.let { ActivityPhase.forStatus(it.status) }
   }
 
-/**
- * Header carries the state, the title says what needs you (or which thread, when
- * there is only one), and the body lists every thread with its status in front.
- * System UI renders all of it, so the same builder serves the shade, the lock
- * screen and the status bar chip.
- */
 internal class ActivityPresentation(data: Map<String, String>, private val active: Boolean) {
   private val rows = activityRows(data)
   private val hero = rows.firstOrNull()
@@ -126,7 +120,7 @@ internal class ActivityPresentation(data: Map<String, String>, private val activ
   }
 
   val chip = when {
-    !active -> null
+    !active -> if (phase == ActivityPhase.FAILED) "Failed" else "Done"
     phase == null -> data["activity_chip"]?.takeIf { it.isNotBlank() }?.take(7) ?: "Active"
     phase == ActivityPhase.RUNNING && activeCount > 1 ->
       "${if (activeCount > 9) "9+" else activeCount} live"
@@ -137,7 +131,6 @@ internal class ActivityPresentation(data: Map<String, String>, private val activ
 
   fun applyTo(builder: NotificationCompat.Builder, context: Context) {
     val tint = phase?.let { ContextCompat.getColor(context, it.color) }
-    builder.setSmallIcon(R.drawable.agent_activity_mark)
     if (tint != null) builder.setColor(tint)
     // Tint the summary only when it names an outcome or a request; a plain
     // "3 working" stays neutral so the accent keeps meaning something.
@@ -153,7 +146,6 @@ internal class ActivityPresentation(data: Map<String, String>, private val activ
       )
     }
     val body = body(context)
-    // The collapsed card gets the priority row; the expanded card gets them all.
     val lineBreak = body.indexOf('\n')
     val firstLine = if (lineBreak >= 0) body.subSequence(0, lineBreak) else body
     builder.setContentText(firstLine).setStyle(NotificationCompat.BigTextStyle().bigText(body))
@@ -164,7 +156,6 @@ internal class ActivityPresentation(data: Map<String, String>, private val activ
 
   private fun body(context: Context): CharSequence = when {
     hero == null -> legacyBody
-    // The title already names the thread; the body only needs its status and project.
     rows.size == 1 -> statusLine(context, hero.copy(title = hero.project), "")
     else -> SpannableStringBuilder().apply {
       rows.forEachIndexed { index, row ->

@@ -22,23 +22,92 @@ const exists = (file: string) =>
     },
   );
 
+const isWindowsNpmPrefix = (prefix: string): boolean =>
+  /^(?:[a-z]:[\\/]|\\\\[^?.\\/][^\\/]*\\[^\\/]+\\)/iu.test(prefix) &&
+  !prefix.split(/[\\/]/u).some((part) => part === "." || part === "..");
+
+/** The legacy npm updater owns only the Windows user prefix or an explicitly configured prefix. */
+export function legacyCodexStartupPrefixes(
+  baseDir: string,
+  environment: NodeJS.ProcessEnv,
+): ReadonlyArray<string> {
+  const path = NodePath.win32;
+  const appData = environment.APPDATA;
+  const candidates = [
+    appData && path.isAbsolute(appData) ? path.join(appData, "npm") : undefined,
+    environment.NPM_CONFIG_PREFIX ?? environment.npm_config_prefix,
+  ];
+  const prefixes = new Set<string>();
+  for (const prefix of candidates) {
+    if (!prefix || !isWindowsNpmPrefix(prefix)) continue;
+    const absolute = path.resolve(prefix);
+    const relative = path.relative(baseDir, absolute);
+    // The application data tree includes the managed release store and recovery metadata.
+    if (absolute === path.parse(absolute).root ||
+        relative === "" || (!path.isAbsolute(relative) && relative.split(path.sep)[0] !== "..")) continue;
+    prefixes.add(absolute);
+  }
+  return [...prefixes];
+}
+
 /** The journal is published only after the independently runnable backup is complete. */
 export function codexNpmRecovery(directory: string, probe: (prefix: string) => Promise<boolean>) {
   const keyFor = (prefix: string) =>
     NodeCrypto.createHash("sha256").update(prefix.toLowerCase()).digest("hex").slice(0, 24);
   const checkedPrefix = (prefix: string) => {
-    if (!NodePath.isAbsolute(prefix) || NodePath.resolve(prefix) === NodePath.parse(prefix).root)
+    if ((process.platform === "win32" && !isWindowsNpmPrefix(prefix)) || !NodePath.isAbsolute(prefix) || prefix.split(/[\\/]/u).some((part) => part === "." || part === "..") ||
+        NodePath.resolve(prefix) === NodePath.parse(prefix).root)
       throw new Error("Cannot identify the Codex npm installation prefix safely.");
     return NodePath.resolve(prefix);
   };
-  const releaseLock = (prefix: string) =>
-    lock(prefix, {
+  const samePath = (left: string, right: string) => NodePath.relative(left, right) === "";
+  const verifyDirectory = async (folder: string) => {
+    if (!(await NodeFSP.lstat(folder)).isDirectory() ||
+        !samePath(folder, await NodeFSP.realpath(folder))) {
+      throw new Error("A linked Codex recovery path requires its owning installer.");
+    }
+  };
+  const makeRecoveryDirectory = async (folder: string): Promise<void> => {
+    if (!(await exists(folder))) {
+      await makeRecoveryDirectory(NodePath.dirname(folder));
+      await NodeFSP.mkdir(folder, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "EEXIST") throw error;
+      });
+    }
+    await verifyDirectory(folder);
+  };
+  const verifyTree = async (entry: string): Promise<void> => {
+    const info = await NodeFSP.lstat(entry);
+    if (info.isFile()) return;
+    if (!info.isDirectory()) throw new Error("A linked or special file cannot be used for Codex recovery.");
+    for (const name of await NodeFSP.readdir(entry)) await verifyTree(NodePath.join(entry, name));
+  };
+  const verifyEntries = async (prefix: string, required: ReadonlyArray<(typeof entries)[number]> = []) => {
+    await verifyDirectory(prefix);
+    for (const parent of ["node_modules", "node_modules/@openai"]) {
+      const folder = NodePath.join(prefix, parent);
+      if (await exists(folder)) await verifyDirectory(folder);
+    }
+    for (const entry of entries) {
+      const target = NodePath.join(prefix, entry);
+      if (await exists(target)) await verifyTree(target);
+      else if (required.includes(entry))
+        throw new Error("Codex recovery backup is incomplete; it was retained for repair.");
+    }
+  };
+  const releaseLock = async (prefix: string, retries = 24) => {
+    const lockfilePath = NodePath.join(prefix, ".j1-codex-update.lock");
+    if (await exists(lockfilePath)) await verifyDirectory(lockfilePath);
+    return lock(prefix, {
       realpath: true,
-      lockfilePath: NodePath.join(prefix, ".j1-codex-update.lock"),
-      retries: { retries: 24, minTimeout: 500, maxTimeout: 500 },
+      lockfilePath,
+      retries: { retries, minTimeout: 500, maxTimeout: 500 },
     });
+  };
   const replaceEntries = async (record: typeof Journal.Type, source: string) => {
     const prefix = checkedPrefix(record.prefix);
+    await verifyEntries(prefix);
+    await verifyEntries(source, record.present);
     // Stage beside each destination so publication is a same-volume rename. Never
     // overwrite files in a running executable's directory one at a time.
     for (const entry of entries) {
@@ -47,8 +116,6 @@ export function codexNpmRecovery(directory: string, probe: (prefix: string) => P
       const retired = `${destination}.j1-retired-${record.operation}-${NodeCrypto.randomUUID()}`;
       if (record.present.includes(entry)) {
         const backup = NodePath.join(source, entry);
-        if (!(await exists(backup)))
-          throw new Error("Codex recovery backup is incomplete; it was retained for repair.");
         await NodeFSP.mkdir(NodePath.dirname(destination), { recursive: true });
         await NodeFSP.rm(temporary, { recursive: true, force: true });
         await NodeFSP.cp(backup, temporary, {
@@ -74,50 +141,106 @@ export function codexNpmRecovery(directory: string, probe: (prefix: string) => P
     }
   };
   const restore = async (record: typeof Journal.Type, root: string) => {
-    await replaceEntries(record, NodePath.join(root, record.operation));
+    const backup = NodePath.join(root, record.operation);
+    await verifyEntries(backup, record.present);
+    if (!(await probe(backup)))
+      throw new Error("Codex recovery backup cannot start; it was retained for repair.");
+    await replaceEntries(record, backup);
     if (!(await probe(record.prefix)))
       throw new Error("Restored Codex could not start; its recovery backup was retained.");
     await NodeFSP.unlink(NodePath.join(root, "pending.json"));
   };
   const read = async (root: string) => {
     const file = NodePath.join(root, "pending.json");
+    await verifyDirectory(root);
     if (!(await exists(file))) return null;
-    if ((await NodeFSP.stat(file)).size > 8192) throw new Error("Invalid Codex recovery journal.");
+    const info = await NodeFSP.lstat(file);
+    if (!info.isFile() || info.size > 8192) throw new Error("Invalid Codex recovery journal.");
     const record = decodeJournal(await NodeFSP.readFile(file, "utf8"));
     if (
       keyFor(checkedPrefix(record.prefix)) !== NodePath.basename(root) ||
-      !record.present.includes(entries[0])
+      !record.present.includes(entries[0]) ||
+      new Set(record.present).size !== record.present.length
     )
       throw new Error("Invalid Codex recovery journal; no installation was changed.");
     return record;
   };
-  const recoverLocked = async (root: string) => {
+  const recoverLocked = async (root: string, prefix: string) => {
     const record = await read(root);
-    if (!record) return;
+    if (!record) return false;
+    if (!samePath(record.prefix, prefix)) throw new Error("Codex recovery ownership changed.");
+    await verifyEntries(prefix);
+    const backup = NodePath.join(root, record.operation);
+    await verifyEntries(backup, record.present);
     // The updater may have completed just before the server exited. Preserve a
     // healthy replacement (including a user's subsequent manual repair).
     if (await probe(record.prefix)) await NodeFSP.unlink(NodePath.join(root, "pending.json"));
     else await restore(record, root);
-    await NodeFSP.rm(NodePath.join(root, record.operation), { recursive: true, force: true });
+    await NodeFSP.rm(backup, { recursive: true, force: true });
+    // A surviving npm child can still write to the isolated staging prefix.
+    return true;
   };
   return {
-    async recover() {
-      if (!(await exists(directory))) return;
+    async inspect() {
+      let pending = 0;
+      let invalid = 0;
+      if (!(await exists(directory))) return { pending, invalid };
+      try {
+        await verifyDirectory(directory);
+      } catch {
+        return { pending, invalid: 1 };
+      }
+      for (const name of await NodeFSP.readdir(directory)) {
+        if (!/^[a-f0-9]{24}$/.test(name)) continue;
+        try {
+          if (await read(NodePath.join(directory, name))) pending++;
+        } catch {
+          invalid++;
+        }
+      }
+      return { pending, invalid };
+    },
+    async recover(allowedPrefixes: ReadonlyArray<string>) {
+      const result = { recovered: 0, invalid: 0, deferred: 0 };
+      if (!(await exists(directory))) return result;
+      await verifyDirectory(directory);
+      const allowed = allowedPrefixes.flatMap((prefix) => {
+        try { return [checkedPrefix(prefix)]; } catch { return []; }
+      });
       for (const name of await NodeFSP.readdir(directory)) {
         if (!/^[a-f0-9]{24}$/.test(name)) continue;
         const root = NodePath.join(directory, name);
-        const record = await read(root);
-        if (!record) continue;
-        const unlock = await releaseLock(record.prefix);
+        let record: typeof Journal.Type | null;
         try {
-          await recoverLocked(root);
-        } finally {
-          await unlock();
+          record = await read(root);
+          if (!record) continue;
+          const prefix = record.prefix;
+          if (!allowed.some((candidate) => samePath(candidate, prefix))) {
+            result.invalid++;
+            continue;
+          }
+          await verifyEntries(prefix);
+        } catch {
+          result.invalid++;
+          continue;
+        }
+        try {
+          const unlock = await releaseLock(record.prefix, 0);
+          try {
+            if (await recoverLocked(root, record.prefix)) result.recovered++;
+          } finally {
+            await unlock();
+          }
+        } catch {
+          // A live lease or an unreadable backup leaves the journal for another startup.
+          result.deferred++;
         }
       }
+      return result;
     },
     async prepare(prefixInput: string) {
       const prefix = checkedPrefix(prefixInput);
+      await verifyEntries(prefix);
       const unlock = await releaseLock(prefix);
       let released = false;
       let unpublishedBackup: string | undefined;
@@ -129,8 +252,8 @@ export function codexNpmRecovery(directory: string, probe: (prefix: string) => P
       };
       try {
         const root = NodePath.join(directory, keyFor(prefix));
-        await NodeFSP.mkdir(root, { recursive: true, mode: 0o700 });
-        await recoverLocked(root);
+        await makeRecoveryDirectory(root);
+        await recoverLocked(root, prefix);
         // Native Windows executable startup still has shorter path limits than
         // Node's filesystem APIs. Keep the nested npm vendor path runnable.
         const operation = NodeCrypto.randomUUID().replaceAll("-", "").slice(0, 16);
@@ -173,6 +296,7 @@ export function codexNpmRecovery(directory: string, probe: (prefix: string) => P
         return {
           stagingPrefix,
           async publish() {
+            await verifyEntries(stagingPrefix);
             if (!(await probe(stagingPrefix)))
               throw new Error(
                 "The staged Codex update could not start; the working installation was not changed.",

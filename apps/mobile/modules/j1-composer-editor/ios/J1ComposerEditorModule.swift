@@ -4,6 +4,11 @@ import UIKit
 enum J1ComposerClipboard {
   static let fragmentType = "app.t3.context-fragment"
 
+  // Pasted thread links become chips in JS; packages/shared/src/threadLinks.ts parses them.
+  static func hasThreadLink(_ text: String) -> Bool {
+    text.contains("t3-thread://v2/") || text.contains("https://app.t3.codes/threads/")
+  }
+
   static func write(text: String, fragment: String) {
     var items: [String: Any] = ["public.utf8-plain-text": text]
     if let data = fragment.data(using: .utf8),
@@ -36,14 +41,16 @@ enum J1ComposerClipboard {
   }
 }
 
+@ExpoModule("J1ComposerEditor")
 public class J1ComposerEditorModule: Module {
+  // UIPasteboard is main-thread only, so the member is main-actor isolated.
+  @JS
+  @MainActor
+  func writeContextClipboard(text: String, fragment: String) async {
+    J1ComposerClipboard.write(text: text, fragment: fragment)
+  }
+
   public func definition() -> ModuleDefinition {
-    Name("J1ComposerEditor")
-
-    AsyncFunction("writeContextClipboard") { (text: String, fragment: String) in
-      J1ComposerClipboard.write(text: text, fragment: fragment)
-    }.runOnQueue(.main)
-
     View(J1ComposerEditorView.self) {
       Prop("controlledDocumentJson") { (view: J1ComposerEditorView, documentJson: String) in
         view.setControlledDocumentJson(documentJson)
@@ -87,6 +94,12 @@ public class J1ComposerEditorModule: Module {
       Prop("spellCheck") { (view: J1ComposerEditorView, spellCheck: Bool) in
         view.setSpellCheck(spellCheck)
       }
+      Prop("submitTitle") { (view: J1ComposerEditorView, title: String) in
+        view.setSubmitTitle(title)
+      }
+      Prop("alternateSubmitTitle") { (view: J1ComposerEditorView, title: String) in
+        view.setAlternateSubmitTitle(title)
+      }
       Prop("enterBehavior") { (view: J1ComposerEditorView, behavior: String) in
         view.setEnterBehavior(behavior)
       }
@@ -118,6 +131,9 @@ public class J1ComposerEditorModule: Module {
       }
       AsyncFunction("setSelection") { (view: J1ComposerEditorView, start: Int, end: Int) in
         view.setSelection(start: start, end: end)
+      }
+      AsyncFunction("readState") { (view: J1ComposerEditorView) -> [String: Any] in
+        view.readState()
       }
     }
   }

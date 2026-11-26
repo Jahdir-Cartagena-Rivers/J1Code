@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeEvent, SendTurnInput } from "../contracts.ts";
+import { mountChatTools } from "./chat-mcp-tools.ts";
 const tools = vi.hoisted(() => ({
   execute: vi.fn(async () => ({ ok: true, text: "Original bot tool result" })),
   close: vi.fn(async () => {}),
@@ -12,7 +13,7 @@ vi.mock("./chat-mcp-tools.ts", () => ({
     view: () => ({ title: "Team post", input: { text: "Ready" }, ask: true }),
   })),
 }));
-import { J1SharedDriver, decodeSharedModel, encodeSharedModel } from "./j1-shared.ts";
+import { J1SharedDriver, decodeSharedModel, encodeSharedModel, nativeResumeCursor, savedHistoryForTurn, savedIncidentReports } from "./j1-shared.ts";
 
 const request = { instanceId: "j1-shared", displayName: "J1", enabled: true, environment: {}, config: {} };
 const turn: SendTurnInput = { botId: "bot", threadId: "thread", j1BotName: "Ada", j1ProjectId: "project",
@@ -25,13 +26,18 @@ let toolResult: (value: Record<string, unknown>) => void;
 let oldSend: typeof process.send;
 let oldConnected: boolean | undefined;
 let catalogUnavailable = false;
+let wrongStartAcknowledgment = false;
 const event = (value: unknown) => process.emit("message", { type: "j1:execution-event", event: value }, undefined);
-const runtime = (type: string, payload: object, extra = {}) => event({ kind: "runtime", botId: "bot", threadId: "thread", turnId: "native-turn",
+const currentTurnId = () => calls.findLast(call => call.action === "start")?.turnId;
+const runtime = (type: string, payload: object, extra = {}, turnId = currentTurnId()) =>
+  event({ kind: "runtime", botId: "bot", threadId: "thread", turnId,
   event: { eventId: "event", provider: "codex", threadId: "canonical", createdAt: "2026-11-18T00:00:00Z", type, payload, ...extra } });
 
 beforeEach(() => {
   catalogUnavailable = false;
+  wrongStartAcknowledgment = false;
   calls = []; instances = []; toolResult = () => {};
+  vi.mocked(mountChatTools).mockClear();
   tools.execute.mockClear(); tools.close.mockClear(); tools.validate.mockReset();
   oldSend = process.send; oldConnected = process.connected;
   Object.defineProperty(process, "connected", { value: true, configurable: true });
@@ -39,7 +45,9 @@ beforeEach(() => {
     calls.push(message.input);
     const value = message.input.action === "catalog"
       ? [{ instanceId: "codex-work", driver: "codex", displayName: "Work", enabled: true, installed: true, auth: { status: "authenticated" }, models: [{ slug: "gpt-model", name: "GPT", isDefault: true }] }]
-      : message.input.action === "start" ? { turnId: message.input.turnId } : {};
+      : message.input.action === "start"
+        ? { turnId: wrongStartAcknowledgment ? "different-turn" : message.input.turnId }
+        : {};
     if (message.input.action === "tool-result") toolResult(message.input);
     queueMicrotask(() => process.emit("message", { type: "j1:execution-result", requestId: message.requestId,
       ...(catalogUnavailable && message.input.action === "catalog" ? { error: "Shared execution is unavailable." } : { value }) }, undefined));
@@ -60,6 +68,182 @@ async function fixture() {
 }
 
 describe("J1 shared bot adapter", () => {
+  it("admits a tool-free consultation and rejects action calls without mounting tools", async () => {
+    const instance = await fixture();
+    const events: RuntimeEvent[] = [];
+    instance.adapter.onEvent(event => events.push(event));
+    const result = await instance.adapter.sendTurn({ ...turn, j1Consultation: true });
+    expect(calls.find(call => call.action === "start")?.tools).toEqual([]);
+    expect(mountChatTools).not.toHaveBeenCalled();
+    const denied = Promise.withResolvers<Record<string, unknown>>();
+    toolResult = denied.resolve;
+    event({ kind: "tool-call", botId: "bot", threadId: "thread", turnId: currentTurnId(), requestId: "consultation-tool",
+      name: "agents_team_post", arguments: { text: "Blocked" } });
+    expect(await denied.promise).toMatchObject({ value: { ok: false } });
+    expect(tools.execute).not.toHaveBeenCalled();
+    runtime("turn.completed", { state: "completed" }, {}, "stale-turn");
+    expect(instance.adapter.hasSession("thread")).toBe(true);
+    expect(events).toEqual([]);
+    runtime("turn.completed", { state: "completed" }, {}, result.turnId);
+    expect(events.at(-1)).toMatchObject({ type: "turn.completed", turnId: result.turnId, ok: true });
+    expect(instance.adapter.hasSession("thread")).toBe(false);
+    expect(tools.close).not.toHaveBeenCalled();
+    await instance.adapter.sendTurn(turn);
+    expect(mountChatTools).toHaveBeenCalledOnce();
+    expect(calls.findLast(call => call.action === "start")?.tools).toEqual([
+      expect.objectContaining({ name: "agents_team_post" }),
+    ]);
+  });
+  it("rejects an acknowledgment for a different turn and releases the original reservation", async () => {
+    const instance = await fixture();
+    wrongStartAcknowledgment = true;
+    await expect(instance.adapter.sendTurn(turn)).rejects.toThrow("J1 did not accept the bot turn.");
+    expect(instance.adapter.hasSession("thread")).toBe(false);
+    expect(tools.close).toHaveBeenCalledOnce();
+    wrongStartAcknowledgment = false;
+    expect(await instance.adapter.sendTurn(turn)).toMatchObject({
+      turnId: calls.findLast(call => call.action === "start")?.turnId,
+    });
+  });
+  it("captures the real authored root while sending the original typed turn", async () => {
+    const instance = await fixture();
+    const authored = { id: "original-user", role: "user" as const, kind: "text", at: 10,
+      text: "My request", j1CoordinatorRootId: "root" };
+    const anchor = { messageId: authored.id, promptText: authored.text,
+      authoredInputText: "Original native prompt", currentImages: [],
+      origin: { root: true as const, nodeId: "root", requestId: "root", execution: 1, restarts: 0,
+        dispatch: "first" as const, sourceMessageId: authored.id,
+        approvalMode: "ask" as const, restrictedTools: false, current: () => true },
+    };
+    expect(savedHistoryForTurn([authored], anchor, { managed: "." })).toMatchObject({
+      messages: [], authoredSource: { nativeMessageId: "original-user", role: "user", text: "My request" },
+    });
+    expect(() => savedHistoryForTurn([{ ...authored, j1CoordinatorRootId: "foreign" }], anchor, { managed: "." })).toThrow();
+    await instance.adapter.sendTurn({ ...turn, text: "Original native prompt", j1SavedHistoryAnchor: anchor });
+    expect(calls.find(call => call.action === "start")).toMatchObject({
+      trackCoordinatorRoot: true, text: "Original native prompt", transcript: turn.transcript,
+    });
+    expect(calls.find(call => call.action === "start")?.nativeOriginStart).toBeUndefined();
+  });
+  it("continues a saved computer choice without sending the old user line again", async () => {
+    const instance = await fixture();
+    const choice = { id: "accepted", sourceGeneration: "root", dispatchGeneration: "selected-turn",
+      selected: "browser", previousSurface: "local", sourceSurface: "local" } as const;
+    const source = { id: "original-user", role: "user" as const, kind: "text", at: 10, text: "My request",
+      j1CoordinatorRootId: choice.sourceGeneration, j1ComputerSelections: [choice],
+      attachments: [{ path: "/api/attachments/original.txt", kind: "file", mime: "text/plain" }] };
+    const reply = { id: "settled-reply", kind: "text", role: "bot" as const, at: 11, text: "Choose a computer",
+      j1ProviderMessageId: "saved-reply" };
+    const anchor = { messageId: source.id, promptText: "Continue using the selected browser", currentImages: [],
+      origin: { root: true as const, nodeId: "root", requestId: "root", execution: 2, restarts: 0,
+        dispatch: "computer" as const, computerSelection: choice, sourceMessageId: source.id,
+        approvalMode: "ask" as const, restrictedTools: false, current: () => true },
+    };
+    const saved = [source, reply];
+    expect(savedHistoryForTurn(saved, anchor, { managed: "." })).toMatchObject({
+      promptText: anchor.promptText, promptAttachments: [],
+      messages: [{ nativeMessageId: source.id, role: "user", text: source.text,
+        attachments: [{ root: "managed", filename: "original.txt" }] },
+      { nativeMessageId: reply.id, role: "assistant", mirrorMessageId: "saved-reply" }],
+      origin: { computerSelection: choice },
+    });
+    expect(() => savedHistoryForTurn([{ ...source, j1ComputerSelections: undefined }, reply], anchor, { managed: "." })).toThrow();
+    expect(() => savedHistoryForTurn([{ ...source, j1ComputerSelections: [{ ...choice, dispatchGeneration: "stale" }] }, reply],
+      anchor, { managed: "." })).toThrow();
+    expect(() => savedHistoryForTurn([...saved, { ...source, id: "newer" }], anchor, { managed: "." })).toThrow();
+    const next = { id: "next", previousChoiceId: choice.id, sourceGeneration: choice.dispatchGeneration,
+      dispatchGeneration: "next-turn", selected: "vm", previousSurface: "browser", sourceSurface: "browser" } as const;
+    const switched = [{ ...source, j1ComputerSelections: [choice, next] }, reply];
+    const nextAnchor = { ...anchor, promptText: "Continue in the VM",
+      origin: { ...anchor.origin, execution: 3, computerSelection: next } };
+    expect(savedHistoryForTurn(switched, nextAnchor, { managed: "." })).toMatchObject({
+      promptText: nextAnchor.promptText, promptAttachments: [], origin: { computerSelection: next },
+      messages: [{ nativeMessageId: source.id, role: "user" }, { nativeMessageId: reply.id, role: "assistant" }],
+    });
+    expect(savedHistoryForTurn(switched, anchor, { managed: "." }).origin?.computerSelection).toEqual(choice);
+    expect(() => savedHistoryForTurn([{ ...source, j1ComputerSelections: [next] }, reply],
+      nextAnchor, { managed: "." })).toThrow();
+    await instance.adapter.sendTurn({ ...turn, text: anchor.promptText, transcript: undefined, images: [], j1SavedHistoryAnchor: anchor });
+    expect(calls.find(call => call.action === "start")).toMatchObject({
+      nativeOriginStart: true, text: anchor.promptText, sharedContinuation: false, images: [],
+    });
+    await instance.adapter.interruptTurn("thread");
+    expect(calls.find(call => call.action === "stop")).toMatchObject({ botId: "bot", threadId: "thread" });
+  });
+
+  it("retains the coordinator request as assistant history and excludes history from current input", async () => {
+    const instance = await fixture();
+    let current = true;
+    const saved = [
+      { id: "older", role: "user" as const, kind: "text", text: "Prior line", at: 10 },
+      { id: "request", role: "bot" as const, kind: "text", text: "Assigned work", at: 20,
+        roomRequest: { id: "node", phase: "request" } },
+    ];
+    const anchor = { messageId: "request", promptText: "Current coordinator envelope", currentImages: [],
+      origin: { nodeId: "node", requestId: "node", execution: 1, dispatch: "first" as const, restarts: 0, sourceMessageId: "request",
+        approvalMode: "ask" as const, restrictedTools: false, current: () => current },
+    };
+    const snapshot = savedHistoryForTurn(saved, anchor, { managed: "." });
+    expect(snapshot.messages.map(row => [row.nativeMessageId, row.role, row.text])).toEqual([
+      ["older", "user", "Prior line"], ["request", "assistant", "Assigned work"],
+    ]);
+    expect(snapshot.promptText).toBe(anchor.promptText);
+    expect(snapshot.promptAttachments).toEqual([]);
+    const reply = { id: "reply", role: "bot" as const, kind: "text", text: "Reply", at: 21,
+      j1ProviderMessageId: "j1-reply" };
+    const wake = savedHistoryForTurn([...saved, reply], { ...anchor,
+      promptText: "A teammate answered", origin: { ...anchor.origin, execution: 2, dispatch: "resume" },
+    }, { managed: "." });
+    expect(wake.messages.at(-1)).toMatchObject({ nativeMessageId: "reply", mirrorMessageId: "j1-reply" });
+    expect(wake.promptText).toBe("A teammate answered");
+    expect(() => savedHistoryForTurn([...saved, reply], anchor, { managed: "." })).toThrow();
+    expect(() => savedHistoryForTurn(saved, { ...anchor, origin: { ...anchor.origin, requestId: "other" } }, { managed: "." })).toThrow();
+    current = false;
+    expect(() => savedHistoryForTurn(saved, anchor, { managed: "." })).toThrow();
+    current = true;
+    await instance.adapter.sendTurn({ ...turn, text: anchor.promptText, transcript: undefined,
+      images: [], j1SavedHistoryAnchor: anchor });
+    expect(calls.find(call => call.action === "start")).toMatchObject({
+      nativeOriginStart: true, text: anchor.promptText, sharedContinuation: false, images: [],
+    });
+    await instance.adapter.interruptTurn("thread");
+    expect(calls.find(call => call.action === "stop")).toMatchObject({ botId: "bot", threadId: "thread" });
+  });
+  it("binds the native cursor revision to a specific bot, thread, run and message", () => {
+    const core = "j1-shared:v2:bot:thread:policy:run:source";
+    const anchored = core + "~anchor";
+    const saved = nativeResumeCursor(anchored, "bot", "thread");
+    expect(saved).toMatchObject({ cursor: core, messageId: "anchor", revision: expect.stringMatching(/^[a-f0-9]{64}$/) });
+    expect(nativeResumeCursor(anchored, "bot", "thread")).toEqual(saved);
+    expect(nativeResumeCursor(core + "~next", "bot", "thread")?.revision).not.toBe(saved?.revision);
+    expect(nativeResumeCursor(anchored, "neighbor", "thread")).toBeUndefined();
+    expect(nativeResumeCursor(anchored, "bot", "other")).toBeUndefined();
+    expect(nativeResumeCursor(core, "bot", "thread")).toBeUndefined();
+    expect(nativeResumeCursor(anchored + "~second", "bot", "thread")).toBeUndefined();
+  });
+
+  it("uses an anchored promptless continuation, refuses stale authorization, and retains ordinary Stop", async () => {
+    const instance = await fixture();
+    const core = "j1-shared:v2:bot:thread:policy:run:source";
+    const anchor = { messageId: "saved-message", promptText: "", currentImages: [] };
+    const cursor = core + "~" + anchor.messageId;
+    const empty = { ...turn, text: "", transcript: undefined, images: [], j1SavedHistoryAnchor: anchor, resumeCursor: cursor };
+    await expect(instance.adapter.sendTurn({ ...empty, j1ExplicitResume: () => false })).rejects.toThrow("saved J1 continuation");
+    await expect(instance.adapter.sendTurn({ ...empty, j1ExplicitResume: () => true, resumeCursor: core + "~foreign" })).rejects.toThrow("saved J1 continuation");
+    await expect(instance.adapter.sendTurn({ ...empty, j1ExplicitResume: () => true, text: "injected" })).rejects.toThrow("saved J1 continuation");
+    expect(calls.filter(call => call.action === "start")).toEqual([]);
+    const events: RuntimeEvent[] = [];
+    instance.adapter.onEvent(event => events.push(event));
+    await instance.adapter.sendTurn({ ...empty, j1ExplicitResume: () => true });
+    expect(calls.filter(call => call.action === "start")).toEqual([expect.objectContaining({ text: "", images: [], sharedContinuation: true })]);
+    runtime("turn.started", { resumeCursor: "j1-shared:v2:bot:thread:policy:run:next" });
+    expect(events.find(event => event.type === "session.started")).toMatchObject({
+      sessionId: "j1-shared:v2:bot:thread:policy:run:next~saved-message",
+    });
+    await instance.adapter.interruptTurn("thread");
+    expect(calls.find(call => call.action === "interrupt")).toMatchObject({ botId: "bot", threadId: "thread" });
+  });
+
   it("stays unavailable instead of crashing startup when an older or missing parent cannot provide the catalog", async () => {
     catalogUnavailable = true;
     const instance = await fixture();
@@ -105,7 +289,7 @@ describe("J1 shared bot adapter", () => {
     instance.adapter.onEvent((event) => { if (event.type === "request.opened") finishAsk(event); });
     await instance.adapter.sendTurn(turn);
     const response = new Promise<Record<string, unknown>>((resolve) => { toolResult = resolve; });
-    event({ kind: "tool-call", botId: "bot", threadId: "thread", requestId: "tool-request", name: "agents_team_post", arguments: { text: "Ready" } });
+    event({ kind: "tool-call", botId: "bot", threadId: "thread", turnId: currentTurnId(), requestId: "tool-request", name: "agents_team_post", arguments: { text: "Ready" } });
     const card = await ask;
     expect(tools.execute).not.toHaveBeenCalled();
     expect(await instance.adapter.respondToRequest("thread", card.requestId!, { behavior: "deny" })).toBe("rejected");
@@ -120,9 +304,9 @@ describe("J1 shared bot adapter", () => {
     instance.adapter.onEvent((event) => { if (event.type === "request.opened") finishAsk(event); });
     await instance.adapter.sendTurn(turn);
     const response = new Promise<Record<string, unknown>>((resolve) => { toolResult = resolve; });
-    event({ kind: "tool-call", botId: "neighbor", threadId: "thread", requestId: "wrong", name: "agents_team_post", arguments: {} });
+    event({ kind: "tool-call", botId: "neighbor", threadId: "thread", turnId: currentTurnId(), requestId: "wrong", name: "agents_team_post", arguments: {} });
     expect(tools.validate).not.toHaveBeenCalled();
-    event({ kind: "tool-call", botId: "bot", threadId: "thread", requestId: "right", name: "agents_team_post", arguments: { text: "Ready" } });
+    event({ kind: "tool-call", botId: "bot", threadId: "thread", turnId: currentTurnId(), requestId: "right", name: "agents_team_post", arguments: { text: "Ready" } });
     const card = await ask;
     await instance.adapter.respondToRequest("thread", card.requestId!, { behavior: "allow" });
     expect((await response).value).toMatchObject({ ok: true });
@@ -159,10 +343,53 @@ describe("J1 shared bot adapter", () => {
       return { ok: false, text: "Cancelled" };
     });
     await instance.adapter.sendTurn({ ...turn, approvalMode: "full" });
-    event({ kind: "tool-call", botId: "bot", threadId: "thread", requestId: "cancelled", name: "agents_team_post", arguments: {} });
+    event({ kind: "tool-call", botId: "bot", threadId: "thread", turnId: currentTurnId(), requestId: "cancelled", name: "agents_team_post", arguments: {} });
     const signal = await running;
     await instance.adapter.interruptTurn("thread");
     expect(signal.aborted).toBe(true);
+  });
+
+  it("rejects stale calls, cancels and setup failures after replacing a turn in the same thread", async () => {
+    const instance = await fixture();
+    const previous = await instance.adapter.sendTurn(turn);
+    runtime("turn.completed", { state: "completed" }, {}, previous.turnId);
+    const current = await instance.adapter.sendTurn({ ...turn, approvalMode: "full" });
+    const owner = { botId: "bot", threadId: "thread" };
+    const request = { ...owner, kind: "tool-call", requestId: "reused-request-id",
+      name: "agents_team_post", arguments: {} };
+    event({ ...request, turnId: previous.turnId });
+    event(request);
+    expect(tools.validate).not.toHaveBeenCalled();
+    expect(tools.execute).not.toHaveBeenCalled();
+    event({ ...owner, kind: "failed", turnId: previous.turnId, message: "Stale setup failure" });
+    event({ ...owner, kind: "failed", message: "Unscoped setup failure" });
+    expect(instance.adapter.hasSession("thread")).toBe(true);
+
+    const started = Promise.withResolvers<AbortSignal>();
+    const reply = Promise.withResolvers<Record<string, unknown>>();
+    toolResult = reply.resolve;
+    tools.execute.mockImplementationOnce(async (...args: unknown[]) => {
+      const signal = args[2] as AbortSignal;
+      started.resolve(signal);
+      await new Promise<void>(resolve => signal.addEventListener("abort", () => resolve(), { once: true }));
+      return { ok: false, text: "Cancelled" };
+    });
+    event({ ...request, turnId: current.turnId });
+    const signal = await started.promise;
+    const cancel = { ...owner, kind: "tool-cancel", requestId: request.requestId };
+    event({ ...cancel, turnId: previous.turnId });
+    event(cancel);
+    expect(signal.aborted).toBe(false);
+    event({ ...cancel, turnId: current.turnId });
+    expect(signal.aborted).toBe(true);
+    expect(await reply.promise).toMatchObject({ requestId: request.requestId, value: { ok: false } });
+    expect(tools.execute).toHaveBeenCalledOnce();
+
+    const events: RuntimeEvent[] = [];
+    instance.adapter.onEvent(value => events.push(value));
+    event({ ...owner, kind: "failed", turnId: current.turnId, message: "Current setup failure" });
+    expect(events.at(-1)).toMatchObject({ type: "turn.completed", turnId: current.turnId, ok: false });
+    expect(instance.adapter.hasSession("thread")).toBe(false);
   });
 
   it("round-trips provider/model ids without confusing punctuation with another account", () => {
@@ -182,5 +409,100 @@ describe("J1 shared bot adapter", () => {
     runtime("session.exited", { reason: "CLI crashed" });
     expect(instance.adapter.hasSession("thread")).toBe(false);
     expect(events.at(-1)).toMatchObject({ type: "turn.completed", ok: false });
+  });
+});
+
+it("reads the saved branch before the exact current message and keeps current files separate", () => {
+  const root = { managed: "/owned-attachments" };
+  const prior = { id: "one", at: 2000, role: "bot", kind: "text",
+    text: "Older reply", turnCompletedAt: 2400,
+    attachments: [{ kind: "file", path: "/api/attachments/old.txt", name: "old.txt", mime: "text/plain" }],
+  } as const;
+  const current = { id: "two", at: 3000, role: "user", kind: "text", text: "Current",
+    attachments: [{ kind: "image", path: "/api/attachments/new.png", mime: "image/png" }],
+  } as const;
+  const anchor = { messageId: current.id, promptText: "Clean prompt",
+    currentImages: [{ path: "/api/attachments/new.png", mime: "image/png" }],
+  };
+  const saved = savedHistoryForTurn([prior, current], anchor, root);
+  expect(saved.messages.map(({ nativeMessageId, createdAt, completedAt, role }) =>
+    [nativeMessageId, createdAt, completedAt, role])).toEqual([
+    ["one", "1970-01-01T00:00:02.000Z", "1970-01-01T00:00:02.400Z", "assistant"],
+  ]);
+  expect(saved.messages[0]?.attachments[0]?.filename).toBe("old.txt");
+  expect(saved.promptAttachments.map(item => item.filename)).toEqual(["new.png"]);
+  expect(saved.promptText).toBe("Clean prompt");
+  expect(() => savedHistoryForTurn([prior], anchor, root)).toThrow();
+  expect(() => savedHistoryForTurn([prior, current, { ...current, id: "newer" }], anchor, root)).toThrow();
+  expect(() => savedHistoryForTurn([prior, current], {
+    ...anchor, currentImages: [{ path: "/api/attachments/foreign.png", mime: "image/png" }],
+  }, root)).toThrow();
+  expect(() => savedHistoryForTurn([prior, { ...current,
+    attachments: [{ kind: "image", path: "../foreign.png", mime: "image/png" }],
+  }], anchor, root)).toThrow();
+});
+
+it("emits workspace-relative references only for remembered native file roots", () => {
+  const roots = { managed: "/managed", workspace: "/project", bot: "/owner/bot" };
+  const anchor = { messageId: "current", promptText: "Clean", currentImages: [] };
+  const active = { id: "current", role: "user", kind: "text", at: 1 } as const;
+  const savedFile = (path: string) => ({
+    ...active, attachments: [{ path, kind: "file", mime: "text/plain", name: "Original.txt" }] as const,
+  });
+  expect(savedHistoryForTurn([savedFile("/project/nested/file.txt")], anchor, roots).promptAttachments)
+    .toEqual([{ root: "workspace", filename: "nested/file.txt", name: "Original.txt", mime: "text/plain", type: "file" }]);
+  expect(savedHistoryForTurn([savedFile("/owner/bot/file.txt")], anchor, roots).promptAttachments[0]?.root)
+    .toBe("bot");
+  expect(savedHistoryForTurn([savedFile("/api/attachments/file.txt")], anchor, roots).promptAttachments[0]?.root)
+    .toBe("managed");
+  for (const path of ["/project-neighbor/file.txt", "/project/../private.txt",
+    "/project/.openmausbot-secrets/secret.txt", "/project/NUL.txt"]) {
+    expect(() => savedHistoryForTurn([savedFile(path)], anchor, roots)).toThrow();
+  }
+});
+
+describe("saved Chief incident reports", () => {
+  const report = (id: string, sourceThreadId = "affected", recipientBotId = "chief") => ({
+    id, at: 1, role: "user" as const, kind: "text", text: id,
+    peerAsk: { botId: "reporter", name: "Reporter", unattended: true,
+      incident: { threadId: sourceThreadId, j1Recipient: { botId: recipientBotId, threadId: "notices" } } },
+  });
+  const read = (rows: Parameters<typeof savedIncidentReports>[0], ids = ["one", "two"]) =>
+    savedIncidentReports(rows, ids, "notices", "chief");
+
+  it("returns the exact ordered batch with native provenance", () => {
+    const rows = [report("one"), report("two", "other")];
+    const batch = read(rows);
+    expect(batch?.map(row => [row.nativeMessageId, row.sourceThreadId])).toEqual([["one", "affected"], ["two", "other"]]);
+    expect(read(rows)).toEqual(batch);
+    expect(read([report("one"), { ...rows[1]!, text: "changed" }])).not.toEqual(batch);
+  });
+
+  it("preserves native report rows and requires current generation ownership", () => {
+    const rows = [report("one"), report("two")];
+    let current = true;
+    const origin = { nodeId: "incident-batch", requestId: "incident-batch", execution: 1,
+      dispatch: "first" as const, restarts: 0, sourceMessageId: "two",
+      approvalMode: "full" as const, restrictedTools: true, current: () => current,
+      incidentBatch: { generation: "owned", reports: read(rows)! } };
+    const history = () => savedHistoryForTurn(rows, {
+      messageId: "two", promptText: "computed batch input", currentImages: [], origin,
+    }, { managed: "unused" });
+    expect(history().messages.map(row => [row.nativeMessageId, row.role])).toEqual([["one", "user"], ["two", "user"]]);
+    expect(history().promptText).toBe("computed batch input");
+    current = false;
+    expect(history).toThrow("does not own this saved input");
+  });
+
+  it("rejects reordered, duplicate, mixed, foreign, and stopped reports", () => {
+    const one = report("one");
+    const two = report("two");
+    expect(read([two, one])).toBeUndefined();
+    expect(read([one, two], ["two", "two"])).toBeUndefined();
+    expect(read([one, { ...two, peerAsk: undefined }])).toBeUndefined();
+    expect(read([one, report("two", "notices")])).toBeUndefined();
+    expect(read([one, report("two", "affected", "another-chief")])).toBeUndefined();
+    expect(read([one, { ...two, requestCancelled: true }])).toBeUndefined();
+    expect(read([one, two, { ...report("new"), peerAsk: undefined }])).toBeUndefined();
   });
 });

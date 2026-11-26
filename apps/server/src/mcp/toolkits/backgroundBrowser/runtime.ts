@@ -36,7 +36,7 @@ export const BackgroundBrowserLive = Layer.effect(
     );
     yield* Effect.addFinalizer(() => Effect.promise(() => pool.closeAll()));
     return BackgroundBrowser.of({
-      openThread: (threadId, executable) =>
+      openThread: Effect.fn("BackgroundBrowser.openThread")((threadId: string, executable: string) =>
         Effect.tryPromise({
           try: () =>
             pool.openThread(
@@ -44,14 +44,16 @@ export const BackgroundBrowserLive = Layer.effect(
               resolveBrowserExecutable(executable, config.lightpandaExecutablePath),
             ),
           catch: (error) => (error instanceof Error ? error.message : String(error)),
-        }),
-      close: (id) => Effect.sync(() => pool.close(id)),
-      requestForThread: (threadId, method, params) =>
+        })),
+      close: Effect.fn("BackgroundBrowser.close")((id: string) => Effect.sync(() => pool.close(id))),
+      requestForThread: Effect.fn("BackgroundBrowser.requestForThread")((threadId: string, method: string, params: unknown) =>
         Effect.tryPromise({
           try: (signal) => pool.requestForThread(threadId, method, params, signal),
           catch: (error) => (error instanceof Error ? error.message : String(error)),
-        }),
-      request: (id, executable, method, params, threadId) =>
+        })),
+      request: Effect.fn("BackgroundBrowser.request")((
+        id: string, executable: string, method: string, params: unknown, threadId?: string,
+      ) =>
         Effect.tryPromise({
           try: (signal) =>
             pool.request(
@@ -63,7 +65,7 @@ export const BackgroundBrowserLive = Layer.effect(
               threadId,
             ),
           catch: (error) => (error instanceof Error ? error.message : String(error)),
-        }),
+        })),
     });
   }),
 );

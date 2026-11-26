@@ -1,14 +1,12 @@
-# Legacy upstream CLI installer; this does not install J1 Code. Installs the upstream CLI from a GitHub Release archive on Windows. Needs
-# only PowerShell 5.1+; no Node, npm, or compiler.
-#
-#   irm https://t3.codes/install.ps1 | iex
+# Installs the J1 Code CLI from a GitHub Release archive on Windows.
+# Run this script from the J1 Code checkout. Requires PowerShell 5.1 or later.
 #
 # Environment:
 #   T3CODE_CHANNEL           release train to follow: stable, nightly, or preview
 #                            (default: stable; preview is a maintainers' test train)
 #   T3CODE_VERSION           exact version to install (overrides T3CODE_CHANNEL)
-#   T3CODE_HOME              upstream CLI home directory (default: ~\.t3)
-#   T3CODE_INSTALL_BIN_DIR   where t3.exe is linked (default: ~\.local\bin)
+#   T3CODE_HOME              J1 home directory (default: ~\.j1)
+#   T3CODE_INSTALL_BIN_DIR   where the t3.cmd launcher goes (default: ~\.local\bin)
 #   T3CODE_RELEASE_BASE_URL  mirror for releases/download (default: GitHub)
 #
 # The archive is unpacked into $T3CODE_HOME\runtime\versions\<version>, the
@@ -16,13 +14,15 @@
 $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$repo = "pingdotgg/t3code"
+$repo = "Jahdir-Cartagena-Rivers/J1Code"
 $baseUrl = if ($env:T3CODE_RELEASE_BASE_URL) { $env:T3CODE_RELEASE_BASE_URL.TrimEnd("/") } else { "https://github.com/$repo/releases/download" }
-$t3Home = if ($env:T3CODE_HOME) { $env:T3CODE_HOME } else { Join-Path $HOME ".t3" }
+$t3Home = if ($env:T3CODE_HOME) { $env:T3CODE_HOME } else { Join-Path $HOME ".j1" }
 $binDir = if ($env:T3CODE_INSTALL_BIN_DIR) { $env:T3CODE_INSTALL_BIN_DIR } else { Join-Path $HOME ".local\bin" }
+# Absolute, so PATH never gets a folder that changes with the working directory.
+$binDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($binDir)
 
 function Fail([string] $message) {
-  Write-Error "t3 install: $message"
+  Write-Error "J1 Code install: $message"
   exit 1
 }
 
@@ -62,18 +62,35 @@ function Draw-Download([long] $bytes, [long] $total) {
     [Console]::Error.Write("`r$esc[2K" + $line.Substring(0, [Math]::Min($line.Length, $columns - 1)))
   }
 }
+# Waits 1, 2, then 4 s before retrying a 408, 429, 5xx, or network error (status 0).
+# Retry-After is ignored so a throttled GitHub cannot stall the install for minutes.
+function Wait-Retry([int] $status, [int] $attempt) {
+  if ($attempt -ge 4 -or ($status -ge 400 -and $status -lt 500 -and $status -ne 408 -and $status -ne 429)) { return $false }
+  Start-Sleep -Seconds ([Math]::Pow(2, $attempt - 1))
+  return $true
+}
+function Invoke-Retrying([scriptblock] $request) {
+  for ($attempt = 1; ; $attempt++) {
+    try { return & $request }
+    catch { if (-not (Wait-Retry ([int]$_.Exception.Response.StatusCode) $attempt)) { throw } }
+  }
+}
 function Fetch([string] $uri, [string] $destination, [switch] $progress) {
   if (-not $progress -or -not $interactive) {
     $ProgressPreference = if ($progress -and $terminal) { "Continue" } else { "SilentlyContinue" }
-    Invoke-WebRequest -Uri $uri -OutFile $destination -UseBasicParsing
+    Invoke-Retrying { Invoke-WebRequest -Uri $uri -OutFile $destination -UseBasicParsing }
     return
   }
-  # Read the response once, displaying actual bytes received at most ten times a second.
   Add-Type -AssemblyName System.Net.Http
   $client = New-Object System.Net.Http.HttpClient
   $response = $source = $file = $null
   try {
-    $response = $client.GetAsync($uri, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+    for ($attempt = 1; ; $attempt++) {
+      try { $response = $client.GetAsync($uri, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult() }
+      catch { if (Wait-Retry 0 $attempt) { continue } throw }
+      if ($response.IsSuccessStatusCode -or -not (Wait-Retry ([int]$response.StatusCode) $attempt)) { break }
+      $response.Dispose()
+    }
     $response.EnsureSuccessStatusCode() | Out-Null
     $source = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
     $file = [IO.File]::Create($destination)
@@ -110,16 +127,19 @@ if ($interactive) {
   [Console]::Error.WriteLine()
   for ($i = 0; $i -lt $mark.Length; $i++) {
     $row = $mark[$i].Replace('#', [char]0x2588).Replace('^', [char]0x2580).Replace('_', [char]0x2584)
-    $label = if ($i -eq 1) { "     ${bold}Upstream CLI$reset" } elseif ($i -eq 2) { "     ${muted}CLI installer$reset" } else { "" }
+    $label = if ($i -eq 1) { "     ${bold}J1 Code$reset" } elseif ($i -eq 2) { "     ${muted}CLI installer$reset" } else { "" }
     [Console]::Error.WriteLine("  $bold$row$reset$label")
   }
   [Console]::Error.WriteLine()
 }
 Step "Finding your release..."
+$releaseUri = [Uri]$baseUrl
+if ($releaseUri.Host -in 'github.com', 'api.github.com' -and
+    $releaseUri.AbsolutePath -match '^/(?:repos/)?pingdotgg/t3code(?:/|$)') {
+  Fail "T3CODE_RELEASE_BASE_URL must serve J1 Code releases"
+}
 
-# PROCESSOR_ARCHITEW6432 reports the real machine when a 32-bit PowerShell
-# runs under WOW64; RuntimeInformation needs .NET 4.7.1+, which 5.1 hosts
-# may lack.
+# PROCESSOR_ARCHITEW6432 bypasses WOW64 emulation; 5.1 hosts can lack RuntimeInformation's required .NET version.
 $rawArch = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
 $arch = switch ($rawArch) {
   "AMD64" { "x64" }
@@ -130,22 +150,33 @@ $arch = switch ($rawArch) {
 $channel = if ($env:T3CODE_CHANNEL) { $env:T3CODE_CHANNEL } else { "stable" }
 $version = $env:T3CODE_VERSION
 if (-not $version) {
-  # Tags are v<semver>; the channel is the prerelease identifier, or none for
-  # stable. Only tags of the requested train are considered, so a stable
-  # install can never pick up a nightly or preview build by accident.
   $tagPattern = switch ($channel) {
     "stable" { '^v\d+\.\d+\.\d+$' }
     "nightly" { '^v\d+\.\d+\.\d+-nightly\.\d+\.\d+$' }
     "preview" { '^v\d+\.\d+\.\d+-preview\.\d+\.\d+$' }
     default { Fail "T3CODE_CHANNEL must be stable, nightly, or preview" }
   }
-  $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases?per_page=100" -Headers @{ "User-Agent" = "t3-install" }
-  $tag = ($releases | Where-Object { -not $_.draft -and $_.tag_name -match $tagPattern } | Select-Object -First 1).tag_name
+  if ($channel -eq "stable") {
+    # release.yml marks only plain stable releases latest. This is a github.com
+    # page, so it is not cut off by a page of newer nightlies or the API quota.
+    $release = Invoke-Retrying { Invoke-RestMethod -Uri "https://github.com/$repo/releases/latest" -Headers @{ "User-Agent" = "t3-install"; "Accept" = "application/json" } }
+    $tag = ($release | Where-Object { $_.tag_name -match $tagPattern }).tag_name
+  } else {
+    $tag = $null
+    for ($page = 1; -not $tag -and $page -le 10; $page++) {
+      $releases = Invoke-Retrying { Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases?per_page=100&page=$page" -Headers @{ "User-Agent" = "t3-install" } }
+      $tag = ($releases | Where-Object { -not $_.draft -and $_.tag_name -match $tagPattern } | Select-Object -First 1).tag_name
+      if (-not $releases) { break }
+    }
+  }
   if (-not $tag) { Fail "could not find a $channel release; set T3CODE_VERSION" }
   $version = $tag.Substring(1)
 }
+if ($version -notmatch '\A[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9]+([.-][A-Za-z0-9]+)*)?(\+[A-Za-z0-9]+([.-][A-Za-z0-9]+)*)?\z') {
+  Fail "T3CODE_VERSION must be an exact version"
+}
 if ($version -match '-preview\.') {
-  Write-Warning "t3 $version is a preview build. Preview builds are cut by maintainers from unreleased branches to exercise the release pipeline. They can be broken, receive no fixes, and are never offered as updates. Set T3CODE_CHANNEL=stable (the default) for a supported build."
+  Write-Warning "J1 Code $version is a preview build. Preview builds are cut by maintainers from unreleased branches to exercise the release pipeline. They can be broken, receive no fixes, and are never offered as updates. Set T3CODE_CHANNEL=stable (the default) for a supported build."
   if ($channel -ne "preview" -and -not $env:T3CODE_VERSION) {
     Fail "refusing a preview build that was not explicitly requested"
   }
@@ -156,8 +187,41 @@ $archive = "$stem.zip"
 $versionsDir = Join-Path $t3Home "runtime\versions"
 $targetDir = Join-Path $versionsDir $version
 $marker = Join-Path $targetDir ".install-complete"
+foreach ($runtimePath in (Join-Path $t3Home "runtime"), $versionsDir, $targetDir) {
+  $item = Get-Item -LiteralPath $runtimePath -Force -ErrorAction SilentlyContinue
+  if ($item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+    Fail "runtime path must not be a link: $runtimePath"
+  }
+}
+$shim = Join-Path $binDir "t3.cmd"
+$targetExecutable = Join-Path $targetDir "t3.exe"
+if ($targetExecutable -match '[%!\x00-\x1f]') { Fail "the runtime path contains characters the Windows launcher cannot handle" }
 
-if ((Test-Path $marker) -and ((Get-Content $marker -Raw).Trim() -eq $version)) {
+function Get-OwnedShimTarget {
+  $item = Get-Item -LiteralPath $shim -Force -ErrorAction SilentlyContinue
+  if (-not $item) { return $null }
+  if ($item.PSIsContainer -or $item.Length -gt 4096 -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+    Fail "another t3 is already at $shim. Run $targetExecutable directly."
+  }
+  $existingTarget = ""
+  # The shim is UTF-8 without a BOM; Windows PowerShell 5.1 reads files as ANSI by default.
+  # Only a shim exactly as written here counts; a user's wrapper that also runs t3.exe does not.
+  $existing = [System.IO.File]::ReadAllText($shim, [System.Text.Encoding]::UTF8)
+  if ($existing -match '^@echo off\r?\n"([^"]+)" %\*\s*$') { $existingTarget = $Matches[1] }
+  # Full paths, so a target like versions\..\other cannot pass as ours.
+  $ownedPrefix = [System.IO.Path]::GetFullPath($versionsDir).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+  if ($existingTarget -match '^(?:[A-Za-z]:[\\/]|\\\\)') { $existingTarget = [System.IO.Path]::GetFullPath($existingTarget) } else { $existingTarget = "" }
+  # Exactly <version>\t3.exe, never another program inside a version.
+  $owned = $existingTarget.StartsWith($ownedPrefix, [System.StringComparison]::OrdinalIgnoreCase) -and
+    ($existingTarget.Substring($ownedPrefix.Length) -match '^[^\\/]+\\t3\.exe$')
+  if (-not $owned) {
+    Fail "another t3 is already at $shim. Remove it and run this again, or run $(Join-Path $targetDir 't3.exe') directly."
+  }
+  return $existingTarget
+}
+$existingShimTarget = Get-OwnedShimTarget
+
+if ((Test-Path -LiteralPath $marker) -and ((Get-Content -LiteralPath $marker -Raw).Trim() -eq $version)) {
   Step "Version $version is already downloaded."
 } else {
   New-Item -ItemType Directory -Force -Path $versionsDir | Out-Null
@@ -172,7 +236,7 @@ if ((Test-Path $marker) -and ((Get-Content $marker -Raw).Trim() -eq $version)) {
     } catch {
       $status = $_.Exception.Response.StatusCode.value__
       if ($status -eq 404) {
-        Fail "t3 $version has no release archive for win32-$arch; releases before the self-contained CLI can only be installed with 'npm install -g t3@$version'"
+        Fail "J1 Code $version has no release archive for win32-$arch; check https://github.com/Jahdir-Cartagena-Rivers/J1Code/releases"
       }
       throw
     }
@@ -180,10 +244,10 @@ if ((Test-Path $marker) -and ((Get-Content $marker -Raw).Trim() -eq $version)) {
 
     Step "Verifying the download..."
 
-    $expected = (Get-Content (Join-Path $staging "SHA256SUMS") | Where-Object { $_ -match "\s\*?$([regex]::Escape($archive))$" } | Select-Object -First 1)
+    $expected = (Get-Content -LiteralPath (Join-Path $staging "SHA256SUMS") | Where-Object { $_ -match "\s\*?$([regex]::Escape($archive))$" } | Select-Object -First 1)
     if (-not $expected) { Fail "$archive is not listed in SHA256SUMS" }
     $expected = ($expected -split "\s+")[0].ToLowerInvariant()
-    $actual = (Get-FileHash -Algorithm SHA256 (Join-Path $staging $archive)).Hash.ToLowerInvariant()
+    $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $staging $archive)).Hash.ToLowerInvariant()
     if ($actual -ne $expected) { Fail "checksum mismatch for $archive" }
 
     Step "Extracting J1 Code..."
@@ -191,34 +255,66 @@ if ((Test-Path $marker) -and ((Get-Content $marker -Raw).Trim() -eq $version)) {
     $savedProgress = $global:ProgressPreference
     try {
       $global:ProgressPreference = "SilentlyContinue"
-      Expand-Archive -Path (Join-Path $staging $archive) -DestinationPath $staging -Force
+      Expand-Archive -LiteralPath (Join-Path $staging $archive) -DestinationPath $staging -Force
     } finally { $global:ProgressPreference = $savedProgress }
-    # The archive wraps everything in one directory named after its stem.
-    Get-ChildItem (Join-Path $staging $stem) | Move-Item -Destination $staging
-    Remove-Item (Join-Path $staging $stem), (Join-Path $staging $archive), (Join-Path $staging "SHA256SUMS") -Recurse -Force
+    Get-ChildItem -LiteralPath (Join-Path $staging $stem) | Move-Item -Destination $staging
+    Remove-Item -LiteralPath (Join-Path $staging $stem), (Join-Path $staging $archive), (Join-Path $staging "SHA256SUMS") -Recurse -Force
 
-    & (Join-Path $staging "t3.exe") --version | Out-Null
+    $reported = & (Join-Path $staging "t3.exe") --version
     if ($LASTEXITCODE -ne 0) { Fail "the downloaded executable does not run" }
-    Set-Content -Path (Join-Path $staging ".install-complete") -Value $version -NoNewline
+    if (($reported -join " ").Trim() -notmatch "(?:^|\s)v$([regex]::Escape($version))$") {
+      Fail "the archive runtime version does not match $version"
+    }
+    Set-Content -LiteralPath (Join-Path $staging ".install-complete") -Value $version -NoNewline
 
-    if (Test-Path $targetDir) { Remove-Item $targetDir -Recurse -Force }
-    Move-Item $staging $targetDir
+    if (Test-Path -LiteralPath $targetDir) { Remove-Item -LiteralPath $targetDir -Recurse -Force }
+    Move-Item -LiteralPath $staging $targetDir
   } catch {
-    if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
+    if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Recurse -Force }
     throw
   }
 }
 
 Step "Setting up the t3 command..."
 New-Item -ItemType Directory -Force -Path $binDir | Out-Null
-$shim = Join-Path $binDir "t3.cmd"
-# UTF-8 without a BOM: cmd.exe reads the shim as-is, and ASCII would corrupt
-# non-ASCII characters in the user's home path.
-[System.IO.File]::WriteAllText($shim, "@echo off`r`n`"$(Join-Path $targetDir 't3.exe')`" %*", (New-Object System.Text.UTF8Encoding $false))
+$encoding = New-Object System.Text.UTF8Encoding $false
+$bytes = $encoding.GetBytes("@echo off`r`n`"$targetExecutable`" %*")
+if (-not $existingShimTarget) {
+  $stream = [IO.File]::Open($shim, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write)
+  try { $stream.Write($bytes, 0, $bytes.Length) } finally { $stream.Dispose() }
+} else {
+  $shimTemp = Join-Path $binDir (".t3-" + [IO.Path]::GetRandomFileName())
+  try {
+    $stream = [IO.File]::Open($shimTemp, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write)
+    try { $stream.Write($bytes, 0, $bytes.Length) } finally { $stream.Dispose() }
+    if ((Get-OwnedShimTarget) -ne $existingShimTarget) { Fail "the launcher at $shim changed; review it before retrying" }
+    [IO.File]::Replace($shimTemp, $shim, [NullString]::Value)
+  } finally { [IO.File]::Delete($shimTemp) }
+}
+# Pruning keeps what this shim points at; a background service cannot see $binDir otherwise.
+$launchers = Join-Path $t3Home "runtime\launchers"
+$shimPath = (Resolve-Path -LiteralPath $shim).Path
+if (-not ((Test-Path -LiteralPath $launchers) -and ((Get-Content -LiteralPath $launchers) -contains $shimPath))) {
+  [System.IO.File]::AppendAllText($launchers, "$shimPath`r`n", (New-Object System.Text.UTF8Encoding $false))
+}
 if ($interactive) { [Console]::Error.Write("`r$esc[2K") }
 [Console]::Error.WriteLine("  ${green}Installed J1 Code $version$reset`n")
-if (($env:PATH -split ";") -notcontains $binDir) {
-  Write-Host "  Add $binDir to your PATH, then run ${bold}t3$reset.`n"
+if ($binDir.Contains(";")) {
+  # PATH would split the folder at the `;`, so name the command in full instead.
+  Write-Host "  Run ${bold}& '$($shim.Replace("'", "''"))'$reset to get started.`n"
 } else {
-  Write-Host "  Run ${bold}t3$reset to get started.`n"
+  # Either side may end in a separator. Trim only here: a drive root keeps its `\` for Join-Path.
+  $added = ($env:PATH -split ";" | ForEach-Object { $_.TrimEnd('\', '/') }) -notcontains $binDir.TrimEnd('\', '/')
+  # `irm | iex` runs in the user's own session, so t3 works in this window right away.
+  # Last, so it never shadows another t3.
+  if ($added) { $env:Path = "$env:Path;$binDir" }
+  # A t3 earlier on PATH runs instead, so name this one in full.
+  $first = Get-Command t3 -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($first -and [System.IO.Path]::GetFullPath($first.Source) -ne [System.IO.Path]::GetFullPath($shimPath)) {
+    Write-Host "  Another t3 at $($first.Source) runs first, so run ${bold}& '$($shim.Replace("'", "''"))'$reset to use this one.`n"
+  } elseif ($added) {
+    Write-Host "  Run ${bold}t3$reset to get started. For new windows, add $binDir to your PATH.`n"
+  } else {
+    Write-Host "  Run ${bold}t3$reset to use J1 Code here, or ${bold}t3 up$reset to use it from your other devices.`n"
+  }
 }

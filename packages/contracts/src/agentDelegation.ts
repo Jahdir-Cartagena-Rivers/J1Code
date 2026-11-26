@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 import { IsoDateTime, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
-import { ModelSelection } from "./orchestration.ts";
+import { ModelSelection } from "./legacyModelSelection.ts";
 
 export const AGENT_DELEGATION_ACTIVITY_KIND = "agent.delegation";
 export const AGENT_DELEGATION_MAX_DEPTH = 3;

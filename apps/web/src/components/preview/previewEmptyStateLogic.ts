@@ -1,8 +1,4 @@
-import type { PreviewSessionSnapshot, ProjectScript } from "@j1code/contracts";
-
-export function shouldShowPreviewEmptyState(snapshot: PreviewSessionSnapshot | null): boolean {
-  return snapshot === null || snapshot.navStatus._tag === "Idle";
-}
+import type { ProjectScript } from "@j1code/contracts";
 
 export function getConfiguredPreviewUrls(
   scripts: ReadonlyArray<ProjectScript> | undefined,

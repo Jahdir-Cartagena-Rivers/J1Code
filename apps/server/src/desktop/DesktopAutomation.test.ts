@@ -3,7 +3,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { EnvironmentId, ProviderInstanceId, ThreadId } from "@j1code/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import { ExitCode } from "effect/unstable/process/ChildProcessSpawner";
+import { ExitCode } from "effect/process/ChildProcessSpawner";
 import * as ServerConfig from "../config.ts";
 import { ProcessRunner, type ProcessRunInput } from "../processRunner.ts";
 import * as ProcessRunnerModule from "../processRunner.ts";
@@ -11,9 +11,9 @@ import * as Desktop from "./DesktopAutomation.ts";
 
 const scope = {
   environmentId: EnvironmentId.make("desktop-test"),
-  threadId: ThreadId.make("desktop-thread"),
-  providerSessionId: "session-a",
-  providerInstanceId: ProviderInstanceId.make("codex"),
+  requestNamespace: "desktop-fixture",
+  thread: { threadId: ThreadId.make("desktop-thread"), providerSessionId: "session-a", providerInstanceId: ProviderInstanceId.make("codex") },
+  client: undefined,
   capabilities: new Set(["desktop"] as const),
   issuedAt: 1,
 };
@@ -40,11 +40,16 @@ it("resolves real unpacked binaries and isolates provider snapshots", () => {
   ).toBe("C:/app/server.asar.unpacked/node_modules/agent-desktop/bin/agent-desktop-win32-x64.exe");
   expect(() => Desktop.desktopBinaryPath("/app", "freebsd", "x64")).toThrow("unsupported");
   expect(Desktop.desktopScopeKey(scope)).not.toBe(
-    Desktop.desktopScopeKey({ ...scope, providerSessionId: "session-b" }),
+    Desktop.desktopScopeKey({ ...scope, thread: { ...scope.thread, providerSessionId: "session-b" } }),
   );
   expect(Desktop.desktopScopeKey(scope)).not.toBe(
-    Desktop.desktopScopeKey({ ...scope, threadId: ThreadId.make("other") }),
+    Desktop.desktopScopeKey({ ...scope, thread: { ...scope.thread, threadId: ThreadId.make("other") } }),
   );
+});
+
+it("rejects outside and mixed callers before choosing a desktop namespace", () => {
+  expect(() => Desktop.desktopScopeKey({ ...scope, thread: undefined } as never)).toThrow("authenticated provider thread");
+  expect(() => Desktop.desktopScopeKey({ ...scope, client: { sessionId: "outside", label: "Outside", access: "full-access" } })).toThrow("authenticated provider thread");
 });
 
 it.effect(

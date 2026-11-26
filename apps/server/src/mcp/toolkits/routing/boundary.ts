@@ -1,12 +1,17 @@
-import * as NodeCrypto from "node:crypto";
+import { replayRouteInput } from "../../../routing/routeState.ts";
 import { routeEndpointUrl } from "@j1code/shared/routeEndpointUrl";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import type { DeliveryRequest } from "../../../routing/deliveryDispatcher.ts";
-import type { RouteEndpoint, RouteState } from "../../../routing/routeState.ts";
-import { McpInvocationContext } from "../../McpInvocationContext.ts";
+import type { RouteEndpoint, RouteOrigin, RouteState } from "../../../routing/routeState.ts";
+import { ServerEnvironment } from "../../../environment/ServerEnvironment.ts";
+import { ThreadManagementService } from "../../../orchestration-v2/ThreadManagementService.ts";
+import { McpInvocationContext, requireMcpCapability, requireThreadScope } from "../../McpInvocationContext.ts";
+import { assertLiveCaller, loadCaller } from "../../threadAccess.ts";
 import { botExecutionContext } from "../../../mausbot/ExecutionContext.ts";
+import { isLiveDeepAIOrigin } from "../../../provider/deepai/DeepAIMcpInvocation.ts";
 
 const Text = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100_000));
 export const Endpoint = Schema.Struct({ environmentId: Text, projectId: Text, threadId: Text });
@@ -95,31 +100,80 @@ const visible = (state: RouteState, endpoint: RouteEndpoint) =>
   same(state.request.source, endpoint) ||
   (state.request.destination !== null && same(state.request.destination, endpoint));
 
+const sha256 = (text: string) =>
+  Effect.promise(async () =>
+    Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))).toString("hex"),
+  );
+
+const unavailable = "An active native conversation is required for this tool.";
+
+export const nativeAgentCallerDependencies = [McpInvocationContext, ThreadManagementService, ServerEnvironment] as const;
+
+/** The provider credential selected by HTTP admission remains the sole native speaker. */
+export const nativeAgentCaller = Effect.gen(function* () {
+  const invocation = yield* requireMcpCapability("agents").pipe(Effect.mapError(() => unavailable));
+  if (invocation.client !== undefined) return yield* Effect.fail(unavailable);
+  const scope = yield* Effect.mapError(
+    requireThreadScope(invocation, "Native conversation tools"),
+    () => unavailable,
+  );
+  if (!scope.thread.providerSessionId.trim()) return yield* Effect.fail(unavailable);
+  const environmentId = yield* (yield* ServerEnvironment).getEnvironmentId;
+  if (environmentId !== scope.environmentId) return yield* Effect.fail(unavailable);
+  const context = yield* loadCaller().pipe(Effect.mapError(() => unavailable));
+  if (context.caller === undefined || context.caller.id !== scope.thread.threadId)
+    return yield* Effect.fail(unavailable);
+  yield* Effect.mapError(assertLiveCaller(context), () => unavailable);
+  if (botExecutionContext(scope.thread.threadId))
+    return yield* Effect.fail("Use this bot's selected tools through bot_tools and bot_call.");
+  return { scope, caller: context.caller };
+});
+
 export const currentEndpoint = Effect.gen(function* () {
-  const scope = yield* McpInvocationContext;
-  if (botExecutionContext(scope.threadId))
-    return yield* Effect.fail(
-      "Use this bot's selected routing tools through bot_tools and bot_call to preserve its source and receipts.",
-    );
-  if (!scope.capabilities.has("agents"))
-    return yield* Effect.fail("Routing unavailable for this session.");
+  const { scope, caller } = yield* nativeAgentCaller;
   const ports = yield* RoutingBoundaryPorts;
-  const source = yield* ports.current(scope.environmentId, scope.threadId);
-  if (!source || source.environmentId !== scope.environmentId || source.threadId !== scope.threadId)
-    return yield* Effect.fail("Source unavailable.");
+  const expected = {
+    environmentId: scope.environmentId, threadId: scope.thread.threadId, projectId: caller.projectId,
+  };
+  const source = yield* ports.current(expected.environmentId, expected.threadId);
+  if (!source || !same(source, expected)) return yield* Effect.fail("Source unavailable.");
   return source;
 });
 
 const encodeIdentity = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const decodeInput = Schema.decodeUnknownEffect(RouteInput);
+const sameOrigin = (left: RouteOrigin | undefined, right: RouteOrigin | undefined) =>
+  left?.subject === right?.subject &&
+  left?.runId === right?.runId &&
+  left?.messageId === right?.messageId;
 /** Host adapters supply an authenticated endpoint effect; tool arguments never select a speaker. */
-export function makeRoutingBoundary<R>(currentEndpoint: Effect.Effect<RouteEndpoint, string, R>) {
+export function makeRoutingBoundary<R, RegistrationContext = never>(
+  currentEndpoint: Effect.Effect<RouteEndpoint, string, R>,
+  authorizeRegistration?: (source: RouteEndpoint) => Effect.Effect<RouteOrigin, string, RegistrationContext>,
+) {
   const routeRequest = Effect.fn("RoutingBoundary.route")(function* (unknownInput: unknown) {
     const input = yield* decodeInput(unknownInput, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError(() => "Invalid routing input."));
     const source = yield* currentEndpoint;
     const ports = yield* RoutingBoundaryPorts;
+    // Namespace caller IDs by authenticated source; bind original intent before mutable discovery.
+    const requestId = yield* sha256(encodeIdentity([source, input.requestId]));
+    const origin = authorizeRegistration === undefined ? undefined : yield* authorizeRegistration(source);
+    const recheckOrigin = authorizeRegistration === undefined
+      ? Effect.void
+      : authorizeRegistration(source).pipe(
+          Effect.filterOrFail((current) => sameOrigin(origin, current), () => "Route input identity conflict"),
+          Effect.asVoid,
+        );
+    const fingerprint = yield* sha256(encodeIdentity(origin === undefined ? [source, input] : [source, input, origin]));
+    const prior = yield* ports.get(requestId);
+    if (prior !== null) {
+      yield* recheckOrigin;
+      if (!same(prior.originalRequest.source, source) || !sameOrigin(prior.originalRequest.origin, origin))
+        return yield* Effect.fail("Route input identity conflict");
+      return yield* Effect.try({ try: () => replayRouteInput(prior, fingerprint), catch: () => "Route input identity conflict; read the saved route status." });
+    }
     const policy = yield* ports.policy(source, input.requestId, input.taskId);
     const owner = yield* ports.owner(source, input.taskId, input.candidate, input.request);
     if (owner.destination) {
@@ -130,20 +184,15 @@ export function makeRoutingBoundary<R>(currentEndpoint: Effect.Effect<RouteEndpo
       if (!actual || !same(actual, owner.destination))
         return yield* Effect.fail("Destination unavailable.");
     }
+    yield* recheckOrigin;
     const sourceUrl = routeEndpointUrl(source);
-    // Namespace caller IDs by authenticated source; bind original intent before mutable discovery.
-    const requestId = NodeCrypto.createHash("sha256")
-      .update(encodeIdentity([source, input.requestId]))
-      .digest("hex");
-    const fingerprint = NodeCrypto.createHash("sha256")
-      .update(encodeIdentity([source, input]))
-      .digest("hex");
     return yield* ports.submit({
       fingerprint,
       originalRequest: input.request,
       sourceUrl,
       route: {
         requestId,
+        ...(origin === undefined ? {} : { origin }),
         taskId: input.taskId,
         source,
         destination: owner.destination,
@@ -157,17 +206,34 @@ export function makeRoutingBoundary<R>(currentEndpoint: Effect.Effect<RouteEndpo
     });
   });
 
+  const canReadOrigin = (state: RouteState, subject: string | undefined) =>
+    state.originalRequest.origin === undefined || state.originalRequest.origin.subject === subject;
+  const readSubject = (source: RouteEndpoint) => Effect.serviceOption(McpInvocationContext).pipe(
+    Effect.map((scope) => {
+      const thread = Option.getOrUndefined(scope)?.thread;
+      const origin = thread?.deepAIOrigin;
+      return origin !== undefined && isLiveDeepAIOrigin(origin) &&
+        origin.environmentId === source.environmentId && origin.projectId === source.projectId &&
+        origin.threadId === source.threadId && origin.providerSessionId === thread?.providerSessionId
+        ? origin.subject
+        : undefined;
+    }),
+  );
   const routeStatus = Effect.fn("RoutingBoundary.status")(function* (requestId: string) {
     const source = yield* currentEndpoint;
     const ports = yield* RoutingBoundaryPorts;
     const state = yield* ports.get(requestId);
-    if (!state || !visible(state, source)) return yield* Effect.fail("Route unavailable.");
+    const subject = authorizeRegistration === undefined ? undefined : yield* readSubject(source);
+    if (!state || !visible(state, source) || !canReadOrigin(state, subject))
+      return yield* Effect.fail("Route unavailable.");
     return state;
   });
   const listRoutes = Effect.gen(function* () {
     const source = yield* currentEndpoint;
     const ports = yield* RoutingBoundaryPorts;
-    return (yield* ports.list(source)).filter((state) => visible(state, source));
+    const states = yield* ports.list(source);
+    const subject = authorizeRegistration === undefined ? undefined : yield* readSubject(source);
+    return states.filter((state) => visible(state, source) && canReadOrigin(state, subject));
   });
 
   const recipientReceipt = Effect.fn("RoutingBoundary.recipientReceipt")(function* (
@@ -236,4 +302,15 @@ export const {
   routingMode,
   claimTask,
   releaseTask,
-} = makeRoutingBoundary(currentEndpoint);
+} = makeRoutingBoundary(
+  currentEndpoint,
+  (source) => Effect.gen(function* () {
+    const { scope, caller } = yield* nativeAgentCaller;
+    const origin = scope.thread.deepAIOrigin;
+    if (origin === undefined || !isLiveDeepAIOrigin(origin) || origin.environmentId !== source.environmentId ||
+        origin.projectId !== source.projectId || origin.threadId !== source.threadId ||
+        origin.runId !== caller.activeRunId || origin.providerSessionId !== scope.thread.providerSessionId)
+      return yield* Effect.fail("This provider call has no verified originating message. Route registration unavailable.");
+    return { subject: origin.subject, runId: origin.runId, messageId: origin.messageId };
+  }),
+);

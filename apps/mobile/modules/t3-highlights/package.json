@@ -1,0 +1,9 @@
+{
+  "name": "@j1code/mobile-highlights-native",
+  "version": "0.0.0",
+  "private": true,
+  "types": "./src/T3Highlights.nitro.ts",
+  "peerDependencies": {
+    "react-native-nitro-modules": "*"
+  }
+}

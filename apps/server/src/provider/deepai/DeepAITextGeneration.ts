@@ -5,16 +5,16 @@ import {
   sanitizeCommitSubject,
   sanitizePrTitle,
   sanitizeThreadTitle,
-} from "../../textGeneration/TextGenerationUtils.ts";
+} from "@j1code/provider-core/server/textGenerationUtils";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import type { TextGeneration } from "../../textGeneration/TextGeneration.ts";
+import type { ProviderTextGeneration } from "@j1code/provider-core/server/textGeneration";
 import {
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildBranchNamePrompt,
   buildThreadTitlePrompt,
-} from "../../textGeneration/TextGenerationPrompts.ts";
+} from "@j1code/provider-core/server/textGenerationPrompts";
 import { makeDeepAIClient, type DeepAIModel } from "./DeepAIClient.ts";
 
 const ResponseBody = Schema.Struct({
@@ -39,7 +39,7 @@ export function makeDeepAITextGeneration(options: {
   credentials: () => Promise<string>;
   client?: ReturnType<typeof makeDeepAIClient>;
   catalog: () => Promise<{ models: ReadonlyArray<DeepAIModel> }>;
-}): TextGeneration["Service"] {
+}): ProviderTextGeneration {
   const client = options.client ?? makeDeepAIClient();
   const generate = <A>(modelId: string, prompt: string, schema: Schema.Codec<A, unknown>) =>
     Effect.gen(function* () {
@@ -88,7 +88,13 @@ export function makeDeepAITextGeneration(options: {
         ),
       );
     });
+  const unsupported = () => Effect.fail(new TextGenerationError({
+    operation: "DeepAI generation",
+    detail: "This generation operation is not supported by DeepAI.",
+  }));
   return {
+    generateTranscriptionPostProcessing: unsupported,
+    generateReviewGuide: unsupported,
     generateCommitMessage: (input) => {
       const built = buildCommitMessagePrompt(input);
       return generate(input.modelSelection.model, built.prompt, built.outputSchema).pipe(

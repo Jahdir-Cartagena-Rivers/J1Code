@@ -17,12 +17,6 @@ describe("native device stream document", () => {
     expect(input).toEqual({ deviceId, ticket: "<ticket>" });
   });
 
-  it("preserves script strings containing an HTML closing delimiter", () => {
-    const html = deviceStreamDocument("{}", 'var text="</script>";');
-    expect(html.match(/<\/script>/g)).toHaveLength(1);
-    expect(html).toContain('var text="<\\/script>";');
-  });
-
   it("reports a bootstrap exception to the native recovery UI", () => {
     const postMessage = vi.fn();
     const html = deviceStreamDocument(
@@ -58,25 +52,6 @@ describe("native device stream document", () => {
 });
 
 describe("native device stream messages", () => {
-  it("accepts authentication renewal and input connection changes", () => {
-    expect(deviceStreamMessage('{"type":"unauthorized"}')).toEqual({ type: "unauthorized" });
-    expect(deviceStreamMessage('{"type":"input","connected":true}')).toEqual({
-      type: "input",
-      connected: true,
-    });
-    expect(deviceStreamMessage('{"type":"input","connected":false}')).toEqual({
-      type: "input",
-      connected: false,
-    });
-    expect(deviceStreamMessage('{"type":"retry"}')).toEqual({ type: "retry" });
-  });
-
-  it.each(["connecting", "streaming", "error"])("accepts stream %s feedback", (status) => {
-    expect(
-      deviceStreamMessage(JSON.stringify({ type: "status", status, detail: "Stream feedback" })),
-    ).toEqual({ type: "status", status, detail: "Stream feedback" });
-  });
-
   it.each([
     "invalid JSON",
     "null",

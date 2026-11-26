@@ -31,6 +31,7 @@ export const ManualRoutePrepared = Schema.Struct({
 });
 export const ManualRouteStatus = Schema.Struct({
   summary: Schema.optionalKey(Schema.String),
+  sourceMessageId: Schema.optionalKey(Schema.NullOr(TrimmedNonEmptyString)),
   requestId: TrimmedNonEmptyString,
   revision: NonNegativeInt,
   status: Schema.Literals([

@@ -68,6 +68,22 @@ describe("DesktopAssets", () => {
     }),
   );
 
+  it.effect("falls back to packaged resources and reports absent assets", () =>
+    Effect.gen(function* () {
+      const candidatePath = "/Applications/J1 Code.app/Contents/Resources/helper.bin";
+      const assets = yield* DesktopAssets.DesktopAssets.pipe(
+        Effect.provide(DesktopAssets.layer.pipe(
+          Layer.provide(Layer.merge(
+            FileSystem.layerNoop({ exists: (path) => Effect.succeed(path === candidatePath) }),
+            environmentLayer,
+          )),
+        )),
+      );
+      assert.deepEqual(yield* assets.resolveResourcePath("helper.bin"), Option.some(candidatePath));
+      assert.isTrue(Option.isNone(yield* assets.resolveResourcePath("absent.bin")));
+    }),
+  );
+
   it.effect("preserves the failed asset candidate and filesystem cause", () =>
     Effect.gen(function* () {
       const fileName = "custom.bin";

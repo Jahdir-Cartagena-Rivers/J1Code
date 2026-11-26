@@ -27,21 +27,17 @@ afterEach(() => {
 });
 
 describe("theme failure handling", () => {
-  it("preserves exact storage causes and operation context", async () => {
+  it("preserves exact storage read causes and operation context", async () => {
     const readCause = new Error("storage read blocked");
-    const writeCause = new Error("storage quota exceeded");
     vi.stubGlobal("window", {
       localStorage: createStorage({
         getItem: () => {
           throw readCause;
         },
-        setItem: () => {
-          throw writeCause;
-        },
       }),
     });
 
-    const { readThemePreference, ThemeStorageError, writeThemePreference } =
+    const { readThemePreference, ThemeStorageError } =
       await import("./useTheme");
 
     try {
@@ -56,18 +52,32 @@ describe("theme failure handling", () => {
       });
     }
 
-    try {
-      writeThemePreference("dark");
-      expect.unreachable("expected the theme write to fail");
-    } catch (error) {
-      expect(error).toBeInstanceOf(ThemeStorageError);
-      expect(error).toMatchObject({
-        operation: "write",
-        storageKey: "t3code:theme",
-        theme: "dark",
-        cause: writeCause,
-      });
-    }
+
+  });
+
+  it("refuses a failed preference write and restores the saved theme mix", async () => {
+    const cause = new Error("private storage quota failure");
+    const storage = createStorage();
+    const previousMix = JSON.stringify({ light: "t3-ocean", dark: "t3-grove" });
+    storage.setItem("t3code:theme", "light");
+    storage.setItem("t3code:theme-halves:v1", previousMix);
+    const write = storage.setItem;
+    storage.setItem = (key, value) => {
+      if (key === "t3code:theme") throw cause;
+      write(key, value);
+    };
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal("window", { localStorage: storage });
+    vi.stubGlobal("document", undefined);
+    const { setTheme } = await import("./useTheme");
+    expect(setTheme("dark")).toBe(false);
+    expect(storage.getItem("t3code:theme")).toBe("light");
+    expect(storage.getItem("t3code:theme-halves:v1")).toBe(previousMix);
+    expect(errorLog).toHaveBeenCalledWith(
+      "Failed to write theme preference for t3code:theme.",
+      expect.objectContaining({ operation: "write", storageKey: "t3code:theme", theme: "dark", errorTag: "ThemeStorageError" }),
+    );
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain(cause.message);
   });
 
   it("reads the persisted J1 Chat theme preference", async () => {
@@ -166,38 +176,33 @@ describe("theme failure handling", () => {
     unsubscribe?.();
   });
 
-  it("preserves desktop sync causes and retries after a failed cosmetic sync", async () => {
-    const cause = new Error("desktop IPC unavailable");
-    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
-    const setTheme = vi.fn().mockRejectedValue(cause);
-    vi.stubGlobal("window", { desktopBridge: { setTheme } });
-
-    const { DesktopThemeSyncError, syncDesktopTheme, syncDesktopThemePreference } =
-      await import("./useTheme");
-
-    const error = await syncDesktopThemePreference({ setTheme }, "dark").then(
-      () => undefined,
-      (failure: unknown) => failure,
-    );
-    expect(error).toBeInstanceOf(DesktopThemeSyncError);
-    expect(error).toMatchObject({ theme: "dark", cause });
-
-    setTheme.mockClear();
-    syncDesktopTheme("dark");
-    await Promise.resolve();
-    await Promise.resolve();
-    syncDesktopTheme("dark");
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(setTheme).toHaveBeenCalledTimes(2);
+  it("retries failed cosmetic desktop sync through the public theme action", async () => {
+    const cause = new Error("private desktop IPC failure");
+    let reportFailure!: () => void;
+    const failureReported = new Promise<void>((resolve) => { reportFailure = resolve; });
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => reportFailure());
+    const desktopSetTheme = vi.fn().mockRejectedValueOnce(cause).mockResolvedValue(undefined);
+    vi.stubGlobal("document", undefined);
+    const storage = createStorage();
+    storage.setItem("t3code:theme", "dark");
+    storage.setItem("t3code:theme-appearance-mode", "dark");
+    vi.stubGlobal("window", { localStorage: storage, desktopBridge: { setTheme: desktopSetTheme } });
+    const { setTheme, setAppearanceMode } = await import("./useTheme");
+    vi.stubGlobal("document", {
+      documentElement: { dataset: {}, classList: { toggle: vi.fn(), add: vi.fn(), remove: vi.fn() } },
+    });
+    vi.stubGlobal("getComputedStyle", undefined);
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 0; });
+    expect(setTheme("dark")).toBe(true);
+    await failureReported;
     expect(errorLog).toHaveBeenCalledWith(
       "Failed to sync the dark theme to the desktop shell.",
-      expect.objectContaining({
-        theme: "dark",
-        errorTag: "DesktopThemeSyncError",
-      }),
+      expect.objectContaining({ theme: "dark", errorTag: "DesktopThemeSyncError" }),
     );
+    expect(setTheme("dark")).toBe(true);
+    expect(desktopSetTheme).toHaveBeenCalledTimes(2);
+    expect(setAppearanceMode("light")).toBe(true);
+    expect(desktopSetTheme).toHaveBeenLastCalledWith("light");
     for (const [, attributes] of errorLog.mock.calls) {
       expect(attributes).not.toHaveProperty("cause");
       expect(JSON.stringify(attributes)).not.toContain(cause.message);

@@ -1,8 +1,9 @@
 import { UserButton, useAuth } from "@clerk/react";
-import { LogInIcon } from "lucide-react";
+import { LogInIcon, RotateCwIcon } from "lucide-react";
 
 import { hasCloudPublicConfig } from "../../cloud/publicConfig";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "../ui/sidebar";
+import { retryClerkLoad, useClerkLoadFailed } from "./clerkLoadFailure";
 import { T3_CONNECT_ACCOUNT_PAGES } from "./J1ConnectAccountPages";
 import { useJ1ConnectAuthPrompt } from "./useJ1ConnectAuthPrompt";
 
@@ -28,7 +29,8 @@ function ConfiguredJ1ConnectSidebarAvatar() {
       appearance={{
         elements: {
           avatarBox: "size-7",
-          userButtonTrigger: "rounded-lg p-1 hover:bg-sidebar-row-hover",
+          // Clerk's unlayered trigger reset (padding, radius, background) beats layered utilities.
+          userButtonTrigger: "mb-1! rounded-lg! p-1! hover:bg-sidebar-row-hover!",
         },
       }}
     >
@@ -48,21 +50,31 @@ function ConfiguredJ1ConnectSidebarAvatar() {
 
 function ConfiguredJ1ConnectSidebarSignIn() {
   const { isLoaded, isSignedIn } = useAuth();
-  const { authPrompt, openAuthPrompt } = useJ1ConnectAuthPrompt();
+  const loadFailed = useClerkLoadFailed();
+  const { openAuthPrompt } = useJ1ConnectAuthPrompt();
 
-  if (!isLoaded || isSignedIn) return null;
-
-  return (
-    <>
+  if (loadFailed) {
+    return (
       <SidebarMenu>
         <SidebarMenuItem>
-          <SidebarMenuButton onClick={openAuthPrompt}>
-            <LogInIcon />
-            <span>Sign in to J1 Connect</span>
+          <SidebarMenuButton onClick={retryClerkLoad}>
+            <RotateCwIcon />
+            <span>Retry J1 Connect</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarMenu>
-      {authPrompt}
-    </>
+    );
+  }
+  if (!isLoaded || isSignedIn) return null;
+
+  return (
+    <SidebarMenu>
+      <SidebarMenuItem>
+        <SidebarMenuButton onClick={openAuthPrompt}>
+          <LogInIcon />
+          <span>Sign in to J1 Connect</span>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    </SidebarMenu>
   );
 }

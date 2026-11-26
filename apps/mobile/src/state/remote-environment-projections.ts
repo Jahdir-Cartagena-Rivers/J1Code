@@ -5,7 +5,7 @@ import type {
 import { connectionCatalogDisplayUrl } from "@j1code/client-runtime/connection";
 import type { EnvironmentId, ServerConfig } from "@j1code/contracts";
 import * as Option from "effect/Option";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 
 import type { SavedRemoteConnection } from "../lib/connection";
 import type { EnvironmentRuntimeState } from "./remote-runtime-types";
@@ -52,7 +52,10 @@ export function createRemoteEnvironmentProjectionAtoms(input: {
             : displayUrl.replace(/^http:/, "ws:")
           : new URL(socketUrl).origin;
       const authorization = prepared?.httpAuthorization ?? null;
-      const relayManaged = presentation.entry.target._tag === "RelayConnectionTarget";
+      // Credentials follow the route in use, which may not be the preferred one.
+      const relayManaged = prepared
+        ? prepared.target._tag === "RelayConnectionTarget"
+        : presentation.entry.target._tag === "RelayConnectionTarget";
 
       previousEntry = presentation.entry;
       previousPrepared = prepared;
@@ -99,6 +102,7 @@ export function createRemoteEnvironmentProjectionAtoms(input: {
         connection.phase === previousConnection?.phase &&
         connection.error === previousConnection?.error &&
         connection.traceId === previousConnection?.traceId &&
+        connection.awaitingApproval === previousConnection?.awaitingApproval &&
         serverConfig === previousServerConfig
       ) {
         return previous;
@@ -110,6 +114,7 @@ export function createRemoteEnvironmentProjectionAtoms(input: {
         connectionState: connection.phase,
         connectionError: connection.error,
         connectionErrorTraceId: connection.traceId,
+        ...(connection.awaitingApproval ? { connectionAwaitingApproval: true as const } : {}),
         serverConfig,
       };
       return previous;

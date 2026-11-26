@@ -6,7 +6,10 @@ import {
 } from "@j1code/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer, Exit } from "effect";
-import { McpSchema, McpServer } from "effect/unstable/ai";
+import { McpSchema, McpServer } from "effect/ai";
+import { ServerEnvironment } from "../../../environment/ServerEnvironment.ts";
+import { registerBotExecutionContext } from "../../../mausbot/ExecutionContext.ts";
+import * as McpToolAccessTestkit from "../../McpToolAccess.testkit.ts";
 import { McpInvocationContext, type McpInvocationScope } from "../../McpInvocationContext.ts";
 import {
   ExternalConversations,
@@ -17,9 +20,13 @@ import { ConversationsToolkitHandlers } from "./handlers.ts";
 
 const scope: McpInvocationScope = {
   environmentId: EnvironmentId.make("local"),
-  threadId: ThreadId.make("real-source"),
-  providerInstanceId: ProviderInstanceId.make("codex"),
-  providerSessionId: "session",
+  thread: {
+    threadId: ThreadId.make("real-source"),
+    providerInstanceId: ProviderInstanceId.make("codex"),
+    providerSessionId: "session",
+  },
+  client: undefined,
+  requestNamespace: "history-test",
   capabilities: new Set(["agents"]),
   issuedAt: 0,
 };
@@ -81,7 +88,7 @@ function fixture() {
         };
       }),
   });
-  const layer = McpServer.toolkit(ConversationsToolkit).pipe(
+  const layer = Layer.effectDiscard(McpServer.registerToolkit(ConversationsToolkit)).pipe(
     Layer.provide(ConversationsToolkitHandlers),
     Layer.provide(Layer.succeed(ExternalConversations, directory)),
     Layer.provideMerge(McpServer.McpServer.layer),
@@ -93,6 +100,10 @@ function fixture() {
         .pipe(
           Effect.provideService(McpInvocationContext, invocation),
           Effect.provideService(McpSchema.McpServerClient, client),
+          Effect.provide(McpToolAccessTestkit.liveThreadsLayer),
+          Effect.provideService(ServerEnvironment, {
+            getEnvironmentId: Effect.succeed(scope.environmentId),
+          } as never),
         );
     });
   return { native, callers, layer, call };
@@ -136,6 +147,31 @@ describe("shared conversation MCP boundary", () => {
       );
       expect(result.isError).toBe(true);
       expect(f.callers).toEqual([]);
+    }).pipe(Effect.provide(f.layer));
+  });
+  it.effect("refuses a forged or mixed speaker and reserves bot calls for the selected bridge", () => {
+    const f = fixture();
+    const outside = { sessionId: "outside", label: "Outside", access: "full-access" as const };
+    return Effect.gen(function* () {
+      for (const invocation of [
+        { ...scope, thread: undefined, client: outside },
+        { ...scope, client: outside },
+        { ...scope, environmentId: EnvironmentId.make("foreign") },
+        { ...scope, thread: { ...scope.thread!, providerInstanceId: ProviderInstanceId.make("foreign") } },
+      ]) {
+        const result = yield* f.call("search_conversations", { query: "native" }, invocation);
+        expect(result.isError).toBe(true);
+      }
+      const dispose = registerBotExecutionContext(ThreadId.make("real-source"), {
+        restrictedTools: false, prompt: "", tools: [], call: async () => undefined,
+      });
+      try {
+        expect((yield* f.call("search_conversations", { query: "native" })).isError).toBe(true);
+      } finally {
+        dispose();
+      }
+      expect(f.callers).toEqual([]);
+      expect((yield* f.call("search_conversations", { query: "native" })).isError).toBe(false);
     }).pipe(Effect.provide(f.layer));
   });
   it.effect("rejects another environment and invalid offsets before opening history", () => {

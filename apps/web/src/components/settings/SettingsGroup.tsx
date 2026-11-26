@@ -3,7 +3,6 @@ import type { ComponentProps } from "react";
 import { cn } from "../../lib/utils";
 import { useMergedSettingsAppearance } from "./settingsAppearance";
 
-/** Shared settings card surface, with optional separators between rows. */
 export function SettingsGroup({
   variant = "grouped",
   divided = true,
@@ -16,6 +15,7 @@ export function SettingsGroup({
   const merged = useMergedSettingsAppearance();
   return (
     <div
+      data-slot="settings-group"
       {...props}
       className={cn(
         "relative overflow-visible text-foreground",
@@ -26,7 +26,7 @@ export function SettingsGroup({
           : "space-y-1",
         variant === "grouped" &&
           divided &&
-          "[&>*+*]:border-t [&>*+*]:border-border/50 [&>[data-slot=settings-row]]:rounded-none",
+          "*:not-first:border-t *:not-first:border-border/50 [&>[data-slot=settings-row]]:rounded-none",
         className,
       )}
     />

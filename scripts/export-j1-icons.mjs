@@ -4,7 +4,7 @@ const root = new URL("../", import.meta.url);
 const destination = new URL("assets/j1/", root);
 await NodeFSP.mkdir(destination, { recursive: true });
 const svg = await NodeFSP.readFile(new URL("icon.svg", destination));
-const sizes = [16, 32, 48, 180, 256, 512, 1024];
+const sizes = [16, 32, 48, 180, 192, 256, 512, 1024];
 const pngs = await Promise.all(sizes.map((size) => sharp(svg).resize(size, size).png().toBuffer()));
 for (let index = 0; index < sizes.length; index++)
   await NodeFSP.writeFile(new URL(`icon-${sizes[index]}.png`, destination), pngs[index]);

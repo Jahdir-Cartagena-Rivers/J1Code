@@ -5,7 +5,9 @@ import { BotToolkit } from "./tools.ts";
 
 const context = McpInvocationContext.pipe(
   Effect.flatMap((scope) => {
-    const value = botExecutionContext(scope.threadId);
+    const value = scope.thread === undefined
+      ? undefined
+      : botExecutionContext(scope.thread.threadId, scope.thread.providerSessionId);
     return value ? Effect.succeed(value) : Effect.fail("No bot tools are active for this session.");
   }),
   Effect.mapError(() => "No bot tools are active for this session."),

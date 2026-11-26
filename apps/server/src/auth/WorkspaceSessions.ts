@@ -1,6 +1,6 @@
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -15,7 +15,7 @@ export class WorkspaceCredentialInvalid extends Schema.TaggedError<WorkspaceCred
 
 export const make = Effect.gen(function* () {
   const sessions = yield* SessionStore;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const issueBrowserSession = sessions.issueWorkspaceBrowserSession;
   const pending = new Map<string, { parentToken: string; expiresAt: number }>();
   yield* Effect.addFinalizer(() => Effect.sync(() => pending.clear()));
@@ -25,7 +25,7 @@ export const make = Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis;
     for (const [key, value] of pending) if (value.expiresAt <= now) pending.delete(key);
     if (pending.size >= 128) return yield* new WorkspaceCredentialInvalid();
-    const credential = yield* crypto.randomUUIDv4;
+    const credential = yield* random.uuidV4();
     const expiresAt = now + 60_000;
     pending.set(credential, { parentToken, expiresAt });
     return { credential, expiresAt: DateTime.makeUnsafe(expiresAt), scopes: parent.scopes };

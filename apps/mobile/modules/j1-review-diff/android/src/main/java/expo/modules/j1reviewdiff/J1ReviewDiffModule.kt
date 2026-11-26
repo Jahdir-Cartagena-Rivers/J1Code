@@ -1,7 +1,18 @@
 package expo.modules.j1reviewdiff
 
+import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+
+private val REVIEW_DIFF_EVENTS = arrayOf(
+  "onDebug",
+  "onVisibleFileChange",
+  "onToggleFile",
+  "onToggleViewedFile",
+  "onPressLine",
+  "onToggleComment",
+  "onPressNotice",
+)
 
 class J1ReviewDiffModule : Module() {
   override fun definition() = ModuleDefinition {
@@ -38,21 +49,22 @@ class J1ReviewDiffModule : Module() {
       Prop("rowHeight") { view: J1ReviewDiffView, rowHeight: Double ->
         view.setRowHeight(rowHeight.toFloat())
       }
-      Prop("contentWidth") { view: J1ReviewDiffView, contentWidth: Double ->
-        view.setContentWidth(contentWidth.toFloat())
+      // Accept the shared prop while deriving Android's scroll range from the drawn text.
+      Prop("contentWidth") { _: J1ReviewDiffView, _: Double -> }
+      Prop("contentInsetBottom") { view: J1ReviewDiffView, value: Double ->
+        view.setContentInsetBottom(value.toFloat())
+      }
+      Prop("scrollEnabled") { view: J1ReviewDiffView, enabled: Boolean ->
+        view.setScrollEnabled(enabled)
       }
       Prop("initialRowIndex") { view: J1ReviewDiffView, initialRowIndex: Double ->
         view.setInitialRowIndex(initialRowIndex)
       }
+      Prop("initialFileId") { view: J1ReviewDiffView, fileId: String ->
+        view.setInitialFileId(fileId)
+      }
 
-      Events(
-        "onDebug",
-        "onVisibleFileChange",
-        "onToggleFile",
-        "onToggleViewedFile",
-        "onPressLine",
-        "onToggleComment",
-      )
+      Events(REVIEW_DIFF_EVENTS)
 
       AsyncFunction("scrollToFile") { view: J1ReviewDiffView, fileId: String, animated: Boolean ->
         view.scrollToFile(fileId, animated)
@@ -60,14 +72,19 @@ class J1ReviewDiffModule : Module() {
       AsyncFunction("scrollToTop") { view: J1ReviewDiffView, animated: Boolean ->
         view.scrollToTop(animated)
       }
-      AsyncFunction("setRowsJson") { view: J1ReviewDiffView, rowsJson: String ->
+      AsyncFunction("setRowsJson") { view: J1ReviewDiffView, rowsJson: String, resetKey: String ->
+        view.setContentResetKey(resetKey)
         view.setRowsJson(rowsJson)
       }
       AsyncFunction("setTokensJson") { view: J1ReviewDiffView, tokensJson: String ->
         view.setTokensJson(tokensJson)
       }
-      AsyncFunction("setTokensPatchJson") { view: J1ReviewDiffView, tokensPatchJson: String ->
-        view.setTokensPatchJson(tokensPatchJson)
+      AsyncFunction("setTokensPatchJson") {
+          view: J1ReviewDiffView,
+          tokensPatchJson: String,
+          promise: Promise
+        ->
+        view.setTokensPatchJson(tokensPatchJson) { accepted -> promise.resolve(accepted) }
       }
 
       OnViewDestroys { view: J1ReviewDiffView ->

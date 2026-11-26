@@ -32,13 +32,19 @@ async function findTarget(
   const children = await App.byPid(target.processId, { timeout: 0 })
     .then((app) => app.children())
     .catch(() => []);
-  return (
-    children.find((candidate) => matchesTarget(candidate, target)) ??
-    (await App.list())
-      .filter((candidate) => candidate.pid === target.processId)
-      .map((candidate) => candidate.asElement())
-      .find((candidate) => matchesTarget(candidate, target))
-  );
+  const direct = children.find((candidate) => matchesTarget(candidate, target));
+  if (direct) return direct;
+  const applications = await App.list().catch(() => []);
+  for (const application of applications) {
+    if (application.pid !== target.processId) continue;
+    try {
+      const candidate = application.asElement();
+      if (matchesTarget(candidate, target)) return candidate;
+    } catch {
+      // A window may disappear between enumeration and inspection.
+    }
+  }
+  return undefined;
 }
 
 const cachedElements = new Map<number, Element>();
