@@ -12,7 +12,7 @@ export const PROMPT_STASH_STORAGE_KEY = "t3code:prompt-stash:v2";
 const LEGACY_PROMPT_STASH_STORAGE_KEY = "t3code:prompt-stash:v1";
 const PROMPT_STASH_STORAGE_VERSION = 2;
 
-export const MAX_STASH_ENTRIES = 20;
+export const MAX_STASH_ENTRIES = 100;
 // Share localStorage's ~5MB quota with drafts; record oversized attachments in droppedImageNames.
 export const MAX_STASH_ENTRY_ATTACHMENT_CHARS = 2_700_000;
 
@@ -153,7 +153,7 @@ function latestEntries(memory: ReadonlyArray<PromptStashEntry>): ReadonlyArray<P
 interface PromptStashStoreState {
   entries: ReadonlyArray<PromptStashEntry>;
   stashEntry: (entry: PromptStashEntry) => {
-    evicted: PromptStashEntry | null;
+    full: boolean;
     /** False when the write failed outright (e.g. quota); nothing was kept. */
     written: boolean;
     /** False for failed writes or in-memory fallback; the entry will not survive reload. */
@@ -175,15 +175,18 @@ interface PromptStashStoreState {
 export const usePromptStashStore = create<PromptStashStoreState>()((set, get) => ({
   entries: [],
   stashEntry: (entry) => {
-    const nextEntries = [entry, ...latestEntries(get().entries)];
-    const evicted = nextEntries.length > MAX_STASH_ENTRIES ? (nextEntries.pop() ?? null) : null;
+    const currentEntries = latestEntries(get().entries);
+    if (currentEntries.length >= MAX_STASH_ENTRIES) {
+      return { full: true, written: false, durable: false };
+    }
+    const nextEntries = [entry, ...currentEntries];
     const { written, durable } = persistEntries(nextEntries);
-    // Failed writes must not duplicate the intact composer; eviction also commits only on success.
+    // Failed writes must not duplicate the intact composer.
     if (!written) {
-      return { evicted: null, written: false, durable: false };
+      return { full: false, written: false, durable: false };
     }
     set(() => ({ entries: nextEntries }));
-    return { evicted, written: true, durable };
+    return { full: false, written: true, durable };
   },
   takeEntry: (entryId) => {
     const entries = latestEntries(get().entries);
