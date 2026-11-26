@@ -5,7 +5,7 @@ import type {
   DeviceSummary,
   ScopedThreadRef,
 } from "@j1code/contracts";
-import { ArrowUpRight, CircleAlert, Play, Smartphone, X } from "lucide-react";
+import { ArrowUpRight, CircleAlert, Play, Smartphone, Square, X } from "lucide-react";
 import { useAtomMount } from "@effect/atom-react";
 import { type ReactNode, useState } from "react";
 
@@ -21,6 +21,7 @@ import { Dialog } from "~/components/ui/dialog";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { WizardPopup } from "~/components/ui/wizard";
 import { Spinner } from "~/components/ui/spinner";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
 import { focusPanelTerminalAfterClose } from "~/lib/terminalFocus";
 import {
@@ -59,6 +60,7 @@ export function DevicePanel(props: {
   const list = useAtomCommand(deviceEnvironment.list, { reportFailure: false });
   const open = useAtomCommand(deviceEnvironment.open);
   const close = useAtomCommand(deviceEnvironment.close);
+  const shutdown = useAtomCommand(deviceEnvironment.shutdown, { reportFailure: false });
   // The panel stays mounted across thread switches, so an in-flight open or
   // power-off is tagged with the thread it belongs to and only shown there.
   const scope = `${environmentId}\u0000${threadId}`;
@@ -70,6 +72,18 @@ export function DevicePanel(props: {
   const pendingDevice = operation?.scope === scope ? operation.pending : null;
   const operationError = operation?.scope === scope ? operation.error : null;
   const pendingDeviceKey = pendingDevice ? deviceKey(pendingDevice) : null;
+  const [stoppingDevices, setStoppingDevices] = useState<ReadonlySet<string>>(() => new Set());
+  const [stopErrors, setStopErrors] = useState<ReadonlyMap<string, string>>(() => new Map());
+  const stopError = stopErrors.get(environmentId);
+  const stopKey = (device: DeviceSummary) => `${environmentId}\u0000${deviceKey(device)}`;
+  const isStopping = (device: DeviceSummary) => stoppingDevices.has(stopKey(device));
+  const setStopError = (message?: string) =>
+    setStopErrors((current) => {
+      const next = new Map(current);
+      if (message === undefined) next.delete(environmentId);
+      else next.set(environmentId, message);
+      return next;
+    });
 
   const hostDisabled = state.hostStatus === "disabled";
 
@@ -97,6 +111,9 @@ export function DevicePanel(props: {
     : undefined;
 
   const grouped = groupDevices(state);
+  const stoppable = state.devices.filter((device) => device.booted && !device.physical);
+  const canStop = (device: DeviceSummary) =>
+    !isStopping(device) && pendingDeviceKey !== deviceKey(device);
 
   const startOperation = (pending: DeviceSummary | null) => {
     const started = { scope, pending, error: null };
@@ -132,6 +149,31 @@ export function DevicePanel(props: {
       });
       settleOperation(null);
     }
+  };
+
+  const stopDevices = async (devices: readonly DeviceSummary[]) => {
+    const targets = devices.filter(canStop);
+    if (targets.length === 0) return;
+    setStopError();
+    setStoppingDevices((current) => new Set([...current, ...targets.map(stopKey)]));
+    const results = await Promise.all(
+      targets.map(async (device) => {
+        try {
+          return await shutdown({
+            environmentId,
+            input: { hostId: device.hostId, deviceId: device.id, platform: device.platform },
+          });
+        } finally {
+          setStoppingDevices((current) => {
+            const next = new Set(current);
+            next.delete(stopKey(device));
+            return next;
+          });
+        }
+      }),
+    );
+    const failure = results.find((result) => result._tag === "Failure");
+    if (failure?._tag === "Failure") setStopError(formatEnvironmentQueryError(failure.cause));
   };
 
   const floatActive = () => {
@@ -245,6 +287,9 @@ export function DevicePanel(props: {
           {operationError ? (
             <DeviceNotice onDismiss={() => setOperation(null)}>{operationError}</DeviceNotice>
           ) : null}
+          {stopError !== undefined ? (
+            <DeviceNotice onDismiss={() => setStopError()}>{stopError}</DeviceNotice>
+          ) : null}
         </div>
         <div className="@container relative flex min-h-0 flex-1">
           {activeDevice && activeSession ? (
@@ -335,10 +380,28 @@ export function DevicePanel(props: {
                                   {`${state.hosts.find((host) => host.id === device.hostId)?.label} · ${device.version} · ${device.booted ? "Running" : "Stopped"}`}
                                 </span>
                               </div>
+                              {device.booted && !device.physical ? (
+                                <Tooltip>
+                                  <TooltipTrigger
+                                    render={
+                                      <Button
+                                        variant="outline"
+                                        size="icon-sm"
+                                        disabled={!canStop(device)}
+                                        aria-label={`Stop ${device.name}`}
+                                        onClick={() => void stopDevices([device])}
+                                      />
+                                    }
+                                  >
+                                    {isStopping(device) ? <Spinner size="xs" /> : <Square />}
+                                  </TooltipTrigger>
+                                  <TooltipPopup>Stop</TooltipPopup>
+                                </Tooltip>
+                              ) : null}
                               <Button
                                 variant="outline"
                                 size="sm"
-                                disabled={pendingDeviceKey !== null}
+                                disabled={pendingDeviceKey !== null || isStopping(device)}
                                 aria-label={`${device.booted ? "Open" : "Start"} ${device.name}`}
                                 onClick={() => void selectDevice(deviceKey(device))}
                               >
@@ -368,14 +431,30 @@ export function DevicePanel(props: {
                   </p>
                 ) : null}
                 {loaded && !hostBusy ? (
-                  <Button
-                    className={grouped.length > 0 ? "self-start" : "self-center"}
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void list({ environmentId, input: {} })}
+                  <div
+                    className={cn(
+                      "flex flex-wrap gap-2",
+                      grouped.length > 0 ? "self-start" : "self-center",
+                    )}
                   >
-                    Refresh devices
-                  </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void list({ environmentId, input: {} })}
+                    >
+                      Refresh devices
+                    </Button>
+                    {stoppable.length > 0 ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={!stoppable.some(canStop)}
+                        onClick={() => void stopDevices(stoppable)}
+                      >
+                        Stop all devices
+                      </Button>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             </div>

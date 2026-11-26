@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   open: vi.fn<(request: unknown) => Promise<CommandResult>>(),
   close: vi.fn<(request: unknown) => Promise<CommandResult>>(),
   list: vi.fn<(request: unknown) => Promise<CommandResult>>(),
+  shutdown: vi.fn<(request: unknown) => Promise<CommandResult>>(),
   openDevice: vi.fn(),
   closeSurface: vi.fn(),
 }));
@@ -67,7 +68,7 @@ vi.mock("~/state/device", async () => {
   const Effect = await import("effect/Effect");
   const { AsyncResult, Atom } = await import("effect/reactivity");
   return {
-    deviceEnvironment: { list: "list", open: "open", close: "close" },
+    deviceEnvironment: { list: "list", open: "open", close: "close", shutdown: "shutdown" },
     deviceHostProbeAtom: Atom.family((environmentId: string) =>
       Atom.make(() => Effect.promise(() => mocks.list({ environmentId, input: {} }))),
     ),
@@ -83,7 +84,9 @@ vi.mock("~/state/use-atom-command", () => ({
         ? mocks.close
         : command === "list"
           ? mocks.list
-          : () => Promise.resolve({ _tag: "Success", value: {} }),
+          : command === "shutdown"
+            ? mocks.shutdown
+            : () => Promise.resolve({ _tag: "Success", value: {} }),
 }));
 vi.mock("~/state/query", () => ({ formatEnvironmentQueryError: () => "Device failed" }));
 vi.mock("~/rightPanelStore", () => ({
@@ -195,6 +198,50 @@ describe("DevicePanel thread switches", () => {
     expect(mocks.openDevice.mock.calls).toEqual([
       [threadB, phoneTarget],
       [threadA, phoneTarget],
+    ]);
+  });
+});
+
+describe("DevicePanel shutdown", () => {
+  it("stops running virtual devices across their hosts and leaves physical and offline devices alone", async () => {
+    setup();
+    mocks.shutdown.mockResolvedValue(opened);
+    currentState = {
+      ...deviceState,
+      devices: [
+        { ...phone, booted: true },
+        {
+          ...phone,
+          hostId: "remote",
+          id: "emulator",
+          name: "Remote emulator",
+          platform: "android",
+          booted: true,
+        },
+        { ...phone, id: "physical", name: "Physical phone", booted: true, physical: true },
+        { ...phone, id: "offline", name: "Stopped emulator" },
+      ],
+    };
+    await using _screen = await render(devicePanel(threadA), { container });
+    expect(container.querySelector('[aria-label="Stop Physical phone"]')).toBeNull();
+    expect(container.querySelector('[aria-label="Stop Stopped emulator"]')).toBeNull();
+    const stopAll = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Stop all devices",
+    );
+    await click(stopAll ?? null);
+    expect(mocks.shutdown.mock.calls).toEqual([
+      [
+        {
+          environmentId: threadA.environmentId,
+          input: { hostId: "local", deviceId: "phone", platform: "ios" },
+        },
+      ],
+      [
+        {
+          environmentId: threadA.environmentId,
+          input: { hostId: "remote", deviceId: "emulator", platform: "android" },
+        },
+      ],
     ]);
   });
 });
