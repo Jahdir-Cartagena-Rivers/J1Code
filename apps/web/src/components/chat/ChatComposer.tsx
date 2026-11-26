@@ -3781,17 +3781,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       Exit plan mode
                     </Button>
                   ) : null}
-                  {!speechInput.available ? (
-                    <ComposerDictation
-                      key={composerDraftTargetKey}
-                      value={prompt}
-                      onChange={setPrompt}
-                      onBusyChange={setDictationBusy}
-                      disabled={
-                        isComposerApprovalState || pendingUserInputs.length > 0 || voiceInputActive
-                      }
-                    />
-                  ) : null}
                   <div
                     ref={attachExpandedComposerControls}
                     data-chat-composer-controls="footer"
@@ -3868,7 +3857,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                           onStart={() => void speechInput.start()}
                         />
                       </>
-                    ) : null}
+                    ) : (
+                      <ComposerDictation
+                        key={composerDraftTargetKey}
+                        value={prompt}
+                        onChange={setPrompt}
+                        onBusyChange={setDictationBusy}
+                        disabled={
+                          isComposerApprovalState || pendingUserInputs.length > 0 || voiceInputActive
+                        }
+                      />
+                    )}
                     <VoiceInputSetup
                       environmentId={speechInput.transcriptionEnvironmentId}
                       open={speechInput.setup.open}
