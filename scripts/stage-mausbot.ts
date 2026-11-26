@@ -47,7 +47,21 @@ export async function stageMausbot(
     );
     if (!sourceCheckout) {
       await execute("git", ["init", source], scratch);
-      await execute("git", ["fetch", "--depth=1", repository, MAUSBOT_SOURCE], source);
+      // Fail a stalled transfer instead of leaving Windows packaging waiting on Git indefinitely.
+      await execute(
+        "git",
+        [
+          "-c",
+          "http.lowSpeedLimit=1024",
+          "-c",
+          "http.lowSpeedTime=60",
+          "fetch",
+          "--depth=1",
+          repository,
+          MAUSBOT_SOURCE,
+        ],
+        source,
+      );
     }
     const pin = await execute("git", ["rev-parse", `${MAUSBOT_SOURCE}^{commit}`], source);
     if (pin !== MAUSBOT_SOURCE) throw new Error("Mausbot source pin did not match.");

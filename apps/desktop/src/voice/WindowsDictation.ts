@@ -27,6 +27,8 @@ using System.Text;
 using System.Threading.Tasks;
 public static class J1Dictation {
   public static void Run() {
+    if (SpeechRecognitionEngine.InstalledRecognizers().Count == 0)
+      throw new InvalidOperationException("Windows has no speech recognizer installed. Add a speech language in Windows Settings, then try dictation again.");
     using (var recognizer = new SpeechRecognitionEngine()) {
       var gate = new object();
       var final = new StringBuilder();
