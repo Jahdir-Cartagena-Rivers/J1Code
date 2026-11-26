@@ -5,6 +5,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
 import * as NodeURL from "node:url";
+import { windowsCuaRelease } from "./mausbot/cua-windows-release.mjs";
 import { MAUSBOT_SOURCE, patchMausbotSource } from "./mausbot/patch-source.ts";
 
 const run = NodeUtil.promisify(NodeChildProcess.execFile);
@@ -119,6 +120,15 @@ export async function stageMausbot(
       NodePath.join(approvals, "src/locales/en.json"),
     );
     if (platform === "win32") {
+      const { version, sourceCommit, archiveSha256 } = windowsCuaRelease;
+      const notices = NodePath.join(ownRoot, "third_party/mausbot/cua-driver-windows");
+      const inventory = JSON.parse(
+        await NodeFSP.readFile(NodePath.join(notices, "DEPENDENCIES.json"), "utf8"),
+      );
+      const sourceUrl = `https://github.com/trycua/cua/tree/${sourceCommit}`;
+      if (inventory.version !== version || inventory.source !== sourceUrl) {
+        throw new Error(`The Windows Cua Driver notices must match release ${version}.`);
+      }
       await NodeFSP.cp(
         NodePath.join(stage, "dist-native/cua-win32-x64"),
         NodePath.join(destination, "native"),
@@ -130,7 +140,7 @@ export async function stageMausbot(
       );
       const nativeCache = NodePath.join(
         stage,
-        "node_modules/.cache/openmausbot/cua-driver-0.28.2-win",
+        `node_modules/.cache/openmausbot/cua-driver-${version}-win`,
       );
       for (const file of ["cua-driver-uia.exe", "cua-cursor-theme.exe"])
         await NodeFSP.copyFile(
@@ -139,10 +149,10 @@ export async function stageMausbot(
         );
       await NodeFSP.writeFile(
         NodePath.join(destination, "native/SOURCE.txt"),
-        "Cua Driver 0.28.2: https://github.com/trycua/cua/tree/fc188250b4ca8549b8e61f937fdb1fb560770e86\nOfficial Windows x64 binary release: https://github.com/trycua/cua/releases/tag/cua-driver-rs-v0.28.2\nArchive SHA256: 1f4bfceeab64cb7f56be7aad774c3dc2d2910d1427e4be1d79939c706e8029ba\nSDK and native libraries are pinned by the enclosed upstream pnpm lockfile.\n",
+        `Cua Driver ${version}: ${sourceUrl}\nOfficial Windows x64 binary release: https://github.com/trycua/cua/releases/tag/cua-driver-rs-v${version}\nArchive SHA256: ${archiveSha256}\nSDK and native libraries are pinned by the enclosed upstream pnpm lockfile.\n`,
       );
       await NodeFSP.cp(
-        NodePath.join(ownRoot, "third_party/mausbot/cua-driver-windows"),
+        notices,
         NodePath.join(destination, "licenses/cua-driver-windows"),
         { recursive: true },
       );

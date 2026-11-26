@@ -1,17 +1,22 @@
 {
-  "source": "https://github.com/trycua/cua/tree/fc188250b4ca8549b8e61f937fdb1fb560770e86",
-  "version": "0.28.2",
+  "source": "https://github.com/trycua/cua/tree/d96e1bc359b2cc638c7a406aad01a7276b1b416f",
+  "version": "0.45.4",
   "target": "x86_64-pc-windows-msvc",
-  "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"],
+  "roots": [
+    "cua-driver",
+    "cua-driver-sdk",
+    "cua-driver-uia",
+    "cursor-theme-cli"
+  ],
   "generator": "cargo-about 0.8.4, root-scoped --locked --target x86_64-pc-windows-msvc --format json",
   "cargoAboutArchiveSha256": "d5c38fb914bbad57c6a7d58c4847315bc3fe11efbe4fb51b3c515f997a56ceb7",
-  "cargoLockSha256": "c4b8b4ef60d2ec00fab99119d38d726e430ca1b609edd16885a6596d0e7146cb",
+  "cargoLockSha256": "e87b904f82810bf98153bc1907593947c03fc18bdbfc8646366352233e234590",
   "embeddedInterSha256": "29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031",
   "reportHashes": {
-    "cua-driver": "fa5606e3ad62efb25ce53aa77b7df0156d15bf7c9914e0b366558dba70390c0c",
-    "cua-driver-sdk": "89e96c9af869406ff0e39ce34ad6fd281d7d443dac35d0cb4c9e3de3a5fa4697",
-    "cua-driver-uia": "d77ba105bd32fe78a4e963b857c498dcadf64e682271af7902a5622a1a360523",
-    "cursor-theme-cli": "df781d1e548dcef5b78d593902f4df465fd386ed3abd47c0f0249403cba1c1a2"
+    "cua-driver": "8139abd437af14791563aa11fbd4eb1e1b15c57d682351b61f4988fc1999a91e",
+    "cua-driver-sdk": "8ce7eb22d98818684ff078b60a0ba6ea9a7a3832f5130fb9cb827ac2fd836014",
+    "cua-driver-uia": "d81d2ee6f5f30ecbdcd35bad4104e1a8b8eaad024eb52decd08b83a62d740dba",
+    "cursor-theme-cli": "1d98573009f4c8bf518fcee5dba4309fcb2168d395faff9dd025e8a305c3c6dd"
   },
   "crates": [
     {
@@ -20,7 +25,12 @@
       "license": "0BSD OR MIT OR Apache-2.0",
       "repository": "https://github.com/oyvindln/adler2",
       "source": "https://crates.io/api/v1/crates/adler2/2.0.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "aead",
@@ -28,7 +38,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/RustCrypto/traits",
       "source": "https://crates.io/api/v1/crates/aead/0.6.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "ahash",
@@ -36,7 +51,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/tkaitchuck/ahash",
       "source": "https://crates.io/api/v1/crates/ahash/0.8.12/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "aho-corasick",
@@ -44,7 +64,12 @@
       "license": "Unlicense OR MIT",
       "repository": "https://github.com/BurntSushi/aho-corasick",
       "source": "https://crates.io/api/v1/crates/aho-corasick/1.1.4/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "allocator-api2",
@@ -52,7 +77,22 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/zakarumych/allocator-api2",
       "source": "https://crates.io/api/v1/crates/allocator-api2/0.2.21/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
+    },
+    {
+      "name": "ambient-authority",
+      "version": "0.0.2",
+      "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "repository": "https://github.com/sunfishcode/ambient-authority",
+      "source": "https://crates.io/api/v1/crates/ambient-authority/0.0.2/download",
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "anyhow",
@@ -60,7 +100,22 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/dtolnay/anyhow",
       "source": "https://crates.io/api/v1/crates/anyhow/1.0.102/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
+    },
+    {
+      "name": "arbitrary",
+      "version": "1.4.2",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/rust-fuzz/arbitrary/",
+      "source": "https://crates.io/api/v1/crates/arbitrary/1.4.2/download",
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "arrayref",
@@ -68,7 +123,12 @@
       "license": "BSD-2-Clause",
       "repository": "https://github.com/droundy/arrayref",
       "source": "https://crates.io/api/v1/crates/arrayref/0.3.9/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "arrayvec",
@@ -76,7 +136,45 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/bluss/arrayvec",
       "source": "https://crates.io/api/v1/crates/arrayvec/0.7.6/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
+    },
+    {
+      "name": "askama_derive",
+      "version": "0.14.0",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/askama-rs/askama",
+      "source": "https://crates.io/api/v1/crates/askama_derive/0.14.0/download",
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk"
+      ]
+    },
+    {
+      "name": "askama_parser",
+      "version": "0.14.0",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/askama-rs/askama",
+      "source": "https://crates.io/api/v1/crates/askama_parser/0.14.0/download",
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk"
+      ]
+    },
+    {
+      "name": "askama",
+      "version": "0.14.0",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/askama-rs/askama",
+      "source": "https://crates.io/api/v1/crates/askama/0.14.0/download",
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk"
+      ]
     },
     {
       "name": "async-compat",
@@ -84,7 +182,10 @@
       "license": "Apache-2.0 OR MIT",
       "repository": "https://github.com/smol-rs/async-compat",
       "source": "https://crates.io/api/v1/crates/async-compat/0.2.5/download",
-      "roots": ["cua-driver", "cua-driver-sdk"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk"
+      ]
     },
     {
       "name": "async-trait",
@@ -92,7 +193,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/dtolnay/async-trait",
       "source": "https://crates.io/api/v1/crates/async-trait/0.1.89/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "autocfg",
@@ -100,7 +206,12 @@
       "license": "Apache-2.0 OR MIT",
       "repository": "https://github.com/cuviper/autocfg",
       "source": "https://crates.io/api/v1/crates/autocfg/1.5.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "base64",
@@ -108,7 +219,23 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/marshallpierce/rust-base64",
       "source": "https://crates.io/api/v1/crates/base64/0.22.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
+    },
+    {
+      "name": "basic-toml",
+      "version": "0.1.10",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/dtolnay/basic-toml",
+      "source": "https://crates.io/api/v1/crates/basic-toml/0.1.10/download",
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk"
+      ]
     },
     {
       "name": "bit-set",
@@ -116,7 +243,12 @@
       "license": "Apache-2.0 OR MIT",
       "repository": "https://github.com/contain-rs/bit-set",
       "source": "https://crates.io/api/v1/crates/bit-set/0.8.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "bit-vec",
@@ -124,7 +256,12 @@
       "license": "Apache-2.0 OR MIT",
       "repository": "https://github.com/contain-rs/bit-vec",
       "source": "https://crates.io/api/v1/crates/bit-vec/0.8.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "bitflags",
@@ -132,7 +269,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/bitflags/bitflags",
       "source": "https://crates.io/api/v1/crates/bitflags/2.11.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "block-buffer",
@@ -140,7 +282,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/RustCrypto/utils",
       "source": "https://crates.io/api/v1/crates/block-buffer/0.10.4/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "block-buffer",
@@ -148,7 +295,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/RustCrypto/utils",
       "source": "https://crates.io/api/v1/crates/block-buffer/0.12.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "borrow-or-share",
@@ -156,7 +308,12 @@
       "license": "MIT-0",
       "repository": "https://github.com/yescallop/borrow-or-share",
       "source": "https://crates.io/api/v1/crates/borrow-or-share/0.2.4/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "bstr",
@@ -164,7 +321,11 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/BurntSushi/bstr",
       "source": "https://crates.io/api/v1/crates/bstr/1.13.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "bumpalo",
@@ -172,7 +333,9 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/fitzgen/bumpalo",
       "source": "https://crates.io/api/v1/crates/bumpalo/3.20.2/download",
-      "roots": ["cursor-theme-cli"]
+      "roots": [
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "bytecount",
@@ -180,7 +343,12 @@
       "license": "Apache-2.0 OR MIT",
       "repository": "https://github.com/llogiq/bytecount",
       "source": "https://crates.io/api/v1/crates/bytecount/0.6.9/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "bytemuck",
@@ -188,7 +356,12 @@
       "license": "Zlib OR Apache-2.0 OR MIT",
       "repository": "https://github.com/Lokathor/bytemuck",
       "source": "https://crates.io/api/v1/crates/bytemuck/1.25.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "byteorder-lite",
@@ -196,7 +369,12 @@
       "license": "Unlicense OR MIT",
       "repository": "https://github.com/image-rs/byteorder-lite",
       "source": "https://crates.io/api/v1/crates/byteorder-lite/0.1.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "byteorder",
@@ -204,7 +382,12 @@
       "license": "Unlicense OR MIT",
       "repository": "https://github.com/BurntSushi/byteorder",
       "source": "https://crates.io/api/v1/crates/byteorder/1.5.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "bytes",
@@ -212,7 +395,12 @@
       "license": "MIT",
       "repository": "https://github.com/tokio-rs/bytes",
       "source": "https://crates.io/api/v1/crates/bytes/1.11.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "camino",
@@ -220,7 +408,42 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/camino-rs/camino",
       "source": "https://crates.io/api/v1/crates/camino/1.2.4/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
+    },
+    {
+      "name": "cap-fs-ext",
+      "version": "4.0.3",
+      "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "repository": "https://github.com/bytecodealliance/cap-std",
+      "source": "https://crates.io/api/v1/crates/cap-fs-ext/4.0.3/download",
+      "roots": [
+        "cua-driver"
+      ]
+    },
+    {
+      "name": "cap-primitives",
+      "version": "4.0.3",
+      "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "repository": "https://github.com/bytecodealliance/cap-std",
+      "source": "https://crates.io/api/v1/crates/cap-primitives/4.0.3/download",
+      "roots": [
+        "cua-driver"
+      ]
+    },
+    {
+      "name": "cap-std",
+      "version": "4.0.3",
+      "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "repository": "https://github.com/bytecodealliance/cap-std",
+      "source": "https://crates.io/api/v1/crates/cap-std/4.0.3/download",
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "cargo_metadata",
@@ -228,7 +451,12 @@
       "license": "MIT",
       "repository": "https://github.com/oli-obk/cargo_metadata",
       "source": "https://crates.io/api/v1/crates/cargo_metadata/0.19.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "cargo-platform",
@@ -236,7 +464,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-lang/cargo",
       "source": "https://crates.io/api/v1/crates/cargo-platform/0.1.9/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "cc",
@@ -244,7 +477,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-lang/cc-rs",
       "source": "https://crates.io/api/v1/crates/cc/1.2.62/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "cfg-if",
@@ -252,7 +490,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-lang/cfg-if",
       "source": "https://crates.io/api/v1/crates/cfg-if/1.0.4/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "chacha20",
@@ -260,7 +503,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/RustCrypto/stream-ciphers",
       "source": "https://crates.io/api/v1/crates/chacha20/0.10.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "chacha20poly1305",
@@ -268,7 +516,12 @@
       "license": "Apache-2.0 OR MIT",
       "repository": "https://github.com/RustCrypto/AEADs",
       "source": "https://crates.io/api/v1/crates/chacha20poly1305/0.11.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "chrono-tz",
@@ -276,15 +529,23 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/chronotope/chrono-tz",
       "source": "https://crates.io/api/v1/crates/chrono-tz/0.10.4/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "chrono",
       "version": "0.4.45",
-      "license": "Apache-2.0 OR MIT",
+      "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/chronotope/chrono",
       "source": "https://crates.io/api/v1/crates/chrono/0.4.45/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "ciborium-io",
@@ -292,7 +553,12 @@
       "license": "Apache-2.0",
       "repository": "https://github.com/enarx/ciborium",
       "source": "https://crates.io/api/v1/crates/ciborium-io/0.2.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "ciborium-ll",
@@ -300,7 +566,12 @@
       "license": "Apache-2.0",
       "repository": "https://github.com/enarx/ciborium",
       "source": "https://crates.io/api/v1/crates/ciborium-ll/0.2.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "ciborium",
@@ -308,7 +579,12 @@
       "license": "Apache-2.0",
       "repository": "https://github.com/enarx/ciborium",
       "source": "https://crates.io/api/v1/crates/ciborium/0.2.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "cipher",
@@ -316,7 +592,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/RustCrypto/traits",
       "source": "https://crates.io/api/v1/crates/cipher/0.5.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "clipboard-rs",
@@ -324,7 +605,11 @@
       "license": "MIT",
       "repository": "https://github.com/ChurchTao/clipboard-rs",
       "source": "https://crates.io/api/v1/crates/clipboard-rs/0.3.5/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "clipboard-win",
@@ -332,7 +617,11 @@
       "license": "BSL-1.0",
       "repository": "https://github.com/DoumanAsh/clipboard-win",
       "source": "https://crates.io/api/v1/crates/clipboard-win/5.4.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "cmov",
@@ -340,7 +629,12 @@
       "license": "Apache-2.0 OR MIT",
       "repository": "https://github.com/RustCrypto/utils",
       "source": "https://crates.io/api/v1/crates/cmov/0.5.4/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "cobs",
@@ -348,7 +642,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/jamesmunns/cobs.rs",
       "source": "https://crates.io/api/v1/crates/cobs/0.3.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "coset",
@@ -356,7 +655,12 @@
       "license": "Apache-2.0",
       "repository": "https://github.com/google/coset",
       "source": "https://crates.io/api/v1/crates/coset/0.4.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "cpufeatures",
@@ -364,7 +668,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/RustCrypto/utils",
       "source": "https://crates.io/api/v1/crates/cpufeatures/0.2.17/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "cpufeatures",
@@ -372,7 +681,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/RustCrypto/utils",
       "source": "https://crates.io/api/v1/crates/cpufeatures/0.3.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "crc32fast",
@@ -380,7 +694,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/srijs/rust-crc32fast",
       "source": "https://crates.io/api/v1/crates/crc32fast/1.5.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "crypto-common",
@@ -388,7 +707,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/RustCrypto/traits",
       "source": "https://crates.io/api/v1/crates/crypto-common/0.1.7/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "crypto-common",
@@ -396,7 +720,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/RustCrypto/traits",
       "source": "https://crates.io/api/v1/crates/crypto-common/0.2.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "ctutils",
@@ -404,7 +733,12 @@
       "license": "Apache-2.0 OR MIT",
       "repository": "https://github.com/RustCrypto/utils",
       "source": "https://crates.io/api/v1/crates/ctutils/0.4.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "data-encoding",
@@ -412,7 +746,12 @@
       "license": "MIT",
       "repository": "https://github.com/ia0/data-encoding",
       "source": "https://crates.io/api/v1/crates/data-encoding/2.11.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "deranged",
@@ -420,7 +759,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/jhpratt/deranged",
       "source": "https://crates.io/api/v1/crates/deranged/0.5.8/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "digest",
@@ -428,7 +772,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/RustCrypto/traits",
       "source": "https://crates.io/api/v1/crates/digest/0.10.7/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "displaydoc",
@@ -436,7 +785,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/yaahc/displaydoc",
       "source": "https://crates.io/api/v1/crates/displaydoc/0.2.5/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "dyn-clone",
@@ -444,7 +798,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/dtolnay/dyn-clone",
       "source": "https://crates.io/api/v1/crates/dyn-clone/1.0.20/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "email_address",
@@ -452,7 +811,12 @@
       "license": "MIT",
       "repository": "https://github.com/johnstonskj/rust-email_address.git",
       "source": "https://crates.io/api/v1/crates/email_address/0.2.9/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "embed-manifest",
@@ -460,7 +824,9 @@
       "license": "MIT",
       "repository": "https://codeberg.org/carey/embed-manifest",
       "source": "https://crates.io/api/v1/crates/embed-manifest/1.5.0/download",
-      "roots": ["cua-driver-uia"]
+      "roots": [
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "embed-resource",
@@ -468,7 +834,9 @@
       "license": "MIT",
       "repository": "https://github.com/nabijaczleweli/rust-embed-resource",
       "source": "https://crates.io/api/v1/crates/embed-resource/2.5.2/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "equivalent",
@@ -476,7 +844,22 @@
       "license": "Apache-2.0 OR MIT",
       "repository": "https://github.com/indexmap-rs/equivalent",
       "source": "https://crates.io/api/v1/crates/equivalent/1.0.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
+    },
+    {
+      "name": "errno",
+      "version": "0.3.14",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/lambda-fairy/rust-errno",
+      "source": "https://crates.io/api/v1/crates/errno/0.3.14/download",
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "error-code",
@@ -484,7 +867,11 @@
       "license": "BSL-1.0",
       "repository": "https://github.com/DoumanAsh/error-code",
       "source": "https://crates.io/api/v1/crates/error-code/3.3.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "fancy-regex",
@@ -492,7 +879,12 @@
       "license": "MIT",
       "repository": "https://github.com/fancy-regex/fancy-regex",
       "source": "https://crates.io/api/v1/crates/fancy-regex/0.18.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "fastrand",
@@ -500,7 +892,12 @@
       "license": "Apache-2.0 OR MIT",
       "repository": "https://github.com/smol-rs/fastrand",
       "source": "https://crates.io/api/v1/crates/fastrand/2.4.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "fdeflate",
@@ -508,7 +905,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/image-rs/fdeflate",
       "source": "https://crates.io/api/v1/crates/fdeflate/0.3.7/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "filetime",
@@ -516,7 +918,9 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/alexcrichton/filetime",
       "source": "https://crates.io/api/v1/crates/filetime/0.2.29/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "find-msvc-tools",
@@ -524,7 +928,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-lang/cc-rs",
       "source": "https://crates.io/api/v1/crates/find-msvc-tools/0.1.9/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "flate2",
@@ -532,7 +941,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-lang/flate2-rs",
       "source": "https://crates.io/api/v1/crates/flate2/1.1.9/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "fluent-uri",
@@ -540,7 +954,12 @@
       "license": "MIT",
       "repository": "https://github.com/yescallop/fluent-uri-rs",
       "source": "https://crates.io/api/v1/crates/fluent-uri/0.4.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "foldhash",
@@ -548,7 +967,12 @@
       "license": "Zlib",
       "repository": "https://github.com/orlp/foldhash",
       "source": "https://crates.io/api/v1/crates/foldhash/0.2.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "fontdue",
@@ -556,7 +980,12 @@
       "license": "MIT OR Apache-2.0 OR Zlib",
       "repository": "https://github.com/mooman219/fontdue",
       "source": "https://crates.io/api/v1/crates/fontdue/0.9.3/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "form_urlencoded",
@@ -564,7 +993,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/servo/rust-url",
       "source": "https://crates.io/api/v1/crates/form_urlencoded/1.2.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "fraction",
@@ -572,7 +1006,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/dnsl48/fraction.git",
       "source": "https://crates.io/api/v1/crates/fraction/0.15.4/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "fs-err",
@@ -580,7 +1019,22 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/andrewhickman/fs-err",
       "source": "https://crates.io/api/v1/crates/fs-err/2.11.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
+    },
+    {
+      "name": "fs-set-times",
+      "version": "0.20.3",
+      "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "repository": "https://github.com/bytecodealliance/fs-set-times",
+      "source": "https://crates.io/api/v1/crates/fs-set-times/0.20.3/download",
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "fs2",
@@ -588,7 +1042,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/danburkert/fs2-rs",
       "source": "https://crates.io/api/v1/crates/fs2/0.4.3/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "futures-core",
@@ -596,7 +1055,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-lang/futures-rs",
       "source": "https://crates.io/api/v1/crates/futures-core/0.3.32/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "futures-io",
@@ -604,7 +1068,10 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-lang/futures-rs",
       "source": "https://crates.io/api/v1/crates/futures-io/0.3.32/download",
-      "roots": ["cua-driver", "cua-driver-sdk"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk"
+      ]
     },
     {
       "name": "futures-macro",
@@ -612,7 +1079,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-lang/futures-rs",
       "source": "https://crates.io/api/v1/crates/futures-macro/0.3.32/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "futures-sink",
@@ -620,7 +1092,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-lang/futures-rs",
       "source": "https://crates.io/api/v1/crates/futures-sink/0.3.32/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "futures-task",
@@ -628,7 +1105,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-lang/futures-rs",
       "source": "https://crates.io/api/v1/crates/futures-task/0.3.32/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "futures-util",
@@ -636,7 +1118,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-lang/futures-rs",
       "source": "https://crates.io/api/v1/crates/futures-util/0.3.32/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "generic-array",
@@ -644,7 +1131,12 @@
       "license": "MIT",
       "repository": "https://github.com/fizyk20/generic-array.git",
       "source": "https://crates.io/api/v1/crates/generic-array/0.14.7/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "getrandom",
@@ -652,7 +1144,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-random/getrandom",
       "source": "https://crates.io/api/v1/crates/getrandom/0.2.17/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "getrandom",
@@ -660,7 +1157,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-random/getrandom",
       "source": "https://crates.io/api/v1/crates/getrandom/0.3.4/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "getrandom",
@@ -668,7 +1170,23 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-random/getrandom",
       "source": "https://crates.io/api/v1/crates/getrandom/0.4.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
+    },
+    {
+      "name": "glob",
+      "version": "0.3.3",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/rust-lang/glob",
+      "source": "https://crates.io/api/v1/crates/glob/0.3.3/download",
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk"
+      ]
     },
     {
       "name": "globset",
@@ -676,7 +1194,22 @@
       "license": "Unlicense OR MIT",
       "repository": "https://github.com/BurntSushi/ripgrep/tree/master/crates/globset",
       "source": "https://crates.io/api/v1/crates/globset/0.4.19/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
+    },
+    {
+      "name": "goblin",
+      "version": "0.8.2",
+      "license": "MIT",
+      "repository": "https://github.com/m4b/goblin",
+      "source": "https://crates.io/api/v1/crates/goblin/0.8.2/download",
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk"
+      ]
     },
     {
       "name": "half",
@@ -684,7 +1217,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/VoidStarKat/half-rs",
       "source": "https://crates.io/api/v1/crates/half/2.7.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "hash32",
@@ -692,7 +1230,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/japaric/hash32",
       "source": "https://crates.io/api/v1/crates/hash32/0.2.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "hashbrown",
@@ -700,7 +1243,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-lang/hashbrown",
       "source": "https://crates.io/api/v1/crates/hashbrown/0.16.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "hashbrown",
@@ -708,7 +1256,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-lang/hashbrown",
       "source": "https://crates.io/api/v1/crates/hashbrown/0.17.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "heapless",
@@ -716,7 +1269,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/japaric/heapless",
       "source": "https://crates.io/api/v1/crates/heapless/0.7.17/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "heck",
@@ -724,7 +1282,22 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/withoutboats/heck",
       "source": "https://crates.io/api/v1/crates/heck/0.5.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
+    },
+    {
+      "name": "hex",
+      "version": "0.4.3",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/KokaKiwi/rust-hex",
+      "source": "https://crates.io/api/v1/crates/hex/0.4.3/download",
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "hkdf",
@@ -732,7 +1305,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/RustCrypto/KDFs/",
       "source": "https://crates.io/api/v1/crates/hkdf/0.12.4/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "hmac",
@@ -740,7 +1318,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/RustCrypto/MACs",
       "source": "https://crates.io/api/v1/crates/hmac/0.12.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "http",
@@ -748,7 +1331,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/hyperium/http",
       "source": "https://crates.io/api/v1/crates/http/1.4.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "httparse",
@@ -756,7 +1344,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/seanmonstar/httparse",
       "source": "https://crates.io/api/v1/crates/httparse/1.10.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "hybrid-array",
@@ -764,7 +1357,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/RustCrypto/hybrid-array",
       "source": "https://crates.io/api/v1/crates/hybrid-array/0.4.14/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "icu_collections",
@@ -772,7 +1370,12 @@
       "license": "Unicode-3.0",
       "repository": "https://github.com/unicode-org/icu4x",
       "source": "https://crates.io/api/v1/crates/icu_collections/2.2.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "icu_locale_core",
@@ -780,7 +1383,12 @@
       "license": "Unicode-3.0",
       "repository": "https://github.com/unicode-org/icu4x",
       "source": "https://crates.io/api/v1/crates/icu_locale_core/2.2.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "icu_normalizer_data",
@@ -788,7 +1396,12 @@
       "license": "Unicode-3.0",
       "repository": "https://github.com/unicode-org/icu4x",
       "source": "https://crates.io/api/v1/crates/icu_normalizer_data/2.2.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "icu_normalizer",
@@ -796,7 +1409,12 @@
       "license": "Unicode-3.0",
       "repository": "https://github.com/unicode-org/icu4x",
       "source": "https://crates.io/api/v1/crates/icu_normalizer/2.2.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "icu_properties_data",
@@ -804,7 +1422,12 @@
       "license": "Unicode-3.0",
       "repository": "https://github.com/unicode-org/icu4x",
       "source": "https://crates.io/api/v1/crates/icu_properties_data/2.2.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "icu_properties",
@@ -812,7 +1435,12 @@
       "license": "Unicode-3.0",
       "repository": "https://github.com/unicode-org/icu4x",
       "source": "https://crates.io/api/v1/crates/icu_properties/2.2.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "icu_provider",
@@ -820,7 +1448,12 @@
       "license": "Unicode-3.0",
       "repository": "https://github.com/unicode-org/icu4x",
       "source": "https://crates.io/api/v1/crates/icu_provider/2.2.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "idna_adapter",
@@ -828,7 +1461,12 @@
       "license": "Apache-2.0 OR MIT",
       "repository": "https://github.com/hsivonen/idna_adapter",
       "source": "https://crates.io/api/v1/crates/idna_adapter/1.2.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "idna",
@@ -836,7 +1474,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/servo/rust-url/",
       "source": "https://crates.io/api/v1/crates/idna/1.1.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "image",
@@ -844,7 +1487,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/image-rs/image",
       "source": "https://crates.io/api/v1/crates/image/0.25.10/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "indexmap",
@@ -852,7 +1500,12 @@
       "license": "Apache-2.0 OR MIT",
       "repository": "https://github.com/indexmap-rs/indexmap",
       "source": "https://crates.io/api/v1/crates/indexmap/2.14.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "inout",
@@ -860,7 +1513,42 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/RustCrypto/utils",
       "source": "https://crates.io/api/v1/crates/inout/0.2.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
+    },
+    {
+      "name": "io-extras",
+      "version": "0.19.0",
+      "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "repository": "https://github.com/sunfishcode/io-extras",
+      "source": "https://crates.io/api/v1/crates/io-extras/0.19.0/download",
+      "roots": [
+        "cua-driver"
+      ]
+    },
+    {
+      "name": "io-lifetimes",
+      "version": "2.0.4",
+      "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "repository": "https://github.com/sunfishcode/io-lifetimes",
+      "source": "https://crates.io/api/v1/crates/io-lifetimes/2.0.4/download",
+      "roots": [
+        "cua-driver"
+      ]
+    },
+    {
+      "name": "io-lifetimes",
+      "version": "3.0.1",
+      "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "repository": "https://github.com/sunfishcode/io-lifetimes",
+      "source": "https://crates.io/api/v1/crates/io-lifetimes/3.0.1/download",
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "ipnet",
@@ -868,7 +1556,11 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/krisprice/ipnet",
       "source": "https://crates.io/api/v1/crates/ipnet/2.12.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "itoa",
@@ -876,7 +1568,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/dtolnay/itoa",
       "source": "https://crates.io/api/v1/crates/itoa/1.0.18/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "jobserver",
@@ -884,7 +1581,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-lang/jobserver-rs",
       "source": "https://crates.io/api/v1/crates/jobserver/0.1.35/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "jsonschema-regex",
@@ -892,7 +1594,12 @@
       "license": "MIT",
       "repository": "https://github.com/Stranger6667/jsonschema",
       "source": "https://crates.io/api/v1/crates/jsonschema-regex/0.46.10/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "jsonschema",
@@ -900,7 +1607,12 @@
       "license": "MIT",
       "repository": "https://github.com/Stranger6667/jsonschema",
       "source": "https://crates.io/api/v1/crates/jsonschema/0.46.10/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "keyring-core",
@@ -908,7 +1620,11 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/open-source-cooperative/keyring-core.git",
       "source": "https://crates.io/api/v1/crates/keyring-core/1.0.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "keyring",
@@ -916,7 +1632,11 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/open-source-cooperative/keyring-rs",
       "source": "https://crates.io/api/v1/crates/keyring/4.1.6/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "lazy_static",
@@ -924,7 +1644,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-lang-nursery/lazy-static.rs",
       "source": "https://crates.io/api/v1/crates/lazy_static/1.5.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "libc",
@@ -932,7 +1657,9 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-lang/libc",
       "source": "https://crates.io/api/v1/crates/libc/0.2.186/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "litemap",
@@ -940,7 +1667,12 @@
       "license": "Unicode-3.0",
       "repository": "https://github.com/unicode-org/icu4x",
       "source": "https://crates.io/api/v1/crates/litemap/0.8.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "lock_api",
@@ -948,7 +1680,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/Amanieu/parking_lot",
       "source": "https://crates.io/api/v1/crates/lock_api/0.4.14/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "log",
@@ -956,7 +1693,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-lang/log",
       "source": "https://crates.io/api/v1/crates/log/0.4.29/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "lru",
@@ -964,7 +1706,11 @@
       "license": "MIT",
       "repository": "https://github.com/jeromefroe/lru-rs.git",
       "source": "https://crates.io/api/v1/crates/lru/0.18.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "matchers",
@@ -972,7 +1718,20 @@
       "license": "MIT",
       "repository": "https://github.com/hawkw/matchers",
       "source": "https://crates.io/api/v1/crates/matchers/0.2.0/download",
-      "roots": ["cua-driver", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-uia"
+      ]
+    },
+    {
+      "name": "maybe-owned",
+      "version": "0.3.4",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/rustonaut/maybe-owned",
+      "source": "https://crates.io/api/v1/crates/maybe-owned/0.3.4/download",
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "memchr",
@@ -980,7 +1739,12 @@
       "license": "Unlicense OR MIT",
       "repository": "https://github.com/BurntSushi/memchr",
       "source": "https://crates.io/api/v1/crates/memchr/2.8.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "micromap",
@@ -988,7 +1752,23 @@
       "license": "MIT",
       "repository": "https://github.com/yegor256/micromap",
       "source": "https://crates.io/api/v1/crates/micromap/0.3.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
+    },
+    {
+      "name": "minimal-lexical",
+      "version": "0.2.1",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/Alexhuszagh/minimal-lexical",
+      "source": "https://crates.io/api/v1/crates/minimal-lexical/0.2.1/download",
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk"
+      ]
     },
     {
       "name": "miniz_oxide",
@@ -996,7 +1776,12 @@
       "license": "MIT OR Zlib OR Apache-2.0",
       "repository": "https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide",
       "source": "https://crates.io/api/v1/crates/miniz_oxide/0.8.9/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "mio",
@@ -1004,7 +1789,12 @@
       "license": "MIT",
       "repository": "https://github.com/tokio-rs/mio",
       "source": "https://crates.io/api/v1/crates/mio/1.2.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "moxcms",
@@ -1012,7 +1802,12 @@
       "license": "BSD-3-Clause OR Apache-2.0",
       "repository": "https://github.com/awxkee/moxcms.git",
       "source": "https://crates.io/api/v1/crates/moxcms/0.8.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "msvc_spectre_libs",
@@ -1020,7 +1815,22 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/rust_msvc_spectre_libs",
       "source": "https://crates.io/api/v1/crates/msvc_spectre_libs/0.1.3/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
+    },
+    {
+      "name": "nom",
+      "version": "7.1.3",
+      "license": "MIT",
+      "repository": "https://github.com/Geal/nom",
+      "source": "https://crates.io/api/v1/crates/nom/7.1.3/download",
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk"
+      ]
     },
     {
       "name": "nu-ansi-term",
@@ -1028,7 +1838,10 @@
       "license": "MIT",
       "repository": "https://github.com/nushell/nu-ansi-term",
       "source": "https://crates.io/api/v1/crates/nu-ansi-term/0.50.3/download",
-      "roots": ["cua-driver", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "num-bigint",
@@ -1036,7 +1849,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-num/num-bigint",
       "source": "https://crates.io/api/v1/crates/num-bigint/0.4.8/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "num-cmp",
@@ -1044,7 +1862,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/lifthrasiir/num-cmp",
       "source": "https://crates.io/api/v1/crates/num-cmp/0.1.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "num-complex",
@@ -1052,7 +1875,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-num/num-complex",
       "source": "https://crates.io/api/v1/crates/num-complex/0.4.6/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "num-conv",
@@ -1060,7 +1888,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/jhpratt/num-conv",
       "source": "https://crates.io/api/v1/crates/num-conv/0.2.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "num-integer",
@@ -1068,7 +1901,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-num/num-integer",
       "source": "https://crates.io/api/v1/crates/num-integer/0.1.46/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "num-iter",
@@ -1076,7 +1914,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-num/num-iter",
       "source": "https://crates.io/api/v1/crates/num-iter/0.1.46/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "num-rational",
@@ -1084,7 +1927,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-num/num-rational",
       "source": "https://crates.io/api/v1/crates/num-rational/0.4.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "num-traits",
@@ -1092,7 +1940,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-num/num-traits",
       "source": "https://crates.io/api/v1/crates/num-traits/0.2.19/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "num",
@@ -1100,7 +1953,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-num/num",
       "source": "https://crates.io/api/v1/crates/num/0.4.3/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "once_cell",
@@ -1108,7 +1966,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/matklad/once_cell",
       "source": "https://crates.io/api/v1/crates/once_cell/1.21.4/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "outref",
@@ -1116,7 +1979,12 @@
       "license": "MIT",
       "repository": "https://github.com/Nugine/outref",
       "source": "https://crates.io/api/v1/crates/outref/0.5.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "parking_lot_core",
@@ -1124,7 +1992,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/Amanieu/parking_lot",
       "source": "https://crates.io/api/v1/crates/parking_lot_core/0.9.12/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "parking_lot",
@@ -1132,7 +2005,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/Amanieu/parking_lot",
       "source": "https://crates.io/api/v1/crates/parking_lot/0.12.5/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "percent-encoding",
@@ -1140,7 +2018,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/servo/rust-url/",
       "source": "https://crates.io/api/v1/crates/percent-encoding/2.3.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "phf_shared",
@@ -1148,7 +2031,11 @@
       "license": "MIT",
       "repository": "https://github.com/rust-phf/rust-phf",
       "source": "https://crates.io/api/v1/crates/phf_shared/0.12.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "phf",
@@ -1156,7 +2043,11 @@
       "license": "MIT",
       "repository": "https://github.com/rust-phf/rust-phf",
       "source": "https://crates.io/api/v1/crates/phf/0.12.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "pin-project-lite",
@@ -1164,7 +2055,12 @@
       "license": "Apache-2.0 OR MIT",
       "repository": "https://github.com/taiki-e/pin-project-lite",
       "source": "https://crates.io/api/v1/crates/pin-project-lite/0.2.17/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "pkg-config",
@@ -1172,7 +2068,23 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-lang/pkg-config-rs",
       "source": "https://crates.io/api/v1/crates/pkg-config/0.3.33/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
+    },
+    {
+      "name": "plain",
+      "version": "0.2.3",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/randomites/plain",
+      "source": "https://crates.io/api/v1/crates/plain/0.2.3/download",
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk"
+      ]
     },
     {
       "name": "png",
@@ -1180,7 +2092,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/image-rs/image-png",
       "source": "https://crates.io/api/v1/crates/png/0.18.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "poly1305",
@@ -1188,7 +2105,12 @@
       "license": "Apache-2.0 OR MIT",
       "repository": "https://github.com/RustCrypto/universal-hashes",
       "source": "https://crates.io/api/v1/crates/poly1305/0.9.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "postcard",
@@ -1196,7 +2118,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/jamesmunns/postcard",
       "source": "https://crates.io/api/v1/crates/postcard/1.1.3/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "potential_utf",
@@ -1204,7 +2131,12 @@
       "license": "Unicode-3.0",
       "repository": "https://github.com/unicode-org/icu4x",
       "source": "https://crates.io/api/v1/crates/potential_utf/0.1.5/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "powerfmt",
@@ -1212,7 +2144,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/jhpratt/powerfmt",
       "source": "https://crates.io/api/v1/crates/powerfmt/0.2.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "ppv-lite86",
@@ -1220,7 +2157,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/cryptocorrosion/cryptocorrosion",
       "source": "https://crates.io/api/v1/crates/ppv-lite86/0.2.21/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "proc-macro2",
@@ -1228,7 +2170,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/dtolnay/proc-macro2",
       "source": "https://crates.io/api/v1/crates/proc-macro2/1.0.106/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "pxfm",
@@ -1236,7 +2183,12 @@
       "license": "BSD-3-Clause OR Apache-2.0",
       "repository": "https://github.com/awxkee/pxfm",
       "source": "https://crates.io/api/v1/crates/pxfm/0.1.29/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "quote",
@@ -1244,7 +2196,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/dtolnay/quote",
       "source": "https://crates.io/api/v1/crates/quote/1.0.45/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "rand_chacha",
@@ -1252,7 +2209,22 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-random/rand",
       "source": "https://crates.io/api/v1/crates/rand_chacha/0.3.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
+    },
+    {
+      "name": "rand_chacha",
+      "version": "0.9.0",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/rust-random/rand",
+      "source": "https://crates.io/api/v1/crates/rand_chacha/0.9.0/download",
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "rand_core",
@@ -1260,7 +2232,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-random/rand_core",
       "source": "https://crates.io/api/v1/crates/rand_core/0.10.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "rand_core",
@@ -1268,7 +2245,22 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-random/rand",
       "source": "https://crates.io/api/v1/crates/rand_core/0.6.4/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
+    },
+    {
+      "name": "rand_core",
+      "version": "0.9.5",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/rust-random/rand",
+      "source": "https://crates.io/api/v1/crates/rand_core/0.9.5/download",
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "rand",
@@ -1276,7 +2268,11 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-random/rand",
       "source": "https://crates.io/api/v1/crates/rand/0.10.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "rand",
@@ -1284,7 +2280,22 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-random/rand",
       "source": "https://crates.io/api/v1/crates/rand/0.8.6/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
+    },
+    {
+      "name": "rand",
+      "version": "0.9.5",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/rust-random/rand",
+      "source": "https://crates.io/api/v1/crates/rand/0.9.5/download",
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "ref-cast-impl",
@@ -1292,7 +2303,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/dtolnay/ref-cast",
       "source": "https://crates.io/api/v1/crates/ref-cast-impl/1.0.25/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "ref-cast",
@@ -1300,7 +2316,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/dtolnay/ref-cast",
       "source": "https://crates.io/api/v1/crates/ref-cast/1.0.25/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "referencing",
@@ -1308,7 +2329,12 @@
       "license": "MIT",
       "repository": "https://github.com/Stranger6667/jsonschema",
       "source": "https://crates.io/api/v1/crates/referencing/0.46.10/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "regex-automata",
@@ -1316,7 +2342,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-lang/regex",
       "source": "https://crates.io/api/v1/crates/regex-automata/0.4.14/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "regex-syntax",
@@ -1324,7 +2355,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-lang/regex",
       "source": "https://crates.io/api/v1/crates/regex-syntax/0.8.10/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "regex",
@@ -1332,7 +2368,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-lang/regex",
       "source": "https://crates.io/api/v1/crates/regex/1.12.3/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "regorus",
@@ -1340,7 +2381,11 @@
       "license": "MIT AND Apache-2.0 AND BSD-3-Clause",
       "repository": "https://github.com/microsoft/regorus",
       "source": "https://crates.io/api/v1/crates/regorus/0.10.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "ring",
@@ -1348,7 +2393,45 @@
       "license": "Apache-2.0 AND ISC",
       "repository": "https://github.com/briansmith/ring",
       "source": "https://crates.io/api/v1/crates/ring/0.17.14/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
+    },
+    {
+      "name": "rquickjs-core",
+      "version": "0.14.0",
+      "license": "MIT",
+      "repository": "https://github.com/DelSkayn/rquickjs.git",
+      "source": "https://crates.io/api/v1/crates/rquickjs-core/0.14.0/download",
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
+    },
+    {
+      "name": "rquickjs-sys",
+      "version": "0.14.0",
+      "license": "MIT",
+      "repository": "https://github.com/DelSkayn/rquickjs.git",
+      "source": "https://crates.io/api/v1/crates/rquickjs-sys/0.14.0/download",
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
+    },
+    {
+      "name": "rquickjs",
+      "version": "0.14.0",
+      "license": "MIT",
+      "repository": "https://github.com/DelSkayn/rquickjs.git",
+      "source": "https://crates.io/api/v1/crates/rquickjs/0.14.0/download",
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "rustc_version",
@@ -1356,7 +2439,33 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/djc/rustc-version-rs",
       "source": "https://crates.io/api/v1/crates/rustc_version/0.4.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
+    },
+    {
+      "name": "rustc-hash",
+      "version": "2.1.3",
+      "license": "Apache-2.0 OR MIT",
+      "repository": "https://github.com/rust-lang/rustc-hash",
+      "source": "https://crates.io/api/v1/crates/rustc-hash/2.1.3/download",
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk"
+      ]
+    },
+    {
+      "name": "rustix",
+      "version": "1.1.4",
+      "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "repository": "https://github.com/bytecodealliance/rustix",
+      "source": "https://crates.io/api/v1/crates/rustix/1.1.4/download",
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "rustls-pki-types",
@@ -1364,23 +2473,29 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rustls/pki-types",
       "source": "https://crates.io/api/v1/crates/rustls-pki-types/1.14.1/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "rustls-webpki",
-      "version": "0.103.13",
+      "version": "0.103.16",
       "license": "ISC",
       "repository": "https://github.com/rustls/webpki",
-      "source": "https://crates.io/api/v1/crates/rustls-webpki/0.103.13/download",
-      "roots": ["cua-driver"]
+      "source": "https://crates.io/api/v1/crates/rustls-webpki/0.103.16/download",
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "rustls",
-      "version": "0.23.40",
-      "license": "Apache-2.0 OR MIT OR ISC",
+      "version": "0.23.45",
+      "license": "Apache-2.0 OR ISC OR MIT",
       "repository": "https://github.com/rustls/rustls",
-      "source": "https://crates.io/api/v1/crates/rustls/0.23.40/download",
-      "roots": ["cua-driver"]
+      "source": "https://crates.io/api/v1/crates/rustls/0.23.45/download",
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "ryu",
@@ -1388,7 +2503,12 @@
       "license": "Apache-2.0 OR BSL-1.0",
       "repository": "https://github.com/dtolnay/ryu",
       "source": "https://crates.io/api/v1/crates/ryu/1.0.23/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "schemars_derive",
@@ -1396,7 +2516,12 @@
       "license": "MIT",
       "repository": "https://github.com/GREsau/schemars",
       "source": "https://crates.io/api/v1/crates/schemars_derive/1.2.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "schemars",
@@ -1404,7 +2529,12 @@
       "license": "MIT",
       "repository": "https://github.com/GREsau/schemars",
       "source": "https://crates.io/api/v1/crates/schemars/1.2.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "scopeguard",
@@ -1412,7 +2542,34 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/bluss/scopeguard",
       "source": "https://crates.io/api/v1/crates/scopeguard/1.2.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
+    },
+    {
+      "name": "scroll_derive",
+      "version": "0.12.1",
+      "license": "MIT",
+      "repository": "https://github.com/m4b/scroll",
+      "source": "https://crates.io/api/v1/crates/scroll_derive/0.12.1/download",
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk"
+      ]
+    },
+    {
+      "name": "scroll",
+      "version": "0.12.0",
+      "license": "MIT",
+      "repository": "https://github.com/m4b/scroll",
+      "source": "https://crates.io/api/v1/crates/scroll/0.12.0/download",
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk"
+      ]
     },
     {
       "name": "semver",
@@ -1420,7 +2577,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/dtolnay/semver",
       "source": "https://crates.io/api/v1/crates/semver/1.0.28/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "serde_core",
@@ -1428,7 +2590,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/serde-rs/serde",
       "source": "https://crates.io/api/v1/crates/serde_core/1.0.228/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "serde_derive_internals",
@@ -1436,7 +2603,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/serde-rs/serde",
       "source": "https://crates.io/api/v1/crates/serde_derive_internals/0.29.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "serde_derive",
@@ -1444,7 +2616,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/serde-rs/serde",
       "source": "https://crates.io/api/v1/crates/serde_derive/1.0.228/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "serde_json",
@@ -1452,7 +2629,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/serde-rs/json",
       "source": "https://crates.io/api/v1/crates/serde_json/1.0.149/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "serde_spanned",
@@ -1460,7 +2642,9 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/toml-rs/toml",
       "source": "https://crates.io/api/v1/crates/serde_spanned/0.6.9/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "serde_spanned",
@@ -1468,7 +2652,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/toml-rs/toml",
       "source": "https://crates.io/api/v1/crates/serde_spanned/1.1.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "serde_yaml_ng",
@@ -1476,7 +2665,12 @@
       "license": "MIT",
       "repository": "https://github.com/acatton/serde-yaml-ng",
       "source": "https://crates.io/api/v1/crates/serde_yaml_ng/0.10.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "serde_yaml",
@@ -1484,7 +2678,11 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/dtolnay/serde-yaml",
       "source": "https://crates.io/api/v1/crates/serde_yaml/0.9.34+deprecated/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "serde",
@@ -1492,7 +2690,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/serde-rs/serde",
       "source": "https://crates.io/api/v1/crates/serde/1.0.228/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "sha1",
@@ -1500,7 +2703,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/RustCrypto/hashes",
       "source": "https://crates.io/api/v1/crates/sha1/0.10.6/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "sha2",
@@ -1508,7 +2716,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/RustCrypto/hashes",
       "source": "https://crates.io/api/v1/crates/sha2/0.10.9/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "sharded-slab",
@@ -1516,7 +2729,10 @@
       "license": "MIT",
       "repository": "https://github.com/hawkw/sharded-slab",
       "source": "https://crates.io/api/v1/crates/sharded-slab/0.1.7/download",
-      "roots": ["cua-driver", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "shlex",
@@ -1524,7 +2740,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/comex/rust-shlex",
       "source": "https://crates.io/api/v1/crates/shlex/1.3.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "simd-adler32",
@@ -1532,7 +2753,12 @@
       "license": "MIT",
       "repository": "https://github.com/mcountryman/simd-adler32",
       "source": "https://crates.io/api/v1/crates/simd-adler32/0.3.9/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "siphasher",
@@ -1540,7 +2766,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/jedisct1/rust-siphash",
       "source": "https://crates.io/api/v1/crates/siphasher/1.0.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "slab",
@@ -1548,7 +2779,12 @@
       "license": "MIT",
       "repository": "https://github.com/tokio-rs/slab",
       "source": "https://crates.io/api/v1/crates/slab/0.4.12/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "smallvec",
@@ -1556,7 +2792,23 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/servo/rust-smallvec",
       "source": "https://crates.io/api/v1/crates/smallvec/1.15.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
+    },
+    {
+      "name": "smawk",
+      "version": "0.3.3",
+      "license": "MIT",
+      "repository": "https://github.com/mgeisler/smawk",
+      "source": "https://crates.io/api/v1/crates/smawk/0.3.3/download",
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk"
+      ]
     },
     {
       "name": "socket2",
@@ -1564,7 +2816,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rust-lang/socket2",
       "source": "https://crates.io/api/v1/crates/socket2/0.6.3/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "spin",
@@ -1572,7 +2829,11 @@
       "license": "MIT",
       "repository": "https://github.com/mvdnes/spin-rs.git",
       "source": "https://crates.io/api/v1/crates/spin/0.10.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "spin",
@@ -1580,7 +2841,12 @@
       "license": "MIT",
       "repository": "https://github.com/mvdnes/spin-rs.git",
       "source": "https://crates.io/api/v1/crates/spin/0.9.9/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "stable_deref_trait",
@@ -1588,7 +2854,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/storyyeller/stable_deref_trait",
       "source": "https://crates.io/api/v1/crates/stable_deref_trait/1.2.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "static_assertions",
@@ -1596,7 +2867,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/nvzqz/static-assertions-rs",
       "source": "https://crates.io/api/v1/crates/static_assertions/1.1.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "strict-num",
@@ -1604,7 +2880,12 @@
       "license": "MIT",
       "repository": "https://github.com/RazrFalcon/strict-num",
       "source": "https://crates.io/api/v1/crates/strict-num/0.1.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "subtle",
@@ -1612,7 +2893,12 @@
       "license": "BSD-3-Clause",
       "repository": "https://github.com/dalek-cryptography/subtle",
       "source": "https://crates.io/api/v1/crates/subtle/2.6.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "syn",
@@ -1620,7 +2906,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/dtolnay/syn",
       "source": "https://crates.io/api/v1/crates/syn/2.0.117/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "synstructure",
@@ -1628,7 +2919,12 @@
       "license": "MIT",
       "repository": "https://github.com/mystor/synstructure",
       "source": "https://crates.io/api/v1/crates/synstructure/0.13.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "tar",
@@ -1636,7 +2932,9 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/composefs/tar-rs",
       "source": "https://crates.io/api/v1/crates/tar/0.4.46/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "tempfile",
@@ -1644,7 +2942,23 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/Stebalien/tempfile",
       "source": "https://crates.io/api/v1/crates/tempfile/3.27.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
+    },
+    {
+      "name": "textwrap",
+      "version": "0.16.2",
+      "license": "MIT",
+      "repository": "https://github.com/mgeisler/textwrap",
+      "source": "https://crates.io/api/v1/crates/textwrap/0.16.2/download",
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk"
+      ]
     },
     {
       "name": "thiserror-impl",
@@ -1652,7 +2966,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/dtolnay/thiserror",
       "source": "https://crates.io/api/v1/crates/thiserror-impl/1.0.69/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "thiserror-impl",
@@ -1660,7 +2979,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/dtolnay/thiserror",
       "source": "https://crates.io/api/v1/crates/thiserror-impl/2.0.18/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "thiserror",
@@ -1668,7 +2992,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/dtolnay/thiserror",
       "source": "https://crates.io/api/v1/crates/thiserror/1.0.69/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "thiserror",
@@ -1676,7 +3005,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/dtolnay/thiserror",
       "source": "https://crates.io/api/v1/crates/thiserror/2.0.18/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "thread_local",
@@ -1684,7 +3018,10 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/Amanieu/thread_local-rs",
       "source": "https://crates.io/api/v1/crates/thread_local/1.1.9/download",
-      "roots": ["cua-driver", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "time-core",
@@ -1692,7 +3029,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/time-rs/time",
       "source": "https://crates.io/api/v1/crates/time-core/0.1.8/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "time",
@@ -1700,7 +3042,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/time-rs/time",
       "source": "https://crates.io/api/v1/crates/time/0.3.47/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "tiny-skia-path",
@@ -1708,7 +3055,12 @@
       "license": "BSD-3-Clause",
       "repository": "https://github.com/RazrFalcon/tiny-skia/tree/master/path",
       "source": "https://crates.io/api/v1/crates/tiny-skia-path/0.11.4/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "tiny-skia",
@@ -1716,7 +3068,12 @@
       "license": "BSD-3-Clause",
       "repository": "https://github.com/RazrFalcon/tiny-skia",
       "source": "https://crates.io/api/v1/crates/tiny-skia/0.11.4/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "tinystr",
@@ -1724,7 +3081,12 @@
       "license": "Unicode-3.0",
       "repository": "https://github.com/unicode-org/icu4x",
       "source": "https://crates.io/api/v1/crates/tinystr/0.8.3/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "tokio-macros",
@@ -1732,7 +3094,12 @@
       "license": "MIT",
       "repository": "https://github.com/tokio-rs/tokio",
       "source": "https://crates.io/api/v1/crates/tokio-macros/2.7.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "tokio-tungstenite",
@@ -1740,7 +3107,12 @@
       "license": "MIT",
       "repository": "https://github.com/snapview/tokio-tungstenite",
       "source": "https://crates.io/api/v1/crates/tokio-tungstenite/0.24.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "tokio",
@@ -1748,7 +3120,12 @@
       "license": "MIT",
       "repository": "https://github.com/tokio-rs/tokio",
       "source": "https://crates.io/api/v1/crates/tokio/1.52.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "toml_datetime",
@@ -1756,7 +3133,9 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/toml-rs/toml",
       "source": "https://crates.io/api/v1/crates/toml_datetime/0.6.11/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "toml_datetime",
@@ -1764,7 +3143,22 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/toml-rs/toml",
       "source": "https://crates.io/api/v1/crates/toml_datetime/0.7.5+spec-1.1.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
+    },
+    {
+      "name": "toml_datetime",
+      "version": "1.1.1+spec-1.1.0",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/toml-rs/toml",
+      "source": "https://crates.io/api/v1/crates/toml_datetime/1.1.1+spec-1.1.0/download",
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "toml_edit",
@@ -1772,7 +3166,19 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/toml-rs/toml",
       "source": "https://crates.io/api/v1/crates/toml_edit/0.22.27/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
+    },
+    {
+      "name": "toml_edit",
+      "version": "0.25.12+spec-1.1.0",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/toml-rs/toml",
+      "source": "https://crates.io/api/v1/crates/toml_edit/0.25.12+spec-1.1.0/download",
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "toml_parser",
@@ -1780,7 +3186,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/toml-rs/toml",
       "source": "https://crates.io/api/v1/crates/toml_parser/1.1.2+spec-1.1.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "toml_write",
@@ -1788,7 +3199,9 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/toml-rs/toml",
       "source": "https://crates.io/api/v1/crates/toml_write/0.1.2/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "toml_writer",
@@ -1796,7 +3209,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/toml-rs/toml",
       "source": "https://crates.io/api/v1/crates/toml_writer/1.1.2+spec-1.1.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "toml",
@@ -1804,7 +3222,9 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/toml-rs/toml",
       "source": "https://crates.io/api/v1/crates/toml/0.8.23/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "toml",
@@ -1812,7 +3232,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/toml-rs/toml",
       "source": "https://crates.io/api/v1/crates/toml/0.9.12+spec-1.1.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "tracing-attributes",
@@ -1820,7 +3245,12 @@
       "license": "MIT",
       "repository": "https://github.com/tokio-rs/tracing",
       "source": "https://crates.io/api/v1/crates/tracing-attributes/0.1.31/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "tracing-core",
@@ -1828,7 +3258,12 @@
       "license": "MIT",
       "repository": "https://github.com/tokio-rs/tracing",
       "source": "https://crates.io/api/v1/crates/tracing-core/0.1.36/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "tracing-log",
@@ -1836,7 +3271,10 @@
       "license": "MIT",
       "repository": "https://github.com/tokio-rs/tracing",
       "source": "https://crates.io/api/v1/crates/tracing-log/0.2.0/download",
-      "roots": ["cua-driver", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "tracing-subscriber",
@@ -1844,7 +3282,10 @@
       "license": "MIT",
       "repository": "https://github.com/tokio-rs/tracing",
       "source": "https://crates.io/api/v1/crates/tracing-subscriber/0.3.23/download",
-      "roots": ["cua-driver", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "tracing",
@@ -1852,7 +3293,12 @@
       "license": "MIT",
       "repository": "https://github.com/tokio-rs/tracing",
       "source": "https://crates.io/api/v1/crates/tracing/0.1.44/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "ttf-parser",
@@ -1860,7 +3306,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/RazrFalcon/ttf-parser",
       "source": "https://crates.io/api/v1/crates/ttf-parser/0.21.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "tungstenite",
@@ -1868,7 +3319,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/snapview/tungstenite-rs",
       "source": "https://crates.io/api/v1/crates/tungstenite/0.24.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "typed-path",
@@ -1876,7 +3332,9 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/chipsenkbeil/typed-path",
       "source": "https://crates.io/api/v1/crates/typed-path/0.12.3/download",
-      "roots": ["cursor-theme-cli"]
+      "roots": [
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "typenum",
@@ -1884,7 +3342,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/paholg/typenum",
       "source": "https://crates.io/api/v1/crates/typenum/1.20.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "unicode-general-category",
@@ -1892,7 +3355,12 @@
       "license": "Apache-2.0",
       "repository": "https://github.com/yeslogic/unicode-general-category",
       "source": "https://crates.io/api/v1/crates/unicode-general-category/1.1.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "unicode-ident",
@@ -1900,7 +3368,23 @@
       "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
       "repository": "https://github.com/dtolnay/unicode-ident",
       "source": "https://crates.io/api/v1/crates/unicode-ident/1.0.24/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
+    },
+    {
+      "name": "uniffi_bindgen",
+      "version": "0.31.0",
+      "license": "MPL-2.0",
+      "repository": "https://github.com/mozilla/uniffi-rs",
+      "source": "https://crates.io/api/v1/crates/uniffi_bindgen/0.31.0/download",
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk"
+      ]
     },
     {
       "name": "uniffi_core",
@@ -1908,7 +3392,12 @@
       "license": "MPL-2.0",
       "repository": "https://github.com/mozilla/uniffi-rs",
       "source": "https://crates.io/api/v1/crates/uniffi_core/0.31.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "uniffi_internal_macros",
@@ -1916,7 +3405,12 @@
       "license": "MPL-2.0",
       "repository": "https://github.com/mozilla/uniffi-rs",
       "source": "https://crates.io/api/v1/crates/uniffi_internal_macros/0.31.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "uniffi_macros",
@@ -1924,7 +3418,12 @@
       "license": "MPL-2.0",
       "repository": "https://github.com/mozilla/uniffi-rs",
       "source": "https://crates.io/api/v1/crates/uniffi_macros/0.31.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "uniffi_meta",
@@ -1932,7 +3431,12 @@
       "license": "MPL-2.0",
       "repository": "https://github.com/mozilla/uniffi-rs",
       "source": "https://crates.io/api/v1/crates/uniffi_meta/0.31.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "uniffi_pipeline",
@@ -1940,7 +3444,23 @@
       "license": "MPL-2.0",
       "repository": "https://github.com/mozilla/uniffi-rs",
       "source": "https://crates.io/api/v1/crates/uniffi_pipeline/0.31.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
+    },
+    {
+      "name": "uniffi_udl",
+      "version": "0.31.0",
+      "license": "MPL-2.0",
+      "repository": "https://github.com/mozilla/uniffi-rs",
+      "source": "https://crates.io/api/v1/crates/uniffi_udl/0.31.0/download",
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk"
+      ]
     },
     {
       "name": "uniffi",
@@ -1948,7 +3468,12 @@
       "license": "MPL-2.0",
       "repository": "https://github.com/mozilla/uniffi-rs",
       "source": "https://crates.io/api/v1/crates/uniffi/0.31.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "universal-hash",
@@ -1956,7 +3481,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/RustCrypto/traits",
       "source": "https://crates.io/api/v1/crates/universal-hash/0.6.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "unsafe-libyaml",
@@ -1964,7 +3494,12 @@
       "license": "MIT",
       "repository": "https://github.com/dtolnay/unsafe-libyaml",
       "source": "https://crates.io/api/v1/crates/unsafe-libyaml/0.2.11/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "untrusted",
@@ -1972,7 +3507,9 @@
       "license": "ISC",
       "repository": "https://github.com/briansmith/untrusted",
       "source": "https://crates.io/api/v1/crates/untrusted/0.9.0/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "ureq-proto",
@@ -1980,7 +3517,9 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/algesten/ureq-proto",
       "source": "https://crates.io/api/v1/crates/ureq-proto/0.6.0/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "ureq",
@@ -1988,7 +3527,9 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/algesten/ureq",
       "source": "https://crates.io/api/v1/crates/ureq/3.3.0/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "url",
@@ -1996,7 +3537,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/servo/rust-url",
       "source": "https://crates.io/api/v1/crates/url/2.5.8/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "utf-8",
@@ -2004,7 +3550,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/SimonSapin/rust-utf8",
       "source": "https://crates.io/api/v1/crates/utf-8/0.7.6/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "utf8_iter",
@@ -2012,7 +3563,12 @@
       "license": "Apache-2.0 OR MIT",
       "repository": "https://github.com/hsivonen/utf8_iter",
       "source": "https://crates.io/api/v1/crates/utf8_iter/1.0.4/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "utf8-zero",
@@ -2020,7 +3576,9 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/algesten/utf8-zero",
       "source": "https://crates.io/api/v1/crates/utf8-zero/0.8.1/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "uuid-simd",
@@ -2028,7 +3586,12 @@
       "license": "MIT",
       "repository": "https://github.com/Nugine/simd",
       "source": "https://crates.io/api/v1/crates/uuid-simd/0.8.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "uuid",
@@ -2036,7 +3599,12 @@
       "license": "Apache-2.0 OR MIT",
       "repository": "https://github.com/uuid-rs/uuid",
       "source": "https://crates.io/api/v1/crates/uuid/1.23.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "version_check",
@@ -2044,7 +3612,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/SergioBenitez/version_check",
       "source": "https://crates.io/api/v1/crates/version_check/0.9.5/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "vsimd",
@@ -2052,7 +3625,12 @@
       "license": "MIT",
       "repository": "https://github.com/Nugine/simd",
       "source": "https://crates.io/api/v1/crates/vsimd/0.8.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "vswhom-sys",
@@ -2060,7 +3638,9 @@
       "license": "MIT",
       "repository": "https://github.com/nabijaczleweli/vswhom-sys.rs",
       "source": "https://crates.io/api/v1/crates/vswhom-sys/0.1.3/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "vswhom",
@@ -2068,15 +3648,30 @@
       "license": "MIT",
       "repository": "https://github.com/nabijaczleweli/vswhom.rs",
       "source": "https://crates.io/api/v1/crates/vswhom/0.1.0/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "webpki-roots",
-      "version": "1.0.7",
+      "version": "1.0.10",
       "license": "CDLA-Permissive-2.0",
       "repository": "https://github.com/rustls/webpki-roots",
-      "source": "https://crates.io/api/v1/crates/webpki-roots/1.0.7/download",
-      "roots": ["cua-driver"]
+      "source": "https://crates.io/api/v1/crates/webpki-roots/1.0.10/download",
+      "roots": [
+        "cua-driver"
+      ]
+    },
+    {
+      "name": "weedle2",
+      "version": "5.0.0",
+      "license": "MIT",
+      "repository": "https://github.com/mozilla/uniffi-rs",
+      "source": "https://crates.io/api/v1/crates/weedle2/5.0.0/download",
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk"
+      ]
     },
     {
       "name": "winapi",
@@ -2084,7 +3679,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/retep998/winapi-rs",
       "source": "https://crates.io/api/v1/crates/winapi/0.3.9/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "windows_x86_64_msvc",
@@ -2092,7 +3692,9 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows_x86_64_msvc/0.48.5/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "windows_x86_64_msvc",
@@ -2100,7 +3702,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows_x86_64_msvc/0.52.6/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "windows_x86_64_msvc",
@@ -2108,7 +3715,11 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows_x86_64_msvc/0.53.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "windows-collections",
@@ -2116,7 +3727,9 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows-collections/0.2.0/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "windows-core",
@@ -2124,7 +3737,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows-core/0.58.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "windows-core",
@@ -2132,7 +3750,11 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows-core/0.59.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "windows-core",
@@ -2140,7 +3762,9 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows-core/0.61.2/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "windows-future",
@@ -2148,7 +3772,9 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows-future/0.2.1/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "windows-implement",
@@ -2156,7 +3782,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows-implement/0.58.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "windows-implement",
@@ -2164,7 +3795,11 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows-implement/0.59.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "windows-implement",
@@ -2172,7 +3807,9 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows-implement/0.60.2/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "windows-interface",
@@ -2180,7 +3817,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows-interface/0.58.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "windows-interface",
@@ -2188,7 +3830,11 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows-interface/0.59.3/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "windows-link",
@@ -2196,7 +3842,11 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows-link/0.1.3/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "windows-link",
@@ -2204,7 +3854,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows-link/0.2.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "windows-native-keyring-store",
@@ -2212,7 +3867,11 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/open-source-cooperative/windows-native-keyring-store.git",
       "source": "https://crates.io/api/v1/crates/windows-native-keyring-store/1.1.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "windows-numerics",
@@ -2220,7 +3879,9 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows-numerics/0.2.0/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "windows-result",
@@ -2228,7 +3889,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows-result/0.2.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "windows-result",
@@ -2236,7 +3902,11 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows-result/0.3.4/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "windows-strings",
@@ -2244,7 +3914,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows-strings/0.1.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "windows-strings",
@@ -2252,7 +3927,11 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows-strings/0.3.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "windows-strings",
@@ -2260,7 +3939,9 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows-strings/0.4.2/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "windows-sys",
@@ -2268,7 +3949,19 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows-sys/0.48.0/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
+    },
+    {
+      "name": "windows-sys",
+      "version": "0.52.0",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/microsoft/windows-rs",
+      "source": "https://crates.io/api/v1/crates/windows-sys/0.52.0/download",
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "windows-sys",
@@ -2276,7 +3969,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows-sys/0.61.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "windows-targets",
@@ -2284,7 +3982,9 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows-targets/0.48.5/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "windows-targets",
@@ -2292,7 +3992,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows-targets/0.52.6/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "windows-targets",
@@ -2300,7 +4005,11 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows-targets/0.53.5/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "windows-threading",
@@ -2308,7 +4017,9 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows-threading/0.1.0/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "windows-win",
@@ -2316,7 +4027,11 @@
       "license": "BSL-1.0",
       "repository": "https://github.com/DoumanAsh/windows-win-rs",
       "source": "https://crates.io/api/v1/crates/windows-win/3.0.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "windows",
@@ -2324,7 +4039,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows/0.58.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "windows",
@@ -2332,7 +4052,11 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows/0.59.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia"
+      ]
     },
     {
       "name": "windows",
@@ -2340,7 +4064,9 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/microsoft/windows-rs",
       "source": "https://crates.io/api/v1/crates/windows/0.61.3/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "winnow",
@@ -2348,7 +4074,12 @@
       "license": "MIT",
       "repository": "https://github.com/winnow-rs/winnow",
       "source": "https://crates.io/api/v1/crates/winnow/0.7.15/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "winnow",
@@ -2356,7 +4087,12 @@
       "license": "MIT",
       "repository": "https://github.com/winnow-rs/winnow",
       "source": "https://crates.io/api/v1/crates/winnow/1.0.3/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "winreg",
@@ -2364,7 +4100,19 @@
       "license": "MIT",
       "repository": "https://github.com/gentoo90/winreg-rs",
       "source": "https://crates.io/api/v1/crates/winreg/0.52.0/download",
-      "roots": ["cua-driver"]
+      "roots": [
+        "cua-driver"
+      ]
+    },
+    {
+      "name": "winx",
+      "version": "0.36.4",
+      "license": "Apache-2.0 WITH LLVM-exception",
+      "repository": "https://github.com/sunfishcode/winx",
+      "source": "https://crates.io/api/v1/crates/winx/0.36.4/download",
+      "roots": [
+        "cua-driver"
+      ]
     },
     {
       "name": "writeable",
@@ -2372,7 +4120,12 @@
       "license": "Unicode-3.0",
       "repository": "https://github.com/unicode-org/icu4x",
       "source": "https://crates.io/api/v1/crates/writeable/0.6.3/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "yoke-derive",
@@ -2380,7 +4133,12 @@
       "license": "Unicode-3.0",
       "repository": "https://github.com/unicode-org/icu4x",
       "source": "https://crates.io/api/v1/crates/yoke-derive/0.8.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "yoke",
@@ -2388,7 +4146,12 @@
       "license": "Unicode-3.0",
       "repository": "https://github.com/unicode-org/icu4x",
       "source": "https://crates.io/api/v1/crates/yoke/0.8.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "zerocopy-derive",
@@ -2396,7 +4159,12 @@
       "license": "BSD-2-Clause OR Apache-2.0 OR MIT",
       "repository": "https://github.com/google/zerocopy",
       "source": "https://crates.io/api/v1/crates/zerocopy-derive/0.8.48/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "zerocopy",
@@ -2404,7 +4172,12 @@
       "license": "BSD-2-Clause OR Apache-2.0 OR MIT",
       "repository": "https://github.com/google/zerocopy",
       "source": "https://crates.io/api/v1/crates/zerocopy/0.8.48/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "zerofrom-derive",
@@ -2412,7 +4185,12 @@
       "license": "Unicode-3.0",
       "repository": "https://github.com/unicode-org/icu4x",
       "source": "https://crates.io/api/v1/crates/zerofrom-derive/0.1.7/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "zerofrom",
@@ -2420,7 +4198,12 @@
       "license": "Unicode-3.0",
       "repository": "https://github.com/unicode-org/icu4x",
       "source": "https://crates.io/api/v1/crates/zerofrom/0.1.8/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "zeroize_derive",
@@ -2428,7 +4211,12 @@
       "license": "Apache-2.0 OR MIT",
       "repository": "https://github.com/RustCrypto/utils",
       "source": "https://crates.io/api/v1/crates/zeroize_derive/1.5.0/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "zeroize",
@@ -2436,7 +4224,12 @@
       "license": "Apache-2.0 OR MIT",
       "repository": "https://github.com/RustCrypto/utils",
       "source": "https://crates.io/api/v1/crates/zeroize/1.8.2/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "zerotrie",
@@ -2444,7 +4237,12 @@
       "license": "Unicode-3.0",
       "repository": "https://github.com/unicode-org/icu4x",
       "source": "https://crates.io/api/v1/crates/zerotrie/0.2.4/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "zerovec-derive",
@@ -2452,7 +4250,12 @@
       "license": "Unicode-3.0",
       "repository": "https://github.com/unicode-org/icu4x",
       "source": "https://crates.io/api/v1/crates/zerovec-derive/0.11.3/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "zerovec",
@@ -2460,7 +4263,12 @@
       "license": "Unicode-3.0",
       "repository": "https://github.com/unicode-org/icu4x",
       "source": "https://crates.io/api/v1/crates/zerovec/0.11.6/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "zip",
@@ -2468,7 +4276,9 @@
       "license": "MIT",
       "repository": "https://github.com/zip-rs/zip2",
       "source": "https://crates.io/api/v1/crates/zip/8.6.0/download",
-      "roots": ["cursor-theme-cli"]
+      "roots": [
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "zlib-rs",
@@ -2476,7 +4286,9 @@
       "license": "Zlib",
       "repository": "https://github.com/trifectatechfoundation/zlib-rs",
       "source": "https://crates.io/api/v1/crates/zlib-rs/0.6.6/download",
-      "roots": ["cursor-theme-cli"]
+      "roots": [
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "zmij",
@@ -2484,7 +4296,12 @@
       "license": "MIT",
       "repository": "https://github.com/dtolnay/zmij",
       "source": "https://crates.io/api/v1/crates/zmij/1.0.21/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "zopfli",
@@ -2492,7 +4309,9 @@
       "license": "Apache-2.0",
       "repository": "https://github.com/zopfli-rs/zopfli",
       "source": "https://crates.io/api/v1/crates/zopfli/0.8.3/download",
-      "roots": ["cursor-theme-cli"]
+      "roots": [
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "zstd-safe",
@@ -2500,7 +4319,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/gyscos/zstd-rs",
       "source": "https://crates.io/api/v1/crates/zstd-safe/7.2.4/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "zstd-sys",
@@ -2508,7 +4332,12 @@
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/gyscos/zstd-rs",
       "source": "https://crates.io/api/v1/crates/zstd-sys/2.0.16+zstd.1.5.7/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "zstd",
@@ -2516,7 +4345,12 @@
       "license": "MIT",
       "repository": "https://github.com/gyscos/zstd-rs",
       "source": "https://crates.io/api/v1/crates/zstd/0.13.3/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "zune-core",
@@ -2524,7 +4358,12 @@
       "license": "MIT OR Apache-2.0 OR Zlib",
       "repository": "https://github.com/etemesi254/zune-image",
       "source": "https://crates.io/api/v1/crates/zune-core/0.5.1/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     },
     {
       "name": "zune-jpeg",
@@ -2532,7 +4371,12 @@
       "license": "MIT OR Apache-2.0 OR Zlib",
       "repository": "https://github.com/etemesi254/zune-image/tree/dev/crates/zune-jpeg",
       "source": "https://crates.io/api/v1/crates/zune-jpeg/0.5.15/download",
-      "roots": ["cua-driver", "cua-driver-sdk", "cua-driver-uia", "cursor-theme-cli"]
+      "roots": [
+        "cua-driver",
+        "cua-driver-sdk",
+        "cua-driver-uia",
+        "cursor-theme-cli"
+      ]
     }
   ]
 }

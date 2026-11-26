@@ -2,8 +2,9 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as NodeChildProcess from "node:child_process";
+import { windowsCuaRelease } from "./cua-windows-release.mjs";
 
-const pin = "fc188250b4ca8549b8e61f937fdb1fb560770e86";
+const { version, sourceCommit } = windowsCuaRelease;
 const [source, reports, destination, interLicense] = process.argv.slice(2);
 if (!source || !reports || !destination || !interLicense)
   throw new Error(
@@ -14,7 +15,7 @@ if (
     cwd: source,
     encoding: "utf8",
     windowsHide: true,
-  }).trim() !== pin
+  }).trim() !== sourceCommit
 )
   throw new Error("Cua notice source pin does not match.");
 const hash = (bytes) => NodeCrypto.createHash("sha256").update(bytes).digest("hex");
@@ -72,7 +73,7 @@ const fontHash = hash(
 );
 if (fontHash !== "29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031")
   throw new Error("Review the embedded font license before updating its pin.");
-const sourceUrl = `https://github.com/trycua/cua/tree/${pin}`;
+const sourceUrl = `https://github.com/trycua/cua/tree/${sourceCommit}`;
 const sorted = [...licenses.values()].sort(
   (a, b) => a.id.localeCompare(b.id) || hash(a.text).localeCompare(hash(b.text)),
 );
@@ -84,6 +85,10 @@ await NodeFSP.copyFile(
 );
 await NodeFSP.copyFile(interLicense, NodePath.join(destination, "Inter-OFL-1.1.txt"));
 await NodeFSP.copyFile(
+  NodePath.join(rust, "THIRD_PARTY_NOTICES.md"),
+  NodePath.join(destination, "UPSTREAM_NOTICES.md"),
+);
+await NodeFSP.copyFile(
   NodePath.join(source, "libs/cua-driver/scripts/node-runtime-NOTICE.md"),
   NodePath.join(destination, "NODE_RUNTIME_NOTICE.md"),
 );
@@ -93,9 +98,9 @@ await NodeFSP.writeFile(NodePath.join(destination, "MPL-2.0.txt"), mpl.text);
 await NodeFSP.writeFile(
   NodePath.join(destination, "THIRD_PARTY_NOTICES.txt"),
   [
-    "Cua Driver 0.28.2 Windows x64 distribution notices",
+    `Cua Driver ${version} Windows x64 distribution notices`,
     `Corresponding source: ${sourceUrl}`,
-    "The Cua workspace code follows LICENSE.md. Embedded Inter follows Inter-OFL-1.1.txt.",
+    "The Cua workspace code follows LICENSE.md. See UPSTREAM_NOTICES.md for embedded and derived material. Embedded Inter follows Inter-OFL-1.1.txt.",
     "The Node compatibility runtime follows NODE_RUNTIME_NOTICE.md and MPL-2.0.txt.",
     `Its deterministic build transformations: ${sourceUrl}/libs/cua-driver/scripts/build-node-runtime.mjs`,
     "Its pinned source dependency: https://registry.npmjs.org/uniffi-bindgen-react-native/-/uniffi-bindgen-react-native-0.31.0-3.tgz",
@@ -111,7 +116,7 @@ await NodeFSP.writeFile(
   JSON.stringify(
     {
       source: sourceUrl,
-      version: "0.28.2",
+      version,
       target: "x86_64-pc-windows-msvc",
       roots,
       generator:
