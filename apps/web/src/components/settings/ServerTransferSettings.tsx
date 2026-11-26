@@ -3,7 +3,7 @@ import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { Button } from "../ui/button";
 import { SettingsSection } from "./settingsLayout";
 
-function TransferCommand({ operation }: { operation: "export" | "import" }) {
+export function TransferCommand({ operation }: { operation: "export" | "import" }) {
   const [error, setError] = useState("");
   const { copyToClipboard, isCopied } = useCopyToClipboard({
     target: "transfer command",

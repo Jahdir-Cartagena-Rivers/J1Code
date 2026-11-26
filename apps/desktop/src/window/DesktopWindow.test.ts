@@ -521,6 +521,12 @@ describe("DesktopWindow", () => {
           assert.notEqual(options?.frame, false);
           assert.isUndefined(options?.titleBarStyle);
           assert.isUndefined(options?.titleBarOverlay);
+          if (kind === "main") {
+            const preventDefault = vi.fn();
+            fake.windowListeners.get("page-title-updated")?.({ preventDefault }, "Private chat");
+            assert.isTrue(preventDefault.mock.calls.length === 1);
+            assert.deepEqual(vi.mocked(fake.window.setTitle).mock.calls, [["J1 Code (Dev)"]]);
+          }
         }).pipe(
           Effect.provide(
             layerTest({

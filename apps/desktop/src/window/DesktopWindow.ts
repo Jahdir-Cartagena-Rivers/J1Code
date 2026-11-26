@@ -24,6 +24,7 @@ import * as ElectronMenu from "../electron/ElectronMenu.ts";
 import { getDesktopUrl } from "../electron/ElectronProtocol.ts";
 import * as ElectronShell from "../electron/ElectronShell.ts";
 import * as ElectronTheme from "../electron/ElectronTheme.ts";
+import { syncWindowsCaption } from "../electron/WindowsCaption.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import {
   MENU_ACTION_CHANNEL,
@@ -360,6 +361,7 @@ function syncWindowAppearance(
     }
 
     window.setBackgroundColor(getInitialWindowBackgroundColor(shouldUseDarkColors));
+    if (platform === "win32") syncWindowsCaption(window, shouldUseDarkColors);
     const { titleBarOverlay } = getWindowTitleBarOptions(shouldUseDarkColors, platform);
     if (hasTitleBarOverlay && typeof titleBarOverlay === "object") {
       window.setTitleBarOverlay(titleBarOverlay);
@@ -516,6 +518,7 @@ export const make = Effect.gen(function* () {
     }
 
     if (environment.platform === "win32") {
+      syncWindowsCaption(window, shouldUseDarkColors);
       window.setAppDetails(
         windowsRelaunchDetails({
           appId: environment.appUserModelId,
@@ -839,10 +842,9 @@ export const make = Effect.gen(function* () {
       runFork(zoomWindow(window, direction));
     });
 
-    // The renderer titles the window after the open thread; only a blank title
-    // falls back to the app name.
+    // Keep conversation titles inside J1 rather than exposing them in the OS caption.
     window.on("page-title-updated", (event, title) => {
-      if (title.trim() !== "") return;
+      if (environment.platform !== "win32" && title.trim() !== "") return;
       event.preventDefault();
       window.setTitle(environment.displayName);
     });
@@ -1118,6 +1120,7 @@ export const make = Effect.gen(function* () {
       return;
     }
     yield* rendererHistory.register(splash.webContents, { surface: "splash" });
+    if (environment.platform === "win32") syncWindowsCaption(splash, shouldUseDarkColors);
     yield* Ref.set(splashWindowRef, Option.some(splash));
     splash.once("closed", () => {
       void runPromise(Ref.set(splashWindowRef, Option.none()));

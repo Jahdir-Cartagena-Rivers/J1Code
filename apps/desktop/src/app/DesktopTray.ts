@@ -111,18 +111,22 @@ export const make = Effect.gen(function* () {
         let behavior = (yield* settings.get).closeBehavior;
         if (behavior === "ask") {
           const dialog = yield* ElectronDialog.ElectronDialog;
-          const choice = yield* dialog.showMessageBox({
-            type: "question",
-            title: "Close J1 Code",
-            message: "How would you like to close J1 Code?",
-            detail:
-              "Close to tray keeps chats running. Close completely stops the server and running chats.",
-            buttons: ["Close to tray", "Close completely", "Cancel"],
-            defaultId: 0,
-            cancelId: 2,
-            checkboxLabel: "Remember my choice",
-            checkboxChecked: false,
-          });
+          const choice = yield* dialog.showMessageBox(
+            {
+              type: "question",
+              title: "Close J1 Code",
+              message: "How would you like to close J1 Code?",
+              detail:
+                "Close to tray keeps chats running. Close completely stops the server and running chats.",
+              buttons: ["Close to tray", "Close completely", "Cancel"],
+              defaultId: 0,
+              cancelId: 2,
+              checkboxLabel: "Remember my choice",
+              checkboxChecked: false,
+            },
+            undefined,
+            "close-j1",
+          );
           if (choice.response === 2) return;
           behavior = choice.response === 1 ? "quit" : "tray";
           if (choice.checkboxChecked) yield* settings.setCloseBehavior(behavior);

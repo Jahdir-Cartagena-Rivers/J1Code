@@ -99,10 +99,78 @@ export class ElectronDialog extends Context.Service<
     readonly showMessageBox: (
       options: Electron.MessageBoxOptions,
       owner?: Electron.BrowserWindow,
+      presentation?: "close-j1",
     ) => Effect.Effect<Electron.MessageBoxReturnValue, ElectronDialogShowMessageBoxError>;
     readonly showErrorBox: (title: string, content: string) => Effect.Effect<void>;
   }
 >()("@j1code/desktop/electron/ElectronDialog") {}
+
+function showCloseJ1Dialog(
+  owner?: Electron.BrowserWindow,
+): Promise<Electron.MessageBoxReturnValue> {
+  owner ??= Electron.BrowserWindow.getFocusedWindow() ?? undefined;
+  const cancel = { response: 2, checkboxChecked: false };
+  const origin = "https://close-j1.invalid";
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<title>Close J1 Code</title><style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#171717;--muted:#525252;--border:#d4d4d4;--hover:#f5f5f5}
+@media(prefers-color-scheme:dark){:root{--bg:#141414;--fg:#fafafa;--muted:#a3a3a3;--border:#404040;--hover:#262626}}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,sans-serif}
+header{padding:20px 24px 0;-webkit-app-region:drag}
+h1{font-size:17px;margin:0}main{padding:12px 24px 20px}p{color:var(--muted);margin:0 0 16px}
+nav{display:flex;gap:8px;margin-top:18px;flex-wrap:wrap}
+a{padding:7px 10px;border:1px solid var(--border);border-radius:7px;color:inherit;text-decoration:none}
+a:hover{background:var(--hover)}a.primary{background:#1864e8;border-color:#1864e8;color:white}
+#remember:not(:checked)~nav .remembered,#remember:checked~nav .once{display:none}
+</style></head><body><header><h1>Close J1 Code</h1></header><main>
+<p>Close to tray keeps chats running. Close completely stops the server and running chats.</p>
+<input type="checkbox" id="remember"><label for="remember"> Remember my choice</label>
+<nav aria-label="Close options">
+<a class="primary once" href="${origin}/0/once">Close to tray</a>
+<a class="primary remembered" href="${origin}/0/remember">Close to tray</a>
+<a class="once" href="${origin}/1/once">Close completely</a>
+<a class="remembered" href="${origin}/1/remember">Close completely</a>
+<a href="${origin}/2/once" autofocus>Cancel</a>
+</nav></main></body></html>`;
+  return new Promise((resolve, reject) => {
+    const window = new Electron.BrowserWindow({
+      title: "Close J1 Code",
+      width: 510,
+      height: 246,
+      frame: false,
+      show: false,
+      resizable: false,
+      backgroundColor: Electron.nativeTheme.shouldUseDarkColors ? "#141414" : "#ffffff",
+      ...(owner && !owner.isDestroyed() ? { parent: owner, modal: true } : {}),
+      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+    });
+    const finish = (choice: Electron.MessageBoxReturnValue) => {
+      resolve(choice);
+      if (!window.isDestroyed()) window.destroy();
+    };
+    window.once("closed", () => resolve(cancel));
+    window.once("ready-to-show", () => window.show());
+    window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    window.webContents.on("will-navigate", (event, url) => {
+      event.preventDefault();
+      const match = /^https:\/\/close-j1\.invalid\/([012])\/(once|remember)$/.exec(url);
+      if (match) finish({ response: Number(match[1]), checkboxChecked: match[2] === "remember" });
+    });
+    window.webContents.on("before-input-event", (event, input) => {
+      if (input.type === "keyDown" && input.key === "Escape") {
+        event.preventDefault();
+        finish(cancel);
+      }
+    });
+    void window
+      .loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+      .catch((error) => {
+        reject(error);
+        if (!window.isDestroyed()) window.destroy();
+      });
+  });
+}
 
 /** @public */
 export const make = ElectronDialog.of({
@@ -166,23 +234,27 @@ export const make = ElectronDialog.of({
     });
     return result.canceled ? [] : result.filePaths;
   }),
-  showMessageBox: Effect.fn("ElectronDialog.showMessageBox")(function (options, owner) {
-    return Effect.tryPromise({
-      try: () =>
-        owner === undefined
-          ? Electron.dialog.showMessageBox(options)
-          : Electron.dialog.showMessageBox(owner, options),
-      catch: (cause) =>
-        new ElectronDialogShowMessageBoxError({
-          type: options.type ?? null,
-          titleLength: options.title?.length ?? null,
-          messageLength: options.message.length,
-          detailLength: options.detail?.length ?? null,
-          buttonCount: options.buttons?.length ?? 0,
-          cause,
-        }),
-    });
-  }),
+  showMessageBox: Effect.fn("ElectronDialog.showMessageBox")(
+    function (options, owner, presentation) {
+      return Effect.tryPromise({
+        try: () =>
+          presentation === "close-j1"
+            ? showCloseJ1Dialog(owner)
+            : owner === undefined
+              ? Electron.dialog.showMessageBox(options)
+              : Electron.dialog.showMessageBox(owner, options),
+        catch: (cause) =>
+          new ElectronDialogShowMessageBoxError({
+            type: options.type ?? null,
+            titleLength: options.title?.length ?? null,
+            messageLength: options.message.length,
+            detailLength: options.detail?.length ?? null,
+            buttonCount: options.buttons?.length ?? 0,
+            cause,
+          }),
+      });
+    },
+  ),
   showErrorBox: Effect.fn("ElectronDialog.showErrorBox")(function (title, content) {
     return Effect.try({
       try: () => Electron.dialog.showErrorBox(title, content),

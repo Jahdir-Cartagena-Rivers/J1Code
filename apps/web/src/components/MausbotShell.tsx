@@ -783,7 +783,9 @@ export function MausbotShell({
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {isElectron && !ready && (
           <WorkspacePageHeader electron aria-label="Window title bar">
-            <span className="text-sm text-muted-foreground">J1 Code</span>
+            <span className="ml-[var(--workspace-titlebar-content-left)] text-sm text-muted-foreground">
+              J1 Code
+            </span>
           </WorkspacePageHeader>
         )}
         <div

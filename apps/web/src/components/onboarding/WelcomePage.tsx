@@ -100,6 +100,7 @@ import { getProviderSummary } from "../settings/providerStatus";
 import { AddProviderInstanceDialog } from "../settings/AddProviderInstanceDialog";
 import { useDesktopCliCommand } from "../settings/CliCommandSettingsRow";
 import { CodexSetupSection } from "../settings/CodexSetupSection";
+import { TransferCommand } from "../settings/ServerTransferSettings";
 import { readCodexSetupMode } from "../settings/CodexSetupSection.logic";
 import { TerminalViewport } from "../ThreadTerminalDrawer";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
@@ -290,6 +291,21 @@ export function WelcomePage({
                 projectImport={projectImport}
                 isImporting={isImporting}
               />
+              {isPrimary ? (
+                <WelcomeSection title="Restore J1">
+                  <details className="min-w-0 space-y-3 text-sm text-muted-foreground">
+                    <summary className="cursor-pointer text-foreground">
+                      Restore from a J1 transfer file
+                    </summary>
+                    <p>
+                      An encrypted J1 transfer file can restore settings, conversations, and
+                      attachments. Use its password file and import into a new J1 home.
+                    </p>
+                    <TransferCommand operation="import" />
+                    <p>Start the restored home with <code>j1 serve --base-dir NEW_HOME</code>.</p>
+                  </details>
+                </WelcomeSection>
+              ) : null}
               {showPhone ? <PhoneSection environmentId={environmentId} /> : null}
             </div>
             <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
