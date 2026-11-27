@@ -1082,6 +1082,49 @@ ${installPoint}`,
     '  const due =\n    automatic &&\n    !dismissed &&',
   );
   await copy("scripts/mausbot/j1-welcome-gate.test.ts.txt", "src/components/onboarding/j1-welcome-gate.test.ts");
+  if (latestSource) {
+    await change(
+      "src/components/HelperSetup.tsx",
+      '  if (!steps.length) return null;',
+      '  const offered = state.config?.j1Managed ? steps.filter((step) => step !== "cloud") : steps;\n  if (!offered.length) return null;',
+    );
+    await change(
+      "src/components/HelperSetup.tsx",
+      '        {steps.map((step) => {',
+      '        {offered.map((step) => {',
+    );
+    await change(
+      "src/components/HelperSetup.tsx",
+      '  const { dispatch } = useStore();',
+      '  const { state, dispatch } = useStore();',
+    );
+    await change(
+      "src/components/HelperSetup.tsx",
+      '  const shown = chips.filter((chip) => !tapped.has(chip)).slice(0, INTRO_CHIPS);',
+      '  const shown = chips.filter((chip) => !tapped.has(chip) && (!state.config?.j1Managed || chip !== "cloud")).slice(0, INTRO_CHIPS);',
+    );
+    await change(
+      "src/components/HelperIntro.test.ts",
+      'const { chipAction, setupAction } = await import("./HelperSetup");',
+      'const { chipAction, setupAction, HelperSetup, IntroChips } = await import("./HelperSetup");',
+    );
+    await change(
+      "src/components/HelperIntro.test.ts",
+      'describe("what MausBot says first", () => {',
+      `it("uses only J1-compatible setup shortcuts on a managed runtime", async () => {
+  const setup = () => createElement("div", null, createElement(HelperSetup), createElement(IntroChips, { chips: ["cloud", "phone"] }));
+  await act(async () => root.render(setup()));
+  expect(chips()).toContain("cloud");
+  f.state = { ...f.state, config: { j1Managed: true } };
+  await act(async () => root.render(setup()));
+  expect(chips()).not.toContain("cloud");
+  expect(chips()).toContain("phone");
+  expect(chips()).toContain("apps");
+});
+
+describe("what MausBot says first", () => {`,
+    );
+  }
   await change(
     "src/App.tsx",
     "        <MausBotWelcome viewer={viewer} />",
