@@ -1,0 +1,51 @@
+name: J1 Windows upgrade QA
+
+on:
+  push:
+    branches: [codex/j1-windows-upgrade-qa]
+
+permissions:
+  contents: read
+
+jobs:
+  upgrade:
+    if: github.repository != 'pingdotgg/t3code'
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Install Spectre-mitigated MSVC libraries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installPath = & $vswhere -latest -property installationPath
+          if (!$installPath) { throw "Visual Studio was not found" }
+          $setup = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
+          $proc = Start-Process -FilePath $setup -ArgumentList "modify", "--installPath", "`"$installPath`"", "--add", "Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre", "--quiet", "--norestart" -Wait -PassThru -WindowStyle Hidden
+          if ($proc.ExitCode -notin @(0, 3010)) { throw "Visual Studio setup failed: $($proc.ExitCode)" }
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: false
+          run-install: false
+      - name: Install locked build dependencies
+        run: vp install --frozen-lockfile --filter=@j1code/desktop... --filter=@j1code/server... --filter=@j1code/scripts...
+      - name: Build unpublished candidate
+        run: node scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64 --build-version 1.102.0-beta.6 --output-dir release-qa
+      - name: Rehearse Windows upgrade
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./.github/scripts/j1-windows-upgrade-qa.ps1 -Candidate release-qa/J1-Code-1.102.0-beta.6-windows-x64-setup.exe

@@ -5,8 +5,10 @@
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import * as NodeAssert from "node:assert/strict";
 import * as NodeTimersPromises from "node:timers/promises";
 import * as NodeUtil from "node:util";
+import type { DesktopBridge } from "@j1code/contracts";
 import { _electron, type ElectronApplication } from "playwright-core";
 
 // A snapshot from an older build on purpose: the packaged server must migrate it forward, as it
@@ -22,6 +24,7 @@ const { values } = NodeUtil.parseArgs({
     // An unpackaged app directory for a plain Electron executable, as PR CI runs it.
     app: { type: "string" },
     "artifacts-dir": { type: "string" },
+    "existing-data-dir": { type: "string" },
   },
 });
 const executable = values.executable;
@@ -32,9 +35,21 @@ if (!executable)
 const artifactsDir = NodePath.resolve(values["artifacts-dir"] ?? "desktop-launch-check");
 
 const home = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-desktop-launch-"));
-const t3Home = NodePath.join(home, "t3");
-NodeFS.mkdirSync(NodePath.join(t3Home, "userdata"), { recursive: true });
-NodeFS.copyFileSync(FIXTURE_DB, NodePath.join(t3Home, "userdata/statev2.sqlite"));
+const existingDataDir = values["existing-data-dir"];
+const t3Home = existingDataDir ? NodeFS.realpathSync(existingDataDir) : NodePath.join(home, "t3");
+if (existingDataDir) {
+  const runnerTemp = process.env.RUNNER_TEMP;
+  if (!runnerTemp || process.env.RUNNER_ENVIRONMENT !== "github-hosted") {
+    throw new Error("An existing upgrade fixture must be on a disposable hosted runner.");
+  }
+  const relative = NodePath.relative(NodeFS.realpathSync(runnerTemp), t3Home);
+  if (NodePath.isAbsolute(relative) || !/^j1-upgrade-\d+[\\/]j1$/.test(relative)) {
+    throw new Error("The upgrade fixture is outside the expected runner directory.");
+  }
+} else {
+  NodeFS.mkdirSync(NodePath.join(t3Home, "userdata"), { recursive: true });
+  NodeFS.copyFileSync(FIXTURE_DB, NodePath.join(t3Home, "userdata/statev2.sqlite"));
+}
 
 let step = "launching the app";
 let app: ElectronApplication | undefined;
@@ -66,6 +81,15 @@ try {
     step = "opening the thread";
     await thread.click();
     await page.getByText(THREAD_MESSAGE).waitFor({ timeout: STEP_TIMEOUT_MS });
+    if (existingDataDir) {
+      step = "reading the upgraded app's saved settings";
+      const settings = await page.evaluate(() =>
+        (globalThis as { desktopBridge?: Pick<DesktopBridge, "getClientSettings"> }).desktopBridge
+          ?.getClientSettings(),
+      );
+      NodeAssert.equal(settings?.onboardingCompletedAt, "2026-01-01T00:00:00.000Z");
+      NodeAssert.equal(settings?.wordWrap, false);
+    }
   } catch (error) {
     NodeFS.mkdirSync(artifactsDir, { recursive: true });
     await page
