@@ -14,14 +14,14 @@ const root = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta
 
 /** Applies only to our disposable, pinned OSS assembly; never edits the reference checkout. */
 export async function patchMausbotSource(stage: string, sourceRef = MAUSBOT_SOURCE) {
-  const hasUpstreamFixes = sourceRef === MAUSBOT_SOURCE || sourceRef === MAUSBOT_V0182;
-  await patchOpenMausImport(stage, { useNativeBackupVersion: hasUpstreamFixes });
+  const latestSource = sourceRef === MAUSBOT_SOURCE || sourceRef === MAUSBOT_V0182;
+  await patchOpenMausImport(stage, { useNativeBackupVersion: latestSource });
   const bubblePath = NodePath.join(stage, "src/components/chat-bubble.ts");
   const bubbles = await NodeFSP.readFile(bubblePath, "utf8");
   if (!bubbles.includes("calc(100%-82px)")) throw new Error("Pinned bubble width changed.");
   await NodeFSP.writeFile(bubblePath, bubbles.replace("calc(100%-82px)", "calc(100%-var(--chat-bubble-gutter,82px))"));
   // v0.1.182 already contains both upstream fixes.
-  const backports = hasUpstreamFixes
+  const backports = latestSource
     ? []
     : ["e14bffd0-memory-queue.patch", "ba3c2b7c-retry-cleanup.patch"];
   for (const file of backports)
