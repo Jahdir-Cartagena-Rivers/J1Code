@@ -90,12 +90,21 @@ describe("LinkedEnvironmentsSettings", () => {
       <RegistryContext.Provider value={registry}>
         <LinkedEnvironmentsSettings
           environmentId={hostId}
-          environmentLabel={null}
+          environmentLabel="Build host"
+          showHostLabel={false}
           isSearchTarget={false}
         />
       </RegistryContext.Provider>,
     );
 
+    await expect.element(screen.getByRole("heading", { name: "boat-task" })).toBeVisible();
+    const toggle = screen.getByRole("button", { name: "Connection paths" });
+    await toggle.click();
+    const paths = screen.getByRole("region", { name: "Connection paths through Build host" });
+    for (const label of ["This client", "Build host", "boat-task", "Reachable"]) {
+      await expect.element(paths.getByText(label, { exact: true })).toBeVisible();
+    }
+    await toggle.click();
     await expect.element(screen.getByRole("heading", { name: "boat-task" })).toBeVisible();
   });
 
@@ -114,7 +123,8 @@ describe("LinkedEnvironmentsSettings", () => {
       <RegistryContext.Provider value={registry}>
         <LinkedEnvironmentsSettings
           environmentId={loadingHostId}
-          environmentLabel={null}
+          environmentLabel="Build host"
+          showHostLabel={false}
           isSearchTarget={false}
         />
       </RegistryContext.Provider>,

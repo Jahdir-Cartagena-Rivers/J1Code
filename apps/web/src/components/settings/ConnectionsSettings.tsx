@@ -1766,7 +1766,8 @@ function ConnectionsSettingsContent({
         <LinkedEnvironmentsSettings
           key={environment.environmentId}
           environmentId={environment.environmentId}
-          environmentLabel={peerLinkHosts.length > 1 ? environment.label : null}
+          environmentLabel={environment.label}
+          showHostLabel={peerLinkHosts.length > 1}
           isSearchTarget={index === 0}
         />
       ))}

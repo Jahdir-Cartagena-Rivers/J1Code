@@ -1393,7 +1393,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Linked environments",
     to: "/settings/connections",
     targetId: "linked-environments",
-    searchTerms: ["link peer another machine vps agents work there handoff pairing code"],
+    searchTerms: ["link peer another machine vps agents work there handoff pairing code connection paths map"],
   },
   {
     id: "remote-environments",

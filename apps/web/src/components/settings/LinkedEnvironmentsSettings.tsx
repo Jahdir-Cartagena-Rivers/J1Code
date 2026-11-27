@@ -14,7 +14,7 @@ import { peerLinkHealth } from "@j1code/client-runtime/state/peerLinks";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
-import { PlusIcon } from "lucide-react";
+import { ArrowDownIcon, LaptopIcon, PlusIcon } from "lucide-react";
 import { useId, useRef, useState } from "react";
 
 import { requestConfirmDialog } from "~/confirmDialog";
@@ -53,10 +53,12 @@ const failureToast = (title: string, description: string) =>
 export function LinkedEnvironmentsSettings({
   environmentId,
   environmentLabel,
+  showHostLabel,
   isSearchTarget,
 }: {
   readonly environmentId: EnvironmentId;
-  readonly environmentLabel: string | null;
+  readonly environmentLabel: string;
+  readonly showHostLabel: boolean;
   readonly isSearchTarget: boolean;
 }) {
   const links = useEnvironmentQuery(peerLinkEnvironment.list({ environmentId, input: {} }));
@@ -75,11 +77,26 @@ export function LinkedEnvironmentsSettings({
   );
   const canLink = useAtomValue(peerLinkEnvironment.link.permissionAtom(environmentId));
   const search = searchableSetting("linked-environments");
+  const [showPaths, setShowPaths] = useState(false);
   return (
     <SettingsSection
       {...(isSearchTarget ? { id: search.id } : {})}
-      title={environmentLabel === null ? search.title : `${search.title} · ${environmentLabel}`}
-      headerAction={canLink ? <LinkEnvironmentAction environmentId={environmentId} /> : null}
+      title={showHostLabel ? `${search.title} · ${environmentLabel}` : search.title}
+      headerAction={
+        <div className="flex flex-wrap items-center gap-2">
+          {links.data?.links.length ? (
+            <Button
+              variant="outline"
+              size="sm"
+              aria-pressed={showPaths}
+              onClick={() => setShowPaths((previous) => !previous)}
+            >
+              Connection paths
+            </Button>
+          ) : null}
+          {canLink ? <LinkEnvironmentAction environmentId={environmentId} /> : null}
+        </div>
+      }
     >
       {links.error ? (
         <SettingsRow title="Could not load linked environments" description={links.error} />
@@ -88,8 +105,10 @@ export function LinkedEnvironmentsSettings({
       ) : links.data.links.length === 0 ? (
         <SettingsRow
           title="No linked environments"
-          description="Link another machine running T3 Code, such as a VPS, so agents here can launch and drive threads there."
+          description="Link another machine running J1 Code, such as a VPS, so agents here can launch and drive chats there."
         />
+      ) : showPaths ? (
+        <ConnectionPaths host={environmentLabel} links={links.data.links} />
       ) : (
         links.data.links.map((link) => (
           <LinkedEnvironmentRow
@@ -100,6 +119,45 @@ export function LinkedEnvironmentsSettings({
         ))
       )}
     </SettingsSection>
+  );
+}
+
+function ConnectionPaths({
+  host,
+  links,
+}: {
+  readonly host: string;
+  readonly links: readonly PeerLinkSummary[];
+}) {
+  const now = DateTime.makeUnsafe(useNowMinute());
+  return (
+    <section className="space-y-2 p-4" aria-label={`Connection paths through ${host}`}>
+      <div className="flex items-center gap-2 text-sm font-medium">
+        <LaptopIcon aria-hidden="true" className="size-4" /> This client
+      </div>
+      <ArrowDownIcon aria-hidden="true" className="ml-1 size-3 text-muted-foreground" />
+      <p className="break-words text-sm font-medium">{host}</p>
+      <ul className="ml-1 space-y-2 border-l border-border pl-3">
+        {links.map((link) => {
+          const health = peerLinkHealth(link, now);
+          return (
+            <li
+              key={link.environmentId}
+              className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm"
+            >
+              <span className="min-w-0 break-words">{link.label}</span>
+              <span className="text-xs text-muted-foreground">
+                {health.kind === "reachable"
+                  ? "Reachable"
+                  : health.kind === "expired"
+                    ? "Expired"
+                    : "Unavailable"}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
