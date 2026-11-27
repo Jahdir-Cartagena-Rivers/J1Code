@@ -139,16 +139,16 @@ describe("j1 theme", () => {
     }),
   );
 
-  it.effect("publishes a theme file under its filename and sets it", () =>
+  it.effect.each(["json", "JSON", "JsOn"])("publishes a .%s theme file under its filename", (extension) =>
     Effect.gen(function* () {
       const baseDir = makeBaseDir();
-      const themeFile = NodePath.join(baseDir, "nightfall.json");
+      const themeFile = NodePath.join(baseDir, `nightfall.${extension}`);
       NodeFS.writeFileSync(themeFile, NIGHTFALL_THEME_JSON);
 
       yield* runCli(["theme", "set", themeFile, "--base-dir", baseDir]);
 
       const published = NodePath.join(baseDir, "userdata", "themes", "nightfall.json");
-      assert.equal(NodeFS.existsSync(published), true);
+      assert.equal(NodeFS.readFileSync(published, "utf8"), NIGHTFALL_THEME_JSON);
       assert.equal(readSettings(baseDir).defaultTheme, "nightfall");
       const residue = NodeFS.readdirSync(NodePath.dirname(published)).filter(
         (entry) => !entry.endsWith(".json"),

@@ -38,6 +38,7 @@ const decodeThemeFileJsonExit = Schema.decodeUnknownExit(
   Schema.fromJsonString(EnvironmentThemeFile),
 );
 const isEnvironmentThemeId = Schema.is(EnvironmentThemeId);
+const THEME_JSON_SUFFIX = /\.json$/i;
 
 export class ThemeSettingsUnreadableError extends Schema.TaggedError<ThemeSettingsUnreadableError>()(
   "ThemeSettingsUnreadableError",
@@ -298,7 +299,7 @@ const publishThemeFile = Effect.fn(function* (input: {
     return yield* new ThemeFileColorlessError({ filePath: input.filePath });
   }
 
-  const fileBasename = path.basename(input.filePath, ".json");
+  const fileBasename = path.basename(input.filePath).replace(THEME_JSON_SUFFIX, "");
   const themeId = Option.getOrElse(input.explicitId, () => fileBasename);
   // Match watcher validation so published files will not be skipped.
   if (!isEnvironmentThemeId(themeId) || UNPUBLISHABLE_THEME_IDS.has(themeId)) {
@@ -422,7 +423,7 @@ const themeSetCommand = Command.make("set", {
 
       // A bare theme id must not publish a same-named file that happens to exist in cwd.
       const looksLikePath =
-        target.endsWith(".json") ||
+        THEME_JSON_SUFFIX.test(target) ||
         target.includes("/") ||
         target.includes("\\") ||
         target.startsWith("~");
