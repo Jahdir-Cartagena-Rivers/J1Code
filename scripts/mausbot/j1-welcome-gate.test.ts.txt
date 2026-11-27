@@ -1,0 +1,36 @@
+// @vitest-environment happy-dom
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { expect, it, vi } from "vitest";
+import { EMPTY_ONBOARDING, LOCAL_VIEWER } from "@/lib/onboarding";
+import { WelcomeGate } from "./WelcomeGate";
+
+const store = vi.hoisted(() => ({ state: { welcomeOpen: false } as Record<string, unknown>, dispatch: vi.fn() }));
+vi.mock("@/state/store", () => ({ api: vi.fn(), useStore: () => store }));
+vi.mock("@/lib/analytics", () => ({ emailGateDone: () => false }));
+vi.mock("./WelcomeFlow", () => ({ WelcomeFlow: () => createElement("div", { role: "dialog" }, "Assistant setup") }));
+
+it("keeps assistant setup out of J1 Home until the user opens it", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  store.state = { config: { onboarding: EMPTY_ONBOARDING }, welcomeOpen: false, bots: [] };
+  const render = (automatic: boolean) => act(async () => {
+    root.render(createElement(WelcomeGate, { viewer: LOCAL_VIEWER, automatic }));
+  });
+  try {
+    await render(false);
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    store.state = { ...store.state, welcomeOpen: true };
+    await render(false);
+    expect(container.querySelector('[role="dialog"]')?.textContent).toBe("Assistant setup");
+    store.state = { ...store.state, welcomeOpen: false };
+    await render(true);
+    expect(container.querySelector('[role="dialog"]')?.textContent).toBe("Assistant setup");
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  }
+});

@@ -994,7 +994,7 @@ ${installPoint}`,
   await change(
     "src/App.tsx",
     "function Shell({ viewer }",
-    'import { J1ShellBridge, useJ1Navigation, j1Post } from "@/components/J1Navigation";\nimport { J1SearchBridge } from "@/components/J1SearchBridge";\nimport { J1SettingsBridge } from "@/components/J1Settings";\nfunction Shell({ viewer }',
+    'import { J1ShellBridge, useJ1Navigation, j1Post, isJ1HostedView } from "@/components/J1Navigation";\nimport { J1SearchBridge } from "@/components/J1SearchBridge";\nimport { J1SettingsBridge } from "@/components/J1Settings";\nfunction Shell({ viewer }',
   );
   await change(
     "src/App.tsx",
@@ -1059,13 +1059,29 @@ ${installPoint}`,
   await change(
     "src/App.tsx",
     "  const viewer = useWelcomeViewer();",
-    '  const viewer = useWelcomeViewer();\n  const j1Navigation = useJ1Navigation();\n  const showWelcome = !j1Navigation || ["/", "/assistants"].includes(j1Navigation.active);',
+    '  const viewer = useWelcomeViewer();\n  const j1Navigation = useJ1Navigation();\n  const showWelcome = !isJ1HostedView() || j1Navigation?.active === "/assistants";',
   );
   await change(
     "src/App.tsx",
     "        <WelcomeGate viewer={viewer} />",
-    "        {showWelcome && <WelcomeGate viewer={viewer} />}",
+    '        {(showWelcome || j1Navigation?.active === "/") && <WelcomeGate viewer={viewer} automatic={showWelcome} />}',
   );
+  await change(
+    "src/components/onboarding/WelcomeGate.tsx",
+    'export function WelcomeGate({ viewer }: { viewer: WelcomeViewer | null }) {',
+    'export function WelcomeGate({ viewer, automatic = true }: { viewer: WelcomeViewer | null; automatic?: boolean }) {',
+  );
+  await change(
+    "src/components/onboarding/WelcomeGate.tsx",
+    '  if (!viewer) return null;',
+    '  if (!viewer || (!automatic && !state.welcomeOpen)) return null;',
+  );
+  await change(
+    "src/components/onboarding/WelcomeGate.tsx",
+    '  const due =\n    !dismissed &&',
+    '  const due =\n    automatic &&\n    !dismissed &&',
+  );
+  await copy("scripts/mausbot/j1-welcome-gate.test.ts.txt", "src/components/onboarding/j1-welcome-gate.test.ts");
   await change(
     "src/App.tsx",
     "        <MausBotWelcome viewer={viewer} />",

@@ -42,6 +42,12 @@ const configuredOrigin =
   typeof location === "undefined"
     ? null
     : new URLSearchParams(location.hash.slice(1)).get("j1-origin");
+export function isJ1HostedView(): boolean {
+  return typeof window !== "undefined" && (
+    (window.parent !== window && configuredOrigin !== null) ||
+    Boolean((window as Window & { ReactNativeWebView?: unknown }).ReactNativeWebView)
+  );
+}
 export function j1Post(value: object) {
   if (parentOrigin) window.parent.postMessage({ ...value, source: "j1-mausbot" }, parentOrigin);
 }

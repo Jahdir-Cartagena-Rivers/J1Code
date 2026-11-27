@@ -93,6 +93,7 @@ export async function stageMausbot(
       "server/j1-shared-project-routes.test.ts",
       "server/j1-engineering.test.ts",
       "src/components/openmaus-import.test.ts",
+      "src/components/onboarding/j1-welcome-gate.test.ts",
       "src/components/GrokMovePopup.test.ts",
     ]);
     await pnpm(["exec", "vite", "build", "--base=./"]);
