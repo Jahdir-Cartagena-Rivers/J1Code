@@ -1,0 +1,55 @@
+name: J1 retained Windows installer rehearsal
+
+on:
+  push:
+    branches: [codex/j1-windows-upgrade-qa]
+    paths: [.github/workflows/j1-windows-retained-rehearsal.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  upgrade:
+    if: github.repository == 'Jahdir-Cartagena-Rivers/J1Code'
+    runs-on: windows-2022
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    env:
+      CANDIDATE_NAME: J1-Code-1.102.0-beta.5-windows-x64-setup.exe
+      CANDIDATE_SHA256: A77B146DF116F63FFE276EA0218BCF8F0474BC69D558D1A461E70404C8CDE85D
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - name: Download retained candidate and published baseline
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = 'qa-private-windows-upgrade-20261127-beta5'
+          $metadata = gh release view $tag --repo $env:GITHUB_REPOSITORY --json isDraft,assets | ConvertFrom-Json
+          if ($LASTEXITCODE -or !$metadata.isDraft -or @($metadata.assets | Where-Object name -eq $env:CANDIDATE_NAME).Count -ne 1) {
+            throw 'The retained installer must be an asset of the unpublished QA draft.'
+          }
+          $inputs = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'j1-retained-upgrade-inputs')
+          gh release download $tag --repo $env:GITHUB_REPOSITORY --pattern $env:CANDIDATE_NAME --dir $inputs.FullName
+          if ($LASTEXITCODE) { throw 'Could not download the retained candidate.' }
+          gh release download v1.101.0 --repo $env:GITHUB_REPOSITORY --pattern 'J1-Code-1.101.0-windows-x64-setup.exe' --pattern 'SHA256SUMS-1.101.0.txt' --dir $inputs.FullName
+          if ($LASTEXITCODE) { throw 'Could not download the published baseline.' }
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: false
+          run-install: false
+      - name: Install locked test dependencies
+        run: vp install --frozen-lockfile --filter=@j1code/desktop... --filter=@j1code/scripts...
+      - name: Rehearse Windows upgrade
+        shell: pwsh
+        run: |
+          $inputs = Join-Path $env:RUNNER_TEMP 'j1-retained-upgrade-inputs'
+          ./.github/scripts/j1-windows-upgrade-qa.ps1 -Candidate (Join-Path $inputs $env:CANDIDATE_NAME) -ExpectedCandidateSha256 $env:CANDIDATE_SHA256 -BaselineDirectory $inputs
