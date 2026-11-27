@@ -18,6 +18,7 @@ import { parseMarkdownDocument } from "../../lib/markdownDocument";
 import { AppText as Text } from "../../components/ui/AppText";
 import { SymbolView, type AppSymbolName } from "../../components/ui/AppSymbol";
 import { byTimestamp, relativeTime } from "../../lib/time";
+import { collapsedTimelineCommentMarkdown } from "./PullRequestTimeline.logic";
 import { PullRequestAvatar } from "./PullRequestPresentation";
 import { PullRequestMarkdown } from "./PullRequestMarkdown";
 import { PullRequestCommentFooter } from "./PullRequestReactions";
@@ -128,7 +129,9 @@ function TimelineComment({
         >
           <View style={long && !expanded ? { maxHeight: 240, overflow: "hidden" } : undefined}>
             <PullRequestMarkdown
-              markdown={long && !expanded ? comment.body.slice(0, 1200) : comment.body}
+              markdown={
+                long && !expanded ? collapsedTimelineCommentMarkdown(comment.body) : comment.body
+              }
               imageGroupMarkdown={comment.body}
             />
           </View>
