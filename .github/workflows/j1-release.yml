@@ -3,6 +3,12 @@ name: J1 Windows release
 on:
   push:
     branches: [j1-code]
+    paths-ignore:
+      - .github/workflows/j1-windows-upgrade-qa.yml
+      - .github/scripts/j1-windows-upgrade-qa.ps1
+      - scripts/smoke-desktop-app.ts
+      - scripts/fixtures/desktop-launch/**
+      - docs/operations/release.md
   workflow_dispatch:
   public:
 

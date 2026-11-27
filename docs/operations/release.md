@@ -63,6 +63,18 @@ the version.
   - nightly releases are aliased to the `nightly` hosted app channel
 - Signing is optional and auto-detected per platform from secrets.
 
+## Windows installer upgrade rehearsal
+
+The **J1 Windows upgrade QA** workflow defaults to rehearsing an existing installer.
+Select `package_candidate` to explicitly build a new installer in a separate job. The
+package job keeps its installer artifact for seven days and records its run ID, artifact
+ID, and SHA-256. The upgrade job checks that SHA-256 before running either installer.
+
+To retry a failed rehearsal, rerun the upgrade job while the installer artifact is available.
+To run the rehearsal again with a different test revision, dispatch the workflow with the
+original run ID, artifact ID, and SHA-256. A push that only changes the rehearsal workflow,
+its test harness, fixture, or these instructions does not trigger Windows release packaging.
+
 ## Pull request macOS previews
 
 Labeling a PR `preview:mac` publishes a signed, notarized Apple Silicon DMG with J1 Connect enabled
