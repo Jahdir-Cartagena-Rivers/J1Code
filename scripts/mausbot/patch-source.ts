@@ -994,7 +994,7 @@ ${installPoint}`,
   await change(
     "src/App.tsx",
     "function Shell({ viewer }",
-    'import { J1ShellBridge, useJ1Navigation, j1Post, isJ1HostedView } from "@/components/J1Navigation";\nimport { J1SearchBridge } from "@/components/J1SearchBridge";\nimport { J1SettingsBridge } from "@/components/J1Settings";\nfunction Shell({ viewer }',
+    'import { J1ShellBridge, useJ1Navigation, j1Post, j1HostedViewKind } from "@/components/J1Navigation";\nimport { J1SearchBridge } from "@/components/J1SearchBridge";\nimport { J1SettingsBridge } from "@/components/J1Settings";\nfunction Shell({ viewer }',
   );
   await change(
     "src/App.tsx",
@@ -1059,7 +1059,7 @@ ${installPoint}`,
   await change(
     "src/App.tsx",
     "  const viewer = useWelcomeViewer();",
-    '  const viewer = useWelcomeViewer();\n  const j1Navigation = useJ1Navigation();\n  const showWelcome = !isJ1HostedView() || j1Navigation?.active === "/assistants";',
+    '  const viewer = useWelcomeViewer();\n  const j1Navigation = useJ1Navigation();\n  const host = j1HostedViewKind();\n  const showWelcome = !host || j1Navigation?.active === "/assistants" || (host === "mobile" && j1Navigation?.active === "/");',
   );
   await change(
     "src/App.tsx",
