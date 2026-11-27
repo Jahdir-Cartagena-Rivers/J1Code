@@ -429,6 +429,11 @@
         color: var(--boot-foreground);
       }
 
+      #boot-shell:not(:has(> #boot-error)) {
+        -webkit-app-region: drag;
+        app-region: drag;
+      }
+
       #boot-shell-card {
         position: relative;
         z-index: 1;
