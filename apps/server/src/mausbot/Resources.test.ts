@@ -66,7 +66,7 @@ async function fixture(extra: Array<[string, string]> = [], corrupt = false) {
   if (corrupt) hashes["server/index.js"] = "0".repeat(64);
   files.push([
     "j1-mausbot-manifest.json",
-    JSON.stringify({ commit: "140172d88382a97e1c3420d55f3df8ba472a9cfe", files: hashes }),
+    JSON.stringify({ commit: "aa64baefae8d94c5b032b4e0745b3d7fb7a07658", files: hashes }),
   ]);
   await NodeFSP.writeFile(NodePath.join(resources, "runtime.zip"), zip(files));
   return { root, resources, cache };

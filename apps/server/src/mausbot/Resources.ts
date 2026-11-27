@@ -7,7 +7,7 @@ import * as NodeStreamPromises from "node:stream/promises";
 import * as Yauzl from "yauzl";
 import * as Schema from "effect/Schema";
 
-const sourcePin = "140172d88382a97e1c3420d55f3df8ba472a9cfe";
+const sourcePin = "aa64baefae8d94c5b032b4e0745b3d7fb7a07658";
 const decodeManifest = Schema.decodeUnknownSync(
   Schema.fromJsonString(
     Schema.Struct({
