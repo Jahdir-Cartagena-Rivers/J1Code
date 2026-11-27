@@ -3,9 +3,16 @@ import type { EnvironmentId, ThreadId } from "@j1code/contracts";
 import { resolveMobileMarkdownMediaSource } from "../../lib/markdownMediaSource";
 import { getBrowseDirectoryPath } from "@j1code/client-runtime/state/projects";
 import { maskMarkdownFrontmatter } from "@j1code/shared/markdownFrontmatter";
-import { useState } from "react";
+import {
+  LARGE_MARKDOWN_CHUNK_MAX_CHARS,
+  splitMarkdown,
+  withMarkdownDefinitions,
+} from "@j1code/shared/markdownChunks";
+import { LegendList } from "@legendapp/list/react-native";
+import { useMemo, useState } from "react";
 import { StackActions, useNavigation } from "@react-navigation/native";
-import { ScrollView, View } from "react-native";
+import { View } from "react-native";
+import { NativeScrollView } from "../../native/NativeScrollViewMarker";
 import { RefreshControl } from "../../components/ui/RefreshControl";
 
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
@@ -34,6 +41,7 @@ import {
   type NativeMarkdownTextStyle,
 } from "../../native/SelectableMarkdownText";
 import { fileRoutePathSegments, resolveWorkspaceFilePath } from "./filePath";
+import { SourceFileSurface } from "./SourceFileSurface";
 
 interface MarkdownPreviewStyles {
   readonly nativeTextStyle: NativeMarkdownTextStyle;
@@ -89,6 +97,10 @@ export function FileMarkdownPreview(props: {
   const [isPullRefreshing, setIsPullRefreshing] = useState(false);
   const [expandedFile, setExpandedFile] = useState<FilePreviewSource | null>(null);
   const [expandedVideo, setExpandedVideo] = useState<VideoPreviewSource | null>(null);
+  const { chunks, definitions } = useMemo(
+    () => splitMarkdown(maskMarkdownFrontmatter(props.markdown)),
+    [props.markdown],
+  );
   const handlePullToRefresh = async () => {
     if (!props.onRefresh) {
       return;
@@ -221,44 +233,74 @@ export function FileMarkdownPreview(props: {
     if (!openMedia(href)) void tryOpenExternalUrl(href, "markdown-link");
   };
 
+  if (
+    chunks.some(({ text }) => text.length + definitions.length > LARGE_MARKDOWN_CHUNK_MAX_CHARS)
+  ) {
+    return (
+      <SourceFileSurface
+        contents={props.markdown}
+        path={props.relativePath}
+        onRefresh={props.onRefresh}
+      />
+    );
+  }
+
   return (
-    <ScrollView
-      className="flex-1 bg-sheet"
-      contentInsetAdjustmentBehavior="automatic"
-      contentContainerStyle={{ padding: 18 }}
-      refreshControl={
-        props.onRefresh ? (
-          <RefreshControl
-            refreshing={isPullRefreshing}
-            onRefresh={() => void handlePullToRefresh()}
-          />
-        ) : undefined
-      }
-    >
-      <View className="mx-auto w-full max-w-[760px]">
-        <SelectableMarkdownText
-          markdown={maskMarkdownFrontmatter(props.markdown)}
-          fileEmbedLabel={(href) =>
-            markdownFileEmbedLabel(
-              href,
-              {
-                environmentId: props.environmentId,
-                threadId: props.threadId ?? undefined,
-                workspaceRoot: markdownDirectory,
-                captured: props.captured,
-              },
-              false,
-            )
-          }
-          onLinkPress={onLinkPress}
-          renderImage={renderImage}
-          resolveImageSource={resolveImageSource}
-          onImagePress={onImagePress}
-          textStyle={styles.nativeTextStyle}
-        />
-        <FilePreviewModal source={expandedFile} onRequestClose={() => setExpandedFile(null)} />
-        <VideoPreviewModal source={expandedVideo} onRequestClose={() => setExpandedVideo(null)} />
-      </View>
-    </ScrollView>
+    <View className="flex-1 bg-sheet">
+      <LegendList
+        renderScrollComponent={NativeScrollView}
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerStyle={{ padding: 18 }}
+        refreshControl={
+          props.onRefresh ? (
+            <RefreshControl
+              refreshing={isPullRefreshing}
+              onRefresh={() => void handlePullToRefresh()}
+            />
+          ) : undefined
+        }
+        data={chunks}
+        keyExtractor={(_chunk, index) => String(index)}
+        estimatedItemSize={
+          styles.nativeTextStyle.lineHeight *
+          Math.max(
+            1,
+            chunks.reduce((lines, chunk) => lines + chunk.lines, 0) / Math.max(1, chunks.length),
+          )
+        }
+        recycleItems={false}
+        ItemSeparatorComponent={MarkdownChunkSeparator}
+        renderItem={({ item }) => (
+          <View className="mx-auto w-full max-w-[760px]">
+            <SelectableMarkdownText
+              markdown={withMarkdownDefinitions(item.text, definitions)}
+              fileEmbedLabel={(href) =>
+                markdownFileEmbedLabel(
+                  href,
+                  {
+                    environmentId: props.environmentId,
+                    threadId: props.threadId ?? undefined,
+                    workspaceRoot: markdownDirectory,
+                    captured: props.captured,
+                  },
+                  false,
+                )
+              }
+              onLinkPress={onLinkPress}
+              renderImage={renderImage}
+              resolveImageSource={resolveImageSource}
+              onImagePress={onImagePress}
+              textStyle={styles.nativeTextStyle}
+            />
+          </View>
+        )}
+      />
+      <FilePreviewModal source={expandedFile} onRequestClose={() => setExpandedFile(null)} />
+      <VideoPreviewModal source={expandedVideo} onRequestClose={() => setExpandedVideo(null)} />
+    </View>
   );
+}
+
+function MarkdownChunkSeparator() {
+  return <View className="h-5" />;
 }

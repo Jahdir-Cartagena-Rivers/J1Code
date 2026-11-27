@@ -51,6 +51,7 @@ import { FilePreviewLoading, FilePreviewNotice } from "./FilePreviewFeedback";
 import { FileMarkdownPreview } from "./FileMarkdownPreview";
 import { FileTreeBrowser } from "./FileTreeBrowser";
 import { useFileTreeEntries } from "./useFileTreeEntries";
+import { MOBILE_FULL_FILE_MAX_BYTES, useFullFileText } from "./useFullFileText";
 import { preloadWorkspaceFileContents } from "./preload-workspace-file";
 import { SourceFileSurface } from "./SourceFileSurface";
 import { ThreadFileNavigatorPane } from "./thread-file-navigator-pane";
@@ -752,9 +753,19 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
       : null,
   );
   const fileData = fileQuery.data as ProjectReadFileResult | null;
+  const [fileRevision, refreshFileRevision] = useState(0);
+  const fullText = useFullFileText({
+    environmentId,
+    threadId,
+    absolutePath:
+      fileData?.truncated && fileData.byteLength <= MOBILE_FULL_FILE_MAX_BYTES ? targetPath : null,
+    revision: `${fileData?.byteLength ?? 0}:${fileRevision}`,
+  });
+  const fileContents = fullText ?? fileData?.contents ?? null;
+  const fileTruncated = fullText === null && fileData?.truncated === true;
   // iOS only: Android lays out a whole-file selectable TextView on the UI thread, which stalls.
   const canSelectText =
-    Platform.OS === "ios" && resolvedActiveMode === "source" && fileData?.contents != null;
+    Platform.OS === "ios" && resolvedActiveMode === "source" && fileContents !== null;
   const selectingText = canSelectText && textSelectionPath === relativePath;
 
   const handleSelectFile = (path: string) => {
@@ -879,13 +890,13 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
                 ),
             } as const,
           ]),
-      fileData?.contents != null
+      fileContents !== null
         ? ({
             id: "copy-contents",
-            title: fileData.truncated ? "Copy preview" : "Copy contents",
+            title: fileTruncated ? "Copy preview" : "Copy contents",
             icon: "doc.on.doc",
             inline: false,
-            onPress: () => copyTextWithHaptic(fileData.contents),
+            onPress: () => copyTextWithHaptic(fileContents),
           } as const)
         : null,
       isPdfFile({ name: relativePath }) && previewUri !== null
@@ -1056,14 +1067,17 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
           videoSource={videoSource}
           mediaSource={mediaSource}
           resolveVideoUri={assetPreview.refresh}
-          fileContents={fileData?.contents ?? null}
+          fileContents={fileContents}
           fileError={fileQuery.error}
           initialLine={targetLine}
           relativePath={relativePath}
           threadId={threadId}
-          truncated={fileData?.truncated ?? false}
+          truncated={fileTruncated}
           selectable={selectingText}
-          onRefresh={() => fileQuery.refresh()}
+          onRefresh={() => {
+            refreshFileRevision((revision) => revision + 1);
+            return fileQuery.refresh();
+          }}
         />
       </ScreenContent>
       <FilePreviewModal
