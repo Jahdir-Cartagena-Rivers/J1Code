@@ -52,6 +52,7 @@ import * as TestClock from "effect/testing/TestClock";
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ProjectStore from "./ProjectStore.ts";
+import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
@@ -319,6 +320,8 @@ function makeHarness(options: HarnessOptions = {}) {
         layerLaunchThreads,
         layerLaunchReceipts,
         layerDatabase,
+        ProjectionStore.layer.pipe(Layer.provide(layerDatabase)),
+        NodeServices.layer,
         layerServerSettings,
         layerAutoRouting ?? Layer.empty,
         IdAllocator.layer,
@@ -2948,6 +2951,60 @@ it.effect("cancels tracked setup before provider work is released", () =>
       assert.equal(harness.recoverWorktreeRegistration.mock.calls[0]?.[0].mode, "cleanup");
       assert.isEmpty(harness.deleteLocalBranch.mock.calls);
       assert.isEmpty(yield* outbox.listByCommandId(CommandId.make(`${input.commandId}:release`)));
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect("preserves a checkout bound to an archived chat when setup is cancelled", () =>
+  Effect.gen(function* () {
+    const entered = yield* Deferred.make<void>();
+    const parentId = ThreadId.make("thread:shared-during-setup");
+    const harness = makeHarness({
+      runSetup: ({ threadId }) => threadId === parentId
+        ? Deferred.succeed(entered, undefined).pipe(Effect.andThen(Effect.never))
+        : Effect.succeed({ status: "no-script" }),
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const parent = yield* launches.launch(launchInput({
+        command: "launch:shared-during-setup",
+        thread: parentId,
+        workspace: { type: "worktree", baseRef: "main", branch: "feature/shared" },
+      }));
+      yield* Deferred.await(entered);
+      const refused = yield* threads.dispatch({
+        type: "thread.fork",
+        commandId: CommandId.make("fork:shared-during-setup"),
+        sourceThreadId: parent.threadId,
+        targetThreadId: ThreadId.make("thread:side-chat-during-setup"),
+        sourcePoint: { type: "latest_stable" },
+        sideChat: true,
+        createdBy: "user",
+        creationSource: "web",
+      }).pipe(Effect.flip);
+      assert.equal(refused._tag, "OrchestratorDispatchError");
+      assert.include(String(refused.cause), "is still preparing its worktree");
+
+      const prepared = yield* threads.getThreadProjection(parent.threadId);
+      const worktreePath = prepared.thread.worktreePath;
+      assert.isNotNull(worktreePath);
+      const sharing = yield* launches.launch(launchInput({
+        command: "launch:existing-shared-checkout",
+        thread: "thread:existing-shared-checkout",
+        workspace: { type: "existing_worktree", worktreePath },
+      }));
+      yield* threads.dispatch({
+        type: "thread.archive",
+        commandId: CommandId.make("archive:existing-shared-checkout"),
+        threadId: sharing.threadId,
+      });
+      assert.isTrue(yield* tracker.cancel(parent.threadId));
+      assert.isFalse(yield* tracker.workspaceIsHeld(parent.threadId));
+      assert.equal(harness.recoverWorktreeRegistration.mock.calls[0]?.[0].mode, "release");
+      assert.equal((yield* threads.getThreadProjection(parent.threadId)).thread.worktreePath, worktreePath);
+      assert.equal((yield* threads.getThreadProjection(sharing.threadId)).thread.worktreePath, worktreePath);
     }).pipe(Effect.provide(harness.layer));
   }),
 );
