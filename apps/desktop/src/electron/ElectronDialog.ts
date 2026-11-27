@@ -109,6 +109,30 @@ function showCloseJ1Dialog(
   owner?: Electron.BrowserWindow,
 ): Promise<Electron.MessageBoxReturnValue> {
   owner ??= Electron.BrowserWindow.getFocusedWindow() ?? undefined;
+  const parent = owner && !owner.isDestroyed() ? owner : undefined;
+  const width = 510;
+  const height = 246;
+  const ownerBounds = parent?.getBounds();
+  const workArea = ownerBounds && Electron.screen.getDisplayMatching(ownerBounds).workArea;
+  const position =
+    ownerBounds && workArea
+      ? {
+          x: Math.max(
+            workArea.x,
+            Math.min(
+              workArea.x + workArea.width - width,
+              Math.round(ownerBounds.x + (ownerBounds.width - width) / 2),
+            ),
+          ),
+          y: Math.max(
+            workArea.y,
+            Math.min(
+              workArea.y + workArea.height - height,
+              Math.round(ownerBounds.y + (ownerBounds.height - height) / 2),
+            ),
+          ),
+        }
+      : {};
   const cancel = { response: 2, checkboxChecked: false };
   const origin = "https://close-j1.invalid";
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -136,13 +160,14 @@ a:hover{background:var(--hover)}a.primary{background:#1864e8;border-color:#1864e
   return new Promise((resolve, reject) => {
     const window = new Electron.BrowserWindow({
       title: "Close J1 Code",
-      width: 510,
-      height: 246,
+      width,
+      height,
+      ...position,
       frame: false,
       show: false,
       resizable: false,
       backgroundColor: Electron.nativeTheme.shouldUseDarkColors ? "#141414" : "#ffffff",
-      ...(owner && !owner.isDestroyed() ? { parent: owner, modal: true } : {}),
+      ...(parent ? { parent, modal: true } : {}),
       webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
     });
     const finish = (choice: Electron.MessageBoxReturnValue) => {
