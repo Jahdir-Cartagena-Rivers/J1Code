@@ -1,11 +1,27 @@
-param([Parameter(Mandatory)][string]$Candidate)
+param(
+  [Parameter(Mandatory)][string]$Candidate,
+  [Parameter(Mandatory)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$ExpectedCandidateSha256,
+  [string]$BaselineDirectory,
+  [switch]$VerifyCandidateOnly
+)
 
 $ErrorActionPreference = 'Stop'
+$candidateFile = Get-Item -LiteralPath $Candidate
+if ($candidateFile.PSIsContainer -or $candidateFile.Extension -ne '.exe') {
+  throw 'The candidate must be a Windows installer executable.'
+}
+$candidateInstaller = $candidateFile.FullName
+$candidateSha256 = (Get-FileHash -LiteralPath $candidateInstaller -Algorithm SHA256).Hash
+if ($candidateSha256 -ne $ExpectedCandidateSha256) {
+  throw 'Candidate installer SHA-256 did not match the build receipt.'
+}
+Write-Host "Verified candidate installer SHA-256: $candidateSha256"
+if ($VerifyCandidateOnly) { return }
+
 if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
   throw 'The installer rehearsal requires a disposable GitHub-hosted Windows runner.'
 }
 
-$candidateInstaller = (Get-Item -LiteralPath $Candidate).FullName
 $qa = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP "j1-upgrade-$env:GITHUB_RUN_ATTEMPT")
 $installDir = Join-Path $env:LOCALAPPDATA 'Programs/j1-upgrade-qa'
 $installedExe = Join-Path $installDir 'J1 Code.exe'
@@ -17,10 +33,13 @@ $env:T3CODE_TELEMETRY_ENABLED = 'false'
 
 $baselineName = 'J1-Code-1.101.0-windows-x64-setup.exe'
 $sumsName = 'SHA256SUMS-1.101.0.txt'
-gh release download v1.101.0 --repo $env:GITHUB_REPOSITORY --pattern $baselineName --pattern $sumsName --dir $qa.FullName
-if ($LASTEXITCODE -ne 0) { throw 'Could not download the published baseline installer.' }
-$baseline = Join-Path $qa.FullName $baselineName
-$checksums = Get-Content -LiteralPath (Join-Path $qa.FullName $sumsName)
+if (!$BaselineDirectory) {
+  $BaselineDirectory = $qa.FullName
+  gh release download v1.101.0 --repo $env:GITHUB_REPOSITORY --pattern $baselineName --pattern $sumsName --dir $BaselineDirectory
+  if ($LASTEXITCODE -ne 0) { throw 'Could not download the published baseline installer.' }
+}
+$baseline = Join-Path $BaselineDirectory $baselineName
+$checksums = Get-Content -LiteralPath (Join-Path $BaselineDirectory $sumsName)
 $expectedLine = $checksums | Where-Object { ($_ -split '\s+', 2)[-1].TrimStart('*') -eq $baselineName }
 if (@($expectedLine).Count -ne 1 -or (Get-FileHash -LiteralPath $baseline -Algorithm SHA256).Hash -ne ($expectedLine -split '\s+')[0]) {
   throw 'Baseline installer SHA-256 did not match the published checksum.'

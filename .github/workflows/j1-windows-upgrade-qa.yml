@@ -1,17 +1,33 @@
 name: J1 Windows upgrade QA
 
 on:
-  push:
-    branches: [codex/j1-windows-upgrade-qa]
+  workflow_dispatch:
+    inputs:
+      package_candidate:
+        description: Build a new installer instead of reusing an existing installer
+        default: false
+        type: boolean
+      candidate_run_id:
+        description: Run ID of a completed installer build
+        type: string
+      candidate_artifact_id:
+        description: Installer artifact ID from that build
+        type: string
+      candidate_sha256:
+        description: Installer SHA-256 from that build
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  upgrade:
-    if: github.repository != 'pingdotgg/t3code'
+  package:
+    if: github.repository != 'pingdotgg/t3code' && inputs.package_candidate
     runs-on: windows-2022
     timeout-minutes: 60
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      sha256: ${{ steps.receipt.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -45,7 +61,78 @@ jobs:
         run: vp install --frozen-lockfile --filter=@j1code/desktop... --filter=@j1code/server... --filter=@j1code/scripts...
       - name: Build unpublished candidate
         run: node scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64 --build-version 1.102.0-beta.6 --output-dir release-qa
+      - name: Record installer SHA-256
+        id: receipt
+        shell: pwsh
+        run: |
+          $installer = 'release-qa/J1-Code-1.102.0-beta.6-windows-x64-setup.exe'
+          $sha = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
+          "sha256=$sha" >> $env:GITHUB_OUTPUT
+          "Candidate SHA-256: $sha" >> $env:GITHUB_STEP_SUMMARY
+      - name: Upload exact candidate installer
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: j1-windows-upgrade-candidate
+          path: release-qa/J1-Code-1.102.0-beta.6-windows-x64-setup.exe
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - name: Record artifact identity
+        shell: pwsh
+        env:
+          CANDIDATE_ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+        run: '"Run ID: $env:GITHUB_RUN_ID, artifact ID: $env:CANDIDATE_ARTIFACT_ID" >> $env:GITHUB_STEP_SUMMARY'
+
+  upgrade:
+    needs: package
+    if: |
+      !cancelled() && github.repository != 'pingdotgg/t3code' &&
+      (needs.package.result == 'success' || !inputs.package_candidate)
+    runs-on: windows-2022
+    timeout-minutes: 60
+    permissions:
+      actions: read
+      contents: read
+    env:
+      CANDIDATE_RUN_ID: ${{ inputs.package_candidate && github.run_id || inputs.candidate_run_id }}
+      CANDIDATE_ARTIFACT_ID: ${{ inputs.package_candidate && needs.package.outputs.artifact_id || inputs.candidate_artifact_id }}
+      CANDIDATE_SHA256: ${{ inputs.package_candidate && needs.package.outputs.sha256 || inputs.candidate_sha256 }}
+    steps:
+      - name: Validate candidate identity
+        shell: pwsh
+        run: |
+          if ($env:CANDIDATE_RUN_ID -notmatch '^[1-9]\d*$' -or
+              $env:CANDIDATE_ARTIFACT_ID -notmatch '^[1-9]\d*$' -or
+              $env:CANDIDATE_SHA256 -notmatch '^[a-fA-F0-9]{64}$') {
+            throw 'The rehearsal requires a run ID, artifact ID, and installer SHA-256.'
+          }
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - name: Download exact candidate installer
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ env.CANDIDATE_ARTIFACT_ID }}
+          run-id: ${{ env.CANDIDATE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/j1-upgrade-candidate
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: false
+          run-install: false
+      - name: Install locked test dependencies
+        run: vp install --frozen-lockfile --filter=@j1code/desktop... --filter=@j1code/scripts...
       - name: Rehearse Windows upgrade
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: ./.github/scripts/j1-windows-upgrade-qa.ps1 -Candidate release-qa/J1-Code-1.102.0-beta.6-windows-x64-setup.exe
+        run: |
+          $candidates = @(Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'j1-upgrade-candidate') -File -Filter '*.exe')
+          if ($candidates.Count -ne 1) { throw 'Expected exactly one installer in the candidate artifact.' }
+          ./.github/scripts/j1-windows-upgrade-qa.ps1 -Candidate $candidates[0].FullName -ExpectedCandidateSha256 $env:CANDIDATE_SHA256
