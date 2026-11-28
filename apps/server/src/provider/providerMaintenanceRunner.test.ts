@@ -8,6 +8,7 @@ import {
 } from "@j1code/contracts";
 import { ServerProviderUpdateError } from "@j1code/contracts";
 import * as Cause from "effect/Cause";
+import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -254,26 +255,28 @@ const makeTestRunner = (
     prepare: () => Effect.die("Unexpected Codex npm recovery"),
   },
 ) =>
-  Effect.service(ProviderMaintenanceRunner.ProviderMaintenanceRunner).pipe(
-    Effect.provide(
-      ProviderMaintenanceRunner.layer.pipe(
-        Layer.provide(
-          Layer.mergeAll(
-            Layer.succeed(ProviderRegistry.ProviderRegistry, registry),
-            Layer.succeed(ModelManifest.ModelManifest, {
-              current: Effect.succeed(manifest),
-              refresh: Effect.succeed(manifest),
-              forceRefresh: Effect.succeed(manifest),
-              refreshOnDemand: Effect.succeed(manifest),
-              refreshInBackground: Effect.void,
-            }),
-            latestVersions,
-            Layer.succeed(CodexUpdateRecovery, recovery),
-            // Layers memoize by reference, so a test that provides the gate shares it.
-            ProviderInstallationGate.layer,
-          ),
+  Layer.build(
+    ProviderMaintenanceRunner.layer.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.succeed(ProviderRegistry.ProviderRegistry, registry),
+          Layer.succeed(ModelManifest.ModelManifest, {
+            current: Effect.succeed(manifest),
+            refresh: Effect.succeed(manifest),
+            forceRefresh: Effect.succeed(manifest),
+            refreshOnDemand: Effect.succeed(manifest),
+            refreshInBackground: Effect.void,
+          }),
+          latestVersions,
+          Layer.succeed(CodexUpdateRecovery, recovery),
+          // Layers memoize by reference, so a test that provides the gate shares it.
+          ProviderInstallationGate.layer,
         ),
       ),
+    ),
+  ).pipe(
+    Effect.map((context) =>
+      Context.get(context, ProviderMaintenanceRunner.ProviderMaintenanceRunner),
     ),
   );
 
@@ -1582,7 +1585,7 @@ it.effect("refuses incompatible latest versions and unapproved or unpinnable tar
   );
 });
 
-for (const scenario of [
+it.effect.each([
   "success",
   "failure",
   "unhealthy",
@@ -1593,121 +1596,125 @@ for (const scenario of [
   "managed",
   "publish-failure",
   "commit-failure",
-] as const) {
-  it.effect(`protects the Windows Codex update transaction (${scenario})`, () =>
-    Effect.gen(function* () {
-      const events: string[] = [];
-      const started = yield* Deferred.make<void>();
-      const { registry, providersRef } = yield* makeRegistry(baseProvider, {
-        installedVersionAfterUpdate: "1.0.0",
-      });
-      const prefix = "C:/owned/npm";
-      const stage = "C:/recovery/staged";
-      const env = { PATH: "C:/fixture", CODEX_HOME: "C:/account/home" };
-      const caps = makeProviderMaintenanceCapabilities({
-        provider: scenario === "wrong-driver" ? OPENCODE_DRIVER : CODEX_DRIVER,
-        packageName: "@openai/codex",
-        updateExecutable: scenario === "managed" ? null : "npm",
-        updateArgs: [
-          "install",
-          "-g",
-          "--prefix",
-          prefix,
-          "--allow-scripts=@openai/codex",
-          "@openai/codex@latest",
-        ],
-        updateLockKey: scenario === "wrong-prefix" ? "npm-global:c:/other" : "npm-global:c:/owned/npm",
-        env,
-      });
-      const recovery: CodexUpdateRecovery["Service"] = {
-        prepare: (command) =>
-          scenario === "backup-failure"
-            ? Effect.fail(new CodexUpdateRecoveryError({ message: "Recovery copy failed" }))
-            : Effect.succeed({
-                command: { ...command, args: command.args.map((arg) => arg === prefix ? stage : arg) },
-                publish: Effect.sync(() => {
-                  events.push("publish");
-                }).pipe(
-                  Effect.andThen(scenario === "publish-failure"
-                    ? Effect.fail(new CodexUpdateRecoveryError({ message: "Publish failed" }))
-                    : Effect.void),
-                ),
-                commit: Effect.sync(() => {
-                  events.push("commit");
-                }).pipe(
-                  Effect.andThen(scenario === "commit-failure"
-                    ? Effect.fail(new CodexUpdateRecoveryError({ message: "Commit failed" }))
-                    : Effect.void),
-                ),
-                close: Effect.sync(() => {
-                  events.push("close");
-                }),
+] as const)("protects the Windows Codex update transaction (%s)", (scenario) =>
+  Effect.gen(function* () {
+    const events: string[] = [];
+    const started = yield* Deferred.make<void>();
+    const { registry, providersRef } = yield* makeRegistry(baseProvider, {
+      installedVersionAfterUpdate: "1.0.0",
+    });
+    const prefix = "C:/owned/npm";
+    const stage = "C:/recovery/staged";
+    const env = { PATH: "C:/fixture", CODEX_HOME: "C:/account/home" };
+    const caps = makeProviderMaintenanceCapabilities({
+      provider: scenario === "wrong-driver" ? OPENCODE_DRIVER : CODEX_DRIVER,
+      packageName: "@openai/codex",
+      updateExecutable: scenario === "managed" ? null : "npm",
+      updateArgs: [
+        "install",
+        "-g",
+        "--prefix",
+        prefix,
+        "--allow-scripts=@openai/codex",
+        "@openai/codex@latest",
+      ],
+      updateLockKey:
+        scenario === "wrong-prefix" ? "npm-global:c:/other" : "npm-global:c:/owned/npm",
+      env,
+    });
+    const recovery: CodexUpdateRecovery["Service"] = {
+      prepare: (command) =>
+        scenario === "backup-failure"
+          ? Effect.fail(new CodexUpdateRecoveryError({ message: "Recovery copy failed" }))
+          : Effect.succeed({
+              command: {
+                ...command,
+                args: command.args.map((arg) => (arg === prefix ? stage : arg)),
+              },
+              publish: Effect.sync(() => {
+                events.push("publish");
               }).pipe(
-                Effect.tap(() =>
-                  Effect.sync(() => {
-                    events.push("backup");
-                  }),
+                Effect.andThen(
+                  scenario === "publish-failure"
+                    ? Effect.fail(new CodexUpdateRecoveryError({ message: "Publish failed" }))
+                    : Effect.void,
                 ),
               ),
-      };
-      const runner = makeTestRunner(
-        { ...registry, getProviderMaintenanceCapabilitiesForInstance: () => Effect.succeed(caps) },
-        undefined,
-        undefined,
-        recovery,
-      );
-      const run = runner.pipe(
-        Effect.flatMap((updater) => updater.updateProvider(CODEX_DRIVER)),
-        Effect.provide(
-          Layer.mergeAll(
-            Layer.succeed(HostProcess.Platform, "win32"),
-            Layer.succeed(SpawnExecutableResolution, (command) =>
-              command === "npm" ? "C:/fake/npm.cmd" : undefined,
+              commit: Effect.sync(() => {
+                events.push("commit");
+              }).pipe(
+                Effect.andThen(
+                  scenario === "commit-failure"
+                    ? Effect.fail(new CodexUpdateRecoveryError({ message: "Commit failed" }))
+                    : Effect.void,
+                ),
+              ),
+              close: Effect.sync(() => {
+                events.push("close");
+              }),
+            }).pipe(
+              Effect.tap(() =>
+                Effect.sync(() => {
+                  events.push("backup");
+                }),
+              ),
             ),
-            layerLatestVersionHttpClient("1.0.0"),
-            layerMockSpawner((command, _args, options) => {
-              assert.include(command, stage);
-              assert.notInclude(command, prefix);
-              assert.deepStrictEqual(options.env, env);
-              events.push("spawn");
-              return {
-                exitCode:
-                  scenario === "cancel"
-                    ? Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never))
-                    : (scenario === "unhealthy"
-                        ? Ref.set(providersRef, [{ ...baseProvider, installed: false }])
-                        : Effect.void
-                      ).pipe(
-                        Effect.as(ChildProcessSpawner.ExitCode(scenario === "failure" ? 1 : 0)),
-                      ),
-              };
-            }),
+    };
+    const runner = makeTestRunner(
+      { ...registry, getProviderMaintenanceCapabilitiesForInstance: () => Effect.succeed(caps) },
+      undefined,
+      undefined,
+      recovery,
+    );
+    const run = runner.pipe(
+      Effect.flatMap((updater) => updater.updateProvider(CODEX_DRIVER)),
+      Effect.provide(
+        Layer.mergeAll(
+          Layer.succeed(HostProcess.Platform, "win32"),
+          Layer.succeed(SpawnExecutableResolution, (command) =>
+            command === "npm" ? "C:/fake/npm.cmd" : undefined,
           ),
+          layerLatestVersionHttpClient("1.0.0"),
+          layerMockSpawner((command, _args, options) => {
+            assert.include(command, stage);
+            assert.notInclude(command, prefix);
+            assert.deepStrictEqual(options.env, env);
+            events.push("spawn");
+            return {
+              exitCode:
+                scenario === "cancel"
+                  ? Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never))
+                  : (scenario === "unhealthy"
+                      ? Ref.set(providersRef, [{ ...baseProvider, installed: false }])
+                      : Effect.void
+                    ).pipe(Effect.as(ChildProcessSpawner.ExitCode(scenario === "failure" ? 1 : 0))),
+            };
+          }),
         ),
+      ),
+    );
+    if (scenario === "managed" || scenario === "wrong-driver") {
+      assert.strictEqual(Exit.isFailure(yield* Effect.exit(run)), true);
+    } else if (scenario === "cancel") {
+      const fiber = yield* Effect.forkChild(run);
+      yield* Deferred.await(started);
+      yield* Fiber.interrupt(fiber);
+    } else {
+      const result = yield* run;
+      assert.strictEqual(
+        result.providers[0]?.updateState?.status,
+        scenario === "success" ? "succeeded" : scenario === "unhealthy" ? "unchanged" : "failed",
       );
-      if (scenario === "managed" || scenario === "wrong-driver") {
-        assert.strictEqual(Exit.isFailure(yield* Effect.exit(run)), true);
-      } else if (scenario === "cancel") {
-        const fiber = yield* Effect.forkChild(run);
-        yield* Deferred.await(started);
-        yield* Fiber.interrupt(fiber);
-      } else {
-        const result = yield* run;
-        assert.strictEqual(
-          result.providers[0]?.updateState?.status,
-          scenario === "success" ? "succeeded" : scenario === "unhealthy" ? "unchanged" : "failed",
-        );
-      }
-      assert.deepStrictEqual(
-        events,
-        ["backup-failure", "wrong-prefix", "wrong-driver", "managed"].includes(scenario)
-          ? []
-          : scenario === "success" || scenario === "commit-failure"
-            ? ["backup", "spawn", "publish", "commit", "close"]
-            : scenario === "unhealthy" || scenario === "publish-failure"
-              ? ["backup", "spawn", "publish", "close"]
-              : ["backup", "spawn", "close"],
-      );
-    }).pipe(Effect.scoped),
-  );
-}
+    }
+    assert.deepStrictEqual(
+      events,
+      ["backup-failure", "wrong-prefix", "wrong-driver", "managed"].includes(scenario)
+        ? []
+        : scenario === "success" || scenario === "commit-failure"
+          ? ["backup", "spawn", "publish", "commit", "close"]
+          : scenario === "unhealthy" || scenario === "publish-failure"
+            ? ["backup", "spawn", "publish", "close"]
+            : ["backup", "spawn", "close"],
+    );
+  }).pipe(Effect.scoped),
+);

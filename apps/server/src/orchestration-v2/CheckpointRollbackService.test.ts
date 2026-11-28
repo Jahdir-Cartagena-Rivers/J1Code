@@ -654,7 +654,6 @@ const seedRollbackHistory = (imported = false) =>
           startedAt: now,
           completedAt: now,
           checkpointId: checkpointId(ordinal),
-          restoreFiles: !imported,
           contextHandoffId: null,
         },
       });
