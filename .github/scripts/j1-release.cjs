@@ -57,46 +57,83 @@ function previousReleaseTag(releases, version) {
 }
 
 function validatePublicText(text) {
-  if (typeof text !== "string" || !text.trim() || text.length > 500 ||
-      /[\r\n\x00-\x1f<>`#\[\]]/u.test(text) ||
-      /(?:[a-z]:[\\/]|\\\\|file:\/\/|\/(?:Users|home|tmp|private|mnt|var|etc|root|Volumes)\/|~[\\/])/iu.test(text) ||
-      /(?:-----BEGIN .*PRIVATE KEY|\b(?:gh[pousr]_|github_pat_|sk-(?:proj-)?)[a-z0-9_-]{12,}|\b(?:api[_ -]?key|password|token|secret)\s*[:=]\s*\S+)/iu.test(text) ||
-      /\b(?:QA|CI|worktrees?|checkpoints?|fixtures?|typechecks?|tests?|testing|internal verification|verification report|acceptance checks?|runtime checks?|source checks?|Engineering Room|Head Admin)\b/iu.test(text) ||
-      /@[a-z0-9_-]+/iu.test(text)) {
-    throw new Error("Release highlights must be public-facing changes without private paths, secrets or internal verification details.");
+  if (
+    typeof text !== "string" ||
+    !text.trim() ||
+    text.length > 500 ||
+    /[\r\n\x00-\x1f<>`#\[\]]/u.test(text) ||
+    /(?:[a-z]:[\\/]|\\\\|file:\/\/|\/(?:Users|home|tmp|private|mnt|var|etc|root|Volumes)\/|~[\\/])/iu.test(
+      text,
+    ) ||
+    /(?:-----BEGIN .*PRIVATE KEY|\b(?:gh[pousr]_|github_pat_|sk-(?:proj-)?)[a-z0-9_-]{12,}|\b(?:api[_ -]?key|password|token|secret)\s*[:=]\s*\S+)/iu.test(
+      text,
+    ) ||
+    /\b(?:QA|CI|worktrees?|checkpoints?|fixtures?|typechecks?|tests?|testing|internal verification|verification report|acceptance checks?|runtime checks?|source checks?|Engineering Room|Head Admin)\b/iu.test(
+      text,
+    ) ||
+    /@[a-z0-9_-]+/iu.test(text)
+  ) {
+    throw new Error(
+      "Release highlights must be public-facing changes without private paths, secrets or internal verification details.",
+    );
   }
   return text.trim();
 }
 
 function readReleaseHighlights(file = path.join(__dirname, "../release-highlights.json")) {
   const value = JSON.parse(fs.readFileSync(file, "utf8"));
-  if (!value || Object.keys(value).some((key) => !["since", "highlights"].includes(key)) ||
-      !(value.since === null || typeof value.since === "string" && /^(?:v\d+\.\d+\.\d+|j1-code-\d+\.\d+\.\d+-j1\.\d+)$/u.test(value.since)) ||
-      !Array.isArray(value.highlights) || value.highlights.length < 1 || value.highlights.length > 20) {
-    throw new Error("Expected curated highlights and their previous published release tag (since).");
+  if (
+    !value ||
+    Object.keys(value).some((key) => !["since", "highlights"].includes(key)) ||
+    !(
+      value.since === null ||
+      (typeof value.since === "string" &&
+        /^(?:v\d+\.\d+\.\d+|j1-code-\d+\.\d+\.\d+-j1\.\d+)$/u.test(value.since))
+    ) ||
+    !Array.isArray(value.highlights) ||
+    value.highlights.length < 1 ||
+    value.highlights.length > 20
+  ) {
+    throw new Error(
+      "Expected curated highlights and their previous published release tag (since).",
+    );
   }
   return { since: value.since, highlights: value.highlights.map(validatePublicText) };
 }
 
 function validateReleaseNotes(body, repository, version) {
-  if (typeof body !== "string" || body.length > 20000) throw new Error("Invalid public release notes.");
+  if (typeof body !== "string" || body.length > 20000)
+    throw new Error("Invalid public release notes.");
   const lines = body.trim().split(/\r?\n/u).filter(Boolean);
   if (lines.shift() !== "## What's Changed") throw new Error("Expected public release highlights.");
   const changelog = lines.pop();
   const target = `https://github.com/${repository}/`;
   const tag = releaseTag(version);
-  if (!(changelog === `**Full Changelog**: ${target}commits/${tag}` ||
-      changelog?.startsWith(`**Full Changelog**: ${target}compare/`) &&
-      /^(?:v\d+\.\d+\.\d+|j1-code-\d+\.\d+\.\d+-j1\.\d+)$/u.test(changelog.slice((`**Full Changelog**: ${target}compare/`).length, -(`...${tag}`).length)) &&
-      changelog.endsWith(`...${tag}`))) throw new Error("Expected the full repository changelog link.");
+  if (
+    !(
+      changelog === `**Full Changelog**: ${target}commits/${tag}` ||
+      (changelog?.startsWith(`**Full Changelog**: ${target}compare/`) &&
+        /^(?:v\d+\.\d+\.\d+|j1-code-\d+\.\d+\.\d+-j1\.\d+)$/u.test(
+          changelog.slice(`**Full Changelog**: ${target}compare/`.length, -`...${tag}`.length),
+        ) &&
+        changelog.endsWith(`...${tag}`))
+    )
+  )
+    throw new Error("Expected the full repository changelog link.");
   if (lines.at(-1)?.startsWith("**Contributors**: ")) {
     const contributors = lines.pop().slice("**Contributors**: ".length).split(", ");
-    if (!contributors.every((entry) => /^@[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?(?:\[bot\])?$/iu.test(entry)))
+    if (
+      !contributors.every((entry) =>
+        /^@[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?(?:\[bot\])?$/iu.test(entry),
+      )
+    )
       throw new Error("Invalid release attribution.");
   }
-  if (!lines.length || lines.length > 20) throw new Error("Expected curated public release highlights.");
+  if (!lines.length || lines.length > 20)
+    throw new Error("Expected curated public release highlights.");
   for (const line of lines) {
-    if (!line.startsWith("* ")) throw new Error("Only public change bullets and attribution belong in release notes.");
+    if (!line.startsWith("* "))
+      throw new Error("Only public change bullets and attribution belong in release notes.");
     validatePublicText(line.slice(2));
   }
   return body;
@@ -108,7 +145,9 @@ function releaseNotes(repository, version, sha, runGh = gh, curated = readReleas
   );
   let previousTag = previousReleaseTag(pages.flat(), version);
   if (curated.since !== (previousTag ?? null))
-    throw new Error("Curated highlights belong to a different previous release; refresh them before publishing.");
+    throw new Error(
+      "Curated highlights belong to a different previous release; refresh them before publishing.",
+    );
   const highlights = curated.highlights.map(validatePublicText);
   const single = () => [
     { commits: [JSON.parse(runGh(["api", `repos/${repository}/commits/${sha}`]))] },
@@ -136,9 +175,19 @@ function releaseNotes(repository, version, sha, runGh = gh, curated = readReleas
     throw new Error("The previous release is not an ancestor of this build.");
   }
   // Commit subjects are unreviewed internal text; only retain public GitHub attribution.
-  const contributors = [...new Set(commits.flatMap((page) => page.commits)
-    .map((entry) => entry.author?.login).filter(Boolean))];
-  if (!contributors.every((login) => /^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?(?:\[bot\])?$/iu.test(login)))
+  const contributors = [
+    ...new Set(
+      commits
+        .flatMap((page) => page.commits)
+        .map((entry) => entry.author?.login)
+        .filter(Boolean),
+    ),
+  ];
+  if (
+    !contributors.every((login) =>
+      /^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?(?:\[bot\])?$/iu.test(login),
+    )
+  )
     throw new Error("Invalid release attribution.");
   const changelog = previousTag
     ? `https://github.com/${repository}/compare/${previousTag}...${releaseTag(version)}`
@@ -207,7 +256,11 @@ function assertPublishable({ headSha, sha, release, tagSha, requiredNames }) {
 function publishRelease(directory, version, env = process.env, runGh = gh, curated) {
   const repository = env.GITHUB_REPOSITORY;
   const sha = env.GITHUB_SHA;
+  const runId = env.J1_RELEASE_BUILD_RUN_ID ?? env.GITHUB_RUN_ID;
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository ?? "")) throw new Error("Invalid GitHub repository.");
+  if (env.J1_RELEASE_BUILD_RUN_ID !== undefined && !/^[1-9]\d*$/.test(runId)) {
+    throw new Error("Invalid staged build run ID.");
+  }
   const tag = releaseTag(version);
   const names = validateArtifacts(directory, version);
   const checksumName = `SHA256SUMS-${version}.txt`;
@@ -223,7 +276,7 @@ function publishRelease(directory, version, env = process.env, runGh = gh, curat
   fs.writeFileSync(path.join(directory, checksumName), `${checksums.join("\n")}\n`);
   fs.writeFileSync(
     path.join(directory, provenanceName),
-    `${JSON.stringify({ version, commit: sha, repository, runId: env.GITHUB_RUN_ID }, null, 2)}\n`,
+    `${JSON.stringify({ version, commit: sha, repository, runId }, null, 2)}\n`,
   );
   const api = (endpoint) => JSON.parse(runGh(["api", `repos/${repository}/${endpoint}`]));
   const headSha = api("git/ref/heads/j1-code").object.sha;

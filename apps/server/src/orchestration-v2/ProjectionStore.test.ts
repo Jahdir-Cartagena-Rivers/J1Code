@@ -2469,7 +2469,10 @@ const backgroundThreadUpdatesKeepTimestamp = Effect.gen(function* () {
   const shells = (yield* store.getShellSnapshot()).threads;
   assert.deepEqual(shells.find(({ id }) => id === botThreadId)?.bot, reference);
   assert.notProperty(yield* store.getThread(threadId), "bot");
-  assert.notProperty(shells.find(({ id }) => id === threadId), "bot");
+  assert.notProperty(
+    shells.find(({ id }) => id === threadId),
+    "bot",
+  );
 
   const saved = yield* store.getThread(botThreadId);
   const renamedAt = DateTime.add(createdAt, { minutes: 1 });
@@ -3148,100 +3151,126 @@ it.effect("SQL shells read a subagent family and a worktree's threads", () =>
   }).pipe(Effect.provide(layerTest)),
 );
 
-it.effect("finds saved V1 worker descendants without following malformed, cyclic, or deleted links", () =>
-  Effect.gen(function* () {
-    const store = yield* ProjectionStore.ProjectionStoreV2;
-    const sql = yield* SqlClient.SqlClient;
-    const now = yield* DateTime.now;
-    const at = DateTime.formatIso(now);
-    const projectId = ProjectId.make("project:saved-worker-lineage");
-    const id = (name: string) => ThreadId.make(`thread:saved-lineage:${name}`);
-    const source = (name: string, deleted = false) => ({
-      id: id(name),
-      projectId,
-      createdBy: "system",
-      creationSource: "server",
-      title: "Worker: title is not lineage",
-      providerInstanceId,
-      modelSelection,
-      runtimeMode: "full-access",
-      interactionMode: "default",
-      branch: null,
-      worktreePath: null,
-      activeProviderThreadId: null,
-      historyOrigin: "v1_import",
-      lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: id(name) },
-      forkedFrom: null,
-      createdAt: now,
-      updatedAt: now,
-      archivedAt: name === "child" ? now : null,
-      settledOverride: null,
-      settledAt: null,
-      lastVisitedAt: null,
-      deletedAt: deleted ? now : null,
-    } as const);
-    yield* sql`INSERT INTO projection_projects (
+it.effect(
+  "finds saved V1 worker descendants without following malformed, cyclic, or deleted links",
+  () =>
+    Effect.gen(function* () {
+      const store = yield* ProjectionStore.ProjectionStoreV2;
+      const sql = yield* SqlClient.SqlClient;
+      const now = yield* DateTime.now;
+      const at = DateTime.formatIso(now);
+      const projectId = ProjectId.make("project:saved-worker-lineage");
+      const id = (name: string) => ThreadId.make(`thread:saved-lineage:${name}`);
+      const source = (name: string, deleted = false) =>
+        ({
+          id: id(name),
+          projectId,
+          createdBy: "system",
+          creationSource: "server",
+          title: "Worker: title is not lineage",
+          providerInstanceId,
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          activeProviderThreadId: null,
+          historyOrigin: "v1_import",
+          lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: id(name) },
+          forkedFrom: null,
+          createdAt: now,
+          updatedAt: now,
+          archivedAt: name === "child" ? now : null,
+          settledOverride: null,
+          settledAt: null,
+          lastVisitedAt: null,
+          deletedAt: deleted ? now : null,
+        }) as const;
+      yield* sql`INSERT INTO projection_projects (
       project_id, title, workspace_root, scripts_json, created_at, updated_at
     ) VALUES (${projectId}, 'Saved workers', '/workers', '[]', ${at}, ${at})`;
-    for (const name of ["root", "child", "grandchild", "unlinked"]) {
-      yield* sql`INSERT INTO projection_threads (
+      for (const name of ["root", "child", "grandchild", "unlinked"]) {
+        yield* sql`INSERT INTO projection_threads (
         thread_id, project_id, title, model_selection_json, runtime_mode,
         interaction_mode, created_at, updated_at
       ) VALUES (${id(name)}, ${projectId}, 'Worker', ${JSON.stringify(modelSelection)},
         'full-access', 'default', ${at}, ${at})`;
-      yield* store.apply({
-        id: EventId.make(`event:saved-lineage:${name}:created`),
-        type: "thread.created",
-        threadId: id(name),
-        occurredAt: now,
-        payload: source(name),
-      });
-    }
+        yield* store.apply({
+          id: EventId.make(`event:saved-lineage:${name}:created`),
+          type: "thread.created",
+          threadId: id(name),
+          occurredAt: now,
+          payload: source(name),
+        });
+      }
 
-    const record = (
-      name: string,
-      ordinal: number,
-      fields: { readonly version: number; readonly threadId: ThreadId; readonly parentThreadId: unknown } | null,
-    ) => {
-      const eventId = `event:saved-lineage:${name}:${ordinal}`;
-      const payload = fields === null ? "invalid-json" : JSON.stringify({
-        threadId: id(name),
-        activity: { id: eventId, kind: "agent.delegation", createdAt: at, payload: fields },
-      });
-      return sql`INSERT INTO orchestration_events (
+      const record = (
+        name: string,
+        ordinal: number,
+        fields: {
+          readonly version: number;
+          readonly threadId: ThreadId;
+          readonly parentThreadId: unknown;
+        } | null,
+      ) => {
+        const eventId = `event:saved-lineage:${name}:${ordinal}`;
+        const payload =
+          fields === null
+            ? "invalid-json"
+            : JSON.stringify({
+                threadId: id(name),
+                activity: { id: eventId, kind: "agent.delegation", createdAt: at, payload: fields },
+              });
+        return sql`INSERT INTO orchestration_events (
         event_id, aggregate_kind, stream_id, stream_version, event_type, occurred_at,
         actor_kind, payload_json, metadata_json, application_event_version
       ) VALUES (${eventId}, 'thread', ${id(name)}, ${ordinal}, 'thread.activity-appended',
         ${at}, 'server', ${payload}, '{}', 1)`;
-    };
-    yield* record("child", 1, { version: 1, threadId: id("child"), parentThreadId: id("root") });
-    yield* record("grandchild", 1, {
-      version: 1, threadId: id("grandchild"), parentThreadId: id("child"),
-    });
-    yield* record("unlinked", 1, null);
-    yield* record("unlinked", 2, { version: 1, threadId: id("unlinked"), parentThreadId: 42 });
-    yield* record("unlinked", 3, { version: 1, threadId: id("unlinked"), parentThreadId: "" });
-    yield* record("unlinked", 4, {
-      version: 1, threadId: id("unlinked"), parentThreadId: id("unlinked"),
-    });
-    yield* record("unlinked", 5, { version: 2, threadId: id("unlinked"), parentThreadId: id("root") });
-    yield* record("unlinked", 6, { version: 1, threadId: id("child"), parentThreadId: id("root") });
+      };
+      yield* record("child", 1, { version: 1, threadId: id("child"), parentThreadId: id("root") });
+      yield* record("grandchild", 1, {
+        version: 1,
+        threadId: id("grandchild"),
+        parentThreadId: id("child"),
+      });
+      yield* record("unlinked", 1, null);
+      yield* record("unlinked", 2, { version: 1, threadId: id("unlinked"), parentThreadId: 42 });
+      yield* record("unlinked", 3, { version: 1, threadId: id("unlinked"), parentThreadId: "" });
+      yield* record("unlinked", 4, {
+        version: 1,
+        threadId: id("unlinked"),
+        parentThreadId: id("unlinked"),
+      });
+      yield* record("unlinked", 5, {
+        version: 2,
+        threadId: id("unlinked"),
+        parentThreadId: id("root"),
+      });
+      yield* record("unlinked", 6, {
+        version: 1,
+        threadId: id("child"),
+        parentThreadId: id("root"),
+      });
 
-    const descendants = () => store.listSavedWorkerDescendants(id("root"));
-    assert.deepEqual(yield* descendants(), [id("child"), id("grandchild")]);
-    assert.deepEqual(yield* store.listSavedWorkerDescendants(id("unlinked")), []);
-    yield* record("root", 1, { version: 1, threadId: id("root"), parentThreadId: id("grandchild") });
-    assert.deepEqual(yield* descendants(), [id("child"), id("grandchild")]);
+      const descendants = () => store.listSavedWorkerDescendants(id("root"));
+      assert.deepEqual(yield* descendants(), [id("child"), id("grandchild")]);
+      assert.deepEqual(yield* store.listSavedWorkerDescendants(id("unlinked")), []);
+      yield* record("root", 1, {
+        version: 1,
+        threadId: id("root"),
+        parentThreadId: id("grandchild"),
+      });
+      assert.deepEqual(yield* descendants(), [id("child"), id("grandchild")]);
 
-    yield* store.apply({
-      id: EventId.make("event:saved-lineage:grandchild:deleted"),
-      type: "thread.deleted",
-      threadId: id("grandchild"),
-      occurredAt: now,
-      payload: source("grandchild", true),
-    });
-    assert.deepEqual(yield* descendants(), [id("child")]);
-  }).pipe(Effect.provide(layerTest)),
+      yield* store.apply({
+        id: EventId.make("event:saved-lineage:grandchild:deleted"),
+        type: "thread.deleted",
+        threadId: id("grandchild"),
+        occurredAt: now,
+        payload: source("grandchild", true),
+      });
+      assert.deepEqual(yield* descendants(), [id("child")]);
+    }).pipe(Effect.provide(layerTest)),
 );
 
 it.effect("SQL list older settled threads below a cursor", () =>
@@ -3802,16 +3831,23 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         // A missing property denotes an ordinary conversation. Explicit null, a non-string
         // ID and an identity without saved instructions are invalid V2 payloads.
         assert.notProperty(yield* store.getThread(threadId), "bot");
-        for (const identity of [null, { id: 42, name: "Saved bot", instructions: "Saved" },
-          { id: "saved-bot", name: "Saved bot" }]) {
+        for (const identity of [
+          null,
+          { id: 42, name: "Saved bot", instructions: "Saved" },
+          { id: "saved-bot", name: "Saved bot" },
+        ]) {
           yield* replaceBot(identity);
           const threadFailure = yield* store.getThread(threadId).pipe(Effect.flip);
           const shellFailure = yield* store.getThreadShell(threadId).pipe(Effect.flip);
           assert.equal(threadFailure._tag, "ProjectionStoreReadError");
           assert.equal(shellFailure._tag, "ProjectionStoreReadError");
         }
-      }).pipe(Effect.ensuring(Effect.orDie(sql`UPDATE orchestration_v2_projection_threads
-        SET payload_json = json_remove(payload_json, '$.bot') WHERE thread_id = ${threadId}`)));
+      }).pipe(
+        Effect.ensuring(
+          Effect.orDie(sql`UPDATE orchestration_v2_projection_threads
+        SET payload_json = json_remove(payload_json, '$.bot') WHERE thread_id = ${threadId}`),
+        ),
+      );
       assert.notProperty(yield* store.getThread(threadId), "bot");
       assert.notProperty(yield* store.getThreadShell(threadId), "bot");
     }),
@@ -4275,6 +4311,52 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         },
       });
 
+      // A tracked repository's scope names the run that first changed it, here one outside the
+      // window, while its newest checkpoint belongs to a run inside it.
+      const repositoryScope = {
+        id: CheckpointScopeId.make("scope:bounded-sql-history:repository"),
+        threadId,
+        runId: RunId.make("run:bounded-sql-history:1"),
+        nodeId: NodeId.make("node:bounded-sql-history:1"),
+        parentScopeId: scopeId,
+        providerThreadId: null,
+        kind: "manual" as const,
+        ordinalWithinParent: 1,
+        advancesAppRunCount: false,
+        cwd: "/repo/worktree/api",
+        label: "api",
+        repositoryPath: "/repo/worktree/api",
+        createdAt: now,
+      };
+      const repositoryCheckpointId = CheckpointId.make("checkpoint:bounded-sql-history:repository");
+      yield* projectionStore.apply({
+        id: EventId.make("event:bounded-sql-history:repository-scope"),
+        type: "checkpoint-scope.created",
+        threadId,
+        occurredAt: now,
+        payload: repositoryScope,
+      });
+      yield* projectionStore.apply({
+        id: EventId.make("event:bounded-sql-history:repository-checkpoint"),
+        type: "checkpoint.captured",
+        threadId,
+        occurredAt: now,
+        payload: {
+          id: repositoryCheckpointId,
+          threadId,
+          scopeId: repositoryScope.id,
+          runId: RunId.make("run:bounded-sql-history:1000"),
+          nodeId: NodeId.make("node:bounded-sql-history:1000"),
+          parentCheckpointId: null,
+          ordinalWithinScope: 1_000,
+          appRunOrdinal: null,
+          ref: CheckpointRef.make("refs/t3/bounded-sql-history/repository/1000"),
+          status: "ready",
+          files: [{ path: "src/main.ts", kind: "modified", additions: 1, deletions: 0 }],
+          capturedAt: now,
+        },
+      });
+
       const snapshots = yield* Effect.all(
         Array.from({ length: 4 }, () =>
           projectionStore.getThreadSnapshotWindow(threadId, { rowLimit: 76 }),
@@ -4293,11 +4375,12 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         );
         assert.deepEqual(
           snapshot.projection.checkpointScopes.map((scope) => scope.id),
-          [scopeId],
+          [scopeId, repositoryScope.id],
         );
+        assert.deepEqual(snapshot.projection.checkpointScopes[1], repositoryScope);
         assert.deepEqual(
           snapshot.projection.checkpoints.map((checkpoint) => checkpoint.id),
-          [baselineId],
+          [repositoryCheckpointId, baselineId],
         );
       }
       const humanWindow = () =>
@@ -7825,6 +7908,19 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         payload: task,
       });
 
+      const output = { value: { verdict: "merge" }, submittedAt: "2026-11-11T00:00:00.000Z" };
+      yield* projectionStore.apply({
+        id: EventId.make("event:projection-delegated-completion:output"),
+        type: "run.output-submitted",
+        threadId,
+        runId,
+        nodeId: rootNodeId,
+        providerInstanceId,
+        occurredAt: now,
+        payload: { runId, output },
+      });
+
+      // Lifecycle writers hold the run as it was when the turn started.
       const { delegatedCompletion: _delegatedCompletion, ...staleRun } = run;
       const { completionDelivery: _completionDelivery, ...staleTask } = task;
       yield* projectionStore.apply({
@@ -7835,7 +7931,13 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         nodeId: rootNodeId,
         providerInstanceId,
         occurredAt: later,
-        payload: { ...staleRun, status: "interrupted", completedAt: later },
+        payload: {
+          ...staleRun,
+          // An earlier submission, read before the latest one landed.
+          output: { value: { verdict: "fix-first" }, submittedAt: "2026-11-10T00:00:00.000Z" },
+          status: "interrupted",
+          completedAt: later,
+        },
       });
       yield* projectionStore.apply({
         id: EventId.make("event:projection-delegated-completion:stale-task"),
@@ -7856,6 +7958,7 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
 
       const projection = yield* projectionStore.getThreadProjection(threadId);
       assert.deepEqual(projection.runs[0]?.delegatedCompletion, run.delegatedCompletion);
+      assert.deepEqual(projection.runs[0]?.output, output);
       assert.deepEqual(projection.subagents[0]?.completionDelivery, task.completionDelivery);
       assert.deepEqual(
         (yield* projectionStore.getThreadRecords(threadId, ["subagents"], {

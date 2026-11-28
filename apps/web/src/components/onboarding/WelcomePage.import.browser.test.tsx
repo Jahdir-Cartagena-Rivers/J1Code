@@ -42,6 +42,7 @@ const state = vi.hoisted(() => ({
   refreshScan: vi.fn(),
   waitForProject: vi.fn(),
   cloud: false,
+  mausbot: false,
   auth: { isLoaded: true, isSignedIn: false, userId: null as string | null },
   linkState: null as unknown,
   linkError: null as string | null,
@@ -99,7 +100,13 @@ vi.mock(import("../../onboarding/firstRun"), async (original) => ({
 vi.mock(import("../../state/environments"), async (original) => ({
   ...(await original()),
   useEnvironments: (() => ({
-    environments: [{ environmentId: "primary", label: "primary" }],
+    environments: [
+      {
+        environmentId: "primary",
+        label: "primary",
+        serverConfig: { environment: { capabilities: { mausbot: state.mausbot } } },
+      },
+    ],
   })) as never,
   usePrimaryEnvironmentId: (() => "primary") as never,
 }));
@@ -357,6 +364,7 @@ function setup() {
   state.refreshScan.mockReset();
   state.waitForProject.mockReset().mockImplementation(waitForRecordedProject);
   state.cloud = false;
+  state.mausbot = false;
   state.auth = { isLoaded: true, isSignedIn: false, userId: null };
   state.linkState = Atom.make<EnvironmentCloudLinkStateResult | null>(null).pipe(Atom.keepAlive);
   state.linkError = null;
@@ -370,6 +378,28 @@ function setup() {
   localStorage.removeItem(welcomeImportSelectionKey(primaryId));
   return now;
 }
+
+it("continues to bot import after importing selected project history", async () => {
+  using _now = setup();
+  state.mausbot = true;
+  appAtomRegistry.set(candidatesAtom(), [candidate("/projects/first")]);
+  await using _screen = await mountWelcome();
+
+  await act(async () => setGrant(primaryId, false));
+  await vi.waitFor(() => expect(pageText()).not.toContain("Continue to bot import"));
+  await act(async () => setGrant(primaryId, true));
+  await vi.waitFor(() => expect(pageText()).toContain("Continue to bot import"));
+  await click("Continue to bot import");
+
+  await vi.waitFor(() =>
+    expect(state.onDone).toHaveBeenCalledWith(
+      expect.objectContaining({ environmentId: primaryId }),
+      "assistants",
+    ),
+  );
+  expect(state.importThreads).toHaveBeenCalledOnce();
+  expect(state.completeOnboarding).toHaveBeenCalledOnce();
+});
 
 it("rechecks after project creation and can retry its history without recreating the project", async () => {
   using _now = setup();

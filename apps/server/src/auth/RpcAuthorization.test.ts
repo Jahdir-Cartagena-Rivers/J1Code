@@ -62,6 +62,29 @@ describe("RPC authorization scopes", () => {
   it("declares exactly one scope for every RPC in the server group", () => {
     expect(new Set(Object.keys(RPC_REQUIRED_SCOPES))).toEqual(new Set(WsRpcGroup.requests.keys()));
   });
+  it("requires filesystem read permission to discover project folders", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.workspaceListFolders)).toBe(
+      AuthFilesystemReadScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.workspaceScanFolders)).toBe(
+      AuthFilesystemReadScope,
+    );
+  });
+  it("uses separate grants for viewing runs, answering questions, and executing workflow definitions", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.workflowsSubscribe)).toBe(
+      AuthOrchestrationReadScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.workflowsAbout)).toBe(AuthOrchestrationReadScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.workflowsAnswer)).toBe(
+      AuthOrchestrationOperateScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.workflowsSaveDefinition)).toBe(
+      AuthTerminalOperateScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.workflowsDeleteDefinition)).toBe(
+      AuthTerminalOperateScope,
+    );
+  });
 
   it("keeps webhook delivery logs, which hold request bodies, behind operate scope", () => {
     for (const method of [
@@ -512,7 +535,6 @@ it.effect("denies manual cleanup before the handler without settings permission"
   }),
 );
 
-
 describe("J1 scope admission", () => {
   const tested = [WS_METHODS.botBrowserPage, WS_METHODS.mausbotApprovalMode] as const;
   const group = WsRpcGroup.omit(
@@ -524,28 +546,44 @@ describe("J1 scope admission", () => {
   it.effect.each([
     { scopes: [AuthOrchestrationReadScope], allowed: "page", missing: AuthAccessWriteScope },
     { scopes: [AuthAccessWriteScope], allowed: "approval", missing: AuthOrchestrationReadScope },
-  ] as const)("keeps browser reads separate from permission changes: $allowed", ({ scopes, allowed, missing }) =>
-    Effect.gen(function* () {
-      const handled: string[] = [];
-      const client = yield* RpcTest.makeClient(group).pipe(
-        Effect.provide(Layer.mergeAll(
-          group.toLayerHandler(WS_METHODS.botBrowserPage, () =>
-            Effect.sync(() => { handled.push("page"); return null; })),
-          group.toLayerHandler(WS_METHODS.mausbotApprovalMode, () =>
-            Effect.sync(() => { handled.push("approval"); return { changed: true }; })),
-          RpcAuthorization.layer(scopes),
-        )),
-      );
-      const page = () => client[WS_METHODS.botBrowserPage]({ threadId: ThreadId.make("thread-1") });
-      const approval = () => client[WS_METHODS.mausbotApprovalMode]({ botId: "bot-1", mode: "full" });
-      const denied = allowed === "page" ? approval().pipe(Effect.flip) : page().pipe(Effect.flip);
-      expect(yield* denied).toMatchObject({
-        _tag: "EnvironmentAuthorizationError", requiredPermission: missing,
-      });
-      expect(handled).toEqual([]);
-      if (allowed === "page") expect(yield* page()).toBeNull();
-      else expect(yield* approval()).toEqual({ changed: true });
-      expect(handled).toEqual([allowed]);
-    }),
+  ] as const)(
+    "keeps browser reads separate from permission changes: $allowed",
+    ({ scopes, allowed, missing }) =>
+      Effect.gen(function* () {
+        const handled: string[] = [];
+        const client = yield* RpcTest.makeClient(group).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              group.toLayerHandler(WS_METHODS.botBrowserPage, () =>
+                Effect.sync(() => {
+                  handled.push("page");
+                  return null;
+                }),
+              ),
+              group.toLayerHandler(WS_METHODS.mausbotApprovalMode, () =>
+                Effect.sync(() => {
+                  handled.push("approval");
+                  return { changed: true };
+                }),
+              ),
+              RpcAuthorization.layer(scopes),
+            ),
+          ),
+        );
+        const page = () =>
+          client[WS_METHODS.botBrowserPage]({ threadId: ThreadId.make("thread-1") });
+        const approval = () =>
+          client[WS_METHODS.mausbotApprovalMode]({ botId: "bot-1", mode: "full" });
+        const denied =
+          allowed === "page" ? approval().pipe(Effect.result) : page().pipe(Effect.result);
+        expect(yield* denied).toMatchObject({
+          _tag: "Failure",
+          failure: { _tag: "EnvironmentAuthorizationError", requiredPermission: missing },
+        });
+        expect(handled).toEqual([]);
+        if (allowed === "page") expect(yield* page()).toBeNull();
+        else expect(yield* approval()).toEqual({ changed: true });
+        expect(handled).toEqual([allowed]);
+      }),
   );
 });

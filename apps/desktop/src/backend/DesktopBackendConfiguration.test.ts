@@ -270,9 +270,15 @@ describe("DesktopBackendConfiguration", () => {
           const configuration = yield* DesktopBackendConfiguration.DesktopBackendConfiguration;
           const config = yield* configuration.resolvePrimary;
           if (version === "1.2.3" && !rotating) {
-            assert.equal(yield* configuration.currentBootstrapToken, existing.bootstrap.desktopBootstrapToken);
+            assert.equal(
+              yield* configuration.currentBootstrapToken,
+              existing.bootstrap.desktopBootstrapToken,
+            );
           } else {
-            assert.notEqual(yield* configuration.currentBootstrapToken, existing.bootstrap.desktopBootstrapToken);
+            assert.notEqual(
+              yield* configuration.currentBootstrapToken,
+              existing.bootstrap.desktopBootstrapToken,
+            );
             assert.isString(config.bootstrap.desktopBootstrapSecret);
           }
           assert.equal(config.bootstrap.port, 4888);
@@ -281,13 +287,17 @@ describe("DesktopBackendConfiguration", () => {
             assert.equal(config.entryPath, existing.entryPath);
             assert.deepEqual(config.bootstrap, existing.bootstrap);
             if (rotating) {
-              assert.equal(yield* configuration.currentBootstrapToken,
-                yield* currentDesktopBootstrapToken("b".repeat(64), yield* Clock.currentTimeMillis).pipe(Effect.provide(NodeCrypto.layerMac)));
+              assert.equal(
+                yield* configuration.currentBootstrapToken,
+                yield* currentDesktopBootstrapToken(
+                  "b".repeat(64),
+                  yield* Clock.currentTimeMillis,
+                ).pipe(Effect.provide(NodeCrypto.layerMac)),
+              );
               const before = yield* configuration.currentBootstrapToken;
               yield* TestClock.adjust("13 hours");
               assert.notEqual(yield* configuration.currentBootstrapToken, before);
             }
-
           } else {
             assert.equal(config.executablePath, process.execPath);
             assert.equal(config.entryPath, environment.backendEntryPath);
@@ -297,16 +307,28 @@ describe("DesktopBackendConfiguration", () => {
             );
             assert.equal(config.bootstrap.host, "0.0.0.0");
             assert.isTrue(config.bootstrap.tailscaleServeEnabled);
-            assert.equal(config.bootstrap.lightpandaExecutablePath,
-              path.join(baseDir, "resources", "lightpanda", "lightpanda.exe"));
-            assert.equal(config.bootstrap.mausbotResourcesPath, path.join(baseDir, "resources", "mausbot"));
+            assert.equal(
+              config.bootstrap.lightpandaExecutablePath,
+              path.join(baseDir, "resources", "lightpanda", "lightpanda.exe"),
+            );
+            assert.equal(
+              config.bootstrap.mausbotResourcesPath,
+              path.join(baseDir, "resources", "mausbot"),
+            );
             assert.equal(config.bootstrap.t3Home, baseDir);
             if (rotating) {
-              if (version === "1.2.3") assert.equal(config.bootstrap.desktopBootstrapSecret, existing.bootstrap.desktopBootstrapSecret);
-              else assert.notEqual(config.bootstrap.desktopBootstrapSecret, existing.bootstrap.desktopBootstrapSecret);
+              if (version === "1.2.3")
+                assert.equal(
+                  config.bootstrap.desktopBootstrapSecret,
+                  existing.bootstrap.desktopBootstrapSecret,
+                );
+              else
+                assert.notEqual(
+                  config.bootstrap.desktopBootstrapSecret,
+                  existing.bootstrap.desktopBootstrapSecret,
+                );
             }
             assert.equal(config.bootstrap.tailscaleServePort, 8443);
-
           }
         }).pipe(
           Effect.provide(
@@ -329,65 +351,73 @@ describe("DesktopBackendConfiguration", () => {
       }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 
-  it.effect.each([true, false])("resolvePrimary rotates its scoped token with shell prepared=%s", (prepared) =>
-    withHarness(
-      Effect.gen(function* () {
-        const environment = yield* DesktopEnvironment.DesktopEnvironment;
-        const configuration = yield* DesktopBackendConfiguration.DesktopBackendConfiguration;
+  it.effect.each([true, false])(
+    "resolvePrimary rotates its scoped token with shell prepared=%s",
+    (prepared) =>
+      withHarness(
+        Effect.gen(function* () {
+          const environment = yield* DesktopEnvironment.DesktopEnvironment;
+          const configuration = yield* DesktopBackendConfiguration.DesktopBackendConfiguration;
 
-        const first = yield* configuration.resolvePrimary;
-        const second = yield* configuration.resolvePrimary;
+          const first = yield* configuration.resolvePrimary;
+          const second = yield* configuration.resolvePrimary;
 
-        assert.equal(first.executablePath, process.execPath);
-        assert.deepEqual(first.args.slice(0, 3), [
-          "--require",
-          environment.compileCachePath,
-          environment.backendEntryPath,
-        ]);
-        assert.equal(first.entryPath, environment.backendEntryPath);
-        assert.equal(first.cwd, environment.backendCwd);
-        assert.equal(first.captureOutput, true);
-        assert.equal(first.env.ELECTRON_RUN_AS_NODE, "1");
-        assert.equal(first.bootstrap.shellEnvironmentPrepared, prepared);
-        assert.equal(first.env.T3CODE_CLI_PATH, environment.path.join(environment.baseDir, "bin", "t3"));
-        assert.equal(first.env.T3CODE_DESKTOP_SHELL_DISCOVERY_PENDING, "1");
-        assert.isUndefined(first.env.T3CODE_PORT);
-        assert.isUndefined(first.env.T3CODE_MODE);
-        assert.isUndefined(first.env.T3CODE_DESKTOP_LAN_HOST);
+          assert.equal(first.executablePath, process.execPath);
+          assert.deepEqual(first.args.slice(0, 3), [
+            "--require",
+            environment.compileCachePath,
+            environment.backendEntryPath,
+          ]);
+          assert.equal(first.entryPath, environment.backendEntryPath);
+          assert.equal(first.cwd, environment.backendCwd);
+          assert.equal(first.captureOutput, true);
+          assert.equal(first.env.ELECTRON_RUN_AS_NODE, "1");
+          assert.equal(first.bootstrap.shellEnvironmentPrepared, prepared);
+          assert.equal(
+            first.env.T3CODE_CLI_PATH,
+            environment.path.join(environment.baseDir, "bin", "t3"),
+          );
+          assert.equal(first.env.T3CODE_DESKTOP_SHELL_DISCOVERY_PENDING, "1");
+          assert.isUndefined(first.env.T3CODE_PORT);
+          assert.isUndefined(first.env.T3CODE_MODE);
+          assert.isUndefined(first.env.T3CODE_DESKTOP_LAN_HOST);
 
-        assert.equal(first.bootstrap.mode, "desktop");
-        assert.equal(first.bootstrap.noBrowser, true);
-        assert.equal(first.bootstrap.port, 4888);
-        assert.equal(first.bootstrap.host, "0.0.0.0");
-        assert.equal(first.bootstrap.t3Home, environment.baseDir);
-        assert.equal(first.bootstrap.tailscaleServeEnabled, true);
-        assert.equal(first.bootstrap.tailscaleServePort, 8443);
-        assert.match(first.bootstrap.desktopBootstrapSecret ?? "", /^[0-9a-f]{64}$/i);
-        assert.equal(
-          second.bootstrap.desktopBootstrapSecret,
-          first.bootstrap.desktopBootstrapSecret,
-        );
-        assert.equal(
-          first.bootstrap.desktopBootstrapToken,
-          yield* currentDesktopBootstrapToken(
-            first.bootstrap.desktopBootstrapSecret ?? "",
-            yield* Clock.currentTimeMillis,
-          ).pipe(Effect.provide(NodeCrypto.layerMac)),
-        );
-        assert.equal(
-          yield* configuration.currentBootstrapToken,
-          first.bootstrap.desktopBootstrapToken,
-        );
-        yield* TestClock.adjust("13 hours");
-        const rotated = yield* configuration.currentBootstrapToken;
-        assert.notEqual(rotated, first.bootstrap.desktopBootstrapToken);
-        assert.equal(rotated,
-          yield* currentDesktopBootstrapToken(first.bootstrap.desktopBootstrapSecret ?? "", yield* Clock.currentTimeMillis)
-            .pipe(Effect.provide(NodeCrypto.layerMac)));
-
-      }),
-      prepared,
-    ),
+          assert.equal(first.bootstrap.mode, "desktop");
+          assert.equal(first.bootstrap.noBrowser, true);
+          assert.equal(first.bootstrap.port, 4888);
+          assert.equal(first.bootstrap.host, "0.0.0.0");
+          assert.equal(first.bootstrap.t3Home, environment.baseDir);
+          assert.equal(first.bootstrap.tailscaleServeEnabled, true);
+          assert.equal(first.bootstrap.tailscaleServePort, 8443);
+          assert.match(first.bootstrap.desktopBootstrapSecret ?? "", /^[0-9a-f]{64}$/i);
+          assert.equal(
+            second.bootstrap.desktopBootstrapSecret,
+            first.bootstrap.desktopBootstrapSecret,
+          );
+          assert.equal(
+            first.bootstrap.desktopBootstrapToken,
+            yield* currentDesktopBootstrapToken(
+              first.bootstrap.desktopBootstrapSecret ?? "",
+              yield* Clock.currentTimeMillis,
+            ).pipe(Effect.provide(NodeCrypto.layerMac)),
+          );
+          assert.equal(
+            yield* configuration.currentBootstrapToken,
+            first.bootstrap.desktopBootstrapToken,
+          );
+          yield* TestClock.adjust("13 hours");
+          const rotated = yield* configuration.currentBootstrapToken;
+          assert.notEqual(rotated, first.bootstrap.desktopBootstrapToken);
+          assert.equal(
+            rotated,
+            yield* currentDesktopBootstrapToken(
+              first.bootstrap.desktopBootstrapSecret ?? "",
+              yield* Clock.currentTimeMillis,
+            ).pipe(Effect.provide(NodeCrypto.layerMac)),
+          );
+        }),
+        prepared,
+      ),
   );
 
   it.effect("resolvePrimary starts from server.asar without materializing the WSL tree", () =>
@@ -856,6 +886,8 @@ describe("DesktopBackendConfiguration", () => {
         assert.include((config.env.WSLENV ?? "").split(":"), "OTEL_SDK_DISABLED");
         assert.equal(config.env.T3CODE_TELEMETRY_ENABLED, "false");
         assert.include((config.env.WSLENV ?? "").split(":"), "T3CODE_TELEMETRY_ENABLED");
+        assert.equal(config.env.DO_NOT_TRACK, "1");
+        assert.include((config.env.WSLENV ?? "").split(":"), "DO_NOT_TRACK");
         assert.equal(config.env.OTEL_RESOURCE_ATTRIBUTES, "deployment.environment.name=staging");
         assert.include((config.env.WSLENV ?? "").split(":"), "OTEL_RESOURCE_ATTRIBUTES");
       }).pipe(
@@ -877,6 +909,7 @@ describe("DesktopBackendConfiguration", () => {
         Effect.provideService(HostProcess.Environment, {
           OTEL_SDK_DISABLED: "true",
           T3CODE_TELEMETRY_ENABLED: "false",
+          DO_NOT_TRACK: "1",
           OTEL_RESOURCE_ATTRIBUTES: "deployment.environment.name=staging",
         }),
       );

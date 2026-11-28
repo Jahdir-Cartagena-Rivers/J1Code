@@ -1,5 +1,12 @@
+// @effect-diagnostics-next-line nodeBuiltinImport:off - Derive persisted occurrence IDs without adding a suspension to admission.
 import * as NodeCrypto from "node:crypto";
-import { CommandId, MessageId, ThreadId, type BotProfile, type BotRoutine } from "@j1code/contracts";
+import {
+  CommandId,
+  MessageId,
+  ThreadId,
+  type BotProfile,
+  type BotRoutine,
+} from "@j1code/contracts";
 import { standaloneBotWorkspace } from "@j1code/shared/bot-workspace";
 import { resolveProjectSettings } from "@j1code/shared/projectSettings";
 import { Effect, Option, Path } from "effect";
@@ -19,17 +26,26 @@ export const makeRoutineAdmission = Effect.gen(function* () {
   const settingsService = yield* ServerSettingsService;
   const config = yield* ServerConfig;
   const path = yield* Path.Path;
-  return Effect.fn("bots.routineAdmission")(function* (bot: BotProfile, routine: BotRoutine, occurrence: number) {
+  return Effect.fn("bots.routineAdmission")(function* (
+    bot: BotProfile,
+    routine: BotRoutine,
+    occurrence: number,
+  ) {
     const settings = yield* settingsService.getSettings;
     const profile = Object.hasOwn(settings.bots, bot.id) ? settings.bots[bot.id] : undefined;
-    if (!profile || profile.id !== bot.id || profile.archived || profile.projectId !== bot.projectId) {
+    if (
+      !profile ||
+      profile.id !== bot.id ||
+      profile.archived ||
+      profile.projectId !== bot.projectId
+    ) {
       return yield* Effect.fail("Bot profile is unavailable.");
     }
 
-    const digest = NodeCrypto.createHash("sha256")
+    const occurrenceKey = NodeCrypto.createHash("sha256")
       .update(`${bot.id.length}:${bot.id}${routine.id.length}:${routine.id}:${occurrence}`)
       .digest("hex");
-    const threadId = ThreadId.make(`bot-routine:${digest}`);
+    const threadId = ThreadId.make(`bot-routine:${occurrenceKey}`);
     const workspace =
       profile.projectId === null
         ? standaloneBotWorkspace(path.join(config.baseDir, "bot-workspaces"), profile.id)
@@ -47,7 +63,8 @@ export const makeRoutineAdmission = Effect.gen(function* () {
       });
       project = Option.getOrUndefined(yield* projects.getShell(projectId));
     }
-    if (!project || project.archivedAt != null) return yield* Effect.fail("Bot project is unavailable.");
+    if (!project || project.archivedAt != null)
+      return yield* Effect.fail("Bot project is unavailable.");
     if (
       workspace &&
       path.resolve(project.workspaceRoot) !== path.resolve(workspace.workspaceRoot)
@@ -63,7 +80,7 @@ export const makeRoutineAdmission = Effect.gen(function* () {
     if (thread === null) {
       yield* orchestrator.dispatch({
         type: "thread.bot.create",
-        commandId: CommandId.make(`bot-routine-thread:${digest}`),
+        commandId: CommandId.make(`bot-routine-thread:${occurrenceKey}`),
         threadId,
         projectId,
         botId: profile.id,
@@ -77,22 +94,29 @@ export const makeRoutineAdmission = Effect.gen(function* () {
       });
       thread = yield* orchestrator.getThreadShell(threadId);
     }
-    if (!thread || thread.projectId !== projectId || thread.bot?.id !== profile.id ||
-        thread.archivedAt != null || thread.deletedAt != null) {
+    if (
+      !thread ||
+      thread.projectId !== projectId ||
+      thread.bot?.id !== profile.id ||
+      thread.archivedAt != null ||
+      thread.deletedAt != null
+    ) {
       return yield* Effect.fail("Bot routine conversation is unavailable.");
     }
 
-    return yield* orchestrator.dispatch({
-      type: "message.dispatch",
-      commandId: CommandId.make(`bot-routine-turn:${digest}`),
-      threadId,
-      messageId: MessageId.make(`bot-routine-message:${digest}`),
-      text: routine.prompt,
-      attachments: [],
-      modelSelection: profile.modelSelection,
-      dispatchMode: { type: "start_immediately" },
-      createdBy: "user",
-      creationSource: "server",
-    }).pipe(Effect.provideService(DispatchModeLimit, modes), Effect.asVoid);
+    return yield* orchestrator
+      .dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make(`bot-routine-turn:${occurrenceKey}`),
+        threadId,
+        messageId: MessageId.make(`bot-routine-message:${occurrenceKey}`),
+        text: routine.prompt,
+        attachments: [],
+        modelSelection: profile.modelSelection,
+        dispatchMode: { type: "start_immediately" },
+        createdBy: "user",
+        creationSource: "server",
+      })
+      .pipe(Effect.provideService(DispatchModeLimit, modes), Effect.asVoid);
   });
 });

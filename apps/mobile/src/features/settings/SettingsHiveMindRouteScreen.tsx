@@ -73,14 +73,13 @@ function HiveMindEnvironment({ environmentId }: { environmentId: EnvironmentId }
     busyRef.current = true;
     setBusy(true);
     setError(undefined);
-    try {
-      await action();
-    } catch (cause) {
-      setError(String(cause));
-    } finally {
-      busyRef.current = false;
-      setBusy(false);
-    }
+    await Promise.resolve()
+      .then(action)
+      .catch((cause: unknown) => setError(String(cause)))
+      .finally(() => {
+        busyRef.current = false;
+        setBusy(false);
+      });
   }
   async function find() {
     const result = await search({

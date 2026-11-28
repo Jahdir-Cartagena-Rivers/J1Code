@@ -36,9 +36,7 @@ it.effect.each([
     yield* runCli(["auth", group, "list", "--base-dir", baseDir, "--json"]);
 
     const [issuedJson, listedJson] = (yield* TestConsole.logLines).slice(-2);
-    // @effect-diagnostics-next-line preferSchemaOverJson:off - Assert CLI output and absence of fields.
     const issued = JSON.parse(String(issuedJson));
-    // @effect-diagnostics-next-line preferSchemaOverJson:off - Assert CLI output and absence of fields.
     const listed = JSON.parse(String(listedJson));
     assert.isString(issued[id]);
     assert.isString(issued[secret]);

@@ -18,6 +18,45 @@ const state = vi.hoisted(() => ({
   configLoaded: true,
 }));
 
+const projectFile = vi.hoisted(() => ({
+  disk: "",
+  cached: "",
+  listeners: new Set<() => void>(),
+}));
+
+vi.mock(import("~/components/files/projectFilesQueryState"), async (importOriginal) => {
+  const actual = await importOriginal();
+  const { useSyncExternalStore } = await import("react");
+  return {
+    ...actual,
+    useProjectFileQuery: ((_environmentId: unknown, _cwd: string, relativePath: string | null) => {
+      const contents = useSyncExternalStore(
+        (listener) => {
+          projectFile.listeners.add(listener);
+          return () => projectFile.listeners.delete(listener);
+        },
+        () => projectFile.cached,
+      );
+      const data =
+        relativePath === "t3.json" && contents !== ""
+          ? { relativePath, contents, byteLength: contents.length, truncated: false }
+          : null;
+      return {
+        data,
+        error: null,
+        isPending: false,
+        readError: null,
+        isNotFile: false,
+        isFile: data !== null,
+        refresh: () => {
+          projectFile.cached = projectFile.disk;
+          for (const listener of projectFile.listeners) listener();
+        },
+      };
+    }) as never,
+  };
+});
+
 vi.mock(import("~/state/entities"), async (importOriginal) => ({
   ...(await importOriginal()),
   useProject: ((ref: unknown) =>
@@ -125,7 +164,13 @@ function setup(input: {
   };
 }
 
-function Panel({ fixture }: { fixture: ReturnType<typeof setup> }) {
+function Panel({
+  fixture,
+  withScripts = false,
+}: {
+  fixture: ReturnType<typeof setup>;
+  withScripts?: boolean;
+}) {
   const noop = () => {};
   const scriptResult = async () => ({ ok: true }) as never;
   return (
@@ -152,7 +197,7 @@ function Panel({ fixture }: { fixture: ReturnType<typeof setup> }) {
         worktreePath={state.folder}
         isServerThread
         activeProjectName={state.workspaceRoot === SCRATCH_ROOT ? "No project" : "plain"}
-        activeProjectScripts={undefined}
+        activeProjectScripts={withScripts ? [] : undefined}
         preferredScriptId={null}
         keybindings={[]}
         availableEditors={[]}
@@ -214,4 +259,26 @@ it("offers no Initialize Git before the server config says where No project live
   await expect
     .element(page.getByRole("button", { name: "Initialize Git" }))
     .not.toBeInTheDocument();
+});
+
+it("shows project actions changed on disk when reopening the action menu", async () => {
+  using fixture = setup({ workspaceRoot: "/work/plain", folder: "/work/plain" });
+  const scriptFile = (port: number) =>
+    JSON.stringify({
+      scripts: [{ name: `Dev ${port}`, command: `npm run dev -- --port ${port}` }],
+    });
+  projectFile.disk = scriptFile(4100);
+  projectFile.cached = projectFile.disk;
+  await using _screen = await render(<Panel fixture={fixture} withScripts />);
+
+  const chooser = page.getByRole("button", { name: "Choose project action" });
+  await chooser.click();
+  await expect.element(page.getByRole("menuitem", { name: /Dev 4100/ })).toBeVisible();
+  await chooser.click();
+  await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
+
+  projectFile.disk = scriptFile(4200);
+  await chooser.click();
+  await expect.element(page.getByRole("menuitem", { name: /Dev 4200/ })).toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: /Dev 4100/ })).not.toBeInTheDocument();
 });

@@ -116,6 +116,15 @@ import UpstreamMigration0094 from "./Migrations/094_TurnItemMessageOrdinalIndex.
 import UpstreamMigration0095 from "./Migrations/095_TurnItemInlineWorkOutput.ts";
 import UpstreamMigration0096 from "./Migrations/096_RepairStaleTitleRegeneration.ts";
 import RequiredWorktreeLaunchJournal from "./Migrations/107_RequiredWorktreeLaunchJournal.ts";
+import ProjectionProjectsTrackedFolders from "./Migrations/108_ProjectionProjectsTrackedFolders.ts";
+import TaskFolders from "./Migrations/109_TaskFolders.ts";
+import Workflows from "./Migrations/110_Workflows.ts";
+import WorkflowSkippedRuns from "./Migrations/111_WorkflowSkippedRuns.ts";
+import WorkflowRunIndexes from "./Migrations/112_WorkflowRunIndexes.ts";
+import WorkflowRunTags from "./Migrations/113_WorkflowRunTags.ts";
+import WorkflowMailSender from "./Migrations/114_WorkflowMailSender.ts";
+import WorkflowPools from "./Migrations/115_WorkflowPools.ts";
+import WorkflowRunSubject from "./Migrations/116_WorkflowRunSubject.ts";
 
 const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -228,6 +237,15 @@ const migrationEntries = [
   [105, "TurnItemInlineWorkOutput", UpstreamMigration0095],
   [106, "RepairStaleTitleRegeneration", UpstreamMigration0096],
   [107, "RequiredWorktreeLaunchJournal", RequiredWorktreeLaunchJournal],
+  [108, "ProjectionProjectsTrackedFolders", ProjectionProjectsTrackedFolders],
+  [109, "TaskFolders", TaskFolders],
+  [110, "Workflows", Workflows],
+  [111, "WorkflowSkippedRuns", WorkflowSkippedRuns],
+  [112, "WorkflowRunIndexes", WorkflowRunIndexes],
+  [113, "WorkflowRunTags", WorkflowRunTags],
+  [114, "WorkflowMailSender", WorkflowMailSender],
+  [115, "WorkflowPools", WorkflowPools],
+  [116, "WorkflowRunSubject", WorkflowRunSubject],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -255,17 +273,13 @@ export const latestMigrationId = Math.max(...migrationEntries.map(([id]) => id))
 type RecordedMigration = { readonly id: number; readonly name: string };
 
 /** Also called by the read-only launcher preflight. All recorded rows must form an exact prefix. */
-export function skippedV2Migrations(
-  recorded: ReadonlyArray<RecordedMigration>,
-): string[] {
+export function skippedV2Migrations(recorded: ReadonlyArray<RecordedMigration>): string[] {
   const names = new Map<number, string>(migrationManifest);
   const recordedNames = new Map(recorded.map(({ id, name }) => [id, name]));
   const latest = Math.max(0, ...recorded.map(({ id }) => id));
   return [
     ...recorded.flatMap(({ id, name }) =>
-      !Number.isInteger(id) || !names.has(id)
-        ? [`${id}_${name} (unknown to this build)`]
-        : [],
+      !Number.isInteger(id) || !names.has(id) ? [`${id}_${name} (unknown to this build)`] : [],
     ),
     ...(recordedNames.size !== recorded.length ? ["duplicate migration IDs"] : []),
     ...migrationManifest.flatMap(([id, name]) => {
@@ -279,7 +293,8 @@ export function skippedV2Migrations(
 
 const loadMigrationHistory = Effect.fn("loadMigrationHistory")(function* () {
   const sql = yield* SqlClient.SqlClient;
-  const tables = yield* sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'`;
+  const tables =
+    yield* sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'`;
   if (tables.length === 0) return [];
   const rows = yield* sql<{ readonly migration_id: number; readonly name: string }>`
     SELECT migration_id, name FROM effect_sql_migrations
@@ -310,10 +325,19 @@ export const validateMigrationHistory = Effect.fn("validateMigrationHistory")(fu
   }
 
   const requiredObjects = [
-    [55, "dot_connections"], [55, "dot_task_requests"],
-    [56, "dot_oauth_setup"], [56, "dot_oauth_requests"], [56, "dot_oauth_codes"], [56, "dot_oauth_tokens"],
-    [58, "dot_chat_messages"], [58, "dot_chat_subscriptions"], [58, "dot_chat_outbox"], [58, "dot_chat_revision"],
-    [60, "durable_routes"], [61, "auto_model_admissions"], [62, "task_owner_bindings"],
+    [55, "dot_connections"],
+    [55, "dot_task_requests"],
+    [56, "dot_oauth_setup"],
+    [56, "dot_oauth_requests"],
+    [56, "dot_oauth_codes"],
+    [56, "dot_oauth_tokens"],
+    [58, "dot_chat_messages"],
+    [58, "dot_chat_subscriptions"],
+    [58, "dot_chat_outbox"],
+    [58, "dot_chat_revision"],
+    [60, "durable_routes"],
+    [61, "auto_model_admissions"],
+    [62, "task_owner_bindings"],
     [64, "bot_routine_runs"],
     [FIRST_V2_MIGRATION_ID, "orchestration_v2_projection_threads"],
     [FIRST_V2_MIGRATION_ID, "orchestration_v2_legacy_imports"],

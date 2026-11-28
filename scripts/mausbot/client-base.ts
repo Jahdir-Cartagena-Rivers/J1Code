@@ -3,6 +3,7 @@ import { prepareNativeHost } from "./j1-native-client";
 const match = /^(?:\/[^?#]*)?\/api\/mausbot\/runtime\/[a-f0-9]{64}(?=\/|$)/.exec(location.pathname);
 if (!match) throw new Error("Open this workspace from J1.");
 const prefix = match[0];
+export const runtimePathname = location.pathname.slice(prefix.length) || "/";
 function localUrl(value: string | URL) {
   const url = new URL(String(value), location.href);
   if (

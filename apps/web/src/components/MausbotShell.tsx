@@ -1,15 +1,6 @@
 import { recoverMausbotView } from "./mausbotViewRecovery";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { resolveAssetUrl } from "../assets/assetUrls";
 import { useEnvironment, useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import { readThreadShell } from "../state/entities";
@@ -18,11 +9,18 @@ import { openMausbot, setMausbotApprovalMode } from "../state/mausbot";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useSidebar } from "./ui/sidebar";
 import { squashAtomCommandFailure } from "@j1code/client-runtime/state/runtime";
-import { EnvironmentId, ThreadId, MausbotApprovalModeInput } from "@j1code/contracts";
+import {
+  EnvironmentId,
+  ThreadId,
+  MausbotApprovalModeInput,
+  MausbotShortcutRequest,
+  mausbotSavedAppLaunchUrl,
+} from "@j1code/contracts";
 import { routeEndpointUrl } from "@j1code/shared/routeEndpointUrl";
 import { callMausbotRouting, isMausbotRoutingMethod } from "@j1code/client-runtime/mausbot-routing";
 import { serverEnvironment } from "../state/server";
 import * as Schema from "effect/Schema";
+import * as Option from "effect/Option";
 import { localMausbotHost } from "./mausbotHost";
 import { registerMausbotSearch } from "./mausbotSearch";
 import { openCommandPalette } from "../commandPaletteBus";
@@ -44,8 +42,13 @@ import { isElectron } from "../env";
 import { WorkspacePageHeader } from "./WorkspacePageHeader";
 import { nativeOverlayClip, type FrameOverlay } from "./MausbotShell.layout";
 import { useThreadRouteRef } from "../hooks/useThreadRouteTarget";
+import { observeResize } from "../lib/observeResize";
+import { toastManager } from "./ui/toast";
 
 const decodeApprovalMode = Schema.decodeUnknownSync(MausbotApprovalModeInput);
+const decodeShortcutRequest = Schema.decodeUnknownOption(MausbotShortcutRequest);
+const viewKeyFromRuntimeUrl = (url: string) =>
+  /\/api\/mausbot\/runtime\/([a-f0-9]{64})\//.exec(new URL(url).pathname)?.[1];
 const settingsLabels = {
   ...SETTINGS_SECTION_LABELS,
   "/settings/diagnostics": "Diagnostics",
@@ -113,14 +116,22 @@ export function MausbotShell({
   const [activeEnvironmentId, setActiveEnvironmentId] = useState<EnvironmentId | null>(null);
   const requestedEnvironment =
     pathname === "/assistants" ? new URLSearchParams(searchStr).get("environmentId") : null;
-  const environmentId = requestedEnvironment
-    ? EnvironmentId.make(requestedEnvironment)
-    : (routeEnvironmentId ?? activeEnvironmentId ?? primaryEnvironmentId);
+  const requestedApp =
+    pathname === "/assistants" ? new URLSearchParams(searchStr).get("savedApp") : null;
+  const savedApp = requestedApp && mausbotSavedAppLaunchUrl(requestedApp) ? requestedApp : null;
+  const environmentId = savedApp
+    ? primaryEnvironmentId
+    : requestedEnvironment
+      ? EnvironmentId.make(requestedEnvironment)
+      : (routeEnvironmentId ?? activeEnvironmentId ?? primaryEnvironmentId);
   const environment = useEnvironment(environmentId);
-  useEffect(() => {
-    if ((requestedEnvironment || routeEnvironmentId) && environment && activeEnvironmentId !== environment.environmentId)
-      setActiveEnvironmentId(environment.environmentId);
-  }, [requestedEnvironment, routeEnvironmentId, environment, activeEnvironmentId]);
+  if (
+    (requestedEnvironment || routeEnvironmentId) &&
+    environment &&
+    activeEnvironmentId !== environment.environmentId
+  ) {
+    setActiveEnvironmentId(environment.environmentId);
+  }
   const connection = usePreparedConnection(environmentId);
   const base = connection._tag === "Some" ? connection.value.httpBaseUrl : null;
   const enabled = environment?.serverConfig?.environment.capabilities.mausbot === true;
@@ -132,10 +143,7 @@ export function MausbotShell({
   const routingConfirm = useAtomCommand(serverEnvironment.routingConfirm, { reportFailure: false });
   const serverOs = environment?.serverConfig?.environment.platform?.os;
   const serverPlatform = serverOs === "windows" ? "win32" : serverOs;
-  const nativeHost = useMemo(
-    () => localMausbotHost(window.desktopBridge, base, serverPlatform),
-    [base, serverPlatform],
-  );
+  const nativeHost = localMausbotHost(window.desktopBridge, base, serverPlatform);
   const capture = useRef<Promise<string | null> | null>(null);
   const navigate = useNavigate();
   const navigateToMainApp = useNavigateToMainApp();
@@ -157,17 +165,44 @@ export function MausbotShell({
   const handshake = useRef<number | null>(null);
   const [view, setView] = useState<{ key: string; url: string } | null>(null);
   const [bounds, setBounds] = useState<ShellBounds | null>(null);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const key = environmentId && base ? `${environmentId}:${base}` : "";
+  const startupKey = `${key}:${attempt}`;
+  const [finishedStartup, setFinishedStartup] = useState("");
+  const [errorState, setErrorState] = useState<{ key: string; message: string } | null>(null);
+  const error = errorState?.key === startupKey ? errorState.message : "";
+  const setError = (message: string) =>
+    setErrorState(message ? { key: startupKey, message } : null);
+  const busy = enabled && connected && finishedStartup !== startupKey;
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Dispose the iframe handshake timer on unmount.
   useEffect(
     () => () => {
       if (handshake.current !== null) window.clearTimeout(handshake.current);
     },
     [],
   );
-  const key = environmentId && base ? `${environmentId}:${base}` : "";
   const current = view?.key === key ? view : null;
+  const savedAppWindows = nativeHost?.savedAppWindows === true;
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Open a Windows shortcut after its authenticated local runtime is ready.
+  useEffect(() => {
+    const bridge = window.desktopBridge;
+    if (!savedApp || !savedAppWindows || !bridge?.openMausbotSavedApp || !current) return;
+    const viewKey = viewKeyFromRuntimeUrl(current.url);
+    if (viewKey === undefined) return;
+    let active = true;
+    void bridge
+      .openMausbotSavedApp({ appId: savedApp, viewKey })
+      .catch(() => false)
+      .then((opened) => {
+        if (!active) return;
+        if (!opened)
+          toastManager.add({ type: "error", title: "The saved app could not be opened" });
+        void navigate({ to: "/assistants", search: {}, replace: true });
+      });
+    return () => {
+      active = false;
+    };
+  }, [current, navigate, savedApp, savedAppWindows]);
   const ready = enabled && current !== null && bounds !== null;
   const initializing = !error && (!environment?.serverConfig || (enabled && !ready));
   const settingsPortal = useMausbotSettingsPortal(frame, ready && frameAccess);
@@ -183,6 +218,7 @@ export function MausbotShell({
     "[data-j1-footer-slot]",
     "footer",
   );
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Keep native workspace controls aligned with the measured iframe.
   useEffect(() => {
     if (!ready) return;
     const root = document.documentElement;
@@ -193,11 +229,10 @@ export function MausbotShell({
         `${(shell.current?.getBoundingClientRect().top ?? 0) + (bounds?.main?.top ?? bounds?.top ?? 0)}px`,
       );
     measure();
-    const observer = new ResizeObserver(measure);
-    if (shell.current) observer.observe(shell.current);
+    const stopObserving = shell.current ? observeResize(shell.current, measure) : undefined;
     window.addEventListener("resize", measure);
     return () => {
-      observer.disconnect();
+      stopObserving?.();
       window.removeEventListener("resize", measure);
       if (previous) root.style.setProperty("--workspace-controls-top", previous);
       else root.style.removeProperty("--workspace-controls-top");
@@ -208,6 +243,7 @@ export function MausbotShell({
   );
   const projectsMounted = Boolean(ready && bounds?.projects && sidebarOpen);
   const footerMounted = Boolean(ready && bounds?.footer && sidebarOpen);
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Send measured host portal dimensions to the embedded runtime.
   useEffect(() => {
     if (!projectsMounted && !footerMounted && !settingsOverlay) return;
     const measure = () => {
@@ -233,34 +269,31 @@ export function MausbotShell({
           : next,
       );
     };
-    const observer = new ResizeObserver(measure);
-    if (projectContent.current) observer.observe(projectContent.current);
-    if (footerContent.current) observer.observe(footerContent.current);
-    if (settingsOverlay && settingsContent.current) observer.observe(settingsContent.current);
+    const elements = [
+      projectContent.current,
+      footerContent.current,
+      settingsOverlay ? settingsContent.current : null,
+    ].filter((element): element is HTMLDivElement => element !== null);
     measure();
-    return () => observer.disconnect();
+    return observeResize(elements, measure);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Moving a portal changes the underlying observed node.
   }, [projectsMounted, footerMounted, settingsOverlay, projectPortal, footerPortal]);
-  const scrollSettings = useCallback(
-    (delta: number) => {
-      if (current)
-        frame.current?.contentWindow?.postMessage(
-          { source: "j1-host", type: "settings-scroll", delta },
-          new URL(current.url).origin,
-        );
-    },
-    [current],
-  );
-  useMausbotFrameScroll(settingsContent, settingsOverlay, scrollSettings);
-  const scrollNavigation = useCallback(
-    (delta: number) => {
-      if (!current) return;
+  const scrollSettings = (delta: number) => {
+    if (current)
       frame.current?.contentWindow?.postMessage(
-        { source: "j1-host", type: "sidebar-scroll", delta },
+        { source: "j1-host", type: "settings-scroll", delta },
         new URL(current.url).origin,
       );
-    },
-    [current],
-  );
+  };
+  useMausbotFrameScroll(settingsContent, settingsOverlay, scrollSettings);
+  const scrollNavigation = (delta: number) => {
+    if (!current) return;
+    frame.current?.contentWindow?.postMessage(
+      { source: "j1-host", type: "sidebar-scroll", delta },
+      new URL(current.url).origin,
+    );
+  };
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Forward external wheel and touch input to the iframe scrollbar.
   useEffect(() => {
     const contents = [projectContent.current].filter(
       (node): node is HTMLDivElement => node !== null,
@@ -307,38 +340,40 @@ export function MausbotShell({
       { resolve: (value: unknown) => void; reject: (error: Error) => void; finish: () => void }
     >(),
   );
-  const searchCall = useCallback(
-    (method: "search" | "land", input: string, signal?: AbortSignal): Promise<unknown> => {
-      if (!current || !frame.current?.contentWindow || signal?.aborted)
-        return Promise.reject(new Error("The bot environment is not connected."));
-      if (searches.current.size >= 16)
-        return Promise.reject(new Error("Too many search requests are open."));
-      const requestId = randomUUID();
-      const target = frame.current.contentWindow;
-      return new Promise((resolve, reject) => {
-        const finish = () => {
-          window.clearTimeout(timer);
-          signal?.removeEventListener("abort", abort);
-          searches.current.delete(requestId);
-        };
-        const abort = () => {
-          finish();
-          reject(new Error("Search cancelled."));
-        };
-        const timer = window.setTimeout(() => {
-          finish();
-          reject(new Error("Bot search timed out."));
-        }, 10_000);
-        searches.current.set(requestId, { resolve, reject, finish });
-        signal?.addEventListener("abort", abort, { once: true });
-        target.postMessage(
-          { source: "j1-host", type: "search-call", requestId, method, input },
-          new URL(current.url).origin,
-        );
-      });
-    },
-    [current],
-  );
+  const searchCall = (
+    method: "search" | "land",
+    input: string,
+    signal?: AbortSignal,
+  ): Promise<unknown> => {
+    if (!current || !frame.current?.contentWindow || signal?.aborted)
+      return Promise.reject(new Error("The bot environment is not connected."));
+    if (searches.current.size >= 16)
+      return Promise.reject(new Error("Too many search requests are open."));
+    const requestId = randomUUID();
+    const target = frame.current.contentWindow;
+    return new Promise((resolve, reject) => {
+      const finish = () => {
+        window.clearTimeout(timer);
+        signal?.removeEventListener("abort", abort);
+        searches.current.delete(requestId);
+      };
+      const abort = () => {
+        finish();
+        reject(new Error("Search cancelled."));
+      };
+      const timer = window.setTimeout(() => {
+        finish();
+        reject(new Error("Bot search timed out."));
+      }, 10_000);
+      searches.current.set(requestId, { resolve, reject, finish });
+      signal?.addEventListener("abort", abort, { once: true });
+      target.postMessage(
+        { source: "j1-host", type: "search-call", requestId, method, input },
+        new URL(current.url).origin,
+      );
+    });
+  };
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Resolve pending searches from the iframe message transport.
   useEffect(() => {
     if (!current) return;
     const pending = searches.current;
@@ -367,6 +402,7 @@ export function MausbotShell({
       }
     };
   }, [current]);
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Register the mounted iframe as a command palette search source.
   useEffect(() => {
     if (!ready || !connected) return;
     return registerMausbotSearch({
@@ -380,6 +416,7 @@ export function MausbotShell({
   const [providerCatalog, setProviderCatalog] = useState<
     { id: string; label: string; selected?: boolean }[]
   >([]);
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Subscribe to the provider catalog published by the embedded composer.
   useEffect(() => {
     const receive = (event: Event) => {
       const value: unknown = (event as CustomEvent).detail;
@@ -393,7 +430,7 @@ export function MausbotShell({
     window.addEventListener("j1-provider-catalog", receive);
     return () => window.removeEventListener("j1-provider-catalog", receive);
   }, []);
-  const post = useCallback(() => {
+  const post = () => {
     if (!current || !frame.current?.contentWindow) return;
     const root = document.documentElement;
     const colors = getComputedStyle(root);
@@ -442,34 +479,20 @@ export function MausbotShell({
       },
       new URL(current.url).origin,
     );
-  }, [
-    current,
-    pathname,
-    searchStr,
-    sidebarOpen,
-    openMobile,
-    nativeHost,
-    slotHeights,
-    chatWidth,
-    frameAccess,
-    environments,
-    environmentId,
-    primaryEnvironmentId,
-    providerCatalog,
-  ]);
+  };
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Report external theme changes to the iframe.
   useEffect(() => {
     const observer = new MutationObserver(post);
     observer.observe(document.documentElement, { attributes: true });
     return () => observer.disconnect();
   }, [post]);
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Own the authenticated runtime lease for the selected environment.
   useEffect(() => {
     if (!enabled || !connected || !environmentId || !base) return;
     let live = true;
-    setBusy(true);
-    setError("");
     void open({ environmentId, input: { frameOrigin: window.location.origin } }).then((result) => {
       if (!live) return;
-      setBusy(false);
+      setFinishedStartup(startupKey);
       if (result._tag !== "Success") {
         const failure = squashAtomCommandFailure(result);
         setError(
@@ -484,19 +507,22 @@ export function MausbotShell({
       }
       const url = new URL(resolved);
       url.hash = new URLSearchParams({ "j1-origin": location.origin }).toString();
+      setError("");
       setBounds(null);
       setView({ key, url: url.href });
     });
     return () => {
       live = false;
     };
-  }, [enabled, connected, environmentId, base, key, open, attempt]);
+  }, [enabled, connected, environmentId, base, key, open, startupKey, setError]);
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Synchronize J1 navigation and theme with the embedded workspace.
   useEffect(() => {
     post();
   }, [post]);
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Keep the iframe's server-side session alive across idle and network recovery.
   useEffect(() => {
     if (!current || !environmentId || !connected || !base) return;
-    const viewKey = /\/runtime\/([a-f0-9]{64})\//.exec(new URL(current.url).pathname)?.[1];
+    const viewKey = viewKeyFromRuntimeUrl(current.url);
     if (!viewKey) return;
     let live = true;
     let pending = false;
@@ -536,7 +562,8 @@ export function MausbotShell({
       window.removeEventListener("online", resume);
       document.removeEventListener("visibilitychange", resume);
     };
-  }, [current, environmentId, connected, open, base]);
+  }, [current, environmentId, connected, base]);
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Receive authenticated messages from the embedded J1 runtime.
   useEffect(() => {
     if (!current) return;
     let live = true;
@@ -582,6 +609,22 @@ export function MausbotShell({
       const bridge = window.desktopBridge;
       if (!nativeHost || !bridge || !environmentId)
         throw new Error("This action is available only in the local J1 desktop.");
+      if (method === "openSavedAppWindow") {
+        const viewKey = viewKeyFromRuntimeUrl(current.url);
+        if (!viewKey || typeof input.appId !== "string" || !mausbotSavedAppLaunchUrl(input.appId))
+          return false;
+        return (await bridge.openMausbotSavedApp?.({ appId: input.appId, viewKey })) ?? false;
+      }
+      if (method === "savedAppShortcut") {
+        const request = decodeShortcutRequest(input);
+        if (
+          Option.isNone(request) ||
+          !nativeHost.savedAppShortcuts ||
+          !bridge.manageMausbotShortcuts
+        )
+          throw new Error("Saved-app shortcuts are unavailable.");
+        return bridge.manageMausbotShortcuts(request.value);
+      }
       if (method === "screenFrame") {
         if (!bridge.captureMausbotScreenFrame) return null;
         capture.current ??= bridge.captureMausbotScreenFrame().finally(() => {
@@ -765,21 +808,19 @@ export function MausbotShell({
     environments,
     toggleSidebar,
     providerCatalog,
+    setError,
   ]);
   const settingsHosted =
     ready && pathname.startsWith("/settings/") && (settingsPortal !== null || settingsOverlay);
-  const workspace = useMemo(
-    () => ({
-      error:
-        requestedEnvironment && !environment
-          ? "This environment is unavailable. Reconnect it in Settings."
-          : error,
-      busy,
-      retry: () => setAttempt((value) => value + 1),
-      settingsHosted,
-    }),
-    [error, busy, settingsHosted, requestedEnvironment, environment],
-  );
+  const workspace = {
+    error:
+      requestedEnvironment && !environment
+        ? "This environment is unavailable. Reconnect it in Settings."
+        : error,
+    busy,
+    retry: () => setAttempt((value) => value + 1),
+    settingsHosted,
+  };
   const native = pathname === "/assistants" || pathname === "/";
   return (
     <WorkspaceState value={workspace}>

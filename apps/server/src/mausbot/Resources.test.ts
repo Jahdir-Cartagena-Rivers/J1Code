@@ -6,6 +6,7 @@ import * as NodePath from "node:path";
 import * as NodeZlib from "node:zlib";
 import { describe, expect, it } from "vite-plus/test";
 import { resolveMausbotResources } from "./Resources.ts";
+import { MAUSBOT_SOURCE } from "./SourcePin.ts";
 
 /** Stored ZIP entries let rejection fixtures contain paths normal archivers refuse to create. */
 function zip(files: Array<[string, string]>) {
@@ -45,7 +46,11 @@ function zip(files: Array<[string, string]>) {
   end.writeUInt32LE(offset, 16);
   return Buffer.concat([...local, directory, end]);
 }
-async function fixture(extra: Array<[string, string]> = [], corrupt = false) {
+async function fixture(
+  extra: Array<[string, string]> = [],
+  corrupt = false,
+  commit: string = MAUSBOT_SOURCE,
+) {
   const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "j1-mausbot-zip-test-"));
   const resources = NodePath.join(root, "resources"),
     cache = NodePath.join(root, "cache");
@@ -64,10 +69,7 @@ async function fixture(extra: Array<[string, string]> = [], corrupt = false) {
     ]),
   );
   if (corrupt) hashes["server/index.js"] = "0".repeat(64);
-  files.push([
-    "j1-mausbot-manifest.json",
-    JSON.stringify({ commit: "aa64baefae8d94c5b032b4e0745b3d7fb7a07658", files: hashes }),
-  ]);
+  files.push(["j1-mausbot-manifest.json", JSON.stringify({ commit, files: hashes })]);
   await NodeFSP.writeFile(NodePath.join(resources, "runtime.zip"), zip(files));
   return { root, resources, cache };
 }
@@ -136,6 +138,29 @@ describe("bundled assistant resources", () => {
       expect(await NodeFSP.readdir(cache)).toEqual([]);
     } finally {
       await NodeFSP.rm(root, { recursive: true, force: true });
+    }
+  });
+  it("rechecks a warm cache against the current source pin", async () => {
+    const previousPin = "aa64baefae8d94c5b032b4e0745b3d7fb7a07658";
+    const { root, resources, cache } = await fixture([], false, previousPin);
+    try {
+      const digest = NodeCrypto.createHash("sha256")
+        .update(await NodeFSP.readFile(NodePath.join(resources, "runtime.zip")))
+        .digest("hex");
+      const target = NodePath.join(cache, digest);
+      await NodeFSP.mkdir(target, { recursive: true });
+      await NodeFSP.writeFile(NodePath.join(target, ".complete"), digest);
+      await NodeFSP.writeFile(
+        NodePath.join(target, "j1-mausbot-manifest.json"),
+        JSON.stringify({ commit: previousPin, files: {} }),
+      );
+      await expect(resolveMausbotResources(resources, cache)).rejects.toThrow();
+      expect(await NodeFSP.readFile(NodePath.join(target, ".complete"), "utf8")).toBe(digest);
+    } finally {
+      const fixtureRoot = await NodeFSP.realpath(root);
+      expect(NodePath.dirname(fixtureRoot)).toBe(await NodeFSP.realpath(NodeOS.tmpdir()));
+      expect(NodePath.basename(fixtureRoot)).toMatch(/^j1-mausbot-zip-test-/);
+      await NodeFSP.rm(fixtureRoot, { recursive: true });
     }
   });
 });

@@ -456,7 +456,7 @@ function withCaptureTimeout<A>(promise: Promise<A>, millis: number): Promise<A |
 const HTML_PREVIEW_MAX_CHARS = 500;
 
 /** Preserve the tag, HTML, and crop rect when React context lookup fails or stalls. */
-async function captureElement(element: Element): Promise<PickedElementPayload> {
+export async function captureElement(element: Element): Promise<PickedElementPayload> {
   const base = {
     pageUrl: location.href,
     pageTitle: document.title?.trim() || null,
@@ -481,10 +481,14 @@ async function captureElement(element: Element): Promise<PickedElementPayload> {
       };
     }
   } catch {}
+  const html = element.outerHTML;
+  const before = html.charCodeAt(HTML_PREVIEW_MAX_CHARS - 1);
+  const after = html.charCodeAt(HTML_PREVIEW_MAX_CHARS);
+  const splitsPair = before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff;
   return {
     ...base,
     selector: null,
-    htmlPreview: element.outerHTML.slice(0, HTML_PREVIEW_MAX_CHARS),
+    htmlPreview: html.slice(0, splitsPair ? HTML_PREVIEW_MAX_CHARS - 1 : HTML_PREVIEW_MAX_CHARS),
     componentName: null,
     source: null,
     stack: [],

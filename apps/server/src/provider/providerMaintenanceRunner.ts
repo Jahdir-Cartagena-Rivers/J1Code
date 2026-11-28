@@ -23,6 +23,7 @@ import * as Stream from "effect/Stream";
 import { HttpClient } from "effect/http";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+// @effect-diagnostics-next-line nodeBuiltinImport:off - Verification needs Win32 path rules on every host.
 import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
 
@@ -532,7 +533,11 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
               provider,
               { fresh: true },
             );
-            if (fresh.provider !== provider || !fresh.update || fresh.update.lockKey !== update.lockKey) {
+            if (
+              fresh.provider !== provider ||
+              !fresh.update ||
+              fresh.update.lockKey !== update.lockKey
+            ) {
               return yield* finish(
                 makeUpdateState({
                   status: "failed",
@@ -632,100 +637,103 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
               setRunningMessage(`Running ${describeCommand(command)}`).pipe(
                 Effect.andThen(runMaintenanceCommand(action, setRunningMessage)),
               );
-            const verify = Effect.fn("ProviderMaintenanceRunner.verifyUpdate")(
-              function* (
-                result: ProviderMaintenanceCommandResult,
-                transaction?: CodexUpdateTransaction,
-              ) {
-                const finishedAt = yield* nowIso;
-                if (result.timedOut || result.exitCode !== 0) {
-                  yield* Effect.logWarning("Provider update command failed", {
-                    provider,
-                    command: describeCommand(command),
-                    exitCode: result.exitCode,
-                    timedOut: result.timedOut,
-                    output: commandOutput(result),
-                  });
-                  return makeUpdateState({
-                    status: "failed",
-                    startedAt,
-                    finishedAt,
-                    message: failureMessage(result),
-                    output: commandOutput(result),
-                  });
-                }
+            const verify = Effect.fn("ProviderMaintenanceRunner.verifyUpdate")(function* (
+              result: ProviderMaintenanceCommandResult,
+              transaction?: CodexUpdateTransaction,
+            ) {
+              const finishedAt = yield* nowIso;
+              if (result.timedOut || result.exitCode !== 0) {
+                yield* Effect.logWarning("Provider update command failed", {
+                  provider,
+                  command: describeCommand(command),
+                  exitCode: result.exitCode,
+                  timedOut: result.timedOut,
+                  output: commandOutput(result),
+                });
+                return makeUpdateState({
+                  status: "failed",
+                  startedAt,
+                  finishedAt,
+                  message: failureMessage(result),
+                  output: commandOutput(result),
+                });
+              }
 
-                yield* setRunningMessage("Verifying the installed version");
-                if (transaction) yield* transaction.publish;
-                const verified = yield* providerRegistry.getProviderMaintenanceCapabilitiesForInstance(
+              yield* setRunningMessage("Verifying the installed version");
+              if (transaction) yield* transaction.publish;
+              const verified =
+                yield* providerRegistry.getProviderMaintenanceCapabilitiesForInstance(
                   instanceId,
                   provider,
                   { fresh: true },
                 );
-                yield* invalidateLatestProviderVersion(verified).pipe(
-                  Effect.provideService(ProviderLatestVersions.ProviderLatestVersions, latestVersions),
-                );
-                const { verifiedProviders, advisoryEnriched } = yield* verifyFromRefresh(
-                  providerRegistry.refreshAfterUpdate(provider, instanceId),
-                  provider,
-                  verified,
-                  instanceId,
-                  "post-update",
-                );
-                const selected = verifiedProviders.find((entry) => entry.instanceId === instanceId);
-                const verifiedVersion = selected?.installedVersion ?? selected?.version;
-                const observedCommand =
-                  targetVersion !== undefined
-                    ? makeTargetedProviderUpdateAction(verified, targetVersion)
-                    : resolveLatestProviderUpdateAction(verified, candidateVersion);
-                const legacyVerificationFailed =
-                  transaction !== undefined &&
-                  (!advisoryEnriched ||
-                    !verifiedVersion ||
-                    (candidateVersion != null &&
-                      verifiedVersion.replace(/^v/u, "") !== candidateVersion) ||
-                    !observedCommand ||
-                    !verifiedCodexNpmCommand(verified, observedCommand) ||
-                    !NodeUtil.isDeepStrictEqual(observedCommand, command));
-                // Cursor about probes can fail transiently; missing versions alone do not imply failure.
-                const couldNotVerify =
-                  verifiedProviders.length === 0 ||
-                  legacyVerificationFailed ||
-                  verifiedProviders.some((verifiedProvider) => {
-                    const installedVersion =
-                      verifiedProvider.installedVersion !== undefined
-                        ? verifiedProvider.installedVersion
-                        : verifiedProvider.version;
-                    return (
-                      !isStillInstalled(verifiedProvider) ||
-                      (verifiedProvider.status === "error" &&
-                        (verifiedProvider.auth.status !== "unauthenticated" ||
-                          !verifiedProvider.version)) ||
-                      (targetVersion !== undefined &&
-                        installedVersion?.replace(/^v/, "") !== targetVersion)
-                    );
-                  });
-                const stillOutdated =
-                  targetVersion === undefined &&
-                  verifiedProviders.some((verifiedProvider) => isOutdatedProvider(verifiedProvider));
-                if (!couldNotVerify && !stillOutdated && transaction) yield* transaction.commit;
-                return makeUpdateState({
-                  status: couldNotVerify || stillOutdated ? "unchanged" : "succeeded",
-                  startedAt,
-                  finishedAt,
-                  message: couldNotVerify
-                    ? "Update command completed, but J1 Code could not verify the provider version."
-                    : stillOutdated
-                      ? "Update command completed, but J1 Code still detects an outdated provider version."
-                      : needsOpenCodeServerRestart(verifiedProviders)
-                        ? OPENCODE_SERVER_RESTART_MESSAGE
-                        : "Provider updated.",
-                  output: commandOutput(result),
+              yield* invalidateLatestProviderVersion(verified).pipe(
+                Effect.provideService(
+                  ProviderLatestVersions.ProviderLatestVersions,
+                  latestVersions,
+                ),
+              );
+              const { verifiedProviders, advisoryEnriched } = yield* verifyFromRefresh(
+                providerRegistry.refreshAfterUpdate(provider, instanceId),
+                provider,
+                verified,
+                instanceId,
+                "post-update",
+              );
+              const selected = verifiedProviders.find((entry) => entry.instanceId === instanceId);
+              const verifiedVersion = selected?.installedVersion ?? selected?.version;
+              const observedCommand =
+                targetVersion !== undefined
+                  ? makeTargetedProviderUpdateAction(verified, targetVersion)
+                  : resolveLatestProviderUpdateAction(verified, candidateVersion);
+              const legacyVerificationFailed =
+                transaction !== undefined &&
+                (!advisoryEnriched ||
+                  !verifiedVersion ||
+                  (candidateVersion != null &&
+                    verifiedVersion.replace(/^v/u, "") !== candidateVersion) ||
+                  !observedCommand ||
+                  !verifiedCodexNpmCommand(verified, observedCommand) ||
+                  !NodeUtil.isDeepStrictEqual(observedCommand, command));
+              // Cursor about probes can fail transiently; missing versions alone do not imply failure.
+              const couldNotVerify =
+                verifiedProviders.length === 0 ||
+                legacyVerificationFailed ||
+                verifiedProviders.some((verifiedProvider) => {
+                  const installedVersion =
+                    verifiedProvider.installedVersion !== undefined
+                      ? verifiedProvider.installedVersion
+                      : verifiedProvider.version;
+                  return (
+                    !isStillInstalled(verifiedProvider) ||
+                    (verifiedProvider.status === "error" &&
+                      (verifiedProvider.auth.status !== "unauthenticated" ||
+                        !verifiedProvider.version)) ||
+                    (targetVersion !== undefined &&
+                      installedVersion?.replace(/^v/, "") !== targetVersion)
+                  );
                 });
-              },
-            );
+              const stillOutdated =
+                targetVersion === undefined &&
+                verifiedProviders.some((verifiedProvider) => isOutdatedProvider(verifiedProvider));
+              if (!couldNotVerify && !stillOutdated && transaction) yield* transaction.commit;
+              return makeUpdateState({
+                status: couldNotVerify || stillOutdated ? "unchanged" : "succeeded",
+                startedAt,
+                finishedAt,
+                message: couldNotVerify
+                  ? "Update command completed, but J1 Code could not verify the provider version."
+                  : stillOutdated
+                    ? "Update command completed, but J1 Code still detects an outdated provider version."
+                    : needsOpenCodeServerRestart(verifiedProviders)
+                      ? OPENCODE_SERVER_RESTART_MESSAGE
+                      : "Provider updated.",
+                output: commandOutput(result),
+              });
+            });
             const needsRecovery =
-              platform === "win32" && provider === CODEX_DRIVER &&
+              platform === "win32" &&
+              provider === CODEX_DRIVER &&
               (command.executable === "npm" || /^npm-global(?::|$)/u.test(command.lockKey));
             if (!needsRecovery) {
               const result = yield* installationGate.update(sharingInstances, run(command));
@@ -741,11 +749,12 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
             const result = yield* installationGate.update(
               sharingInstances,
               Effect.gen(function* () {
-                const current = yield* providerRegistry.getProviderMaintenanceCapabilitiesForInstance(
-                  instanceId,
-                  provider,
-                  { fresh: true },
-                );
+                const current =
+                  yield* providerRegistry.getProviderMaintenanceCapabilitiesForInstance(
+                    instanceId,
+                    provider,
+                    { fresh: true },
+                  );
                 const currentCommand =
                   targetVersion !== undefined
                     ? makeTargetedProviderUpdateAction(current, targetVersion)

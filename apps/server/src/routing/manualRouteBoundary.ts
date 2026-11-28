@@ -1,5 +1,6 @@
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
+// @effect-diagnostics-next-line nodeBuiltinImport:off - Rotate the UI confirmation capability synchronously.
 import * as NodeCrypto from "node:crypto";
 import { AuthOrchestrationOperateScope, AuthOrchestrationReadScope } from "@j1code/contracts";
 import type { AuthenticatedSession } from "../auth/EnvironmentAuth.ts";
@@ -70,7 +71,11 @@ export function makeManualRouteBoundary(ports: ManualRoutePorts) {
       throw new Error("Route source mismatch");
     return stored;
   };
-  const loadAuthorized = async (id: string, source: RouteEndpoint, session: AuthenticatedSession) => {
+  const loadAuthorized = async (
+    id: string,
+    source: RouteEndpoint,
+    session: AuthenticatedSession,
+  ) => {
     const stored = await load(id, source, session);
     if (!canRead(stored, session)) throw new Error("Route unavailable");
     return stored;

@@ -1,6 +1,7 @@
 {
   "name": "@j1code/shared",
   "private": true,
+  "license": "SEE LICENSE IN ../../LICENSE",
   "type": "module",
   "exports": {
     "./png": {
@@ -483,6 +484,10 @@
       "types": "./src/codexAuthHandoff.ts",
       "import": "./src/codexAuthHandoff.ts"
     },
+    "./oauthCallback": {
+      "types": "./src/oauthCallback.ts",
+      "import": "./src/oauthCallback.ts"
+    },
     "./codexArtifactTemplates": {
       "types": "./src/codexArtifactTemplates.ts",
       "import": "./src/codexArtifactTemplates.ts"
@@ -645,9 +650,9 @@
     "test": "vp test run --config ../../vite.config.ts --dir ."
   },
   "dependencies": {
+    "@j1code/contracts": "workspace:*",
     "@noble/curves": "catalog:",
     "@noble/hashes": "catalog:",
-    "@j1code/contracts": "workspace:*",
     "effect": "catalog:",
     "ffi-rs": "1.3.2",
     "get-east-asian-width": "^1.6.0",
@@ -674,6 +679,5 @@
     "@types/node": "catalog:",
     "micromark-util-types": "catalog:",
     "vite-plus": "catalog:"
-  },
-  "license": "SEE LICENSE IN ../../LICENSE"
+  }
 }

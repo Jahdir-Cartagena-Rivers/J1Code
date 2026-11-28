@@ -187,6 +187,7 @@ interface BuildCliInput {
   readonly outputDir: Option.Option<string>;
   readonly skipBuild: Option.Option<boolean>;
   readonly keepStage: Option.Option<boolean>;
+  readonly smokeTest?: boolean;
   readonly signed: Option.Option<boolean>;
   readonly verbose: Option.Option<boolean>;
   readonly mockUpdates: Option.Option<boolean>;
@@ -698,6 +699,15 @@ export class DesktopBuildArtifactCopyError extends Schema.TaggedError<DesktopBui
   }
 }
 
+export class InvalidDesktopSmokeTestOptionsError extends Schema.TaggedError<InvalidDesktopSmokeTestOptionsError>()(
+  "InvalidDesktopSmokeTestOptionsError",
+  {},
+) {
+  override get message() {
+    return "--smoke-test requires a native Windows dir build with temporary staging.";
+  }
+}
+
 export class DesktopBuildNoArtifactsProducedError extends Schema.TaggedError<DesktopBuildNoArtifactsProducedError>()(
   "DesktopBuildNoArtifactsProducedError",
   {
@@ -962,6 +972,7 @@ interface ResolvedBuildOptions {
   readonly outputDir: string;
   readonly skipBuild: boolean;
   readonly keepStage: boolean;
+  readonly smokeTest: boolean;
   readonly signed: boolean;
   readonly verbose: boolean;
   readonly mockUpdates: boolean;
@@ -1765,6 +1776,17 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
 
   const skipBuild = resolveBooleanFlag(input.skipBuild, env.skipBuild);
   const keepStage = resolveBooleanFlag(input.keepStage, env.keepStage);
+  const smokeTest = input.smokeTest ?? false;
+  if (
+    smokeTest &&
+    (hostPlatform !== "win32" ||
+      platform !== "win" ||
+      target !== "dir" ||
+      arch !== (yield* HostProcess.Architecture) ||
+      keepStage)
+  ) {
+    return yield* new InvalidDesktopSmokeTestOptionsError();
+  }
   const signed = resolveBooleanFlag(input.signed, env.signed);
   const verbose = resolveBooleanFlag(input.verbose, env.verbose);
 
@@ -1791,6 +1813,7 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
     outputDir,
     skipBuild,
     keepStage,
+    smokeTest,
     signed,
     verbose,
     mockUpdates,
@@ -3415,7 +3438,8 @@ const validateWindowsPreparedCache = async (
     throw error;
   });
   if (!cacheStat) return 0; // Cross-built and untrusted bundles do not generate a cache.
-  if (!cacheStat.isDirectory() || cacheStat.isSymbolicLink()) throw new Error("invalid cache directory");
+  if (!cacheStat.isDirectory() || cacheStat.isSymbolicLink())
+    throw new Error("invalid cache directory");
   const names = await NodeFSP.readdir(cacheDir);
   if (names.length < 2 || names.length > WINDOWS_PREPARED_CACHE_ENTRY_LIMIT + 1) {
     throw new Error("invalid cache file count");
@@ -3423,28 +3447,47 @@ const validateWindowsPreparedCache = async (
   let bytes = 0;
   for (const name of names) {
     const stat = await NodeFSP.lstat(path.join(cacheDir, name));
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size === 0) throw new Error("invalid cache file");
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size === 0)
+      throw new Error("invalid cache file");
     bytes += stat.size;
-    if (bytes > WINDOWS_PREPARED_CACHE_BYTE_LIMIT || (name === "manifest.json" && stat.size > 65536)) {
+    if (
+      bytes > WINDOWS_PREPARED_CACHE_BYTE_LIMIT ||
+      (name === "manifest.json" && stat.size > 65536)
+    ) {
       throw new Error("cache exceeds byte budget");
     }
   }
   const manifest = JSON.parse(await NodeFSP.readFile(path.join(cacheDir, "manifest.json"), "utf8"));
-  if (manifest?.format !== 1 || typeof manifest.runtime !== "string" ||
-      !new RegExp(`^\\d+\\.\\d+\\.\\d+-v\\d+\\.\\d+\\.\\d+-win32-${arch}-\\d+$`).test(manifest.runtime) ||
-      !Array.isArray(manifest.entries) || manifest.entries.length !== names.length - 1) {
+  if (
+    manifest?.format !== 1 ||
+    typeof manifest.runtime !== "string" ||
+    !new RegExp(`^\\d+\\.\\d+\\.\\d+-v\\d+\\.\\d+\\.\\d+-win32-${arch}-\\d+$`).test(
+      manifest.runtime,
+    ) ||
+    !Array.isArray(manifest.entries) ||
+    manifest.entries.length !== names.length - 1
+  ) {
     throw new Error("invalid cache manifest");
   }
   const files = new Set<string>();
   const modules = new Set<string>();
   for (const entry of manifest.entries) {
-    if (typeof entry?.file !== "string" || !/^[a-f0-9]{8}$/.test(entry.file) ||
-        typeof entry.module !== "string" || !/^server\.asar\/apps\/server\/dist\/[^/\\]+\.mjs$/.test(entry.module) ||
-        files.has(entry.file) || modules.has(entry.module) || !names.includes(entry.file)) {
+    if (
+      typeof entry?.file !== "string" ||
+      !/^[a-f0-9]{8}$/.test(entry.file) ||
+      typeof entry.module !== "string" ||
+      !/^server\.asar\/apps\/server\/dist\/[^/\\]+\.mjs$/.test(entry.module) ||
+      files.has(entry.file) ||
+      modules.has(entry.module) ||
+      !names.includes(entry.file)
+    ) {
       throw new Error("invalid cache entry");
     }
     const member = entry.module.slice("server.asar/".length);
-    const source = statFile(path.join(resourcesDir, "server.asar"), path.join(...member.split("/")));
+    const source = statFile(
+      path.join(resourcesDir, "server.asar"),
+      path.join(...member.split("/")),
+    );
     if (!("size" in source)) throw new Error("cache source is not a file");
     files.add(entry.file);
     modules.add(entry.module);
@@ -3664,9 +3707,12 @@ export const validateWindowsPackagedPayload = Effect.fn(
   const fileCount = yield* countPayloadFiles(packagedAppDir);
   const cacheFileCount = yield* Effect.tryPromise({
     try: () => validateWindowsPreparedCache(resourcesDir, input.targetArch),
-    catch: (cause) => new WindowsPackagedPayloadValidationError({
-      reason: "compile-cache-invalid", packagedAppDir, cause,
-    }),
+    catch: (cause) =>
+      new WindowsPackagedPayloadValidationError({
+        reason: "compile-cache-invalid",
+        packagedAppDir,
+        cause,
+      }),
   });
   const budgetedFileCount = fileCount - cacheFileCount;
   if (budgetedFileCount > fileLimit) {
@@ -4260,9 +4306,10 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
   }
 
   if (options.platform === "win") {
-    yield* validateWindowsPackagedPayload({
+    const appExecutableName = `${resolveDesktopProductName(appVersion)}.exe`;
+    const { packagedAppDir } = yield* validateWindowsPackagedPayload({
       stageDistDir,
-      appExecutableName: `${resolveDesktopProductName(appVersion)}.exe`,
+      appExecutableName,
       targetArch: options.arch,
       appVersion,
       expectLightpanda: options.arch === "x64",
@@ -4288,6 +4335,28 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
         ]),
         { label: "Verify timestamped Windows signatures", verbose: options.verbose },
       );
+    }
+    if (options.smokeTest) {
+      yield* runCommand(
+        ChildProcess.make(
+          process.execPath,
+          [
+            path.join(repoRoot, "scripts/smoke-desktop-app.ts"),
+            "--executable",
+            path.join(packagedAppDir, appExecutableName),
+            "--artifacts-dir",
+            path.join(options.outputDir, "desktop-launch-check"),
+          ],
+          {
+            cwd: repoRoot,
+            // Keep Playwright scratch and the smoke profile in scope even if the child exits early.
+            env: { TMP: stageRoot, TEMP: stageRoot },
+            extendEnv: true,
+          },
+        ),
+        { label: "Packaged Windows desktop launch check", verbose: true },
+      );
+      return;
     }
   }
   // The probe runs on the host Node, so a cross-arch build skips it.
@@ -4400,6 +4469,9 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
   keepStage: Flag.Boolean("keep-stage").pipe(
     Flag.withDescription("Keep temporary staging files (env: T3CODE_DESKTOP_KEEP_STAGE)."),
     Flag.optional,
+  ),
+  smokeTest: Flag.Boolean("smoke-test").pipe(
+    Flag.withDescription("Run a native Windows dir build and launch check in temporary staging."),
   ),
   signed: Flag.Boolean("signed").pipe(
     Flag.withDescription(

@@ -14,6 +14,7 @@ export interface J1ProjectFileState {
   status: "loading" | "missing" | "invalid" | "valid";
   file: J1ProjectFile | null;
   scripts: ReadonlyArray<J1ProjectFileScript>;
+  refresh: () => void;
 }
 
 export function useJ1ProjectFileState(
@@ -22,24 +23,18 @@ export function useJ1ProjectFileState(
 ): J1ProjectFileState {
   const query = useProjectFileQuery(environmentId, cwd ?? "", J1_PROJECT_FILE_NAME, cwd !== null);
   const contents = query.data && !query.data.truncated ? query.data.contents : null;
-  const isPending = query.isPending;
+  const { isPending, refresh } = query;
   if (contents === null) {
     return {
       status: isPending ? "loading" : "missing",
       file: null,
       scripts: NO_SCRIPTS,
+      refresh,
     } as const;
   }
   const file = parseJ1ProjectFile(contents);
   if (file === null) {
-    return { status: "invalid", file: null, scripts: NO_SCRIPTS } as const;
+    return { status: "invalid", file: null, scripts: NO_SCRIPTS, refresh } as const;
   }
-  return { status: "valid", file, scripts: file.scripts ?? NO_SCRIPTS } as const;
-}
-
-export function useJ1ProjectFileScripts(
-  environmentId: EnvironmentId,
-  cwd: string | null,
-): ReadonlyArray<J1ProjectFileScript> {
-  return useJ1ProjectFileState(environmentId, cwd).scripts;
+  return { status: "valid", file, scripts: file.scripts ?? NO_SCRIPTS, refresh } as const;
 }

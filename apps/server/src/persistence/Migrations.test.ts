@@ -40,10 +40,12 @@ it("maps upstream source IDs without reassigning released J1 migration IDs", () 
   assert.equal(canonicalUpstreamMigrationId(55), 65);
   assert.equal(canonicalUpstreamMigrationId(64), 74);
   assert.equal(canonicalUpstreamMigrationId(96), 106);
-  assert.equal(latestMigrationId, 107);
+  assert.equal(latestMigrationId, 116);
   const names = new Map<number, string>(migrationManifest);
   assert.equal(names.get(55), "DotConnections");
   assert.equal(names.get(64), "BotRoutineRuns");
+  assert.equal(names.get(104), "TurnItemMessageOrdinalIndex");
+  assert.equal(names.get(105), "TurnItemInlineWorkOutput");
   assert.equal(names.get(canonicalUpstreamMigrationId(55)), "OrchestrationV2");
   assert.equal(names.get(canonicalUpstreamMigrationId(64)), "CanonicalizeThreadPullRequestLinks");
   for (const id of [0, -1, 54.5, 97, Number.NaN, Number.POSITIVE_INFINITY]) {
@@ -52,6 +54,38 @@ it("maps upstream source IDs without reassigning released J1 migration IDs", () 
 });
 
 describe("runMigrations", () => {
+  it.effect("adds repository metadata without changing existing projects or ledger entries", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const at = "2026-01-01T00:00:00.000Z";
+      yield* runMigrations({ toMigrationInclusive: 107 });
+      yield* sql`
+        INSERT INTO projection_projects (project_id, title, workspace_root, scripts_json, created_at, updated_at)
+        VALUES ('legacy-project', 'Existing project', '/workspace/existing', '[]', ${at}, ${at})
+      `;
+      const before = yield* history;
+      const project = sql`
+        SELECT project_id, title, workspace_root, scripts_json, created_at, updated_at
+        FROM projection_projects WHERE project_id = 'legacy-project'
+      `;
+      const rows = yield* project;
+      assert.lengthOf(rows, 1);
+
+      assert.deepStrictEqual(yield* runMigrations({ toMigrationInclusive: 108 }), [
+        [108, "ProjectionProjectsTrackedFolders"],
+      ]);
+      assert.deepStrictEqual(yield* history, [
+        ...before,
+        [108, "ProjectionProjectsTrackedFolders"],
+      ]);
+      assert.deepStrictEqual(yield* project, rows);
+      assert.deepStrictEqual(
+        yield* sql`SELECT tracked_folders_json FROM projection_projects WHERE project_id = 'legacy-project'`,
+        [{ tracked_folders_json: "[]" }],
+      );
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
   it.effect("refuses to start when another migration took a V2 id", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
@@ -61,7 +95,9 @@ describe("runMigrations", () => {
       `;
       const before = yield* history;
 
-      assert.isTrue(Exit.isFailure(yield* Effect.exit(runMigrations({ toMigrationInclusive: 54 }))));
+      assert.isTrue(
+        Exit.isFailure(yield* Effect.exit(runMigrations({ toMigrationInclusive: 54 }))),
+      );
       const exit = yield* Effect.exit(runMigrations());
 
       assert.isTrue(Exit.isFailure(exit));
@@ -96,7 +132,10 @@ describe("runMigrations", () => {
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations({ toMigrationInclusive: 54 });
-      assert.deepStrictEqual(yield* runMigrations(), migrationManifest.filter(([id]) => id > 54));
+      assert.deepStrictEqual(
+        yield* runMigrations(),
+        migrationManifest.filter(([id]) => id > 54),
+      );
       assert.deepStrictEqual(yield* history, migrationManifest);
       assert.isAbove(yield* v2TableCount, 0);
 
@@ -184,13 +223,12 @@ describe("runMigrations", () => {
       `;
       const before = yield* history;
 
-      assert.isTrue(Exit.isFailure(yield* Effect.exit(runMigrations({ toMigrationInclusive: 55 }))));
+      assert.isTrue(
+        Exit.isFailure(yield* Effect.exit(runMigrations({ toMigrationInclusive: 55 }))),
+      );
       const exit = yield* Effect.exit(runMigrations({ toMigrationInclusive: 56 }));
       assert.isTrue(Exit.isFailure(exit));
-      assert.include(
-        String(exit),
-        "56_DotOAuth (recorded: SiteLocalMigration)",
-      );
+      assert.include(String(exit), "56_DotOAuth (recorded: SiteLocalMigration)");
       assert.deepStrictEqual(yield* history, before);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
@@ -258,8 +296,9 @@ it.effect("registers every migration file", () =>
       files
         .map(([sourceId, name]) => {
           // J1-owned files already use canonical IDs. Upstream filenames use source IDs.
-          const isCanonicalEntry = migrationManifest.some(([id, entryName]) =>
-            id === sourceId && entryName === name);
+          const isCanonicalEntry = migrationManifest.some(
+            ([id, entryName]) => id === sourceId && entryName === name,
+          );
           return `${isCanonicalEntry ? sourceId : canonicalUpstreamMigrationId(sourceId)}:${name}`;
         })
         .toSorted(),

@@ -37,11 +37,7 @@ import {
   serializeComposerFileLink,
   type ComposerTrigger,
 } from "@j1code/shared/composerTrigger";
-import {
-  insertRankedSearchResult,
-  normalizeSearchQuery,
-  scoreQueryMatch,
-} from "@j1code/shared/searchRanking";
+import { insertRankedSearchResult, normalizeSearchQuery } from "@j1code/shared/searchRanking";
 import {
   dedupeProviderSkillsByName,
   getProviderSkillsForSlashMenu,
@@ -67,7 +63,7 @@ import {
 } from "../../state/queries";
 import type { ModelOption } from "../../lib/modelOptions";
 import type { ComposerCommandItem } from "./ComposerCommandPopover";
-import { matchesSlashSkillQuery } from "./composerSlashSkillSearch";
+import { scoreSkillQuery, scoreSlashSkillQuery } from "./composerSlashSkillSearch";
 
 const idleWorkspaceSnapshotRefreshAtom: Atom.Atom<unknown> = Atom.make<void>(undefined).pipe(
   Atom.withLabel("mobile:provider-workspace-snapshot-refresh:idle"),
@@ -109,7 +105,10 @@ export function buildComposerSlashCommandItems(input: {
   /** J1's `/clear` replaces the provider's, which would clear a session J1 still treats as live. */
   readonly offersFreshSession?: boolean;
   readonly offersSideChat?: boolean;
-  readonly selectedProviderStatus: Pick<ServerProvider, "driver" | "slashCommands" | "showInteractionModeToggle"> | null;
+  readonly selectedProviderStatus: Pick<
+    ServerProvider,
+    "driver" | "slashCommands" | "showInteractionModeToggle"
+  > | null;
 }): ComposerCommandItem[] {
   const query = input.query.toLowerCase();
   const items: ComposerCommandItem[] = "model".includes(query)
@@ -124,7 +123,10 @@ export function buildComposerSlashCommandItems(input: {
       ]
     : [];
 
-  if (input.allowInteractionMode && input.selectedProviderStatus?.showInteractionModeToggle !== false) {
+  if (
+    input.allowInteractionMode &&
+    input.selectedProviderStatus?.showInteractionModeToggle !== false
+  ) {
     for (const command of ["plan", "default"] as const) {
       if (command.includes(query)) {
         items.push({
@@ -357,7 +359,7 @@ export function useComposerCommandMenu({
   );
   // Every draft change rechecks a stale snapshot, including drafts written by
   // another surface (a prompt link) that never move the editor selection.
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refreshes the provider workspace snapshot atom whenever the draft text changes from any surface
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- refreshes the provider workspace snapshot atom whenever the draft text changes from any surface
   useEffect(() => {
     refreshWorkspaceSnapshot();
   }, [
@@ -444,8 +446,12 @@ export function useComposerCommandMenu({
       });
 
       const skillItems = visibleSkills
-        .filter((skill) => matchesSlashSkillQuery(skill, q))
-        .map((skill) => ({
+        .flatMap((skill) => {
+          const score = scoreSlashSkillQuery(skill, q);
+          return score === null ? [] : [{ skill, score }];
+        })
+        .sort((left, right) => left.score - right.score)
+        .map(({ skill }) => ({
           id: `skill:${skill.name}`,
           type: "skill" as const,
           skill,
@@ -479,50 +485,13 @@ export function useComposerCommandMenu({
       }> = [];
       for (const skill of enabledSkills) {
         const displayLabel = (skill.displayName ?? skill.name).toLowerCase();
-        const scores = [
-          scoreQueryMatch({
-            value: skill.name.toLowerCase(),
-            query: normalizedQuery,
-            exactBase: 0,
-            prefixBase: 2,
-            boundaryBase: 4,
-            includesBase: 6,
-            fuzzyBase: 100,
-            boundaryMarkers: ["-", "_", "/"],
-          }),
-          scoreQueryMatch({
-            value: displayLabel,
-            query: normalizedQuery,
-            exactBase: 1,
-            prefixBase: 3,
-            boundaryBase: 5,
-            includesBase: 7,
-            fuzzyBase: 110,
-          }),
-          scoreQueryMatch({
-            value: skill.shortDescription?.toLowerCase() ?? "",
-            query: normalizedQuery,
-            exactBase: 20,
-            prefixBase: 22,
-            boundaryBase: 24,
-            includesBase: 26,
-          }),
-          scoreQueryMatch({
-            value: skill.description?.toLowerCase() ?? "",
-            query: normalizedQuery,
-            exactBase: 30,
-            prefixBase: 32,
-            boundaryBase: 34,
-            includesBase: 36,
-          }),
-        ].filter((score): score is number => score !== null);
-
-        if (scores.length > 0) {
+        const score = scoreSkillQuery(skill, normalizedQuery, true);
+        if (score !== null) {
           insertRankedSearchResult(
             ranked,
             {
               item: skill,
-              score: Math.min(...scores),
+              score,
               tieBreaker: `${displayLabel}\u0000${skill.name}`,
             },
             20,
@@ -693,8 +662,12 @@ export function useComposerCommandMenu({
     }
 
     const result = resolveComposerCommandSelection({
-      draftMessage, trigger, item,
-      allowInteractionMode: onUpdateInteractionMode !== undefined && selectedProviderStatus?.showInteractionModeToggle !== false,
+      draftMessage,
+      trigger,
+      item,
+      allowInteractionMode:
+        onUpdateInteractionMode !== undefined &&
+        selectedProviderStatus?.showInteractionModeToggle !== false,
     });
     setSelection({ start: result.cursor, end: result.cursor });
     onChangeDraftMessage(result.text);

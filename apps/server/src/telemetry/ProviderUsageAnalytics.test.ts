@@ -1,5 +1,6 @@
 import {
   NodeId,
+  ProviderDriverKind,
   ProviderInstanceId,
   ProviderThreadId,
   ProviderTurnId,
@@ -102,15 +103,17 @@ describe("provider usage reporting", () => {
   it.effect("counts authorized sends and rejected attempts once with allowlisted fields", () => {
     const recorded: Array<readonly [string, unknown]> = [];
     const layerTest = layer.pipe(
-      Layer.provide(Layer.mergeAll(
-        Layer.mock(AnalyticsService.AnalyticsService)({
-          record: (event, properties) =>
-            Effect.sync(() => void recorded.push([event, properties])),
-        }),
-        Layer.mock(ProviderRegistry.ProviderRegistry)({
-          getProviders: Effect.succeed(providers),
-        }),
-      )),
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.mock(AnalyticsService.AnalyticsService)({
+            record: (event, properties) =>
+              Effect.sync(() => void recorded.push([event, properties])),
+          }),
+          Layer.mock(ProviderRegistry.ProviderRegistry)({
+            getProviders: Effect.succeed(providers),
+          }),
+        ),
+      ),
     );
     return Effect.gen(function* () {
       const analytics = yield* ProviderTurnAnalytics;
@@ -133,12 +136,18 @@ describe("provider usage reporting", () => {
       const proof = (attemptId: RunAttemptId): OrchestrationV2ProviderTurn => ({
         ...turn("native-failed-after-acceptance", undefined, "failed"),
         runAttemptId: attemptId,
-        nativeTurnRef: { driver: "codex", nativeId: "private-native-id", strength: "strong" },
+        nativeTurnRef: {
+          driver: ProviderDriverKind.make("codex"),
+          nativeId: "private-native-id",
+          strength: "strong",
+        },
       });
       const expired = attempt("expired");
-      expect(yield* observeProviderWriteAuthorization(Effect.succeed(false)).pipe(
-        Effect.provideService(ProviderDispatchObservation, expired),
-      )).toBe(false);
+      expect(
+        yield* observeProviderWriteAuthorization(Effect.succeed(false)).pipe(
+          Effect.provideService(ProviderDispatchObservation, expired),
+        ),
+      ).toBe(false);
       yield* expired.rejected;
       yield* analytics.dispatchAccepted!(proof(expired.attemptId), expired.runId);
       expect(recorded).toEqual([]);
@@ -156,9 +165,13 @@ describe("provider usage reporting", () => {
       );
       const acceptedTurn = proof(accepted.attemptId);
       yield* analytics.dispatchAccepted!({ ...acceptedTurn, nativeTurnRef: null }, accepted.runId);
-      yield* analytics.dispatchAccepted!({
-        ...acceptedTurn, providerThreadId: ProviderThreadId.make("foreign-thread"),
-      }, accepted.runId);
+      yield* analytics.dispatchAccepted!(
+        {
+          ...acceptedTurn,
+          providerThreadId: ProviderThreadId.make("foreign-thread"),
+        },
+        accepted.runId,
+      );
       yield* analytics.dispatchAccepted!(acceptedTurn, RunId.make("foreign-run"));
       yield* analytics.dispatchAccepted!(acceptedTurn, accepted.runId);
       yield* analytics.dispatchAccepted!(acceptedTurn, accepted.runId);
@@ -168,11 +181,21 @@ describe("provider usage reporting", () => {
       expect(recorded.slice(0, -1)).toEqual([
         ["provider.turn.attempted", { provider: "codex", runtimeMode: "full-access" }],
         ["provider.turn.rejected", { provider: "codex", errorType: "provider_error" }],
-        ["provider.turn.attempted", { provider: "codex", model: "gpt-6-sol", runtimeMode: "full-access" }],
-        ["provider.turn.sent", {
-          provider: "codex", model: "gpt-6-sol", runtimeMode: "full-access",
-          interactionMode: "default", attachmentCount: 1, hasInput: true,
-        }],
+        [
+          "provider.turn.attempted",
+          { provider: "codex", model: "gpt-6-sol", runtimeMode: "full-access" },
+        ],
+        [
+          "provider.turn.sent",
+          {
+            provider: "codex",
+            model: "gpt-6-sol",
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            attachmentCount: 1,
+            hasInput: true,
+          },
+        ],
       ]);
       expect(recorded.at(-1)?.[0]).toBe("provider.turn.completed");
       expect(recorded.at(-1)?.[1]).toMatchObject({ terminalStatus: "failed" });

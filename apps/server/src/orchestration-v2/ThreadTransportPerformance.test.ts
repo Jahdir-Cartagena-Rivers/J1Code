@@ -39,7 +39,9 @@ function encodedThreadStreamChunkBytes(value: OrchestrationV2ThreadStreamItem): 
   return encodedBytes(response);
 }
 
-function makeCommandItem(index: number): OrchestrationV2TurnItem {
+function makeCommandItem(
+  index: number,
+): Extract<OrchestrationV2TurnItem, { type: "command_execution" }> {
   return {
     id: TurnItemId.make(`item-${index}`),
     type: "command_execution",
@@ -66,7 +68,7 @@ function makeTurnItemEvent(item: OrchestrationV2TurnItem): OrchestrationV2Domain
   return {
     id: EventId.make(`event-${item.id}`),
     type: "turn-item.updated",
-    threadId: THREAD_ID,
+    threadId: item.threadId,
     occurredAt: NOW,
     payload: item,
   };

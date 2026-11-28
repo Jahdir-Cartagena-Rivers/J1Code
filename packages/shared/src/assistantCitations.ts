@@ -103,15 +103,16 @@ export function parseAssistantCitationHref(href: string): AssistantCitation | nu
   }
 }
 
+export function splitsSurrogatePair(text: string, offset: number): boolean {
+  const previous = text.charCodeAt(offset - 1);
+  const next = text.charCodeAt(offset);
+  return previous >= 0xd800 && previous <= 0xdbff && next >= 0xdc00 && next <= 0xdfff;
+}
+
 export function assistantCitationLabel(citation: AssistantCitation): string {
   const preview = (citation.comment?.trim() || citation.text).replace(/\s+/g, " ");
   if (preview.length <= 64) return preview;
-  let end = 64;
-  const previous = preview.charCodeAt(end - 1);
-  const next = preview.charCodeAt(end);
-  if (previous >= 0xd800 && previous <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) {
-    end -= 1;
-  }
+  const end = splitsSurrogatePair(preview, 64) ? 63 : 64;
   return `${preview.slice(0, end)}…`;
 }
 

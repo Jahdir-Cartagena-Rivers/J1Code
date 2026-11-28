@@ -1,10 +1,12 @@
 import {
   CommandId,
   type OrchestrationProjectShell,
+  PROJECT_TRACKED_FOLDERS_MAX,
   ProjectId,
   type Project,
   type ProjectCreatePayload,
   type ProjectUpdatePayload,
+  type ProjectTrackedFolder,
   type ProjectSnapshot,
   type ThreadId,
 } from "@j1code/contracts";
@@ -15,6 +17,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
@@ -28,6 +31,7 @@ import {
   encodeProjectCommandRejection,
   planProjectCommand,
   type ProjectCommand,
+  ProjectCommandInvariantError,
 } from "../orchestration-v2/ProjectCommands.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
@@ -39,6 +43,7 @@ import * as ProcessRunner from "../processRunner.ts";
 import * as ProjectEnrichmentService from "./ProjectEnrichmentService.ts";
 import { makeIsWorktreeContainer } from "./worktreeContainer.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
+import { isWithinRoot } from "../workspace/KnownWorkspaces.ts";
 
 export interface ProjectCreateInput extends ProjectCreatePayload {
   readonly commandId: CommandId;
@@ -48,6 +53,8 @@ export interface ProjectCreateInput extends ProjectCreatePayload {
 export interface ProjectUpdateInput extends ProjectUpdatePayload {
   readonly commandId: CommandId;
   readonly projectId: ProjectId;
+  readonly trackFolders?: ReadonlyArray<ProjectTrackedFolder>;
+  readonly untrackFolders?: ReadonlyArray<string>;
 }
 
 export interface ProjectBootstrapInput extends ProjectCreateInput {}
@@ -173,6 +180,61 @@ export class ProjectService extends Context.Service<
   }
 >()("@j1code/server/project/ProjectService") {}
 
+function resolveTrackedFolders(
+  path: Path.Path,
+  command: ProjectCommand,
+  project: ProjectStore.ProjectRow | undefined,
+): Result.Result<ProjectCommand, ProjectCommandInvariantError> {
+  if (command.type === "project.delete") return Result.succeed(command);
+  const added = command.type === "project.meta.update" ? command.trackFolders : undefined;
+  const removed = command.type === "project.meta.update" ? command.untrackFolders : undefined;
+  const root = command.workspaceRoot ?? project?.workspaceRoot;
+  if (
+    root === undefined ||
+    (command.trackedFolders === undefined &&
+      added === undefined &&
+      removed === undefined &&
+      (command.workspaceRoot === undefined || command.workspaceRoot === project?.workspaceRoot))
+  ) {
+    return Result.succeed(command);
+  }
+
+  const invalid = (detail: string) =>
+    Result.fail(new ProjectCommandInvariantError({ commandType: command.type, detail }));
+  if (command.trackedFolders !== undefined && (added !== undefined || removed !== undefined)) {
+    return invalid("Choose either replacing tracked folders or adding and removing them.");
+  }
+  const removals = removed ?? [];
+  if (removals.some((folder) => !path.isAbsolute(folder))) {
+    return invalid("Tracked folders must use absolute paths.");
+  }
+
+  const matches = (left: string, right: string) => path.relative(left, right) === "";
+  const current = project?.trackedFolders ?? [];
+  const trackedFolders: ProjectTrackedFolder[] = [];
+  for (const folder of [...(command.trackedFolders ?? current), ...(added ?? [])]) {
+    if (!path.isAbsolute(folder.path)) return invalid("Tracked folders must use absolute paths.");
+    const normalized = path.resolve(folder.path);
+    if (removals.some((removal) => matches(normalized, removal))) continue;
+    if (isWithinRoot(path, root, normalized)) {
+      return invalid("A tracked folder cannot contain or match the project root.");
+    }
+    const index = trackedFolders.findIndex((existing) => matches(existing.path, normalized));
+    const recorded = current.find((existing) => matches(existing.path, normalized));
+    const tracked = {
+      ...folder,
+      path: normalized,
+      ...(recorded?.discovered ? { discovered: true } : {}),
+    };
+    if (index < 0) trackedFolders.push(tracked);
+    else trackedFolders[index] = tracked;
+  }
+  if (trackedFolders.length > PROJECT_TRACKED_FOLDERS_MAX) {
+    return invalid(`A project may track at most ${PROJECT_TRACKED_FOLDERS_MAX} folders.`);
+  }
+  return Result.succeed({ ...command, trackedFolders });
+}
+
 export const make = Effect.gen(function* () {
   const projects = yield* ProjectStore.ProjectStoreV2;
   const projectEnrichment = yield* ProjectEnrichmentService.ProjectEnrichmentService;
@@ -184,6 +246,7 @@ export const make = Effect.gen(function* () {
   const threadCommands = yield* ThreadCommandExecutor.ThreadCommandExecutor;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
   const isManagedWorktreePath = yield* makeIsManagedWorktreePath;
   const isWorktreeContainer = yield* makeIsWorktreeContainer.pipe(
     Effect.provide(ProcessRunner.layer),
@@ -205,6 +268,7 @@ export const make = Effect.gen(function* () {
     autoPull: row.autoPull,
     projectIcon: row.projectIcon,
     scripts: row.scripts,
+    trackedFolders: row.trackedFolders,
     pinnedAt: row.pinnedAt,
     archivedAt: row.archivedAt,
     createdAt: row.createdAt,
@@ -280,12 +344,9 @@ export const make = Effect.gen(function* () {
       const eventId = yield* idAllocator.allocate
         .event({ commandId: command.commandId })
         .pipe(Effect.mapError(dispatchError));
-      const planned = planProjectCommand({
-        command,
-        state: { project, workspaceOwner },
-        eventId,
-        now,
-      });
+      const planned = Result.flatMap(resolveTrackedFolders(path, command, project), (resolved) =>
+        planProjectCommand({ command: resolved, state: { project, workspaceOwner }, eventId, now }),
+      );
       if (Result.isSuccess(planned)) {
         const { receipt } = yield* eventSink.commitProjectCommand({
           commandId: command.commandId,
@@ -411,6 +472,7 @@ export const make = Effect.gen(function* () {
           ? {}
           : { defaultModelSelection: input.defaultModelSelection }),
         ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
+        ...(input.trackedFolders === undefined ? {} : { trackedFolders: input.trackedFolders }),
       });
       yield* projectEnrichment.invalidate([workspaceRoot]);
       return yield* readCommitted(input.projectId);
@@ -450,6 +512,9 @@ export const make = Effect.gen(function* () {
           ? {}
           : { defaultThreadEnvMode: input.defaultThreadEnvMode }),
         ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
+        ...(input.trackedFolders === undefined ? {} : { trackedFolders: input.trackedFolders }),
+        ...(input.trackFolders === undefined ? {} : { trackFolders: input.trackFolders }),
+        ...(input.untrackFolders === undefined ? {} : { untrackFolders: input.untrackFolders }),
         ...(input.pinned === undefined ? {} : { pinned: input.pinned }),
         ...(input.archived === undefined ? {} : { archived: input.archived }),
       });

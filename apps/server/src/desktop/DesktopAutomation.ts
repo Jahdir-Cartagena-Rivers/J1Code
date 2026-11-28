@@ -1,3 +1,4 @@
+// @effect-diagnostics-next-line nodeBuiltinImport:off - Native helper session keys are derived synchronously.
 import * as NodeCrypto from "node:crypto";
 import * as NodeModule from "node:module";
 import { DesktopToolError, type DesktopScreenshotInput } from "@j1code/contracts";
@@ -37,7 +38,11 @@ export function desktopBinaryPath(packageRoot: string, platform: string, arch: s
 export function desktopScopeKey(
   scope: Pick<McpThreadInvocationScope, "thread" | "client">,
 ): string {
-  if (scope.client !== undefined || !scope.thread?.threadId || !scope.thread.providerSessionId.trim())
+  if (
+    scope.client !== undefined ||
+    !scope.thread?.threadId ||
+    !scope.thread.providerSessionId.trim()
+  )
     throw new Error("Desktop automation requires its authenticated provider thread.");
   return NodeCrypto.createHash("sha256")
     .update(JSON.stringify([scope.thread.threadId, scope.thread.providerSessionId]))

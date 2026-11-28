@@ -48,10 +48,9 @@ export class HiveMindService extends Context.Service<
       );
       return HiveMindService.of({
         runtime,
-        search: (query, project) =>
-          hiveOperation(async () => {
-            return recallSelectedHive(runtime.file, query, project);
-          }),
+        search: Effect.fn("HiveMindService.search")((query, project) =>
+          hiveOperation(() => recallSelectedHive(runtime.file, query, project)),
+        ),
       });
     }),
   );

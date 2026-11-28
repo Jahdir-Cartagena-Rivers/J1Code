@@ -18,6 +18,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as CheckpointRollbackService from "./CheckpointRollbackService.ts";
 import { isCheckpointRestoreIsolated } from "./CheckpointRestoreSafety.ts";
+import { layerNoTaskFolders } from "./ProviderTurnStartService.testkit.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 import { CheckpointServiceV2 } from "./CheckpointService.ts";
 import { EventSinkV2 } from "./EventSink.ts";
@@ -75,29 +76,33 @@ it.effect.each([
         metadata: { antigravityLegacyStoreCwd: sibling },
       },
     } as const;
-    const legacy = owner in nativeHistory ? nativeHistory[owner as keyof typeof nativeHistory] : undefined;
+    const legacy =
+      owner in nativeHistory ? nativeHistory[owner as keyof typeof nativeHistory] : undefined;
     const providerThread = {
       id: providerThreadId,
       providerSessionId,
       providerInstanceId: instanceId,
-      ...(legacy === undefined ? {} : {
-        driver: legacy.driver,
-        nativeThreadRef: { nativeId: "saved-native-thread" },
-        nativeMetadata: legacy.metadata,
-      }),
+      ...(legacy === undefined
+        ? {}
+        : {
+            driver: legacy.driver,
+            nativeThreadRef: { nativeId: "saved-native-thread" },
+            nativeMetadata: legacy.metadata,
+          }),
     };
     const otherThread = {
       id: otherId,
       projectId,
       deletedAt: null,
       lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: otherId },
-      worktreePath: owner === "missing project"
-        ? null
-        : owner === "ancestor" || owner === "conversation"
-          ? parent
-          : owner === "nested"
-            ? nested
-            : sibling,
+      worktreePath:
+        owner === "missing project"
+          ? null
+          : owner === "ancestor" || owner === "conversation"
+            ? parent
+            : owner === "nested"
+              ? nested
+              : sibling,
     };
     const projection = {
       thread: {
@@ -119,6 +124,7 @@ it.effect.each([
       runsToRollback: [{ id: "later-run", ordinal: 1, status: "completed", rootNodeId: null }],
     } as unknown as ProjectionCheckpointRollbackContext;
     const layerTest = CheckpointRollbackService.layer.pipe(
+      Layer.provide(layerNoTaskFolders),
       Layer.provide(
         Layer.mergeAll(
           NodeServices.layer,
@@ -128,9 +134,10 @@ it.effect.each([
           IdAllocator.layer,
           Layer.mock(GitWorkflowService.GitWorkflowService)({}),
           Layer.mock(ProjectStore.ProjectStoreV2)({
-            get: () => owner === "missing project"
-              ? Effect.succeedNone
-              : Effect.succeedSome({ workspaceRoot: parent } as never),
+            get: () =>
+              owner === "missing project"
+                ? Effect.succeedNone
+                : Effect.succeedSome({ workspaceRoot: parent } as never),
           }),
           Layer.mock(ProjectionStoreV2)({
             getThread: () => Effect.succeed(projection.thread),
@@ -180,12 +187,26 @@ it.effect.each([
           Layer.mock(ProviderSessionManagerV2)({
             open: (input) =>
               Effect.sync(() => {
-                assert.equal(input.initialNativeThreadId, legacy ? "saved-native-thread" : undefined);
-                assert.equal(input.initialOpenCodeHistoryGeneration, owner === "legacy OpenCode" ? "v1" : undefined);
-                assert.equal(input.requireExactInitialNativeThread,
-                  owner === "legacy Grok" || owner === "legacy Antigravity" ? true : undefined);
-                assert.equal(input.initialCursorTransport, owner === "legacy Cursor" ? "acp" : undefined);
-                assert.equal(input.initialCursorStoreCwd, owner === "legacy Cursor" ? sibling : undefined);
+                assert.equal(
+                  input.initialNativeThreadId,
+                  legacy ? "saved-native-thread" : undefined,
+                );
+                assert.equal(
+                  input.initialOpenCodeHistoryGeneration,
+                  owner === "legacy OpenCode" ? "v1" : undefined,
+                );
+                assert.equal(
+                  input.requireExactInitialNativeThread,
+                  owner === "legacy Grok" || owner === "legacy Antigravity" ? true : undefined,
+                );
+                assert.equal(
+                  input.initialCursorTransport,
+                  owner === "legacy Cursor" ? "acp" : undefined,
+                );
+                assert.equal(
+                  input.initialCursorStoreCwd,
+                  owner === "legacy Cursor" ? sibling : undefined,
+                );
                 return {
                   rollbackThread: () =>
                     Effect.sync(() => {
@@ -203,7 +224,8 @@ it.effect.each([
       Effect.provide(layerTest),
     );
     const restoreFiles = owner !== "conversation" && owner !== "standalone conversation";
-    const rejected = legacy === undefined &&
+    const rejected =
+      legacy === undefined &&
       !["sibling", "shared-provider", "conversation", "standalone conversation"].includes(owner);
     if (rejected) {
       const error = yield* service

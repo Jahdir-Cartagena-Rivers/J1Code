@@ -12,6 +12,7 @@ import { codexAuthDeliveryUrl, readCodexAuthHandoff } from "@j1code/shared/codex
 import { receiveCodexAuthCallback, CodexAuthCallbackError } from "./CodexAuthCallback.ts";
 import * as ElectronShell from "../electron/ElectronShell.ts";
 import { providerAuthReturnUrl } from "@j1code/shared/providerAuthReturnUrl";
+import { mausbotSavedAppLaunchId } from "@j1code/contracts";
 import { promptLinkAppPath } from "@j1code/shared/promptLinks";
 import { readPairingAppLink } from "@j1code/shared/remote";
 import * as HostProcess from "@j1code/shared/HostProcess";
@@ -169,7 +170,9 @@ export const make = Effect.gen(function* () {
       const electronApp = yield* ElectronApp.ElectronApp;
       const electronWindow = yield* ElectronWindow.ElectronWindow;
       const webLinks = yield* DesktopWebLinks.DesktopWebLinks;
-      const context = yield* Effect.context<ElectronWindow.ElectronWindow | DesktopWindow.DesktopWindow>();
+      const context = yield* Effect.context<
+        ElectronWindow.ElectronWindow | DesktopWindow.DesktopWindow
+      >();
       const runPromise = Effect.runPromiseWith(context);
 
       const startProviderAuthHandoff = (value: string | undefined) => {
@@ -218,7 +221,12 @@ export const make = Effect.gen(function* () {
         return true;
       };
       const openAppLink = (value: string | undefined) => {
-        if (!value || (promptLinkAppPath(value) === null && readPairingAppLink(value) === null))
+        if (
+          !value ||
+          (mausbotSavedAppLaunchId(value) === null &&
+            promptLinkAppPath(value) === null &&
+            readPairingAppLink(value) === null)
+        )
           return false;
         void runPromise(webLinks.receive(value));
         return true;

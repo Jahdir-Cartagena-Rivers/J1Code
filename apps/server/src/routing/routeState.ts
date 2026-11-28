@@ -1,3 +1,4 @@
+// @effect-diagnostics-next-line nodeBuiltinImport:off - The pure reducer computes persisted request fingerprints.
 import * as NodeCrypto from "node:crypto";
 import { stableStringify } from "@j1code/shared/relaySigning";
 import type { OrchestrationV2IdleRouteCommand } from "@j1code/contracts";
@@ -78,7 +79,8 @@ export interface RouteState {
 }
 
 export function bindRouteInputFingerprint(state: RouteState, inputFingerprint: string): RouteState {
-  if (!/^[a-f0-9]{64}$/u.test(inputFingerprint)) throw new Error("Invalid original route input fingerprint");
+  if (!/^[a-f0-9]{64}$/u.test(inputFingerprint))
+    throw new Error("Invalid original route input fingerprint");
   if (state.inputFingerprint !== undefined && state.inputFingerprint !== inputFingerprint)
     throw new Error("Route input identity conflict");
   return { ...state, inputFingerprint };
@@ -86,7 +88,9 @@ export function bindRouteInputFingerprint(state: RouteState, inputFingerprint: s
 
 export function replayRouteInput(state: RouteState, inputFingerprint: string): RouteState {
   if (state.inputFingerprint === undefined)
-    throw new Error("This saved route has no original input proof; read its existing status instead of resubmitting it.");
+    throw new Error(
+      "This saved route has no original input proof; read its existing status instead of resubmitting it.",
+    );
   if (state.inputFingerprint !== inputFingerprint) throw new Error("Route input identity conflict");
   return state;
 }
@@ -195,7 +199,9 @@ export function routeFingerprint(request: RouteRequest): string {
         request.maxHops,
         request.mode,
         request.initiation,
-        ...(request.origin === undefined ? [] : [request.origin.subject, request.origin.runId, request.origin.messageId]),
+        ...(request.origin === undefined
+          ? []
+          : [request.origin.subject, request.origin.runId, request.origin.messageId]),
       ]),
     )
     .digest("hex");
@@ -252,23 +258,21 @@ export function registerRoute(request: RouteRequest, existing?: RouteState): Rou
   };
 }
 
-/** Pure infrastructure only: events must come from authenticated server receipts, never model prose.
- * Integration still requires contract schemas, atomic event-store/outbox persistence and replay,
- * a reactor persisting begin-send BEFORE provider dispatch, crash reconciliation, destination
- * permission revalidation at dispatch, provider acceptance/completion receipts, and UI mode,
- * destination confirmation, ambiguity and separate delivery/execution status presentation.
- * Legacy confirm events fail closed; user confirmation must use resolveRoute with trusted facts.
+/**
+ * Events must come from authenticated receipts. The caller persists begin-send before dispatch.
+ * Legacy confirmation fails closed. Resolve the route using trusted destination evidence.
  */
 export function transitionRoute(state: RouteState, event: RouteEvent): RouteState {
-  if ((state.strictSubmission !== undefined || state.idleSubmission !== undefined) && (
-    event.type === "admission-rejected" ||
-    event.type === "admitted" ||
-    (event.type === "receipt" && (
-      event.receipt.kind === "delivered" ||
-      (event.receipt.kind === "failed" &&
-        ["sending", "admitted", "uncertain"].includes(state.status))
-    ))
-  )) throw new Error("Native route submission requires correlated delivery evidence");
+  if (
+    (state.strictSubmission !== undefined || state.idleSubmission !== undefined) &&
+    (event.type === "admission-rejected" ||
+      event.type === "admitted" ||
+      (event.type === "receipt" &&
+        (event.receipt.kind === "delivered" ||
+          (event.receipt.kind === "failed" &&
+            ["sending", "admitted", "uncertain"].includes(state.status)))))
+  )
+    throw new Error("Native route submission requires correlated delivery evidence");
   return applyRouteTransition(state, event);
 }
 
@@ -342,19 +346,28 @@ export function assertIdleRouteSubmission(state: RouteState): void {
   const { command, routeFingerprint, commandFingerprint } = claim;
   const { request } = state;
   const identity = idleRouteIdentity(command.requestId, command.attemptId);
-  if (state.strictSubmission !== undefined ||
-      !["sending", "admitted", "uncertain", "delivered", "accepted", "completed", "failed"].includes(state.status) ||
-      state.fingerprint !== routeFingerprint || state.attemptId !== command.attemptId ||
-      commandFingerprint !== strictRouteDescriptorFingerprint(command) ||
-      command.requestId !== request.requestId || command.text !== request.content ||
-      command.commandId !== identity.commandId || command.messageId !== identity.messageId ||
-      command.runId !== identity.runId ||
-      request.source.environmentId !== command.environmentId ||
-      request.source.threadId !== command.senderThreadId || request.source.projectId !== command.sourceProjectId ||
-      request.destination?.environmentId !== command.environmentId ||
-      request.destination.threadId !== command.threadId || request.destination.projectId !== command.projectId ||
-      !request.permissionCeiling.includes(`runtime:${command.runtimeMode}`) ||
-      !request.destinationPermissions.includes(`runtime:${command.runtimeMode}`)) {
+  if (
+    state.strictSubmission !== undefined ||
+    !["sending", "admitted", "uncertain", "delivered", "accepted", "completed", "failed"].includes(
+      state.status,
+    ) ||
+    state.fingerprint !== routeFingerprint ||
+    state.attemptId !== command.attemptId ||
+    commandFingerprint !== strictRouteDescriptorFingerprint(command) ||
+    command.requestId !== request.requestId ||
+    command.text !== request.content ||
+    command.commandId !== identity.commandId ||
+    command.messageId !== identity.messageId ||
+    command.runId !== identity.runId ||
+    request.source.environmentId !== command.environmentId ||
+    request.source.threadId !== command.senderThreadId ||
+    request.source.projectId !== command.sourceProjectId ||
+    request.destination?.environmentId !== command.environmentId ||
+    request.destination.threadId !== command.threadId ||
+    request.destination.projectId !== command.projectId ||
+    !request.permissionCeiling.includes(`runtime:${command.runtimeMode}`) ||
+    !request.destinationPermissions.includes(`runtime:${command.runtimeMode}`)
+  ) {
     throw new Error("Idle route claim identity mismatch");
   }
 }
@@ -364,11 +377,17 @@ export function claimIdleRouteSubmission(
   routeFingerprint: string,
   command: OrchestrationV2IdleRouteCommand,
 ): RouteState {
-  if (state.status !== "sending" || state.strictSubmission !== undefined || state.idleSubmission !== undefined)
+  if (
+    state.status !== "sending" ||
+    state.strictSubmission !== undefined ||
+    state.idleSubmission !== undefined
+  )
     throw new Error("Idle route claim already exists or is unavailable");
   const next = {
-    ...state, idleSubmission: {
-      routeFingerprint, commandFingerprint: strictRouteDescriptorFingerprint(command),
+    ...state,
+    idleSubmission: {
+      routeFingerprint,
+      commandFingerprint: strictRouteDescriptorFingerprint(command),
       command: structuredClone(command),
     },
   };
@@ -388,11 +407,17 @@ export function settleIdleRouteSubmission(
   if (!["sending", "admitted", "uncertain"].includes(state.status)) return state;
   switch (evidence) {
     case "admitted":
-      return state.status === "admitted" ? state : {
-        ...state, status: "admitted", reason: "idle-route-awaiting-native-start",
-      };
+      return state.status === "admitted"
+        ? state
+        : {
+            ...state,
+            status: "admitted",
+            reason: "idle-route-awaiting-native-start",
+          };
     case "uncertain":
-      return state.status === "uncertain" ? state : applyRouteTransition(state, { type: "send-interrupted" });
+      return state.status === "uncertain"
+        ? state
+        : applyRouteTransition(state, { type: "send-interrupted" });
     case "delivered":
     case "failed": {
       const destination = state.request.destination;
@@ -420,10 +445,12 @@ export function assertStrictRouteSubmission(state: RouteState): void {
   const { source, destination } = state.request;
   const { target } = command;
   const identity = strictRouteDescriptorFingerprint([attempt.requestId, attempt.attemptId]);
-  const expectedSender = source.environmentId === destination?.environmentId
-    ? source.threadId : undefined;
+  const expectedSender =
+    source.environmentId === destination?.environmentId ? source.threadId : undefined;
   if (
-    !["sending", "admitted", "uncertain", "delivered", "accepted", "completed", "failed"].includes(state.status) ||
+    !["sending", "admitted", "uncertain", "delivered", "accepted", "completed", "failed"].includes(
+      state.status,
+    ) ||
     !state.attemptId ||
     !destination ||
     fingerprint !== state.fingerprint ||
@@ -444,13 +471,15 @@ export function assertStrictRouteSubmission(state: RouteState): void {
     command.creationSource !== "server" ||
     command.senderThreadId !== expectedSender ||
     command.linkedSender !== undefined ||
-    strictRouteDescriptorFingerprint(command.attachments) !== strictRouteDescriptorFingerprint(attempt.attachments) ||
+    strictRouteDescriptorFingerprint(command.attachments) !==
+      strictRouteDescriptorFingerprint(attempt.attachments) ||
     target.projectId !== destination.projectId ||
     target.providerInstanceId !== attempt.destination.providerInstanceId ||
     target.runId !== attempt.destination.runId ||
     target.runtimeMode !== attempt.destination.runtimeMode ||
     target.interactionMode !== attempt.destination.interactionMode
-  ) throw new Error("Strict route submission identity mismatch");
+  )
+    throw new Error("Strict route submission identity mismatch");
 }
 
 export function claimStrictRouteSubmission(
@@ -458,7 +487,11 @@ export function claimStrictRouteSubmission(
   fingerprint: string,
   delivery: PreparedStrictRouteDelivery,
 ): RouteState {
-  if (state.status !== "sending" || state.strictSubmission !== undefined || state.idleSubmission !== undefined) {
+  if (
+    state.status !== "sending" ||
+    state.strictSubmission !== undefined ||
+    state.idleSubmission !== undefined
+  ) {
     throw new Error("Strict route submission claim is unavailable");
   }
   const claimed = {
@@ -481,26 +514,39 @@ export function settleStrictRouteSubmission(
   const claim = state.strictSubmission;
   const destination = state.request.destination;
   if (
-    claim === undefined || destination === null || state.attemptId === null ||
+    claim === undefined ||
+    destination === null ||
+    state.attemptId === null ||
     claim.descriptorFingerprint !== descriptorFingerprint
-  ) throw new Error("Strict route settlement identity mismatch");
+  )
+    throw new Error("Strict route settlement identity mismatch");
   if (
     "effectId" in result &&
-    result.effectId !== `effect:strict-steer:${strictRouteDescriptorFingerprint(claim.delivery.command)}`
-  ) throw new Error("Strict route effect identity mismatch");
+    result.effectId !==
+      `effect:strict-steer:${strictRouteDescriptorFingerprint(claim.delivery.command)}`
+  )
+    throw new Error("Strict route effect identity mismatch");
 
   if (!["sending", "admitted", "uncertain"].includes(state.status)) return state;
   switch (result.status) {
     case "admitted":
-      return state.status === "admitted" ? state : {
-        ...state, status: "admitted", reason: "strict-steer-awaiting-native-result",
-      };
+      return state.status === "admitted"
+        ? state
+        : {
+            ...state,
+            status: "admitted",
+            reason: "strict-steer-awaiting-native-result",
+          };
     case "uncertain":
-      return state.status === "uncertain" ? state : applyRouteTransition(state, { type: "send-interrupted" });
+      return state.status === "uncertain"
+        ? state
+        : applyRouteTransition(state, { type: "send-interrupted" });
     case "rejected":
       // A mismatch during reconciliation is not evidence about the original submission.
       return result.reason === "changed-intent"
-        ? state.status === "uncertain" ? state : applyRouteTransition(state, { type: "send-interrupted" })
+        ? state.status === "uncertain"
+          ? state
+          : applyRouteTransition(state, { type: "send-interrupted" })
         : { ...state, status: "failed", reason: "strict-steer-command-rejected" };
     case "delivered":
     case "failed":
@@ -513,7 +559,9 @@ export function settleStrictRouteSubmission(
         destination,
         receiptId: `strict:${result.effectId}:${kind}`,
         kind,
-        ...(kind === "failed" ? { message: "Strict steering ended without confirmed native delivery." } : {}),
+        ...(kind === "failed"
+          ? { message: "Strict steering ended without confirmed native delivery." }
+          : {}),
       };
       return applyRouteTransition(state, { type: "receipt", receipt });
     }

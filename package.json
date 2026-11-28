@@ -1,6 +1,7 @@
 {
   "name": "@j1code/monorepo",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "scripts": {
     "prepare": "vp config --no-agent",
@@ -55,6 +56,7 @@
     "dist:desktop:linux": "node scripts/build-desktop-artifact.ts --platform linux --target AppImage --arch x64",
     "dist:gnome-extension": "gnome-extensions pack apps/desktop/gnome-extension --extra-source=captureService.js --extra-source=captureFeedback.js --extra-source=feedbackGeometry.js --out-dir=release --force",
     "dist:desktop:win": "node scripts/build-desktop-artifact.ts --platform win --target nsis",
+    "qa:desktop:win": "node scripts/build-desktop-artifact.ts --platform win --target dir --smoke-test",
     "dist:desktop:win:arm64": "node scripts/build-desktop-artifact.ts --platform win --target nsis --arch arm64",
     "dist:desktop:win:x64": "node scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64",
     "release:smoke": "node scripts/release-smoke.ts",
@@ -72,6 +74,5 @@
   "engines": {
     "node": "26.13.1"
   },
-  "packageManager": "pnpm@12.14.0",
-  "license": "SEE LICENSE IN LICENSE"
+  "packageManager": "pnpm@12.14.0"
 }

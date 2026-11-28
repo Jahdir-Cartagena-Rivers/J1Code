@@ -66,6 +66,16 @@ jobs:
           apps/server/src/mausbot/Resources.test.ts
           apps/server/src/serverTransfer/transfer.test.ts
           apps/server/src/cli/transfer.test.ts
+      - name: Test workflows, tracked repositories, and saved apps
+        run: >-
+          vp test run apps/server/src/cli/workflow.test.ts
+          apps/server/src/mcp/toolkits/workflow/handlers.test.ts
+          apps/server/src/scheduledTasks/webhookRoute.test.ts
+          apps/server/src/workflows/WorkflowForge.test.ts
+          apps/server/src/orchestration-v2/CheckpointRollbackService.taskFolder.test.ts
+          apps/server/src/workspace/WorkspaceFolders.test.ts
+          apps/desktop/src/app/MausbotShortcuts.test.ts
+          apps/web/src/components/mausbotHost.test.ts
       - name: Test hybrid desktop automation
         run: >-
           vp test run apps/server/src/desktop/DesktopAutomation.test.ts

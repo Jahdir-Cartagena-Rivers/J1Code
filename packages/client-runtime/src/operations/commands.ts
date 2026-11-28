@@ -25,6 +25,7 @@ import {
   type RuntimeMode,
   type RuntimeRequestId,
   type ThreadId,
+  type ThreadBotIdentity,
   type ThreadEnvMode,
   type UploadChatAttachment,
   type GuestMessageId,
@@ -85,6 +86,7 @@ export interface CreateThreadInput extends CommandMetadata {
   readonly threadId: ThreadId;
   readonly projectId: ProjectId;
   readonly title: string;
+  readonly bot?: ThreadBotIdentity;
   readonly modelSelection: ModelSelection;
   readonly runtimeMode: RuntimeMode;
   readonly interactionMode: ProviderInteractionMode;
@@ -478,6 +480,7 @@ export const createThread = Effect.fn("EnvironmentCommands.createThread")(functi
     threadId: input.threadId,
     projectId: input.projectId,
     title: input.title,
+    ...(input.bot !== undefined ? { bot: input.bot } : {}),
     modelSelection: input.modelSelection,
     runtimeMode: input.runtimeMode,
     interactionMode: input.interactionMode,

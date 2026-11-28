@@ -1,4 +1,3 @@
-import { LEGACY_BOTS_ENABLED } from "@j1code/shared/legacy-bots";
 import { isStandaloneBotProject } from "@j1code/shared/bot-workspace";
 import { requestCustomSnooze } from "./CustomSnoozeDialog";
 
@@ -39,7 +38,12 @@ import {
   isThreadWorking,
 } from "@j1code/client-runtime/state/thread-inbox";
 import { sortSettledThreads } from "@j1code/client-runtime/state/thread-sort";
-import { nextShownOrder, threadSearchMatchKey, threadSearchSubject, type ShownOrder } from "@j1code/client-runtime/state/thread-search";
+import {
+  nextShownOrder,
+  threadSearchMatchKey,
+  threadSearchSubject,
+  type ShownOrder,
+} from "@j1code/client-runtime/state/thread-search";
 import { foldSearchQuery, rankMessageMatches } from "@j1code/shared/paletteSearch";
 import { findForMessageMatch, openThreadFindOnQuery } from "./chat/threadFindStore";
 import {
@@ -59,8 +63,20 @@ import {
   type ScopedThreadRef,
   type ThreadId,
 } from "@j1code/contracts";
-import { resolveListedAncestorThreadRef, type OlderSettledScope } from "@j1code/client-runtime/state/threads";
-import { ArrowDownIcon, ArrowUpIcon, CheckIcon, ChevronDownIcon, FolderIcon, ListFilterIcon, PlusIcon, SettingsIcon } from "lucide-react";
+import {
+  resolveListedAncestorThreadRef,
+  type OlderSettledScope,
+} from "@j1code/client-runtime/state/threads";
+import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  FolderIcon,
+  ListFilterIcon,
+  PlusIcon,
+  SettingsIcon,
+} from "lucide-react";
 import {
   useEffect,
   useLayoutEffect,
@@ -105,7 +121,11 @@ import {
   getSidebarProjectSettingsKey,
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
-import { legacyProjectCwdPreferenceKey, resolveProjectExpanded, useUiStateStore } from "../uiStateStore";
+import {
+  legacyProjectCwdPreferenceKey,
+  resolveProjectExpanded,
+  useUiStateStore,
+} from "../uiStateStore";
 import {
   getThreadKeysToDeselectAfterDelete,
   useThreadSelectionStore,
@@ -243,7 +263,6 @@ import {
 } from "./ui/combobox";
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
-import { SidebarBots } from "./sidebar/SidebarBots";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { TooltipProvider } from "./ui/tooltip";
 import {
@@ -893,7 +912,13 @@ function readRouteThreadKey(router: AnyRouter): string | null {
   return ref === null ? null : scopedThreadKey(ref);
 }
 
-export default function Sidebar({ embedded = false, routeReveal }: { embedded?: boolean; routeReveal: SidebarRouteReveal }) {
+export default function Sidebar({
+  embedded = false,
+  routeReveal,
+}: {
+  embedded?: boolean;
+  routeReveal: SidebarRouteReveal;
+}) {
   const {
     projects,
     serverConfigs,
@@ -913,8 +938,13 @@ export default function Sidebar({ embedded = false, routeReveal }: { embedded?: 
     if (!project || !target) return;
     const state = useUiStateStore.getState();
     const ordered = orderItemsByPreferredIds({
-      items: projects, preferredIds: state.projectOrder, getId: getProjectOrderKey,
-      getPreferenceIds: (item) => [getProjectOrderKey(item), legacyProjectCwdPreferenceKey(item.workspaceRoot)],
+      items: projects,
+      preferredIds: state.projectOrder,
+      getId: getProjectOrderKey,
+      getPreferenceIds: (item) => [
+        getProjectOrderKey(item),
+        legacyProjectCwdPreferenceKey(item.workspaceRoot),
+      ],
     });
     state.reorderProjects(
       ordered.map(getProjectOrderKey),
@@ -930,11 +960,12 @@ export default function Sidebar({ embedded = false, routeReveal }: { embedded?: 
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Persist manual ordering while this drag-reorder sidebar is mounted.
   useEffect(() => {
     if (sidebarProjectSortOrder !== "manual") {
       void updateClientSettings({ sidebarProjectSortOrder: "manual" });
     }
-  }, [sidebarProjectSortOrder, updateClientSettings]);
+  }, [sidebarProjectSortOrder]);
   const {
     settleThread,
     unsettleThread,
@@ -1158,7 +1189,7 @@ export default function Sidebar({ embedded = false, routeReveal }: { embedded?: 
   // scope. Route changes arrive from history, links and the palette, and only this
   // component holds the project groups that decide a widening, so no single
   // navigation handler can make the write.
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- writes a route reveal's widened project scope back to the persisted sidebar scope and clears selection
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- writes a route reveal's widened project scope back to the persisted sidebar scope and clears selection
   useEffect(() => {
     if (!revealWidensScope) return;
     clearSelection();
@@ -1663,7 +1694,7 @@ export default function Sidebar({ embedded = false, routeReveal }: { embedded?: 
       }
     })();
   };
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this sidebar's settle handler in the module-level settleAndAdvance registry
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- registers this sidebar's settle handler in the module-level settleAndAdvance registry
   useEffect(() => registerSettleAndAdvance(attemptSettle), [attemptSettle]);
   const settleThreads = (threadKeys: readonly string[]) => {
     const coSettlingKeys = new Set(threadKeys);
@@ -1816,7 +1847,7 @@ export default function Sidebar({ embedded = false, routeReveal }: { embedded?: 
   };
   const dndSensors = useSensors(useSensor(SidebarPointerSensor, pointerSensorOptions));
   const sectionByThreadKeyRef = useRef(sectionByThreadKey);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- publishes committed list data to refs read by stable drag and sweep callbacks
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- publishes committed list data to refs read by stable drag and sweep callbacks
   useLayoutEffect(() => {
     projectGroupsRef.current = projectGroups;
     orderedThreadKeysRef.current = orderedThreadKeys;
@@ -2006,7 +2037,7 @@ export default function Sidebar({ embedded = false, routeReveal }: { embedded?: 
     // Update the local list too; threadByKey already omits rows moved into collapsed shelves.
     sidebarListItems = sidebarListItemsFresh;
   }
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- cancels the dnd-kit drag sensor when the dragged row leaves the list
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- cancels the dnd-kit drag sensor when the dragged row leaves the list
   useEffect(() => {
     if (
       dragState !== null &&
@@ -2032,7 +2063,7 @@ export default function Sidebar({ embedded = false, routeReveal }: { embedded?: 
     ":",
   );
   const previousShelfExpansionKeyRef = useRef(shelfExpansionKey);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- records moved rows and updates list motion after each layout-affecting commit
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- records moved rows and updates list motion after each layout-affecting commit
   useLayoutEffect(() => {
     shiftGuardRef.current?.update();
     // Shelf rows would travel over stationary headers below the bottom-anchored shelf.
@@ -2900,7 +2931,7 @@ export default function Sidebar({ embedded = false, routeReveal }: { embedded?: 
     },
   );
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to window keydown for thread navigation shortcuts using the current thread list
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- subscribes to window keydown for thread navigation shortcuts using the current thread list
   useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat || isCommandPaletteOpen() || isModelPickerOpen()) {
@@ -2980,7 +3011,6 @@ export default function Sidebar({ embedded = false, routeReveal }: { embedded?: 
   return (
     <SidebarFolderDrop>
       {!embedded && <SidebarChromeHeader isElectron={isElectron} />}
-      {LEGACY_BOTS_ENABLED ? <SidebarBots /> : null}
       <SidebarContent
         ref={sidebarContentRef}
         scrollable={!embedded}
@@ -3179,36 +3209,36 @@ export default function Sidebar({ embedded = false, routeReveal }: { embedded?: 
                                 >
                                   <ArrowDownIcon className="size-3.5" />
                                 </Button>
-                              <ProjectRowActions
-                                pin={
-                                  canPinProject(project) ? (
-                                    <ProjectPinButton
-                                      name={project.displayName}
-                                      pinned={project.pinned}
-                                      shortcutLabel={shortcutLabelForCommand(
-                                        keybindings,
-                                        "thread.pin",
-                                      )}
-                                      onToggle={() => toggleProjectGroupPin(project)}
-                                    />
-                                  ) : null
-                                }
-                                settings={
-                                  <Button
-                                    size="icon-xs"
-                                    variant="ghost-muted"
-                                    tabIndex={-1}
-                                    aria-hidden="true"
-                                    title={`Project settings for ${project.displayName}`}
-                                    onPointerDown={(event) => event.stopPropagation()}
-                                    onClick={(event) => {
-                                      void handleProjectSettings(event, project);
-                                    }}
-                                  >
-                                    <SettingsIcon className="size-3.5" />
-                                  </Button>
-                                }
-                              />
+                                <ProjectRowActions
+                                  pin={
+                                    canPinProject(project) ? (
+                                      <ProjectPinButton
+                                        name={project.displayName}
+                                        pinned={project.pinned}
+                                        shortcutLabel={shortcutLabelForCommand(
+                                          keybindings,
+                                          "thread.pin",
+                                        )}
+                                        onToggle={() => toggleProjectGroupPin(project)}
+                                      />
+                                    ) : null
+                                  }
+                                  settings={
+                                    <Button
+                                      size="icon-xs"
+                                      variant="ghost-muted"
+                                      tabIndex={-1}
+                                      aria-hidden="true"
+                                      title={`Project settings for ${project.displayName}`}
+                                      onPointerDown={(event) => event.stopPropagation()}
+                                      onClick={(event) => {
+                                        void handleProjectSettings(event, project);
+                                      }}
+                                    >
+                                      <SettingsIcon className="size-3.5" />
+                                    </Button>
+                                  }
+                                />
                               </>
                             ) : (
                               // Keeps "All projects" as tall as the project rows.

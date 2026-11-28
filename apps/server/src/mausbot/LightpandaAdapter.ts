@@ -1,3 +1,4 @@
+// @effect-diagnostics-next-line nodeBuiltinImport:off - The native browser pool expects synchronous session keys.
 import * as NodeCrypto from "node:crypto";
 import type { LightpandaPool } from "../mcp/LightpandaProcess.ts";
 
@@ -105,7 +106,7 @@ export class MausbotLightpandaAdapter {
         isError: true,
         content: [{ type: "text", text: "This action is unavailable in the lightweight browser." }],
       };
-    const args = { ...(params.arguments ?? {}) };
+    const args = { ...params.arguments };
     // Read tools must stay on the existing page; navigation has its own explicit tool.
     if (native !== "goto") delete args.url;
     if (native === "screenshot") delete args.path;

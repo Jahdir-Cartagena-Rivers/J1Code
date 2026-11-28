@@ -228,6 +228,7 @@ describe("AntigravityAdapterV2 session open", () => {
         const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
         const workspace = yield* fs.makeTempDirectoryScoped();
         const requestLog = path.join(workspace, "requests.ndjson");
+        const crypto = yield* SecureRandom.SecureRandom;
         const mockAgentPath = yield* path.fromFileUrl(
           new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
         );
@@ -250,7 +251,7 @@ describe("AntigravityAdapterV2 session open", () => {
                   ...(kind === "unavailable" ? { T3_ACP_FAIL_RESUME_SESSION: "1" } : {}),
                 },
               },
-            }),
+            }).pipe(Effect.provideService(SecureRandom.SecureRandom, crypto)),
           withProcess: (_stop, task) => task,
           defaultModel: Effect.undefined,
         });
@@ -260,26 +261,42 @@ describe("AntigravityAdapterV2 session open", () => {
           interactionMode: "default",
           cwd: workspace,
         });
-        const result = yield* adapter.openSession({
-          threadId,
-          providerSessionId: ProviderSessionId.make("provider-session-antigravity-resume-fixture"),
-          modelSelection: { instanceId, model: "gemini-test-low" },
-          runtimePolicy,
-          ...(kind === "new" ? {} : {
-            initialNativeThreadId: nativeId,
-            requireExactInitialNativeThread: true as const,
-          }),
-        }).pipe(Effect.result);
+        const result = yield* adapter
+          .openSession({
+            threadId,
+            providerSessionId: ProviderSessionId.make(
+              "provider-session-antigravity-resume-fixture",
+            ),
+            modelSelection: { instanceId, model: "gemini-test-low" },
+            runtimePolicy,
+            ...(kind === "new"
+              ? {}
+              : {
+                  initialNativeThreadId: nativeId,
+                  requireExactInitialNativeThread: true as const,
+                }),
+          })
+          .pipe(Effect.result);
         assert.equal(result._tag, kind === "unavailable" ? "Failure" : "Success");
 
-        const requests = (yield* fs.readFileString(requestLog)).trim().split("\n")
-          .map((line) => JSON.parse(line) as { method?: string; params?: { sessionId?: string; cwd?: string } });
-        const activation = requests.filter(({ method }) =>
-          method === "session/resume" || method === "session/load" || method === "session/new",
+        const requests = (yield* fs.readFileString(requestLog))
+          .trim()
+          .split("\n")
+          .map(
+            (line) =>
+              JSON.parse(line) as {
+                method?: string;
+                params?: { sessionId?: string; cwd?: string };
+              },
+          );
+        const activation = requests.filter(
+          ({ method }) =>
+            method === "session/resume" || method === "session/load" || method === "session/new",
         );
-        assert.deepEqual(activation.map(({ method }) => method), [
-          kind === "new" ? "session/new" : "session/resume",
-        ]);
+        assert.deepEqual(
+          activation.map(({ method }) => method),
+          [kind === "new" ? "session/new" : "session/resume"],
+        );
         assert.equal(activation[0]?.params?.cwd, workspace);
         assert.equal(activation[0]?.params?.sessionId, kind === "new" ? undefined : nativeId);
         assert.isFalse(requests.some(({ method }) => method === "session/prompt"));
@@ -531,14 +548,18 @@ describe("AntigravityAdapterV2 workspace changes", () => {
               ...runtime,
               prompt: (request, options) =>
                 Deferred.succeed(promptReceived, request).pipe(
-                  Effect.andThen(runtime.prompt(request, {
-                    ...options,
-                    ...(options?.authorizeWrite === undefined ? {} : {
-                      authorizeWrite: options.authorizeWrite.pipe(
-                        Effect.tap(() => Deferred.succeed(checkedAtWriter, undefined)),
-                      ),
+                  Effect.andThen(
+                    runtime.prompt(request, {
+                      ...options,
+                      ...(options?.authorizeWrite === undefined
+                        ? {}
+                        : {
+                            authorizeWrite: options.authorizeWrite.pipe(
+                              Effect.tap(() => Deferred.succeed(checkedAtWriter, undefined)),
+                            ),
+                          }),
                     }),
-                  })),
+                  ),
                 ),
               start: () =>
                 runtime.start().pipe(

@@ -1,6 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schedule from "effect/Schedule";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import { ServerConfig } from "../config.ts";
@@ -12,6 +13,11 @@ import { ProviderInstanceRegistry } from "../provider/ProviderInstanceRegistry.t
 import { ServerSettingsService } from "../serverSettings.ts";
 import { MausbotExecutionHost } from "./ExecutionHost.ts";
 import { createMausbotExecutionV2 } from "./ExecutionV2.ts";
+
+class MausbotExecutionLifecycleError extends Schema.TaggedError<MausbotExecutionLifecycleError>()(
+  "MausbotExecutionLifecycleError",
+  { operation: Schema.Literals(["close", "refresh-catalog"]), cause: Schema.Defect() },
+) {}
 
 export const layer = Layer.effect(
   MausbotExecutionHost,
@@ -32,7 +38,10 @@ export const layer = Layer.effect(
       "stream",
     );
     yield* Effect.addFinalizer(() =>
-      Effect.tryPromise(() => host.close()).pipe(
+      Effect.tryPromise({
+        try: () => host.close(),
+        catch: (cause) => new MausbotExecutionLifecycleError({ operation: "close", cause }),
+      }).pipe(
         Effect.catch(() => Effect.logWarning("Failed to stop one or more owned V2 bot turns.")),
       ),
     );
@@ -56,7 +65,11 @@ export const layer = Layer.effect(
     );
     yield* Stream.fromSubscription(catalogChanges).pipe(
       Stream.runForEach(() =>
-        Effect.tryPromise((signal) => host.catalogChanged(signal)).pipe(
+        Effect.tryPromise({
+          try: (signal) => host.catalogChanged(signal),
+          catch: (cause) =>
+            new MausbotExecutionLifecycleError({ operation: "refresh-catalog", cause }),
+        }).pipe(
           Effect.catch(() => Effect.logWarning("Could not refresh the V2 bot provider catalog.")),
         ),
       ),

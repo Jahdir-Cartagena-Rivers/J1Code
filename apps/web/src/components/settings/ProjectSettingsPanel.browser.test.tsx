@@ -1,8 +1,5 @@
 import { RegistryContext } from "@effect/atom-react";
-import type {
-  DeleteProjectInput,
-  UpdateProjectInput,
-} from "@j1code/client-runtime/state/projects";
+import type { DeleteProjectInput, UpdateProjectInput } from "@j1code/client-runtime/state/projects";
 import {
   AuthOrchestrationOperateScope,
   AuthSettingsWriteScope,
@@ -797,6 +794,22 @@ it("returns to the project overview after removal, clearing the selection but ke
 });
 
 describe("project name composition", () => {
+  it("restores the saved project name when the empty field loses focus", async () => {
+    setup();
+    await using screen = await mountPanel();
+    const input = nameInput(screen);
+
+    await userEvent.fill(input, "   ");
+    await userEvent.keyboard("{Enter}");
+
+    await expect.element(input).toHaveValue("Shared repo");
+    expect(state.toast).toHaveBeenCalledWith({
+      type: "warning",
+      title: "Project title cannot be empty",
+    });
+    expect(state.update).not.toHaveBeenCalled();
+  });
+
   it.each([
     { isComposing: true, keyCode: 13 },
     { isComposing: false, keyCode: 229 },

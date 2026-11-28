@@ -34,7 +34,10 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 
 import * as ServerConfig from "../config.ts";
-import { captureBotExecutionContext, type CapturedBotExecutionContext } from "../mausbot/ExecutionContext.ts";
+import {
+  captureBotExecutionContext,
+  type CapturedBotExecutionContext,
+} from "../mausbot/ExecutionContext.ts";
 import { resolveBotTurnContext } from "./botTurnContext.ts";
 import { prepareHiveTurnRecall, type HiveTurnCapture } from "./HiveTurnRecall.ts";
 import { matchesMausbotOrigin } from "./MausbotOrigin.ts";
@@ -70,6 +73,7 @@ import {
   latestNativeContextUsage,
 } from "@j1code/provider-core/server/handoffBudget";
 import { deliverContextHandoffs, withInlineContext } from "./ContextHandoffDelivery.ts";
+import { isProviderCommand, outputInstructions } from "./runOutput.ts";
 import * as ProviderAdapter from "@j1code/provider-core/server/ProviderAdapter";
 import * as IdAllocator from "@j1code/provider-core/server/IdAllocator";
 import * as ProjectionStore from "./ProjectionStore.ts";
@@ -187,11 +191,14 @@ export function matchesDelegationDeadline(
   now: DateTime.Utc,
 ): boolean {
   if (original?.deadlineAt === undefined) return true;
-  return saved?.deadlineAt !== undefined &&
-    original.id === saved.id && original.threadId === saved.threadId &&
+  return (
+    saved?.deadlineAt !== undefined &&
+    original.id === saved.id &&
+    original.threadId === saved.threadId &&
     original.childThreadId === saved.childThreadId &&
     DateTime.toEpochMillis(original.deadlineAt) === DateTime.toEpochMillis(saved.deadlineAt) &&
-    timedDelegationStartAllowed(saved, now);
+    timedDelegationStartAllowed(saved, now)
+  );
 }
 
 export function idleWorkerLease(
@@ -201,7 +208,9 @@ export function idleWorkerLease(
 ): string | null {
   return claim?.attemptCount === 1 &&
     claim.effectId === `effect:${commandId}:provider-turn.start:${runId}` &&
-    claim.leaseOwner.trim() !== "" ? claim.leaseOwner : null;
+    claim.leaseOwner.trim() !== ""
+    ? claim.leaseOwner
+    : null;
 }
 
 export class ProviderTurnStartServiceV2 extends Context.Service<
@@ -243,9 +252,9 @@ export const layer: Layer.Layer<
     const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
-    const legacyImporter = Option.getOrUndefined(yield* Effect.serviceOption(
-      LegacyV1ThreadImporter.LegacyV1ThreadImporter,
-    ));
+    const legacyImporter = Option.getOrUndefined(
+      yield* Effect.serviceOption(LegacyV1ThreadImporter.LegacyV1ThreadImporter),
+    );
     const routeAdmission = yield* Effect.serviceOption(V2RouteAdmission);
     const restoreMissingWorktree = yield* makeRestoreMissingWorktree;
     const turnItemPositions = yield* TurnItemPositionStore.TurnItemPositionStoreV2;
@@ -491,13 +500,14 @@ export const layer: Layer.Layer<
       const savedOwner = yield* delegatedTaskOwner(projectionStore, projection.thread, runId);
       const savedDeadline = savedOwner?.deadlineAt;
       const deadlineRefused = yield* Ref.make(false);
-      const deadlineCurrent = savedDeadline === undefined
-        ? Effect.succeed(true)
-        : Effect.gen(function* () {
-            const thread = yield* projectionStore.getThread(input.threadId);
-            const current = yield* delegatedTaskOwner(projectionStore, thread, runId);
-            return matchesDelegationDeadline(savedOwner, current, yield* DateTime.now);
-          });
+      const deadlineCurrent =
+        savedDeadline === undefined
+          ? Effect.succeed(true)
+          : Effect.gen(function* () {
+              const thread = yield* projectionStore.getThread(input.threadId);
+              const current = yield* delegatedTaskOwner(projectionStore, thread, runId);
+              return matchesDelegationDeadline(savedOwner, current, yield* DateTime.now);
+            });
       if (!(yield* deadlineCurrent)) return;
       const rootNode = projection.nodes.find((candidate) => candidate.id === run.rootNodeId);
       const attempt = projection.attempts.find((candidate) => candidate.id === run.activeAttemptId);
@@ -505,90 +515,165 @@ export const layer: Layer.Layer<
         (candidate) => candidate.id === run.providerThreadId,
       );
       const savedOrigin = run.mausbotOriginStart;
-      const authoredRoot = savedOrigin?.rootSource !== undefined && savedOrigin.dispatch === "first";
-      const originSource = savedOrigin && projection.messages.find(row =>
-        row.id === savedOrigin.sourceMessageId && row.role === (savedOrigin.rootSource || savedOrigin.incidentBatch || savedOrigin.room ? "user" : "assistant") &&
-        row.threadId === run.threadId);
-      const message = savedOrigin && !authoredRoot ? originSource && {
-        ...originSource, id: run.userMessageId, runId: run.id, createdBy: "agent" as const,
-        text: savedOrigin.text, attachments: savedOrigin.attachments,
-      } : projection.messages.find((candidate) => candidate.id === run.userMessageId);
+      const authoredRoot =
+        savedOrigin?.rootSource !== undefined && savedOrigin.dispatch === "first";
+      const originSource =
+        savedOrigin &&
+        projection.messages.find(
+          (row) =>
+            row.id === savedOrigin.sourceMessageId &&
+            row.role ===
+              (savedOrigin.rootSource || savedOrigin.incidentBatch || savedOrigin.room
+                ? "user"
+                : "assistant") &&
+            row.threadId === run.threadId,
+        );
+      const message =
+        savedOrigin && !authoredRoot
+          ? originSource && {
+              ...originSource,
+              id: run.userMessageId,
+              runId: run.id,
+              createdBy: "agent" as const,
+              text: savedOrigin.text,
+              attachments: savedOrigin.attachments,
+            }
+          : projection.messages.find((candidate) => candidate.id === run.userMessageId);
       const bot = resolveBotTurnContext(projection.thread, run.userMessageId, capturedBot);
       const refuseBotStart = (cause: string) => new ProviderTurnStartError({ runId, cause });
-      if (bot.type === "stale") return yield* refuseBotStart("The original bot turn no longer owns this message.");
+      if (bot.type === "stale")
+        return yield* refuseBotStart("The original bot turn no longer owns this message.");
       const botOwner = bot.type === "bridge" ? bot.context : undefined;
       const botOrigin = botOwner?.origin;
       const verifyOrigin = Effect.tryPromise({
-        try: async () => Boolean(botOrigin && botOwner?.isCurrent() && await botOrigin.refresh()),
+        try: async () => Boolean(botOrigin && botOwner?.isCurrent() && (await botOrigin.refresh())),
         catch: (cause) => new ProviderTurnStartError({ runId, cause }),
       }).pipe(Effect.orElseSucceed(() => false));
-      if (savedOrigin?.consultation && (!botOwner || botOwner.tools.length || providerThread?.driver !== "codex"))
-        return yield* refuseBotStart("The consultation requires the original provider's read-only start and no action tools.");
+      if (
+        savedOrigin?.consultation &&
+        (!botOwner || botOwner.tools.length || providerThread?.driver !== "codex")
+      )
+        return yield* refuseBotStart(
+          "The consultation requires the original provider's read-only start and no action tools.",
+        );
       const coordinatorContinuation = savedOrigin?.continuation;
       const ownsCoordinatorSession = (provider: OrchestrationV2ProviderThread) =>
-        coordinatorContinuation !== undefined && provider.id === coordinatorContinuation.providerThreadId &&
+        coordinatorContinuation !== undefined &&
+        provider.id === coordinatorContinuation.providerThreadId &&
         provider.providerSessionId === coordinatorContinuation.providerSessionId &&
         provider.nativeThreadRef?.strength === "strong" &&
         provider.nativeThreadRef.nativeId === coordinatorContinuation.nativeThreadId;
-      if (Boolean(savedOrigin) !== Boolean(botOrigin) || (savedOrigin && (
-          !botOrigin || !originSource || !providerThread || !run.mausbotOriginProviderSessionId ||
-          providerThread.providerSessionId !== run.mausbotOriginProviderSessionId ||
-          (!authoredRoot && (coordinatorContinuation
-            ? !ownsCoordinatorSession(providerThread) : providerThread.nativeThreadRef != null)) ||
-          (savedOrigin.room && !savedOrigin.room.currentRowIds.every(id =>
-            projection.messages.some(row => row.id === mausbotHistoryMessageId(run.threadId, id) &&
-              row.threadId === run.threadId && row.role === "user" && row.createdBy === "user"))) ||
-          (savedOrigin.incidentBatch && !savedOrigin.incidentBatch.reports.every(report =>
-            projection.messages.some(row => row.id === mausbotHistoryMessageId(run.threadId, report.nativeMessageId) &&
-              row.threadId === run.threadId && row.role === "user"))) ||
-          !matchesMausbotOrigin(savedOrigin, botOrigin.input) || !(yield* verifyOrigin)))) {
-        return yield* refuseBotStart("The exact native assignment no longer owns this provider start.");
+      if (
+        Boolean(savedOrigin) !== Boolean(botOrigin) ||
+        (savedOrigin &&
+          (!botOrigin ||
+            !originSource ||
+            !providerThread ||
+            !run.mausbotOriginProviderSessionId ||
+            providerThread.providerSessionId !== run.mausbotOriginProviderSessionId ||
+            (!authoredRoot &&
+              (coordinatorContinuation
+                ? !ownsCoordinatorSession(providerThread)
+                : providerThread.nativeThreadRef != null)) ||
+            (savedOrigin.room &&
+              !savedOrigin.room.currentRowIds.every((id) =>
+                projection.messages.some(
+                  (row) =>
+                    row.id === mausbotHistoryMessageId(run.threadId, id) &&
+                    row.threadId === run.threadId &&
+                    row.role === "user" &&
+                    row.createdBy === "user",
+                ),
+              )) ||
+            (savedOrigin.incidentBatch &&
+              !savedOrigin.incidentBatch.reports.every((report) =>
+                projection.messages.some(
+                  (row) =>
+                    row.id === mausbotHistoryMessageId(run.threadId, report.nativeMessageId) &&
+                    row.threadId === run.threadId &&
+                    row.role === "user",
+                ),
+              )) ||
+            !matchesMausbotOrigin(savedOrigin, botOrigin.input) ||
+            !(yield* verifyOrigin)))
+      ) {
+        return yield* refuseBotStart(
+          "The exact native assignment no longer owns this provider start.",
+        );
       }
       const savedResume = run.mausbotPromptless;
       const botResume = savedResume ? botOwner?.resume : undefined;
-      if ((botOwner?.resume && !botResume) || (savedResume && (
-          !botResume || !providerThread || botResume.sourceRunId !== run.manualContinuationOfRunId ||
-          botResume.sourceRunId !== savedResume.sourceRunId ||
-          botResume.incidentFailure !== savedResume.incidentFailure ||
-          stableStringify(botResume.incidentNote) !== stableStringify(savedResume.incidentNote) ||
-          (savedResume.incidentFailure !== undefined && !botResume.verifyIncident) ||
-          botResume.providerTurnId !== savedResume.providerTurnId ||
-          botResume.nativeTurnId !== savedResume.nativeTurnId ||
-          botResume.providerThreadId !== savedResume.providerThreadId ||
-          botResume.providerSessionId !== savedResume.providerSessionId ||
-          botResume.nativeThreadId !== savedResume.nativeThreadId ||
-          botResume.projectId !== projection.thread.projectId ||
-          botResume.runtimeMode !== projection.thread.runtimeMode ||
-          botResume.interactionMode !== projection.thread.interactionMode ||
-          botResume.providerThreadId !== providerThread?.id ||
-          botResume.providerSessionId !== providerThread?.providerSessionId ||
-          botResume.nativeThreadId !== providerThread?.nativeThreadRef?.nativeId ||
-          providerThread.nativeThreadRef?.strength !== "strong"))) {
-        return yield* refuseBotStart("The exact original native bot continuation is no longer owned.");
+      if (
+        (botOwner?.resume && !botResume) ||
+        (savedResume &&
+          (!botResume ||
+            !providerThread ||
+            botResume.sourceRunId !== run.manualContinuationOfRunId ||
+            botResume.sourceRunId !== savedResume.sourceRunId ||
+            botResume.incidentFailure !== savedResume.incidentFailure ||
+            stableStringify(botResume.incidentNote) !== stableStringify(savedResume.incidentNote) ||
+            (savedResume.incidentFailure !== undefined && !botResume.verifyIncident) ||
+            botResume.providerTurnId !== savedResume.providerTurnId ||
+            botResume.nativeTurnId !== savedResume.nativeTurnId ||
+            botResume.providerThreadId !== savedResume.providerThreadId ||
+            botResume.providerSessionId !== savedResume.providerSessionId ||
+            botResume.nativeThreadId !== savedResume.nativeThreadId ||
+            botResume.projectId !== projection.thread.projectId ||
+            botResume.runtimeMode !== projection.thread.runtimeMode ||
+            botResume.interactionMode !== projection.thread.interactionMode ||
+            botResume.providerThreadId !== providerThread?.id ||
+            botResume.providerSessionId !== providerThread?.providerSessionId ||
+            botResume.nativeThreadId !== providerThread?.nativeThreadRef?.nativeId ||
+            providerThread.nativeThreadRef?.strength !== "strong"))
+      ) {
+        return yield* refuseBotStart(
+          "The exact original native bot continuation is no longer owned.",
+        );
       }
-      const isIdleRoute = ProviderAdapter.isReservedIdleRouteRun({
-        id: run.id,
-        userMessageId: run.userMessageId,
-        ...(run.restartContinuationOfRunId === undefined ? {} : { restartContinuationOfRunId: run.restartContinuationOfRunId }),
-        ...(run.usageLimitContinuationOfRunId === undefined ? {} : { usageLimitContinuationOfRunId: run.usageLimitContinuationOfRunId }),
-        ...(run.manualContinuationOfRunId === undefined ? {} : { manualContinuationOfRunId: run.manualContinuationOfRunId }),
-      }) || message?.idleRouteFingerprint !== undefined;
+      const isIdleRoute =
+        ProviderAdapter.isReservedIdleRouteRun({
+          id: run.id,
+          userMessageId: run.userMessageId,
+          ...(run.restartContinuationOfRunId === undefined
+            ? {}
+            : { restartContinuationOfRunId: run.restartContinuationOfRunId }),
+          ...(run.usageLimitContinuationOfRunId === undefined
+            ? {}
+            : { usageLimitContinuationOfRunId: run.usageLimitContinuationOfRunId }),
+          ...(run.manualContinuationOfRunId === undefined
+            ? {}
+            : { manualContinuationOfRunId: run.manualContinuationOfRunId }),
+        }) || message?.idleRouteFingerprint !== undefined;
       const admission = Option.getOrUndefined(routeAdmission);
-      const idleCommand = isIdleRoute && admission !== undefined
-        ? yield* admission.readIdleClaim(run.id, run.userMessageId) : null;
-      const workerLease = idleCommand === null ? null : idleWorkerLease(input.workerClaim, idleCommand.commandId, run.id);
-      const idleLease = idleCommand !== null && workerLease !== null &&
+      const idleCommand =
+        isIdleRoute && admission !== undefined
+          ? yield* admission.readIdleClaim(run.id, run.userMessageId)
+          : null;
+      const workerLease =
+        idleCommand === null
+          ? null
+          : idleWorkerLease(input.workerClaim, idleCommand.commandId, run.id);
+      const idleLease =
+        idleCommand !== null &&
+        workerLease !== null &&
         message?.idleRouteFingerprint === strictSteerFingerprint(idleCommand) &&
-        message.text === idleCommand.text && message.attachments.length === 0
-        ? yield* admission!.authorizeIdle(idleCommand, "starting", workerLease) : null;
-      const refuseIdleStart = () => new ProviderTurnStartError({
-        runId, cause: "The saved idle route no longer authorizes this provider start.",
-      });
-      if (isIdleRoute && (idleLease === null || idleCommand === null)) return yield* refuseIdleStart();
+        message.text === idleCommand.text &&
+        message.attachments.length === 0
+          ? yield* admission!.authorizeIdle(idleCommand, "starting", workerLease)
+          : null;
+      const refuseIdleStart = () =>
+        new ProviderTurnStartError({
+          runId,
+          cause: "The saved idle route no longer authorizes this provider start.",
+        });
+      if (isIdleRoute && (idleLease === null || idleCommand === null))
+        return yield* refuseIdleStart();
       const stillAuthorized = (phase: "starting" | "running") =>
         idleCommand === null || idleLease === null
           ? Effect.succeed(true)
-          : admission!.authorizeIdle(idleCommand, phase, idleLease).pipe(Effect.map((lease) => lease === idleLease));
+          : admission!
+              .authorizeIdle(idleCommand, phase, idleLease)
+              .pipe(Effect.map((lease) => lease === idleLease));
       const checkpointScope = projection.checkpointScopes.find(
         (candidate) => candidate.id === rootNode?.checkpointScopeId,
       );
@@ -655,18 +740,36 @@ export const layer: Layer.Layer<
           cause: `Run ${runId} is missing its execution projection state.`,
         });
       }
-      if (isIdleRoute && (nativeForkTransfer !== undefined || run.manualContinuationOfRunId !== undefined ||
-          run.restartContinuationOfRunId !== undefined || attempt.reason !== "initial" ||
-          attempt.attemptOrdinal !== 1)) return yield* refuseIdleStart();
-      if (botOwner !== undefined && (isIdleRoute || nativeForkTransfer !== undefined ||
-          (run.manualContinuationOfRunId !== undefined && !botResume) || run.restartContinuationOfRunId !== undefined ||
-          run.usageLimitContinuationOfRunId !== undefined || attempt.reason !== "initial" ||
-          attempt.attemptOrdinal !== 1 || isCompactionCommandMessage(message) ||
-          parseGoalCommand(message) !== null || message.text.trim().toLowerCase() === "/logout")) {
-        return yield* refuseBotStart("This bot action needs a separately owner-checked provider operation.");
+      if (
+        isIdleRoute &&
+        (nativeForkTransfer !== undefined ||
+          run.manualContinuationOfRunId !== undefined ||
+          run.restartContinuationOfRunId !== undefined ||
+          attempt.reason !== "initial" ||
+          attempt.attemptOrdinal !== 1)
+      )
+        return yield* refuseIdleStart();
+      if (
+        botOwner !== undefined &&
+        (isIdleRoute ||
+          nativeForkTransfer !== undefined ||
+          (run.manualContinuationOfRunId !== undefined && !botResume) ||
+          run.restartContinuationOfRunId !== undefined ||
+          run.usageLimitContinuationOfRunId !== undefined ||
+          attempt.reason !== "initial" ||
+          attempt.attemptOrdinal !== 1 ||
+          isCompactionCommandMessage(message) ||
+          parseGoalCommand(message) !== null ||
+          message.text.trim().toLowerCase() === "/logout")
+      ) {
+        return yield* refuseBotStart(
+          "This bot action needs a separately owner-checked provider operation.",
+        );
       }
       const manualResume =
-        botResume === undefined && run.manualContinuationOfRunId !== undefined && attempt.reason !== "steering_restart";
+        botResume === undefined &&
+        run.manualContinuationOfRunId !== undefined &&
+        attempt.reason !== "steering_restart";
       const resumeSource = manualResume
         ? unsentManualContinuationSource(run, projection)
         : undefined;
@@ -796,10 +899,15 @@ export const layer: Layer.Layer<
           return;
         }
       }
-      if (isIdleRoute && projection.thread.worktreePath !== null &&
-          !(yield* fileSystem.exists(projection.thread.worktreePath))) return yield* refuseIdleStart();
-      const recreateResult = yield* Effect.result(isIdleRoute
-        ? Effect.void : restoreMissingWorktree(projection.thread));
+      if (
+        isIdleRoute &&
+        projection.thread.worktreePath !== null &&
+        !(yield* fileSystem.exists(projection.thread.worktreePath))
+      )
+        return yield* refuseIdleStart();
+      const recreateResult = yield* Effect.result(
+        isIdleRoute ? Effect.void : restoreMissingWorktree(projection.thread),
+      );
       if (recreateResult._tag === "Failure") {
         if (input.willRetry === true) return yield* recreateResult.failure;
         yield* settleStartFailure({
@@ -844,15 +952,18 @@ export const layer: Layer.Layer<
         inheritedBackgroundTurnItems,
       });
       const { isCurrentAttemptInStatus } = runControls;
-      const canPrepare = () => isCurrentAttemptInStatus("starting").pipe(
-        Effect.flatMap((current) => current ? deadlineCurrent : Effect.succeed(false)),
-      );
-      const authorizeDelegationWrite = savedDeadline === undefined ? undefined :
-        isCurrentAttemptInStatus("running").pipe(
-          Effect.flatMap((active) => active ? deadlineCurrent : Effect.succeed(false)),
-          Effect.orElseSucceed(() => false),
-          Effect.tap((allowed) => allowed ? Effect.void : Ref.set(deadlineRefused, true)),
+      const canPrepare = () =>
+        isCurrentAttemptInStatus("starting").pipe(
+          Effect.flatMap((current) => (current ? deadlineCurrent : Effect.succeed(false))),
         );
+      const authorizeDelegationWrite =
+        savedDeadline === undefined
+          ? undefined
+          : isCurrentAttemptInStatus("running").pipe(
+              Effect.flatMap((active) => (active ? deadlineCurrent : Effect.succeed(false))),
+              Effect.orElseSucceed(() => false),
+              Effect.tap((allowed) => (allowed ? Effect.void : Ref.set(deadlineRefused, true))),
+            );
 
       const resolvedPolicy = yield* runtimePolicy
         .resolve({
@@ -916,7 +1027,9 @@ export const layer: Layer.Layer<
       if (abandonedTurn !== undefined) {
         if (isIdleRoute) return yield* refuseIdleStart();
         if (botOwner !== undefined)
-          return yield* refuseBotStart("A previous provider turn still owns the bot's native conversation.");
+          return yield* refuseBotStart(
+            "A previous provider turn still owns the bot's native conversation.",
+          );
         const liveSession = yield* providerSessions.get(providerSessionId);
         if (Option.isSome(liveSession)) {
           // The run already ended without stopping its provider — a failed start, an
@@ -968,44 +1081,63 @@ export const layer: Layer.Layer<
         run,
         checkpointScope,
       });
-      if (botResume && (!resolvedRuntimePolicy.cwd ||
-          path.resolve(resolvedRuntimePolicy.cwd) !== path.resolve(botResume.cwd)))
+      if (
+        botResume &&
+        (!resolvedRuntimePolicy.cwd ||
+          path.resolve(resolvedRuntimePolicy.cwd) !== path.resolve(botResume.cwd))
+      )
         return yield* refuseBotStart("The original bot workspace changed before Resume.");
-      if (idleCommand !== null && (
-          strictSteerFingerprint(resolvedRuntimePolicy) !== idleCommand.policyFingerprint ||
-          !(yield* stillAuthorized("starting"))
-      )) return yield* refuseIdleStart();
+      if (
+        idleCommand !== null &&
+        (strictSteerFingerprint(resolvedRuntimePolicy) !== idleCommand.policyFingerprint ||
+          !(yield* stillAuthorized("starting")))
+      )
+        return yield* refuseIdleStart();
       if (botOwner !== undefined && !botOwner.isCurrent())
         return yield* refuseBotStart("The original bot turn ended before provider startup.");
       if (!(yield* canPrepare())) return;
-      const readLegacyId = providerThread.driver === "opencode"
-        ? legacyImporter?.readOpenCodeHistory
-        : providerThread.driver === "grok" ? legacyImporter?.readGrokHistory : undefined;
-      const readLegacyHistory: Effect.Effect<
-        { readonly nativeId: string; readonly storeCwd?: string; readonly headId?: string } | undefined,
-        LegacyV1ThreadImporter.LegacyV1ThreadImportError
-      > | undefined = run.freshContext === true ? undefined : providerThread.driver === "cursor"
-        ? legacyImporter?.readCursorHistory?.(projection.thread.id, run.providerInstanceId)
-        : providerThread.driver === "claudeAgent"
-          ? legacyImporter?.readClaudeHistory?.(projection.thread.id, run.providerInstanceId)
-          : providerThread.driver === "codex"
-            ? legacyImporter?.readCodexHistory?.(projection.thread.id, run.providerInstanceId)
-            : providerThread.driver === "antigravity"
-              ? legacyImporter?.readAntigravityHistory?.(projection.thread.id, run.providerInstanceId)
-              : readLegacyId?.(projection.thread.id, run.providerInstanceId).pipe(
-                  Effect.map((nativeId) => nativeId === undefined ? undefined : { nativeId }),
-                );
+      const readLegacyId =
+        providerThread.driver === "opencode"
+          ? legacyImporter?.readOpenCodeHistory
+          : providerThread.driver === "grok"
+            ? legacyImporter?.readGrokHistory
+            : undefined;
+      const readLegacyHistory:
+        | Effect.Effect<
+            | { readonly nativeId: string; readonly storeCwd?: string; readonly headId?: string }
+            | undefined,
+            LegacyV1ThreadImporter.LegacyV1ThreadImportError
+          >
+        | undefined =
+        run.freshContext === true
+          ? undefined
+          : providerThread.driver === "cursor"
+            ? legacyImporter?.readCursorHistory?.(projection.thread.id, run.providerInstanceId)
+            : providerThread.driver === "claudeAgent"
+              ? legacyImporter?.readClaudeHistory?.(projection.thread.id, run.providerInstanceId)
+              : providerThread.driver === "codex"
+                ? legacyImporter?.readCodexHistory?.(projection.thread.id, run.providerInstanceId)
+                : providerThread.driver === "antigravity"
+                  ? legacyImporter?.readAntigravityHistory?.(
+                      projection.thread.id,
+                      run.providerInstanceId,
+                    )
+                  : readLegacyId?.(projection.thread.id, run.providerInstanceId).pipe(
+                      Effect.map((nativeId) => (nativeId === undefined ? undefined : { nativeId })),
+                    );
       // An explicit fresh run already has a new provider row. Adopting the V1
       // cursor here would reopen the native conversation that it replaced.
-      const savedLegacyHistory = run.freshContext !== true &&
+      const savedLegacyHistory =
+        run.freshContext !== true &&
         readLegacyHistory !== undefined &&
         providerThread.nativeThreadRef === null &&
         providerThread.ownerNodeId === null &&
         projection.thread.historyOrigin === "v1_import" &&
         nativeForkTransfer === undefined &&
-        !isIdleRoute && botOwner === undefined
-        ? yield* Effect.result(readLegacyHistory)
-        : undefined;
+        !isIdleRoute &&
+        botOwner === undefined
+          ? yield* Effect.result(readLegacyHistory)
+          : undefined;
       if (savedLegacyHistory?._tag === "Failure") {
         if (input.willRetry === true) return yield* savedLegacyHistory.failure;
         yield* settleStartFailure({
@@ -1017,19 +1149,26 @@ export const layer: Layer.Layer<
       }
       const legacyNativeId = savedLegacyHistory?.success?.nativeId;
       const legacyStoreCwd = savedLegacyHistory?.success?.storeCwd;
-      const claudeLegacyStoreCwd = providerThread.driver === "claudeAgent"
-        ? legacyStoreCwd ?? providerThread.nativeMetadata?.claudeLegacyStoreCwd
-        : undefined;
-      const codexLegacyStoreCwd = providerThread.driver === "codex"
-        ? legacyStoreCwd ?? providerThread.nativeMetadata?.codexLegacyStoreCwd
-        : undefined;
-      const antigravityLegacyStoreCwd = providerThread.driver === "antigravity"
-        ? legacyStoreCwd ?? providerThread.nativeMetadata?.antigravityLegacyStoreCwd
-        : undefined;
-      const originalStoreCwd = claudeLegacyStoreCwd ?? codexLegacyStoreCwd ?? antigravityLegacyStoreCwd;
-      if (originalStoreCwd !== undefined &&
-          (resolvedRuntimePolicy.cwd === null || !path.isAbsolute(resolvedRuntimePolicy.cwd) ||
-            path.relative(originalStoreCwd, resolvedRuntimePolicy.cwd) !== "")) {
+      const claudeLegacyStoreCwd =
+        providerThread.driver === "claudeAgent"
+          ? (legacyStoreCwd ?? providerThread.nativeMetadata?.claudeLegacyStoreCwd)
+          : undefined;
+      const codexLegacyStoreCwd =
+        providerThread.driver === "codex"
+          ? (legacyStoreCwd ?? providerThread.nativeMetadata?.codexLegacyStoreCwd)
+          : undefined;
+      const antigravityLegacyStoreCwd =
+        providerThread.driver === "antigravity"
+          ? (legacyStoreCwd ?? providerThread.nativeMetadata?.antigravityLegacyStoreCwd)
+          : undefined;
+      const originalStoreCwd =
+        claudeLegacyStoreCwd ?? codexLegacyStoreCwd ?? antigravityLegacyStoreCwd;
+      if (
+        originalStoreCwd !== undefined &&
+        (resolvedRuntimePolicy.cwd === null ||
+          !path.isAbsolute(resolvedRuntimePolicy.cwd) ||
+          path.relative(originalStoreCwd, resolvedRuntimePolicy.cwd) !== "")
+      ) {
         yield* settleStartFailure({
           signal: "legacy-native-workspace-mismatch",
           title: "Could not reopen the original provider workspace",
@@ -1040,27 +1179,43 @@ export const layer: Layer.Layer<
         });
         return;
       }
-      const legacyGeneration = providerThread.driver === "opencode" &&
-        (legacyNativeId !== undefined || (providerThread.nativeThreadRef !== null &&
-          providerThread.nativeMetadata?.openCodeHistoryGeneration === "v1"));
-      const grokLegacyHistory = providerThread.driver === "grok" &&
-        (legacyNativeId !== undefined || (providerThread.nativeThreadRef !== null &&
-          providerThread.nativeMetadata?.grokLegacyHistory === true));
-      const cursorLegacyHistory = providerThread.driver === "cursor" &&
-        (legacyNativeId !== undefined || (providerThread.nativeThreadRef !== null &&
-          providerThread.nativeMetadata?.cursorLegacyHistory === true));
-      const cursorTransport = cursorLegacyHistory ? "acp" as const : providerThread.nativeMetadata?.cursorTransport;
+      const legacyGeneration =
+        providerThread.driver === "opencode" &&
+        (legacyNativeId !== undefined ||
+          (providerThread.nativeThreadRef !== null &&
+            providerThread.nativeMetadata?.openCodeHistoryGeneration === "v1"));
+      const grokLegacyHistory =
+        providerThread.driver === "grok" &&
+        (legacyNativeId !== undefined ||
+          (providerThread.nativeThreadRef !== null &&
+            providerThread.nativeMetadata?.grokLegacyHistory === true));
+      const cursorLegacyHistory =
+        providerThread.driver === "cursor" &&
+        (legacyNativeId !== undefined ||
+          (providerThread.nativeThreadRef !== null &&
+            providerThread.nativeMetadata?.cursorLegacyHistory === true));
+      const cursorTransport = cursorLegacyHistory
+        ? ("acp" as const)
+        : providerThread.nativeMetadata?.cursorTransport;
       const cursorStoreCwd = legacyStoreCwd ?? providerThread.nativeMetadata?.cursorStoreCwd;
-      const legacyNativeMetadata = claudeLegacyStoreCwd !== undefined
-        ? { claudeLegacyStoreCwd }
-        : codexLegacyStoreCwd !== undefined ? { codexLegacyStoreCwd }
-        : antigravityLegacyStoreCwd !== undefined ? { antigravityLegacyStoreCwd }
-        : legacyGeneration ? { openCodeHistoryGeneration: "v1" as const }
-        : grokLegacyHistory ? { grokLegacyHistory: true as const }
-        : cursorLegacyHistory ? {
-            cursorLegacyHistory: true as const, cursorTransport: "acp" as const,
-            ...(legacyStoreCwd === undefined ? {} : { cursorStoreCwd: legacyStoreCwd }),
-          } : {};
+      const legacyNativeMetadata =
+        claudeLegacyStoreCwd !== undefined
+          ? { claudeLegacyStoreCwd }
+          : codexLegacyStoreCwd !== undefined
+            ? { codexLegacyStoreCwd }
+            : antigravityLegacyStoreCwd !== undefined
+              ? { antigravityLegacyStoreCwd }
+              : legacyGeneration
+                ? { openCodeHistoryGeneration: "v1" as const }
+                : grokLegacyHistory
+                  ? { grokLegacyHistory: true as const }
+                  : cursorLegacyHistory
+                    ? {
+                        cursorLegacyHistory: true as const,
+                        cursorTransport: "acp" as const,
+                        ...(legacyStoreCwd === undefined ? {} : { cursorStoreCwd: legacyStoreCwd }),
+                      }
+                    : {};
       if (!(yield* canPrepare())) return;
       const sessionResult = yield* Effect.result(
         providerSessions.open({
@@ -1075,8 +1230,8 @@ export const layer: Layer.Layer<
           ...(legacyNativeId !== undefined
             ? { initialNativeThreadId: legacyNativeId }
             : providerThread.nativeThreadRef?.nativeId == null
-            ? {}
-            : { initialNativeThreadId: providerThread.nativeThreadRef.nativeId }),
+              ? {}
+              : { initialNativeThreadId: providerThread.nativeThreadRef.nativeId }),
           ...(legacyGeneration ? { initialOpenCodeHistoryGeneration: "v1" as const } : {}),
           ...(grokLegacyHistory || antigravityLegacyStoreCwd !== undefined
             ? { requireExactInitialNativeThread: true as const }
@@ -1094,8 +1249,11 @@ export const layer: Layer.Layer<
       if (!(yield* canPrepare())) return;
       if (sessionResult._tag === "Failure") {
         const failure = sessionResult.failure;
-        if (savedOrigin?.consultation && "cause" in failure &&
-            failure.cause === ProviderAdapter.CONSULTATION_TOOL_ISOLATION_REQUIRED) {
+        if (
+          savedOrigin?.consultation &&
+          "cause" in failure &&
+          failure.cause === ProviderAdapter.CONSULTATION_TOOL_ISOLATION_REQUIRED
+        ) {
           yield* settleStartFailure({
             signal: "consultation-tool-isolation-unavailable",
             title: "Consultation could not start",
@@ -1117,19 +1275,34 @@ export const layer: Layer.Layer<
         return;
       }
       const openedSession = sessionResult.success;
-      let trackHiveRecall: ((turnId: string) => Effect.Effect<HiveTurnCapture | undefined>) | undefined;
+      let trackHiveRecall:
+        | ((turnId: string) => Effect.Effect<HiveTurnCapture | undefined>)
+        | undefined;
       const withHiveRecall = Effect.fn("ProviderTurnStartService.withHiveRecall")(function* (
         turnInput: ProviderAdapter.ProviderAdapterV2TurnInput,
         botPromptLength: number,
       ) {
-        if (typeof stateDir !== "string" || typeof attachmentsDir !== "string" ||
-            manualResume || botResume || isIdleRoute || (savedOrigin && !authoredRoot) ||
-            turnInput.resume || run.freshContext || attempt.reason !== "initial" ||
-            attempt.attemptOrdinal !== 1 || turnInput.message.messageId !== providerMessage.id)
+        if (
+          typeof stateDir !== "string" ||
+          typeof attachmentsDir !== "string" ||
+          manualResume ||
+          botResume ||
+          isIdleRoute ||
+          (savedOrigin && !authoredRoot) ||
+          turnInput.resume ||
+          run.freshContext ||
+          attempt.reason !== "initial" ||
+          attempt.attemptOrdinal !== 1 ||
+          turnInput.message.messageId !== providerMessage.id
+        )
           return turnInput;
         const standalone = String(projection.thread.projectId).startsWith("j1-bot:");
-        const project = standalone ? undefined : yield* projects.getById(projection.thread.projectId)
-          .pipe(Effect.map(Option.getOrUndefined), Effect.orElseSucceed(() => undefined));
+        const project = standalone
+          ? undefined
+          : yield* projects.getById(projection.thread.projectId).pipe(
+              Effect.map(Option.getOrUndefined),
+              Effect.orElseSucceed(() => undefined),
+            );
         const recall = yield* prepareHiveTurnRecall({
           file: path.join(stateDir, "hive-mind.json"),
           query: providerMessage.text,
@@ -1138,15 +1311,19 @@ export const layer: Layer.Layer<
           threadId: turnInput.threadId,
           attachmentsDir,
           attachments: turnInput.message.attachments,
-          charactersAvailable: PROVIDER_SEND_TURN_MAX_INPUT_CHARS -
-            turnInput.message.text.length - botPromptLength,
+          charactersAvailable:
+            PROVIDER_SEND_TURN_MAX_INPUT_CHARS - turnInput.message.text.length - botPromptLength,
         });
         if (!recall) return turnInput;
-        trackHiveRecall = turnId => recall.track(openedSession.driver, openedSession.instanceId, turnId);
+        trackHiveRecall = (turnId) =>
+          recall.track(openedSession.driver, openedSession.instanceId, turnId);
         return {
           ...turnInput,
-          message: { ...turnInput.message, text: recall.prefix + turnInput.message.text,
-            attachments: recall.attachments },
+          message: {
+            ...turnInput.message,
+            text: recall.prefix + turnInput.message.text,
+            attachments: recall.attachments,
+          },
           inlineContextLength: (turnInput.inlineContextLength ?? 0) + recall.prefix.length,
         };
       });
@@ -1160,52 +1337,85 @@ export const layer: Layer.Layer<
         yield* observation.attempted;
       });
       const observeDispatchRejection = <A, E, R>(operation: Effect.Effect<A, E, R>) =>
-        operation.pipe(Effect.tapError(() => Effect.gen(function* () {
-          const observation = yield* ProviderUsageAnalytics.ProviderDispatchObservation;
-          yield* observation.rejected;
-        })));
-      const observeDispatch = <
-        A extends { readonly authorizeDelegationWrite?: Effect.Effect<boolean> },
-      >(send: (input: A) => Effect.Effect<void, ProviderAdapter.ProviderAdapterV2Error>) =>
+        operation.pipe(
+          Effect.tapError(() =>
+            Effect.gen(function* () {
+              const observation = yield* ProviderUsageAnalytics.ProviderDispatchObservation;
+              yield* observation.rejected;
+            }),
+          ),
+        );
+      const observeDispatch =
+        <A extends { readonly authorizeDelegationWrite?: Effect.Effect<boolean> }>(
+          send: (input: A) => Effect.Effect<void, ProviderAdapter.ProviderAdapterV2Error>,
+        ) =>
         (input: A) => {
           const authorization = input.authorizeDelegationWrite;
-          return observeDispatchRejection(authorization === undefined
-            ? markDispatchAttempt.pipe(Effect.andThen(Effect.suspend(() => send(input))))
-            : Effect.suspend(() => send({
-                ...input,
-                authorizeDelegationWrite: ProviderUsageAnalytics.observeProviderWriteAuthorization(authorization),
-              })));
+          return observeDispatchRejection(
+            authorization === undefined
+              ? markDispatchAttempt.pipe(Effect.andThen(Effect.suspend(() => send(input))))
+              : Effect.suspend(() =>
+                  send({
+                    ...input,
+                    authorizeDelegationWrite:
+                      ProviderUsageAnalytics.observeProviderWriteAuthorization(authorization),
+                  }),
+                ),
+          );
         };
       const session: ProviderAdapter.ProviderAdapterV2SessionRuntime = {
         ...openedSession,
-        startTurn: Effect.fn("ProviderTurnStartService.startObservedTurn")(function* (input: ProviderAdapter.ProviderAdapterV2TurnInput) {
+        startTurn: Effect.fn("ProviderTurnStartService.startObservedTurn")(function* (
+          input: ProviderAdapter.ProviderAdapterV2TurnInput,
+        ) {
           const recalled = yield* withHiveRecall(input, 0);
-          if (recalled !== input && !(yield* runControls.shouldStartProviderTurn()
-            .pipe(Effect.orElseSucceed(() => false)))) return;
+          if (
+            recalled !== input &&
+            !(yield* runControls.shouldStartProviderTurn().pipe(Effect.orElseSucceed(() => false)))
+          )
+            return;
           yield* observeDispatch((input: ProviderAdapter.ProviderAdapterV2TurnInput) =>
-            openedSession.startTurn(input))(recalled);
+            openedSession.startTurn(input),
+          )(recalled);
         }),
-        ...(openedSession.resumeTurn === undefined ? {} : {
-          resumeTurn: observeDispatch((input: ProviderAdapter.ProviderAdapterV2ResumeTurnInput) =>
-            openedSession.resumeTurn!(input)),
-        }),
-        ...(openedSession.compactThread === undefined ? {} : {
-          compactThread: observeDispatch((input: ProviderAdapter.ProviderAdapterV2TurnInput) =>
-            openedSession.compactThread!(input)),
-        }),
+        ...(openedSession.resumeTurn === undefined
+          ? {}
+          : {
+              resumeTurn: observeDispatch(
+                (input: ProviderAdapter.ProviderAdapterV2ResumeTurnInput) =>
+                  openedSession.resumeTurn!(input),
+              ),
+            }),
+        ...(openedSession.compactThread === undefined
+          ? {}
+          : {
+              compactThread: observeDispatch((input: ProviderAdapter.ProviderAdapterV2TurnInput) =>
+                openedSession.compactThread!(input),
+              ),
+            }),
       };
       const botStart = session.botTurnStart;
-      if (botOwner !== undefined && (
-          !botOwner.isCurrent() || botStart === undefined ||
-          (botOwner.restrictedTools && !botStart.supportsRestrictedTools)
-      )) {
-        return yield* refuseBotStart(botOwner.restrictedTools
-          ? "This provider cannot enforce the bot's selected tool scope."
-          : "The provider could not safely start the original bot turn.");
+      if (
+        botOwner !== undefined &&
+        (!botOwner.isCurrent() ||
+          botStart === undefined ||
+          (botOwner.restrictedTools && !botStart.supportsRestrictedTools))
+      ) {
+        return yield* refuseBotStart(
+          botOwner.restrictedTools
+            ? "This provider cannot enforce the bot's selected tool scope."
+            : "The provider could not safely start the original bot turn.",
+        );
       }
-      if (savedOrigin && !authoredRoot && session.injectHistory === undefined &&
-          ((!savedOrigin.incidentBatch && !savedOrigin.room) || run.contextHandoffId !== null)) {
-        return yield* refuseBotStart("This provider cannot restore the saved assignment history separately.");
+      if (
+        savedOrigin &&
+        !authoredRoot &&
+        session.injectHistory === undefined &&
+        ((!savedOrigin.incidentBatch && !savedOrigin.room) || run.contextHandoffId !== null)
+      ) {
+        return yield* refuseBotStart(
+          "This provider cannot restore the saved assignment history separately.",
+        );
       }
       const guardedStart = session.guardedStartTurn;
       if (isIdleRoute && guardedStart === undefined) {
@@ -1217,7 +1427,9 @@ export const layer: Layer.Layer<
       ) {
         if (isIdleRoute && !(yield* stillAuthorized("starting"))) return yield* refuseIdleStart();
         if (botOwner !== undefined && !botOwner.isCurrent())
-          return yield* refuseBotStart("The original bot turn ended before loading the native conversation.");
+          return yield* refuseBotStart(
+            "The original bot turn ended before loading the native conversation.",
+          );
         if (!(yield* canPrepare())) return undefined;
         const loaded = yield* Effect.result(load);
         if (!(yield* canPrepare())) return undefined;
@@ -1231,15 +1443,16 @@ export const layer: Layer.Layer<
         return undefined;
       });
       let effectiveHandoffs = handoffs;
-      const reusedLegacyHandoffs = legacyNativeId === undefined ? [] : handoffs.filter(
-        LegacyV1ThreadImporter.isImportedV1TranscriptHandoff,
-      );
+      const reusedLegacyHandoffs =
+        legacyNativeId === undefined
+          ? []
+          : handoffs.filter(LegacyV1ThreadImporter.isImportedV1TranscriptHandoff);
       if (reusedLegacyHandoffs.length > 0) {
         const ids = new Set(reusedLegacyHandoffs.map(({ id }) => id));
         effectiveHandoffs = handoffs.filter(({ id }) => !ids.has(id));
       }
       let resumeFellBack = false;
-      const userText = projectComposerContextForProvider({
+      const messageText = projectComposerContextForProvider({
         text: providerMessage.text,
         records: providerMessage.context?.records ?? [],
       });
@@ -1249,6 +1462,11 @@ export const layer: Layer.Layer<
         session.driver === "claudeAgent" ||
         session.providerSession.capabilities.turns.supportsNativeGoals === true;
       const goalCommand = goalDriver && parseGoalCommand(providerMessage) !== null;
+      // Part of the user text, so every way a turn starts carries it, after the user's own words.
+      const userText =
+        run.outputSchema === undefined || goalCommand || isProviderCommand(providerMessage)
+          ? messageText
+          : `${messageText}\n\n${outputInstructions(run.outputSchema)}`;
       // The provider turn marks cancellation work delivered; restart continuations use their own text or resume natively.
       const noteContinuation = isRestartNoteContinuation(
         run,
@@ -1710,36 +1928,56 @@ export const layer: Layer.Layer<
           if (legacyNativeId !== undefined) {
             const original = {
               ...providerThread,
-              nativeThreadRef: { driver: providerThread.driver, nativeId: legacyNativeId, strength: "strong" as const },
+              nativeThreadRef: {
+                driver: providerThread.driver,
+                nativeId: legacyNativeId,
+                strength: "strong" as const,
+              },
               nativeMetadata: { ...providerThread.nativeMetadata, ...legacyNativeMetadata },
-              ...(savedLegacyHistory?.success?.headId === undefined ? {} : {
-                nativeConversationHeadRef: {
-                  driver: providerThread.driver,
-                  nativeId: savedLegacyHistory.success.headId,
-                  strength: "strong" as const,
-                },
-              }),
+              ...(savedLegacyHistory?.success?.headId === undefined
+                ? {}
+                : {
+                    nativeConversationHeadRef: {
+                      driver: providerThread.driver,
+                      nativeId: savedLegacyHistory.success.headId,
+                      strength: "strong" as const,
+                    },
+                  }),
             };
-            return yield* loadFromProvider(session.resumeThread({
-              providerThread: original,
-              threadId: projection.thread.id,
-              modelSelection: run.modelSelection,
-              runtimePolicy: resolvedRuntimePolicy,
-            }).pipe(Effect.flatMap((loaded) =>
-              loaded.id === original.id && loaded.appThreadId === original.appThreadId &&
-                loaded.driver === original.driver && loaded.providerInstanceId === original.providerInstanceId &&
-                loaded.providerSessionId === original.providerSessionId &&
-                loaded.nativeThreadRef?.driver === original.driver &&
-                loaded.nativeThreadRef.nativeId === legacyNativeId &&
-                loaded.nativeThreadRef.strength === "strong"
-                ? Effect.succeed({ ...loaded, nativeMetadata: {
-                    ...loaded.nativeMetadata, ...legacyNativeMetadata,
-                  } })
-                : Effect.fail(new ProviderAdapter.ProviderAdapterProtocolError({
-                    driver: original.driver,
-                    detail: "The provider did not return the original saved conversation.",
-                  })),
-            )));
+            return yield* loadFromProvider(
+              session
+                .resumeThread({
+                  providerThread: original,
+                  threadId: projection.thread.id,
+                  modelSelection: run.modelSelection,
+                  runtimePolicy: resolvedRuntimePolicy,
+                })
+                .pipe(
+                  Effect.flatMap((loaded) =>
+                    loaded.id === original.id &&
+                    loaded.appThreadId === original.appThreadId &&
+                    loaded.driver === original.driver &&
+                    loaded.providerInstanceId === original.providerInstanceId &&
+                    loaded.providerSessionId === original.providerSessionId &&
+                    loaded.nativeThreadRef?.driver === original.driver &&
+                    loaded.nativeThreadRef.nativeId === legacyNativeId &&
+                    loaded.nativeThreadRef.strength === "strong"
+                      ? Effect.succeed({
+                          ...loaded,
+                          nativeMetadata: {
+                            ...loaded.nativeMetadata,
+                            ...legacyNativeMetadata,
+                          },
+                        })
+                      : Effect.fail(
+                          new ProviderAdapter.ProviderAdapterProtocolError({
+                            driver: original.driver,
+                            detail: "The provider did not return the original saved conversation.",
+                          }),
+                        ),
+                  ),
+                ),
+            );
           }
           // Pass the stored provider row for adoption; adapter-minted duplicates make activeProviderThreadId flap.
           return yield* loadFromProvider(
@@ -1772,7 +2010,9 @@ export const layer: Layer.Layer<
         );
         if (isIdleRoute && !(yield* stillAuthorized("starting"))) return yield* refuseIdleStart();
         if (botOwner !== undefined && !botOwner.isCurrent())
-          return yield* refuseBotStart("The original bot turn ended before loading the native conversation.");
+          return yield* refuseBotStart(
+            "The original bot turn ended before loading the native conversation.",
+          );
         if (!(yield* canPrepare())) return undefined;
         const resumed = yield* Effect.result(
           uncertainDelivery
@@ -1793,7 +2033,10 @@ export const layer: Layer.Layer<
               }),
         );
         if (!(yield* canPrepare())) return undefined;
-        const avoidsHistoryReplay = legacyGeneration || grokLegacyHistory || cursorLegacyHistory ||
+        const avoidsHistoryReplay =
+          legacyGeneration ||
+          grokLegacyHistory ||
+          cursorLegacyHistory ||
           (run.ordinal === 1 && ownsSourceImportedNativeHistory(projection.thread, providerThread));
         if (avoidsHistoryReplay || cursorTransport === "acp" || originalStoreCwd !== undefined) {
           if (resumed._tag === "Failure") {
@@ -1801,8 +2044,12 @@ export const layer: Layer.Layer<
           }
           const expected = providerThread.nativeThreadRef;
           const actual = resumed.success.nativeThreadRef;
-          if (expected == null || actual?.strength !== "strong" || actual.nativeId !== expected.nativeId ||
-              actual.driver !== expected.driver) {
+          if (
+            expected == null ||
+            actual?.strength !== "strong" ||
+            actual.nativeId !== expected.nativeId ||
+            actual.driver !== expected.driver
+          ) {
             return yield* new ProviderTurnStartError({
               runId,
               cause: "The original imported native conversation could not be reopened.",
@@ -1828,13 +2075,17 @@ export const layer: Layer.Layer<
           );
           if (fits) return resumed.success;
           if (cursorTransport === "acp" || originalStoreCwd !== undefined) {
-            return yield* loadFromProvider(Effect.fail(new ProviderAdapter.ProviderAdapterTurnStartError({
-              driver: session.driver,
-              threadId: projection.thread.id,
-              providerThreadId: providerThread.id,
-              runId,
-              cause: "The context handoff does not fit the original native conversation.",
-            })));
+            return yield* loadFromProvider(
+              Effect.fail(
+                new ProviderAdapter.ProviderAdapterTurnStartError({
+                  driver: session.driver,
+                  threadId: projection.thread.id,
+                  providerThreadId: providerThread.id,
+                  runId,
+                  cause: "The context handoff does not fit the original native conversation.",
+                }),
+              ),
+            );
           }
           const freshThread = { ...resumed.success, nativeThreadRef: null };
           const freshContext = handoffContextForThread(freshThread);
@@ -1873,7 +2124,9 @@ export const layer: Layer.Layer<
         }
         if (isIdleRoute) return yield* refuseIdleStart();
         if (botOwner !== undefined)
-          return yield* refuseBotStart("The bot's original provider conversation could not be loaded.");
+          return yield* refuseBotStart(
+            "The bot's original provider conversation could not be loaded.",
+          );
         resumedHandoffContext = undefined;
         resumedRetryHandoff = [];
         if (!(yield* canPrepare())) return undefined;
@@ -2000,13 +2253,17 @@ export const layer: Layer.Layer<
         return replacement;
       });
       if (loadedProviderThread === undefined) return;
-      if (botResume &&
-          (loadedProviderThread.id !== botResume.providerThreadId ||
-            loadedProviderThread.providerSessionId !== botResume.providerSessionId ||
-            loadedProviderThread.nativeThreadRef?.nativeId !== botResume.nativeThreadId ||
-            loadedProviderThread.nativeThreadRef?.strength !== "strong" ||
-            session.providerSession.id !== botResume.providerSessionId)) {
-        return yield* refuseBotStart("The provider returned a different native conversation for Resume.");
+      if (
+        botResume &&
+        (loadedProviderThread.id !== botResume.providerThreadId ||
+          loadedProviderThread.providerSessionId !== botResume.providerSessionId ||
+          loadedProviderThread.nativeThreadRef?.nativeId !== botResume.nativeThreadId ||
+          loadedProviderThread.nativeThreadRef?.strength !== "strong" ||
+          session.providerSession.id !== botResume.providerSessionId)
+      ) {
+        return yield* refuseBotStart(
+          "The provider returned a different native conversation for Resume.",
+        );
       }
       if (!(yield* canPrepare())) {
         return;
@@ -2095,17 +2352,19 @@ export const layer: Layer.Layer<
           occurredAt: now,
           payload: runningProviderThread,
         },
-        ...yield* Effect.forEach(reusedLegacyHandoffs, (handoff) => Effect.gen(function* () {
-          return {
-            id: yield* idAllocator.allocate.event({ threadId: projection.thread.id }),
-            type: "context-handoff.updated" as const,
-            threadId: projection.thread.id,
-            runId: run.id,
-            providerInstanceId: run.providerInstanceId,
-            occurredAt: now,
-            payload: { ...handoff, status: "superseded" as const, updatedAt: now },
-          };
-        })),
+        ...(yield* Effect.forEach(reusedLegacyHandoffs, (handoff) =>
+          Effect.gen(function* () {
+            return {
+              id: yield* idAllocator.allocate.event({ threadId: projection.thread.id }),
+              type: "context-handoff.updated" as const,
+              threadId: projection.thread.id,
+              runId: run.id,
+              providerInstanceId: run.providerInstanceId,
+              occurredAt: now,
+              payload: { ...handoff, status: "superseded" as const, updatedAt: now },
+            };
+          }),
+        )),
         ...(nativeForkTransfer === undefined ||
         portableForkFallback !== undefined ||
         runningProviderThread.nativeThreadRef === null
@@ -2218,17 +2477,25 @@ export const layer: Layer.Layer<
       const guardedSend = Effect.fn("ProviderTurnStartService.guardedSend")(function* (
         turnInput: ProviderAdapter.ProviderAdapterV2TurnInput,
       ) {
-        if (guardedStart === undefined || idleCommand === null ||
-            turnInput.runId !== idleCommand.runId || turnInput.attemptId !== attempt.id ||
-            turnInput.message.messageId !== idleCommand.messageId ||
-            turnInput.providerThread.id !== runningProviderThread.id ||
-            turnInput.providerThread.nativeThreadRef?.nativeId !== runningProviderThread.nativeThreadRef?.nativeId ||
-            !modelSelectionsEqual(turnInput.modelSelection, idleCommand.modelSelection) ||
-            strictSteerFingerprint(turnInput.runtimePolicy) !== idleCommand.policyFingerprint ||
-            !(yield* stillAuthorized("running"))) {
+        if (
+          guardedStart === undefined ||
+          idleCommand === null ||
+          turnInput.runId !== idleCommand.runId ||
+          turnInput.attemptId !== attempt.id ||
+          turnInput.message.messageId !== idleCommand.messageId ||
+          turnInput.providerThread.id !== runningProviderThread.id ||
+          turnInput.providerThread.nativeThreadRef?.nativeId !==
+            runningProviderThread.nativeThreadRef?.nativeId ||
+          !modelSelectionsEqual(turnInput.modelSelection, idleCommand.modelSelection) ||
+          strictSteerFingerprint(turnInput.runtimePolicy) !== idleCommand.policyFingerprint ||
+          !(yield* stillAuthorized("running"))
+        ) {
           return yield* new ProviderAdapter.ProviderAdapterTurnStartError({
-            driver: session.driver, threadId: run.threadId,
-            providerThreadId: providerThread.id, runId, cause: "Idle route authorization changed.",
+            driver: session.driver,
+            threadId: run.threadId,
+            providerThreadId: providerThread.id,
+            runId,
+            cause: "Idle route authorization changed.",
           });
         }
         const authorization = stillAuthorized("running").pipe(
@@ -2237,26 +2504,44 @@ export const layer: Layer.Layer<
             () => authorizeDelegationWrite ?? Effect.succeed(false),
           ),
         );
-        yield* observeDispatchRejection(guardedStart(
-          turnInput,
-          ProviderUsageAnalytics.observeProviderWriteAuthorization(authorization),
-        ));
+        yield* observeDispatchRejection(
+          guardedStart(
+            turnInput,
+            ProviderUsageAnalytics.observeProviderWriteAuthorization(authorization),
+          ),
+        );
       });
 
-      const authorizeOriginWrite = verifyOrigin.pipe(Effect.flatMap(verified =>
-        verified ? Effect.gen(function* () {
-          const latest = yield* projectionStore.getThreadShell(run.threadId);
-          return latest?.activeRunId === run.id && latest.activeProviderThreadId === providerThread.id &&
-            session.providerSession.id === run.mausbotOriginProviderSessionId &&
-            latest.pendingRuntimeRequest === null && latest.archivedAt == null && latest.deletedAt == null &&
-            ((!savedOrigin?.incidentBatch && !savedOrigin?.room) || !(latest.pendingBackgroundTasks?.length ?? 0)) &&
-            (!coordinatorContinuation || (ownsCoordinatorSession(runningProviderThread) &&
-              session.providerSession.id === coordinatorContinuation.providerSessionId &&
-              !(yield* projectionStore.hasRunInterruptRequest(run.threadId, coordinatorContinuation.predecessorRunId)))) &&
-            !(yield* projectionStore.hasRunInterruptRequest(run.threadId, run.id)) &&
-            (yield* isCurrentAttemptInStatus("running")) && botOwner?.isCurrent() === true;
-        }) : Effect.succeed(false)),
-        Effect.orElseSucceed(() => false));
+      const authorizeOriginWrite = verifyOrigin.pipe(
+        Effect.flatMap((verified) =>
+          verified
+            ? Effect.gen(function* () {
+                const latest = yield* projectionStore.getThreadShell(run.threadId);
+                return (
+                  latest?.activeRunId === run.id &&
+                  latest.activeProviderThreadId === providerThread.id &&
+                  session.providerSession.id === run.mausbotOriginProviderSessionId &&
+                  latest.pendingRuntimeRequest === null &&
+                  latest.archivedAt == null &&
+                  latest.deletedAt == null &&
+                  ((!savedOrigin?.incidentBatch && !savedOrigin?.room) ||
+                    !(latest.pendingBackgroundTasks?.length ?? 0)) &&
+                  (!coordinatorContinuation ||
+                    (ownsCoordinatorSession(runningProviderThread) &&
+                      session.providerSession.id === coordinatorContinuation.providerSessionId &&
+                      !(yield* projectionStore.hasRunInterruptRequest(
+                        run.threadId,
+                        coordinatorContinuation.predecessorRunId,
+                      )))) &&
+                  !(yield* projectionStore.hasRunInterruptRequest(run.threadId, run.id)) &&
+                  (yield* isCurrentAttemptInStatus("running")) &&
+                  botOwner?.isCurrent() === true
+                );
+              })
+            : Effect.succeed(false),
+        ),
+        Effect.orElseSucceed(() => false),
+      );
       const projectBotPrompt = (message: ProviderAdapter.ProviderAdapterV2TurnInput["message"]) =>
         parseGoalCommand(message) === null &&
         !isCompactionCommandMessage({ ...message, role: "user" }) &&
@@ -2266,55 +2551,101 @@ export const layer: Layer.Layer<
       const ordinarySend = Effect.fn("ProviderTurnStartService.sendWithBotContext")(function* (
         turnInput: ProviderAdapter.ProviderAdapterV2TurnInput,
       ) {
-        const failure = (cause: string) => new ProviderAdapter.ProviderAdapterTurnStartError({
-          driver: session.driver, threadId: run.threadId, providerThreadId: providerThread.id, runId, cause,
-        });
+        const failure = (cause: string) =>
+          new ProviderAdapter.ProviderAdapterTurnStartError({
+            driver: session.driver,
+            threadId: run.threadId,
+            providerThreadId: providerThread.id,
+            runId,
+            cause,
+          });
         if (botOwner !== undefined) {
-          if (botStart === undefined || !botOwner.isCurrent() ||
-              turnInput.runId !== run.id || turnInput.attemptId !== attempt.id ||
-              turnInput.message.messageId !== botOwner.owner?.messageId ||
-              (botOwner.restrictedTools && !botStart.supportsRestrictedTools)) {
-            return yield* failure("The original bot turn or its selected tool scope is no longer available.");
+          if (
+            botStart === undefined ||
+            !botOwner.isCurrent() ||
+            turnInput.runId !== run.id ||
+            turnInput.attemptId !== attempt.id ||
+            turnInput.message.messageId !== botOwner.owner?.messageId ||
+            (botOwner.restrictedTools && !botStart.supportsRestrictedTools)
+          ) {
+            return yield* failure(
+              "The original bot turn or its selected tool scope is no longer available.",
+            );
           }
-          const authorizeNativeWrite = savedOrigin ? authorizeOriginWrite : Effect.sync(botOwner.isCurrent).pipe(Effect.flatMap((current) =>
-            current ? isCurrentAttemptInStatus("running").pipe(
-              Effect.flatMap(active => {
-                if (!active || !botOwner.isCurrent() || !botResume) {
-                  return Effect.succeed(active && botOwner.isCurrent());
-                }
-                return Effect.gen(function* () {
-                  const verifyIncident = botResume.verifyIncident;
-                  if (verifyIncident && !(yield* Effect.tryPromise({
-                    try: () => verifyIncident(run.id),
-                    catch: (cause) => new ProviderTurnStartError({ runId, cause }),
-                  }))) return false;
-                  const latest = yield* projectionStore.getThreadShell(run.threadId);
-                  const stopped = (yield* projectionStore.hasRunInterruptRequest(run.threadId, run.id)) ||
-                    (yield* projectionStore.hasRunInterruptRequest(run.threadId, botResume.sourceRunId));
-                  const project = Option.getOrUndefined(yield* projects.getById(botResume.projectId));
-                  const cwd = latest?.worktreePath ?? project?.workspaceRoot;
-                  return project !== undefined && project.archivedAt == null && cwd !== undefined &&
-                    path.resolve(cwd) === path.resolve(botResume.cwd) && !stopped && botOwner.isCurrent() && latest?.id === run.threadId &&
-                    latest.projectId === botResume.projectId && latest.runtimeMode === botResume.runtimeMode &&
-                    latest.interactionMode === botResume.interactionMode &&
-                    latest.activeProviderThreadId === botResume.providerThreadId &&
-                    latest.pendingRuntimeRequest === null && latest.archivedAt == null && latest.deletedAt == null;
-                });
-              }),
-              Effect.orElseSucceed(() => false),
-            ) : Effect.succeed(false),
-          ));
+          const authorizeNativeWrite = savedOrigin
+            ? authorizeOriginWrite
+            : Effect.sync(botOwner.isCurrent).pipe(
+                Effect.flatMap((current) =>
+                  current
+                    ? isCurrentAttemptInStatus("running").pipe(
+                        Effect.flatMap((active) => {
+                          if (!active || !botOwner.isCurrent() || !botResume) {
+                            return Effect.succeed(active && botOwner.isCurrent());
+                          }
+                          return Effect.gen(function* () {
+                            const verifyIncident = botResume.verifyIncident;
+                            if (
+                              verifyIncident &&
+                              !(yield* Effect.tryPromise({
+                                try: () => verifyIncident(run.id),
+                                catch: (cause) => new ProviderTurnStartError({ runId, cause }),
+                              }))
+                            )
+                              return false;
+                            const latest = yield* projectionStore.getThreadShell(run.threadId);
+                            const stopped =
+                              (yield* projectionStore.hasRunInterruptRequest(
+                                run.threadId,
+                                run.id,
+                              )) ||
+                              (yield* projectionStore.hasRunInterruptRequest(
+                                run.threadId,
+                                botResume.sourceRunId,
+                              ));
+                            const project = Option.getOrUndefined(
+                              yield* projects.getById(botResume.projectId),
+                            );
+                            const cwd = latest?.worktreePath ?? project?.workspaceRoot;
+                            return (
+                              project !== undefined &&
+                              project.archivedAt == null &&
+                              cwd !== undefined &&
+                              path.resolve(cwd) === path.resolve(botResume.cwd) &&
+                              !stopped &&
+                              botOwner.isCurrent() &&
+                              latest?.id === run.threadId &&
+                              latest.projectId === botResume.projectId &&
+                              latest.runtimeMode === botResume.runtimeMode &&
+                              latest.interactionMode === botResume.interactionMode &&
+                              latest.activeProviderThreadId === botResume.providerThreadId &&
+                              latest.pendingRuntimeRequest === null &&
+                              latest.archivedAt == null &&
+                              latest.deletedAt == null
+                            );
+                          });
+                        }),
+                        Effect.orElseSucceed(() => false),
+                      )
+                    : Effect.succeed(false),
+                ),
+              );
           const recalled = yield* withHiveRecall(turnInput, bot.prompt.length);
-          return yield* observeDispatchRejection(botStart.start(recalled, {
-            prompt: botResume ? "" : bot.prompt, restrictedTools: botOwner.restrictedTools,
-            tools: botOwner.tools, call: botOwner.call,
-            authorizeNativeWrite: ProviderUsageAnalytics.observeProviderWriteAuthorization(authorizeNativeWrite.pipe(
-              Effect.filterOrElse(
-                (allowed) => !allowed || authorizeDelegationWrite === undefined,
-                () => authorizeDelegationWrite ?? Effect.succeed(false),
+          return yield* observeDispatchRejection(
+            botStart.start(recalled, {
+              prompt: botResume ? "" : bot.prompt,
+              restrictedTools: botOwner.restrictedTools,
+              tools: botOwner.tools,
+              call: botOwner.call,
+              authorizeNativeWrite: ProviderUsageAnalytics.observeProviderWriteAuthorization(
+                authorizeNativeWrite.pipe(
+                  Effect.filterOrElse(
+                    (allowed) => !allowed || authorizeDelegationWrite === undefined,
+                    () => authorizeDelegationWrite ?? Effect.succeed(false),
+                  ),
+                ),
               ),
-            )),
-          }));
+            }),
+          );
         }
 
         const prompt = projectBotPrompt(turnInput.message);
@@ -2333,38 +2664,77 @@ export const layer: Layer.Layer<
         function* (turnInput: Parameters<typeof session.startTurn>[0], compact = false) {
           if (yield* runControls.hasUnpairedRunInterruptRequest()) return;
           if (botResume) {
-            const { appContext: _appContext, inlineContextLength: _inline, resume: _resume, ...native } = turnInput;
+            const {
+              appContext: _appContext,
+              inlineContextLength: _inline,
+              resume: _resume,
+              ...native
+            } = turnInput;
             return yield* ordinarySend({
-              ...native, ...(botResume.incidentNote === undefined ? { resume: true } : {}),
-              message: { ...turnInput.message, text: botResume.incidentNote?.text ?? "", attachments: [] },
+              ...native,
+              ...(botResume.incidentNote === undefined ? { resume: true } : {}),
+              message: {
+                ...turnInput.message,
+                text: botResume.incidentNote?.text ?? "",
+                attachments: [],
+              },
             });
           }
           if (coordinatorContinuation && !ownsCoordinatorSession(runningProviderThread)) {
             return yield* new ProviderAdapter.ProviderAdapterTurnStartError({
-              driver: session.driver, threadId: run.threadId, providerThreadId: providerThread.id, runId,
+              driver: session.driver,
+              threadId: run.threadId,
+              providerThreadId: providerThread.id,
+              runId,
               cause: "The original coordinator provider session is no longer available.",
             });
           }
           const incident = savedOrigin?.incidentBatch;
           const room = savedOrigin?.room;
-          const historyToSend = coordinatorContinuation || incident || room
-            ? effectiveHandoffs.filter(handoff => handoff.targetRunId === run.id)
-            : [...effectiveHandoffs, ...retryHandoff];
-          if (incident && ((coordinatorContinuation && historyToSend.length) ||
-              historyToSend.some(handoff => handoff.history?.messages.some(item =>
-                incident.reports.some(report =>
-                  item.itemId === mausbotHistoryMessageId(run.threadId, report.nativeMessageId) + ":item"))))) {
+          const historyToSend =
+            coordinatorContinuation || incident || room
+              ? effectiveHandoffs.filter((handoff) => handoff.targetRunId === run.id)
+              : [...effectiveHandoffs, ...retryHandoff];
+          if (
+            incident &&
+            ((coordinatorContinuation && historyToSend.length) ||
+              historyToSend.some((handoff) =>
+                handoff.history?.messages.some((item) =>
+                  incident.reports.some(
+                    (report) =>
+                      item.itemId ===
+                      mausbotHistoryMessageId(run.threadId, report.nativeMessageId) + ":item",
+                  ),
+                ),
+              ))
+          ) {
             return yield* new ProviderAdapter.ProviderAdapterTurnStartError({
-              driver: session.driver, threadId: run.threadId, providerThreadId: providerThread.id, runId,
+              driver: session.driver,
+              threadId: run.threadId,
+              providerThreadId: providerThread.id,
+              runId,
               cause: "The Chief report provider start would replay saved input.",
             });
           }
-          if (room && historyToSend.some(handoff => handoff.history?.messages.some(item =>
-              item.role !== "assistant" || room.currentRowIds.some(id =>
-                item.itemId === mausbotHistoryMessageId(run.threadId, id) + ":item"))))
+          if (
+            room &&
+            historyToSend.some((handoff) =>
+              handoff.history?.messages.some(
+                (item) =>
+                  item.role !== "assistant" ||
+                  room.currentRowIds.some(
+                    (id) => item.itemId === mausbotHistoryMessageId(run.threadId, id) + ":item",
+                  ),
+              ),
+            )
+          )
             return yield* new ProviderAdapter.ProviderAdapterTurnStartError({
-              driver: session.driver, threadId: run.threadId, providerThreadId: providerThread.id, runId,
-              cause: "Room history would introduce unauthorized current input or speaker authority.",
+              driver: session.driver,
+              threadId: run.threadId,
+              providerThreadId: providerThread.id,
+              runId,
+              cause:
+                "Room history would introduce unauthorized current input or speaker authority.",
             });
           const delivery = yield* deliverContextHandoffs({
             handoffs: historyToSend,
@@ -2372,36 +2742,72 @@ export const layer: Layer.Layer<
             providerThread: runningProviderThread,
             budget,
             alreadyDeliveredItemIds: deliveredItemIds,
-            ...(isIdleRoute || (botOwner !== undefined && (!savedOrigin || authoredRoot)) || session.injectHistory === undefined
+            ...(isIdleRoute ||
+            (botOwner !== undefined && (!savedOrigin || authoredRoot)) ||
+            session.injectHistory === undefined
               ? {}
               : {
-                  inject: Effect.fn("ProviderTurnStartService.injectAuthorizedHistory")(
-                    function* (history: ProviderAdapter.ProviderAdapterV2HistoricalContext) {
-                      const authorization = savedOrigin ? authorizeOriginWrite : authorizeDelegationWrite;
-                      if (savedOrigin && !authoredRoot && !coordinatorContinuation && !incident && !room && !history.messages.some(row =>
-                          row.itemId === savedOrigin.sourceMessageId + ":item" && row.role === "assistant")) return false;
-                      if (coordinatorContinuation && historyToSend.some(handoff =>
-                          handoff.history?.messages.some(row => !history.messages.some(item => item.itemId === row.itemId)))) return false;
-                      if (authorization !== undefined && !(yield* authorization)) return false;
-                      return yield* session.injectHistory!({
-                        providerThread: runningProviderThread,
-                        ...history,
-                        ...(authorization === undefined ? {} : { authorizeDelegationWrite: authorization }),
-                      });
-                    }),
+                  inject: Effect.fn("ProviderTurnStartService.injectAuthorizedHistory")(function* (
+                    history: ProviderAdapter.ProviderAdapterV2HistoricalContext,
+                  ) {
+                    const authorization = savedOrigin
+                      ? authorizeOriginWrite
+                      : authorizeDelegationWrite;
+                    if (
+                      savedOrigin &&
+                      !authoredRoot &&
+                      !coordinatorContinuation &&
+                      !incident &&
+                      !room &&
+                      !history.messages.some(
+                        (row) =>
+                          row.itemId === savedOrigin.sourceMessageId + ":item" &&
+                          row.role === "assistant",
+                      )
+                    )
+                      return false;
+                    if (
+                      coordinatorContinuation &&
+                      historyToSend.some((handoff) =>
+                        handoff.history?.messages.some(
+                          (row) => !history.messages.some((item) => item.itemId === row.itemId),
+                        ),
+                      )
+                    )
+                      return false;
+                    if (authorization !== undefined && !(yield* authorization)) return false;
+                    return yield* session.injectHistory!({
+                      providerThread: runningProviderThread,
+                      ...history,
+                      ...(authorization === undefined
+                        ? {}
+                        : { authorizeDelegationWrite: authorization }),
+                    });
+                  }),
                 }),
             persist: persistHandoff,
           });
-          if (savedOrigin && !authoredRoot && (delivery.context !== "" ||
-              ((run.contextHandoffId !== null || (!coordinatorContinuation && !incident && !room)) && historyToSend.length === 0))) {
+          if (
+            savedOrigin &&
+            !authoredRoot &&
+            (delivery.context !== "" ||
+              ((run.contextHandoffId !== null ||
+                (!coordinatorContinuation && !incident && !room)) &&
+                historyToSend.length === 0))
+          ) {
             yield* delivery.unsent;
             return yield* new ProviderAdapter.ProviderAdapterTurnStartError({
-              driver: session.driver, threadId: run.threadId, providerThreadId: providerThread.id, runId,
+              driver: session.driver,
+              threadId: run.threadId,
+              providerThreadId: providerThread.id,
+              runId,
               cause: "The provider could not restore the saved assignment history separately.",
             });
           }
-          if (!(yield* isCurrentAttemptInStatus("running")) ||
-              (yield* runControls.hasUnpairedRunInterruptRequest())) {
+          if (
+            !(yield* isCurrentAttemptInStatus("running")) ||
+            (yield* runControls.hasUnpairedRunInterruptRequest())
+          ) {
             yield* delivery.unsent;
             return;
           }
@@ -2412,12 +2818,20 @@ export const layer: Layer.Layer<
           if (isIdleRoute && !(yield* stillAuthorized("running"))) {
             yield* delivery.unsent;
             return yield* new ProviderAdapter.ProviderAdapterTurnStartError({
-              driver: session.driver, threadId: run.threadId,
-              providerThreadId: providerThread.id, runId, cause: "Idle route authorization changed.",
+              driver: session.driver,
+              threadId: run.threadId,
+              providerThreadId: providerThread.id,
+              runId,
+              cause: "Idle route authorization changed.",
             });
           }
-          const start = isIdleRoute ? guardedSend : compact ? session.compactThread! :
-            bot.prompt || botOwner !== undefined ? ordinarySend : session.startTurn;
+          const start = isIdleRoute
+            ? guardedSend
+            : compact
+              ? session.compactThread!
+              : bot.prompt || botOwner !== undefined
+                ? ordinarySend
+                : session.startTurn;
           // Like history, the side chat context waits for a turn that sends a prompt.
           const sideChatContext =
             sideChatHandoff === undefined || compact || goalCommand
@@ -2450,7 +2864,8 @@ export const layer: Layer.Layer<
               threadId: run.threadId,
               providerThreadId: providerThread.id,
               runId,
-              cause: "Shorten this message to fit the provider input limit with conversation history.",
+              cause:
+                "Shorten this message to fit the provider input limit with conversation history.",
             });
           }
           const operation = resumeWithoutPrompt
@@ -2466,15 +2881,17 @@ export const layer: Layer.Layer<
             // Clear pending handoff markers for refused prompts so the next turn retains the native session.
             Effect.tapError((error) =>
               Ref.get(deadlineRefused).pipe(
-                Effect.flatMap((refused) => refused || refusedBeforePrompt(error)
-                  ? delivery.unsent.pipe(
-                      Effect.catchCause(() =>
-                        Effect.logWarning("Failed to restore unsent context handoffs", {
-                          runId: run.id,
-                        }),
-                      ),
-                    )
-                  : Effect.void),
+                Effect.flatMap((refused) =>
+                  refused || refusedBeforePrompt(error)
+                    ? delivery.unsent.pipe(
+                        Effect.catchCause(() =>
+                          Effect.logWarning("Failed to restore unsent context handoffs", {
+                            runId: run.id,
+                          }),
+                        ),
+                      )
+                    : Effect.void,
+                ),
               ),
             ),
           );
@@ -2521,71 +2938,113 @@ export const layer: Layer.Layer<
               }),
         ),
       );
-      const hasHandoffs = effectiveHandoffs.length !== 0 || retryHandoff.length !== 0 ||
-        sideChatHandoff !== undefined || restartNote !== "" || noteContinuation;
-      const selectedSession = isIdleRoute ? {
-        ...session,
-        startTurn: hasHandoffs ? (turnInput: ProviderAdapter.ProviderAdapterV2TurnInput) =>
-          startWithHandoffs(turnInput) : guardedSend,
-        resumeTurn: () => Effect.fail(refuseIdleProviderOperation()),
-        compactThread: () => Effect.fail(refuseIdleProviderOperation()),
-      } : botOwner !== undefined ? {
-        ...session,
-        // The captured bot continuation must reach the owner-checked start with no replayed input.
-        startTurn: botResume || hasHandoffs ? (turnInput: ProviderAdapter.ProviderAdapterV2TurnInput) =>
-          startWithHandoffs(turnInput) : ordinarySend,
-        resumeTurn: () => Effect.fail(refuseBotProviderOperation()),
-        compactThread: () => Effect.fail(refuseBotProviderOperation()),
-      } : hasHandoffs ? makeDeliverySession(session, startWithHandoffs) :
-        bot.prompt ? { ...session, startTurn: ordinarySend } : session;
+      const hasHandoffs =
+        effectiveHandoffs.length !== 0 ||
+        retryHandoff.length !== 0 ||
+        sideChatHandoff !== undefined ||
+        restartNote !== "" ||
+        noteContinuation;
+      const selectedSession = isIdleRoute
+        ? {
+            ...session,
+            startTurn: hasHandoffs
+              ? (turnInput: ProviderAdapter.ProviderAdapterV2TurnInput) =>
+                  startWithHandoffs(turnInput)
+              : guardedSend,
+            resumeTurn: () => Effect.fail(refuseIdleProviderOperation()),
+            compactThread: () => Effect.fail(refuseIdleProviderOperation()),
+          }
+        : botOwner !== undefined
+          ? {
+              ...session,
+              // The captured bot continuation must reach the owner-checked start with no replayed input.
+              startTurn:
+                botResume || hasHandoffs
+                  ? (turnInput: ProviderAdapter.ProviderAdapterV2TurnInput) =>
+                      startWithHandoffs(turnInput)
+                  : ordinarySend,
+              resumeTurn: () => Effect.fail(refuseBotProviderOperation()),
+              compactThread: () => Effect.fail(refuseBotProviderOperation()),
+            }
+          : hasHandoffs
+            ? makeDeliverySession(session, startWithHandoffs)
+            : bot.prompt
+              ? { ...session, startTurn: ordinarySend }
+              : session;
       // Adapter guards can refuse after async native preparation. A deadline refusal leaves
       // settlement to the durable deadline stop, without turning it into a provider error.
-      const withDeadline = <A extends { readonly attemptId: RunAttemptId; readonly runId: RunId }>(
-        send: (input: A) => Effect.Effect<void, ProviderAdapter.ProviderAdapterV2Error>,
-      ) => (input: A) => Effect.gen(function* () {
-        if (input.runId !== runId || input.attemptId !== attempt.id) return;
-        if (authorizeDelegationWrite === undefined || !(yield* authorizeDelegationWrite)) return;
-        yield* send({ ...input, authorizeDelegationWrite }).pipe(
-          Effect.catch((error) => Ref.get(deadlineRefused).pipe(
-            Effect.flatMap((refused) => refused ? Effect.void : Effect.fail(error)),
-          )),
-        );
-      });
-      const authorizedSession = authorizeDelegationWrite === undefined ? selectedSession : {
-        ...selectedSession,
-        startTurn: withDeadline(selectedSession.startTurn),
-        ...(selectedSession.resumeTurn === undefined ? {} : {
-          resumeTurn: withDeadline(selectedSession.resumeTurn),
-        }),
-        ...(selectedSession.compactThread === undefined ? {} : {
-          compactThread: withDeadline(selectedSession.compactThread),
-        }),
-      };
+      const withDeadline =
+        <A extends { readonly attemptId: RunAttemptId; readonly runId: RunId }>(
+          send: (input: A) => Effect.Effect<void, ProviderAdapter.ProviderAdapterV2Error>,
+        ) =>
+        (input: A) =>
+          Effect.gen(function* () {
+            if (input.runId !== runId || input.attemptId !== attempt.id) return;
+            if (authorizeDelegationWrite === undefined || !(yield* authorizeDelegationWrite))
+              return;
+            yield* send({ ...input, authorizeDelegationWrite }).pipe(
+              Effect.catch((error) =>
+                Ref.get(deadlineRefused).pipe(
+                  Effect.flatMap((refused) => (refused ? Effect.void : Effect.fail(error))),
+                ),
+              ),
+            );
+          });
+      const authorizedSession =
+        authorizeDelegationWrite === undefined
+          ? selectedSession
+          : {
+              ...selectedSession,
+              startTurn: withDeadline(selectedSession.startTurn),
+              ...(selectedSession.resumeTurn === undefined
+                ? {}
+                : {
+                    resumeTurn: withDeadline(selectedSession.resumeTurn),
+                  }),
+              ...(selectedSession.compactThread === undefined
+                ? {}
+                : {
+                    compactThread: withDeadline(selectedSession.compactThread),
+                  }),
+            };
       const providerOperationThreadId = run.threadId;
       const providerOperationProviderThreadId = providerThread.id;
       function refuseBotProviderOperation() {
         return new ProviderAdapter.ProviderAdapterTurnStartError({
-          driver: session.driver, threadId: providerOperationThreadId, providerThreadId: providerOperationProviderThreadId,
-          runId, cause: "The original bot turn can only start its captured message.",
+          driver: session.driver,
+          threadId: providerOperationThreadId,
+          providerThreadId: providerOperationProviderThreadId,
+          runId,
+          cause: "The original bot turn can only start its captured message.",
         });
       }
       function refuseIdleProviderOperation() {
         return new ProviderAdapter.ProviderAdapterTurnStartError({
-          driver: session.driver, threadId: providerOperationThreadId,
-          providerThreadId: providerOperationProviderThreadId, runId, cause: "An idle route cannot resume or compact a turn.",
+          driver: session.driver,
+          threadId: providerOperationThreadId,
+          providerThreadId: providerOperationProviderThreadId,
+          runId,
+          cause: "An idle route cannot resume or compact a turn.",
         });
       }
       const resume = manualResume && unsentResumeMessage === undefined;
       const readRouteIntake = eventSink.readRouteIntake;
-      const routingIntake = !resume && unsentResumeMessage === undefined &&
-        !isIdleRoute && botOwner === undefined && run.restartContinuationOfRunId === undefined &&
-        run.usageLimitContinuationOfRunId === undefined && !isCompactionCommandMessage(message) &&
+      const routingIntake =
+        !resume &&
+        unsentResumeMessage === undefined &&
+        !isIdleRoute &&
+        botOwner === undefined &&
+        run.restartContinuationOfRunId === undefined &&
+        run.usageLimitContinuationOfRunId === undefined &&
+        !isCompactionCommandMessage(message) &&
         typeof readRouteIntake === "function"
-        ? yield* readRouteIntake({
-            threadId: runningRun.threadId, runId: runningRun.id, messageId: message.id,
-            projectId: projection.thread.projectId,
-          }).pipe(Effect.orElseSucceed(() => undefined))
-        : undefined;
+          ? yield* readRouteIntake({
+              threadId: runningRun.threadId,
+              runId: runningRun.id,
+              messageId: message.id,
+              projectId: projection.thread.projectId,
+            }).pipe(Effect.orElseSucceed(() => undefined))
+          : undefined;
       return runExecution.startRootRun({
         takeHiveTurnCapture,
         ...(routingIntake === undefined ? {} : { routingIntake }),
@@ -2620,9 +3079,10 @@ export const layer: Layer.Layer<
           (legacyInputRunIds.size > 0 &&
             sameNativeThread &&
             !acceptedAttempts.some((source) => source.nativeThreadId !== undefined)),
-        shouldStartProviderTurn: () => runControls.shouldStartProviderTurn().pipe(
-          Effect.flatMap((active) => active ? deadlineCurrent : Effect.succeed(false)),
-        ),
+        shouldStartProviderTurn: () =>
+          runControls
+            .shouldStartProviderTurn()
+            .pipe(Effect.flatMap((active) => (active ? deadlineCurrent : Effect.succeed(false)))),
         shouldFinalizeRun: runControls.shouldFinalizeRun,
         hasUnpairedRunInterruptRequest: runControls.hasUnpairedRunInterruptRequest,
         loadRunInterruptReason: runControls.loadRunInterruptReason,

@@ -166,6 +166,21 @@ beforeEach(() => {
 });
 
 describe("thread menu permissions", () => {
+  it("rechecks the destination grant when a palette action runs", async () => {
+    state.granted.add("secondary");
+    const menu = createMenu().readMenu();
+    if (!menu) throw new Error("Expected the loaded thread's actions");
+    const pin = menu.items.find(({ id }) => id === "pin");
+    expect(pin).toBeDefined();
+    expect(pin?.disabled).not.toBe(true);
+    await menu.run("pin");
+    expect(state.effects).toEqual(["pinThread"]);
+
+    state.granted.delete("secondary");
+    await menu.run("pin");
+    expect(state.effects).toEqual(["pinThread"]);
+  });
+
   it.each(["rename", "regenerate-title", "delete", "pin", "settle", "archive"] as const)(
     "%s rechecks after the native menu closes",
     async (action) => {

@@ -11,6 +11,14 @@ import { AppText } from "../../components/ui/AppText";
 import { Button as MaterialButton } from "../../components/ui/Button";
 import { browserViewDocument } from "./browserViewDocument";
 
+function parseBrowserMessage(data: string): { readonly message: unknown } | null {
+  try {
+    return { message: JSON.parse(data) };
+  } catch {
+    return null;
+  }
+}
+
 export function BotBrowserButton(props: {
   environmentId: EnvironmentId;
   threadId: ThreadId;
@@ -61,25 +69,27 @@ function BrowserWindow({
     pending.current = true;
     setBusy(true);
     setError(false);
-    try {
-      const result = await command({ environmentId, input: { threadId, action } });
-      if (result._tag !== "Success") setError(true);
-      else {
-        setPage((previous) =>
-          previous?.revision === result.value.revision && previous.url === result.value.url
-            ? previous
-            : result.value,
-        );
-        if (action.type === "navigate") setAddress("");
-      }
-    } catch {
-      setError(true);
-    } finally {
-      pending.current = false;
-      setBusy(false);
-      editing.current = false;
-      query.refresh();
-    }
+    await command({ environmentId, input: { threadId, action } })
+      .then((result) => {
+        if (result._tag !== "Success") setError(true);
+        else {
+          setPage((previous) =>
+            previous?.revision === result.value.revision && previous.url === result.value.url
+              ? previous
+              : result.value,
+          );
+          if (action.type === "navigate") setAddress("");
+        }
+      })
+      .catch(() => {
+        setError(true);
+      })
+      .finally(() => {
+        pending.current = false;
+        setBusy(false);
+        editing.current = false;
+        query.refresh();
+      });
   };
   const refreshWhenIdle = useEffectEvent(() => {
     if (AppState.currentState === "active" && !editing.current && !pending.current) query.refresh();
@@ -148,20 +158,22 @@ function BrowserWindow({
               originWhitelist={["https://localhost"]}
               onError={() => setError(true)}
               onMessage={(event) => {
-                try {
-                  const message: unknown = JSON.parse(event.nativeEvent.data);
-                  const action = page ? readBotBrowserEvent(message, page.revision) : null;
-                  if (action) void run(action);
-                  if (
-                    typeof message === "object" &&
-                    message !== null &&
-                    "type" in message &&
-                    message.type === "j1-bot-browser-focus" &&
-                    "editing" in message
-                  )
-                    editing.current = message.editing === true;
-                } catch {
+                const parsed = parseBrowserMessage(event.nativeEvent.data);
+                if (!parsed) {
                   setError(true);
+                  return;
+                }
+                const { message } = parsed;
+                const action = page ? readBotBrowserEvent(message, page.revision) : null;
+                if (action) void run(action);
+                if (
+                  typeof message === "object" &&
+                  message !== null &&
+                  "type" in message &&
+                  message.type === "j1-bot-browser-focus" &&
+                  "editing" in message
+                ) {
+                  editing.current = message.editing === true;
                 }
               }}
               onShouldStartLoadWithRequest={(request) =>

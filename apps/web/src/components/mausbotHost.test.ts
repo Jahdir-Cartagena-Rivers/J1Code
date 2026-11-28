@@ -35,4 +35,14 @@ describe("assistant desktop isolation", () => {
     expect(localMausbotHost(undefined, bootstrap.httpBaseUrl, "win32")).toBeNull();
     expect(localMausbotHost(bridge, "not a URL", "win32")).toBeNull();
   });
+  it("exposes saved-app windows only to the local backend with the native bridge", () => {
+    const withSavedApps = { ...bridge, openMausbotSavedApp: async () => true };
+    expect(localMausbotHost(withSavedApps, bootstrap.httpBaseUrl, "win32")).toMatchObject({
+      savedAppWindows: true,
+    });
+    expect(localMausbotHost(withSavedApps, "https://remote.example", "win32")).toBeNull();
+    expect(localMausbotHost(bridge, bootstrap.httpBaseUrl, "win32")).not.toHaveProperty(
+      "savedAppWindows",
+    );
+  });
 });

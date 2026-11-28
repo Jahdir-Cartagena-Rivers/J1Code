@@ -299,6 +299,16 @@ DMGs default to the host architecture. Use `--arch` to choose another target and
 to retain packaging files for inspection. Run `vp run dist:desktop:artifact --help` for other
 options.
 
+For a Windows packaged-app launch check, run:
+
+```sh
+vp run qa:desktop:win
+```
+
+The check launches the packaged app from temporary staging with an isolated profile. The
+builder removes staging when the check finishes or fails and writes failure logs and screenshots
+to `release/desktop-launch-check` by default. A plain `--target dir` build still exports a runnable app.
+
 ### Prepared server bytecode
 
 Native macOS and Windows desktop artifact builds, and native Linux x64 and ARM64 builds, generate server

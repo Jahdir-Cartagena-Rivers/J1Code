@@ -201,6 +201,11 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("AnalyticsService
           yield* analytics.record("test.legacy-default");
           yield* analytics.flush;
           env.T3CODE_TELEMETRY_ENABLED = "true";
+          env.DO_NOT_TRACK = "1";
+          assert.isFalse(yield* ownerReportingEnabled);
+          yield* analytics.record("test.do-not-track");
+          yield* analytics.flush;
+          delete env.DO_NOT_TRACK;
           assert.isTrue(yield* ownerReportingEnabled);
           yield* analytics.recordOwners([owner, { ...owner, ownerId: "raw-account-id" }], "client");
           yield* analytics.record("test.allowed");

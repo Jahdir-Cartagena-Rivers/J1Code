@@ -9,6 +9,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
 
 import packageJson from "../../package.json" with { type: "json" };
 import * as ServerConfig from "../config.ts";
@@ -23,6 +24,10 @@ import { triageSourceCacheDir, writeTriageSession } from "./triageSession.ts";
 const J1_REPOSITORY_URL = packageJson.repository.url;
 const SOURCE_BRANCH_REF = `refs/heads/${TRIAGE_SOURCE_BRANCH}`;
 const GIT_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+class TriageCacheOccupied extends Schema.TaggedError<TriageCacheOccupied>()("TriageCacheOccupied", {
+  directory: Schema.String,
+}) {}
 
 // No tty: a credential prompt would hang until the timeout, so git must fail
 // instead. An empty GIT_ASKPASS also skips core.askPass and SSH_ASKPASS helpers.
@@ -60,7 +65,10 @@ export const pickSourceRef = (lsRemoteOutput: string, version: string) => {
     lsRemoteOutput
       .split("\n")
       .map((line) => line.trim().split("\t"))
-      .filter((fields): fields is [string, string] => fields.length === 2 && GIT_OBJECT_ID.test(fields[0]!))
+      .filter(
+        (fields): fields is [string, string] =>
+          fields.length === 2 && GIT_OBJECT_ID.test(fields[0]!),
+      )
       .map(([commit, ref]) => [ref, commit]),
   );
   const tag = `v${version}`;
@@ -68,7 +76,9 @@ export const pickSourceRef = (lsRemoteOutput: string, version: string) => {
   const tagCommit = commits.get(`refs/tags/${tag}^{}`) ?? commits.get(`refs/tags/${tag}`);
   if (tagCommit !== undefined) return { ref: tag, commit: tagCommit };
   const branchCommit = commits.get(SOURCE_BRANCH_REF);
-  return branchCommit === undefined ? undefined : { ref: TRIAGE_SOURCE_BRANCH, commit: branchCommit };
+  return branchCommit === undefined
+    ? undefined
+    : { ref: TRIAGE_SOURCE_BRANCH, commit: branchCommit };
 };
 
 const make = Effect.gen(function* () {
@@ -95,7 +105,10 @@ const make = Effect.gen(function* () {
     // Refuse links and worktrees before asking Git to inspect the checkout.
     const realCache = yield* fs.realPath(sourceDir);
     const expectedDirectory = path.join(realCache, commit);
-    if ((yield* fs.realPath(directory)) !== expectedDirectory || !(yield* fs.exists(gitDirectory))) {
+    if (
+      (yield* fs.realPath(directory)) !== expectedDirectory ||
+      !(yield* fs.exists(gitDirectory))
+    ) {
       return false;
     }
     if (
@@ -114,7 +127,12 @@ const make = Effect.gen(function* () {
     if (originUrl !== J1_REPOSITORY_URL && originUrl !== `${J1_REPOSITORY_URL}.git`) {
       return false;
     }
-    const head = yield* runGit("checkSourceHead", directory, ["rev-parse", "--verify", "HEAD"], 10_000);
+    const head = yield* runGit(
+      "checkSourceHead",
+      directory,
+      ["rev-parse", "--verify", "HEAD"],
+      10_000,
+    );
     return head.stdout.trim() === commit;
   });
 
@@ -141,7 +159,7 @@ const make = Effect.gen(function* () {
       yield* runGit("checkoutSource", staging, ["checkout", "--quiet", "FETCH_HEAD"], 600_000);
       if (yield* fs.exists(directory)) {
         if (!(yield* isCachedSource(commit).pipe(Effect.orElseSucceed(() => false)))) {
-          return yield* Effect.fail(new Error("The J1 Code triage cache entry is occupied."));
+          return yield* new TriageCacheOccupied({ directory });
         }
       } else {
         yield* fs.rename(staging, directory).pipe(
@@ -220,13 +238,11 @@ const make = Effect.gen(function* () {
   const prepare: TriageService["Service"]["prepare"] = Effect.fn("TriageService.prepare")(
     function* (input) {
       const sourceClone = yield* startSourceClone().pipe(
-        Effect.catch(() =>
-          Effect.succeed<TriageSourceClone>({
-            _tag: "failed",
-            serverVersion,
-            reason: "Could not look up the J1 Code source.",
-          }),
-        ),
+        Effect.orElseSucceed((): TriageSourceClone => ({
+          _tag: "failed",
+          serverVersion,
+          reason: "Could not look up the J1 Code source.",
+        })),
       );
       const session = yield* writeTriageSession({
         baseDir: config.baseDir,

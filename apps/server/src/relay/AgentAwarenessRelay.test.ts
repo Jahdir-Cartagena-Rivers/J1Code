@@ -249,6 +249,7 @@ const makeTestRelay = Effect.fnUntraced(function* (
     getProjectThreadRecords: () => Effect.die("unused project record read"),
     listProjectThreads: unused,
     sendToThread: unused,
+    submitRunOutput: unused,
     assertProviderInstanceEnabled: unused,
     isProviderInstanceEnabledForProject: unused,
     hasReceipt: unused,
@@ -709,12 +710,13 @@ describe("AgentAwarenessRelay", () => {
           lastVisitedAt: null,
         };
         yield* Ref.set(currentShell, settled);
+        const { bot: _bot, ...payload } = settled;
         yield* Queue.offer(events, {
           id: EventId.make("event:settled"),
           type: "thread.settled",
           threadId: THREAD_ID,
           occurredAt: now,
-          payload: settled,
+          payload,
         });
         yield* Queue.take(pulls);
         yield* relay.drain;

@@ -5,6 +5,10 @@
     "Move the J1 window using the Windows title bar, including while the splash screen is visible.",
     "Show J1 Code branding on the startup recovery screen.",
     "Match the Windows title bar and close dialog to J1 and keep chat titles out of the system title bar.",
-    "Show the J1 transfer-file restore option during setup and remove a duplicate composer microphone."
+    "Show the J1 transfer-file restore option during setup and remove a duplicate composer microphone.",
+    "Open saved MausBot apps in their own J1 windows and add shortcuts on Windows.",
+    "Run workflows with named concurrency pools and view related runs from their pull requests.",
+    "Work in multiple tracked repositories within a task, with separate file rewind for each checkout.",
+    "Open GBK and GB18030 text files and read their changes in the diff panel."
   ]
 }

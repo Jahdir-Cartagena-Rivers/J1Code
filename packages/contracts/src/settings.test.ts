@@ -48,10 +48,12 @@ const encodeServerSettingsPatch = Schema.encodeSync(ServerSettingsPatch);
 
 it("preserves the explicit opt-in for reading Cursor usage from Keychain", () => {
   expect(decodeServerSettings({}).cursorKeychainUsageEnabled).toBe(false);
-  expect(encodeServerSettings(decodeServerSettings({ cursorKeychainUsageEnabled: true })))
-    .toMatchObject({ cursorKeychainUsageEnabled: true });
-  expect(decodeServerSettingsPatch({ cursorKeychainUsageEnabled: false }))
-    .toMatchObject({ cursorKeychainUsageEnabled: false });
+  expect(
+    encodeServerSettings(decodeServerSettings({ cursorKeychainUsageEnabled: true })),
+  ).toMatchObject({ cursorKeychainUsageEnabled: true });
+  expect(decodeServerSettingsPatch({ cursorKeychainUsageEnabled: false })).toMatchObject({
+    cursorKeychainUsageEnabled: false,
+  });
 });
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
 
@@ -109,17 +111,20 @@ describe("Auto model policy settings", () => {
 describe("persisted sidebar settings", () => {
   const decode = Schema.decodeUnknownSync(PersistedClientSettingsSchema);
 
-  it.each([true, false])("carries forward an explicit legacy value of %s", (legacySidebarEnabled) => {
-    const raw = Object.freeze({ legacySidebarEnabled, timestampFormat: "24-hour" });
-    const settings = decode(raw);
-    expect(settings).toMatchObject({
-      legacySidebarEnabled,
-      boringSidebarEnabled: legacySidebarEnabled,
-      timestampFormat: "24-hour",
-    });
-    expect(Object.hasOwn(raw, "boringSidebarEnabled")).toBe(false);
-    expect(decode(encodeClientSettings(settings))).toEqual(settings);
-  });
+  it.each([true, false])(
+    "carries forward an explicit legacy value of %s",
+    (legacySidebarEnabled) => {
+      const raw = Object.freeze({ legacySidebarEnabled, timestampFormat: "24-hour" });
+      const settings = decode(raw);
+      expect(settings).toMatchObject({
+        legacySidebarEnabled,
+        boringSidebarEnabled: legacySidebarEnabled,
+        timestampFormat: "24-hour",
+      });
+      expect(Object.hasOwn(raw, "boringSidebarEnabled")).toBe(false);
+      expect(decode(encodeClientSettings(settings))).toEqual(settings);
+    },
+  );
 
   it.each([true, false])("keeps an explicit current value of %s", (boringSidebarEnabled) => {
     expect(
@@ -691,7 +696,9 @@ describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
   it("decodes a fully empty config (legacy on-disk shape) without complaint", () => {
     const decoded = decodeServerSettings({});
     expect(decoded.providerInstances).toEqual({});
-    expect(resolveProviderInstanceEnabled({ driver: ProviderDriverKind.make("codex"), config: {} })).toBe(true);
+    expect(
+      resolveProviderInstanceEnabled({ driver: ProviderDriverKind.make("codex"), config: {} }),
+    ).toBe(true);
   });
 
   it("decodes a multi-instance map mixing first-party and fork drivers", () => {
@@ -905,6 +912,16 @@ describe("requiredScopesForProjectMutation", () => {
       }),
     ).toEqual(["orchestration:operate", "settings:write"]);
   });
+  it("requires filesystem read permission for tracked folder edits", () => {
+    expect(
+      requiredScopesForProjectMutation({
+        type: "project.update",
+        commandId: "command-1" as CommandId,
+        projectId: "project-1" as ProjectId,
+        trackFolders: [{ name: "Backend", path: "/work/backend" }],
+      }),
+    ).toEqual(["orchestration:operate", "filesystem:read"]);
+  });
 });
 
 describe("voice settings", () => {
@@ -1007,7 +1024,6 @@ describe("storage cleanup settings", () => {
   });
 });
 
-
 describe("ClientSettings rich text composer", () => {
   it("enables rich text for new and existing settings without a saved preference", () => {
     expect(decodeClientSettings({}).composerRichTextEnabled).toBe(true);
@@ -1020,7 +1036,6 @@ describe("ClientSettings rich text composer", () => {
     expect(encodeClientSettings(decodeClientSettings(preference))).toMatchObject(preference);
   });
 });
-
 
 describe("ServerSettings default permissions", () => {
   it("keeps full access for settings saved before a default was configured", () => {
@@ -1050,7 +1065,6 @@ describe("ServerSettings default permissions", () => {
     ).toThrow();
   });
 });
-
 
 describe("ServerSettings usage price overrides", () => {
   const prices = { inputCostPerMillionTokens: 2, outputCostPerMillionTokens: 8 };
@@ -1104,7 +1118,6 @@ describe("ServerSettings usage price overrides", () => {
   });
 });
 
-
 describe("custom model settings", () => {
   const capabilities = {
     optionDescriptors: [
@@ -1128,16 +1141,18 @@ describe("custom model settings", () => {
   });
 
   it("carries custom models through the instance patch and validates them with the driver schema", () => {
-    const decodeConfigPatch = (customModels: unknown) => decodeCodexSettings(
-      decodeServerSettingsPatch({
-        providerInstances: { codex: { driver: "codex", config: { customModels } } },
-      }).providerInstances?.[ProviderInstanceId.make("codex")]?.config,
-    );
-    expect(decodeConfigPatch([{ slug: "x", capabilities }]).customModels).toEqual([{ slug: "x", capabilities }]);
+    const decodeConfigPatch = (customModels: unknown) =>
+      decodeCodexSettings(
+        decodeServerSettingsPatch({
+          providerInstances: { codex: { driver: "codex", config: { customModels } } },
+        }).providerInstances?.[ProviderInstanceId.make("codex")]?.config,
+      );
+    expect(decodeConfigPatch([{ slug: "x", capabilities }]).customModels).toEqual([
+      { slug: "x", capabilities },
+    ]);
     expect(() => decodeConfigPatch([{ name: "no slug" }])).toThrow();
   });
 });
-
 
 describe("ClaudeSettings auto-compaction", () => {
   it("uses Claude's default threshold when no override is configured", () => {
@@ -1159,16 +1174,18 @@ describe("ClaudeSettings auto-compaction", () => {
   );
 
   it("validates Claude instance patch config against the driver threshold", () => {
-    const decodeConfigPatch = (autoCompactWindow: string) => decodeClaudeSettings(
-      decodeServerSettingsPatch({
-        providerInstances: { claudeAgent: { driver: "claudeAgent", config: { autoCompactWindow } } },
-      }).providerInstances?.[ProviderInstanceId.make("claudeAgent")]?.config,
-    );
+    const decodeConfigPatch = (autoCompactWindow: string) =>
+      decodeClaudeSettings(
+        decodeServerSettingsPatch({
+          providerInstances: {
+            claudeAgent: { driver: "claudeAgent", config: { autoCompactWindow } },
+          },
+        }).providerInstances?.[ProviderInstanceId.make("claudeAgent")]?.config,
+      );
     expect(() => decodeConfigPatch("300k")).toThrow();
     expect(decodeConfigPatch("300000").autoCompactWindow).toBe("300000");
   });
 });
-
 
 describe("ClientSettings default diff file state", () => {
   it("keeps files collapsed when existing settings omit the preference", () => {
@@ -1183,7 +1200,6 @@ describe("ClientSettings default diff file state", () => {
     );
   });
 });
-
 
 describe("ClientSettings diff colors", () => {
   it("keeps red and green for existing settings without a saved palette", () => {
@@ -1202,7 +1218,6 @@ describe("ClientSettings diff colors", () => {
   });
 });
 
-
 describe("ClientSettings chat width", () => {
   it("keeps the comfortable width for existing settings without a saved width", () => {
     expect(decodeClientSettings({}).chatWidth).toBe("comfortable");
@@ -1220,7 +1235,6 @@ describe("ClientSettings chat width", () => {
   });
 });
 
-
 describe("ClientSettings load balancing", () => {
   it("requires opt-in when settings are new or omit load balancing", () => {
     expect(decodeClientSettings({}).loadBalancingEnabled).toBe(false);
@@ -1235,7 +1249,6 @@ describe("ClientSettings load balancing", () => {
     );
   });
 });
-
 
 describe("ClientSettings word wrap", () => {
   it("defaults word wrap on", () => {
@@ -1253,7 +1266,6 @@ describe("ClientSettings word wrap", () => {
     expect(decoded).not.toHaveProperty("diffWordWrap");
   });
 });
-
 
 describe("ClientSettings window capture", () => {
   it("defaults capture off while keeping its feedback enabled", () => {
@@ -1339,7 +1351,6 @@ describe("ClientSettings window capture", () => {
   });
 });
 
-
 describe("ClientSettings proactive panels", () => {
   it("is opt-in and accepts client-local updates", () => {
     expect(decodeClientSettings({}).proactivePanelsEnabled).toBe(false);
@@ -1348,7 +1359,6 @@ describe("ClientSettings proactive panels", () => {
     );
   });
 });
-
 
 describe("ClientSettings quit confirmation", () => {
   it("defaults to hold", () => {
@@ -1375,14 +1385,18 @@ describe("ClientSettings quit confirmation", () => {
   });
 });
 
-
 describe("provider enabled defaults", () => {
   it("enables only the stable bindings by default", () => {
     for (const [driver, enabled] of [
-      ["codex", true], ["claudeAgent", true], ["cursor", false],
-      ["grok", false], ["opencode", false],
+      ["codex", true],
+      ["claudeAgent", true],
+      ["cursor", false],
+      ["grok", false],
+      ["opencode", false],
     ] as const) {
-      expect(resolveProviderInstanceEnabled({ driver: ProviderDriverKind.make(driver), config: {} })).toBe(enabled);
+      expect(
+        resolveProviderInstanceEnabled({ driver: ProviderDriverKind.make(driver), config: {} }),
+      ).toBe(enabled);
     }
   });
 
@@ -1424,7 +1438,6 @@ describe("provider enabled defaults", () => {
     ).toBe(false);
   });
 });
-
 
 describe("ServerSettings worktree defaults", () => {
   it("defaults the thread env mode to inherit and keeps stored values", () => {
@@ -1468,7 +1481,6 @@ describe("ServerSettings worktree defaults", () => {
   });
 });
 
-
 describe("ServerSettings.sourceControlWritingStyle", () => {
   it("defaults all style settings for legacy configs", () => {
     const settings = decodeServerSettings({});
@@ -1495,7 +1507,6 @@ describe("ServerSettings.sourceControlWritingStyle", () => {
     });
   });
 });
-
 
 describe("ServerSettingsPatch.providerInstances", () => {
   it("treats providerInstances as an optional whole-map replacement", () => {
@@ -1526,7 +1537,6 @@ describe("ServerSettingsPatch.providerInstances", () => {
     expect(patch.providerInstances?.[ollamaId]?.driver).toBe("ollama");
   });
 });
-
 
 describe("ServerSettingsPatch string normalization", () => {
   it("trims string settings while decoding patches", () => {
@@ -1590,9 +1600,7 @@ describe("ServerSettingsPatch string normalization", () => {
     expect(codex.binaryPath).toBe("/opt/homebrew/bin/codex");
     expect(codex.launchArgs).toBe("--strict-config");
   });
-
 });
-
 
 describe("ServerSettings environment icon", () => {
   it("defaults to null", () => {

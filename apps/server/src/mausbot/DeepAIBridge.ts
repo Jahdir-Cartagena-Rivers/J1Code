@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - This is the narrow parent-owned loopback boundary for a captured child.
 import * as NodeCrypto from "node:crypto";
 import * as NodeHttp from "node:http";
+import * as Schema from "effect/Schema";
 import {
   DeepAIRequestError,
   makeDeepAIClient,
@@ -23,6 +24,7 @@ export type DeepAIBridge = {
 };
 
 const maxBodyBytes = 1_000_000;
+const isDeepAIRequestError = Schema.is(DeepAIRequestError);
 const badRequest = (res: NodeHttp.ServerResponse, status: number, message: string) => {
   res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
   res.end(JSON.stringify({ error: { message } }));
@@ -119,13 +121,11 @@ export async function startDeepAIBridge(options: DeepAIBridgeOptions): Promise<D
       }
     } catch (error) {
       if (res.headersSent) return res.destroy();
-      const status = error instanceof DeepAIRequestError ? error.status : 502;
+      const failure = isDeepAIRequestError(error) ? error : undefined;
       badRequest(
         res,
-        status,
-        error instanceof DeepAIRequestError
-          ? error.message
-          : "DeepAI could not complete this bot request.",
+        failure?.status ?? 502,
+        failure?.message ?? "DeepAI could not complete this bot request.",
       );
     }
   });

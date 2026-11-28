@@ -4,6 +4,7 @@ import {
   squashAtomCommandFailure,
 } from "@j1code/client-runtime/state/runtime";
 import type { EnvironmentId, ScopedThreadRef } from "@j1code/contracts";
+import { mausbotSavedAppLaunchId } from "@j1code/contracts";
 import { sourceControlClients } from "@j1code/client-runtime/source-control-clients";
 import { promptLinkAppPath } from "@j1code/shared/promptLinks";
 import { readPairingAppLink, resolveRemotePairingTarget } from "@j1code/shared/remote";
@@ -201,6 +202,11 @@ export function DesktopWebLinkCoordinator() {
   });
 
   const openLink = useEffectEvent(async (url: string) => {
+    const savedApp = mausbotSavedAppLaunchId(url);
+    if (savedApp !== null) {
+      await router.navigate({ to: "/assistants", search: { savedApp } });
+      return;
+    }
     const pairingUrl = readPairingAppLink(url);
     if (pairingUrl !== null) {
       await pairFromLink(pairingUrl);
@@ -248,7 +254,7 @@ export function DesktopWebLinkCoordinator() {
     });
   });
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to desktop web link opens over the bridge and marks the renderer ready
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Receive desktop links after the renderer is ready.
   useEffect(() => {
     if (!ready || webLinks === undefined) return;
     let subscribed = true;

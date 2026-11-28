@@ -119,7 +119,7 @@ export function ProjectActionsSettings() {
         control={
           <div className="flex flex-wrap items-center gap-1.5">
             {importableScripts.length > 0 ? (
-              <Menu>
+              <Menu onOpenChange={(open) => open && t3File.refresh()}>
                 <MenuTrigger
                   render={
                     <Button

@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+// @effect-diagnostics-next-line nodeBuiltinImport:off - Admission and replay synchronously compare the same fingerprint.
+import * as NodeCrypto from "node:crypto";
 import { stableStringify } from "@j1code/shared/relaySigning";
 import { projectComposerContextForProvider } from "@j1code/shared/composerContextReferences";
 import {
@@ -38,7 +39,7 @@ import { RuntimePolicyV2 } from "./RuntimePolicy.ts";
 export const STRICT_STEER_EFFECT_PREFIX = "effect:strict-steer:";
 
 export function strictSteerFingerprint(value: unknown): string {
-  return createHash("sha256").update(stableStringify(value)).digest("hex");
+  return NodeCrypto.createHash("sha256").update(stableStringify(value)).digest("hex");
 }
 
 export const deadlineTaskRuns = (
@@ -52,23 +53,31 @@ export const deadlineTaskRuns = (
       transfer.sourceThreadId === task.threadId &&
       transfer.sourcePoint.runId === task.runId,
   )?.targetRunId;
-  const completionSources = new Map(child.messages.flatMap((message) =>
-    message.delegatedCompletion === undefined
-      ? []
-      : [[message.id, message.delegatedCompletion.parentRunId] as const],
-  ));
+  const completionSources = new Map(
+    child.messages.flatMap((message) =>
+      message.delegatedCompletion === undefined
+        ? []
+        : [[message.id, message.delegatedCompletion.parentRunId] as const],
+    ),
+  );
   const owned = new Set<RunId>();
-  return child.runs.toSorted((left, right) => left.ordinal - right.ordinal).filter((run) => {
-    const prior = run.restartContinuationOfRunId ?? run.usageLimitContinuationOfRunId ??
-      run.manualContinuationOfRunId ?? completionSources.get(run.userMessageId);
-    if (
-      run.id !== initial &&
-      run.delegatedTaskId !== task.id &&
-      (prior === undefined || !owned.has(prior))
-    ) return false;
-    owned.add(run.id);
-    return true;
-  });
+  return child.runs
+    .toSorted((left, right) => left.ordinal - right.ordinal)
+    .filter((run) => {
+      const prior =
+        run.restartContinuationOfRunId ??
+        run.usageLimitContinuationOfRunId ??
+        run.manualContinuationOfRunId ??
+        completionSources.get(run.userMessageId);
+      if (
+        run.id !== initial &&
+        run.delegatedTaskId !== task.id &&
+        (prior === undefined || !owned.has(prior))
+      )
+        return false;
+      owned.add(run.id);
+      return true;
+    });
 };
 
 export const delegatedTaskOwner = Effect.fn("ProviderTurnControl.delegatedTaskOwner")(function* (
@@ -78,7 +87,11 @@ export const delegatedTaskOwner = Effect.fn("ProviderTurnControl.delegatedTaskOw
 ) {
   const parentId = thread.lineage.parentThreadId;
   const fork = thread.forkedFrom;
-  if (thread.lineage.relationshipToParent !== "subagent" || parentId === null || fork?.type !== "node") {
+  if (
+    thread.lineage.relationshipToParent !== "subagent" ||
+    parentId === null ||
+    fork?.type !== "node"
+  ) {
     return undefined;
   }
   const { subagents } = yield* projectionStore.getThreadRecords(parentId, ["subagents"], {
@@ -92,9 +105,13 @@ export const delegatedTaskOwner = Effect.fn("ProviderTurnControl.delegatedTaskOw
       candidate.childThreadId === thread.id,
   );
   if (task === undefined) return undefined;
-  const child = yield* projectionStore.getThreadRecords(thread.id, ["runs", "contextTransfers", "messages"], {
-    messageRoles: ["user"],
-  });
+  const child = yield* projectionStore.getThreadRecords(
+    thread.id,
+    ["runs", "contextTransfers", "messages"],
+    {
+      messageRoles: ["user"],
+    },
+  );
   return deadlineTaskRuns(child, task).some((run) => run.id === runId) ? task : undefined;
 });
 
@@ -102,24 +119,36 @@ export function timedDelegationStartAllowed(
   task: OrchestrationV2Subagent | undefined,
   now: DateTime.Utc,
 ): boolean {
-  return task?.deadlineAt === undefined ||
+  return (
+    task?.deadlineAt === undefined ||
     (isOpenDelegation(task) &&
-      DateTime.toEpochMillis(task.deadlineAt) > DateTime.toEpochMillis(now));
+      DateTime.toEpochMillis(task.deadlineAt) > DateTime.toEpochMillis(now))
+  );
 }
 
 export function isOpenDelegation(task: OrchestrationV2Subagent): boolean {
-  return task.result === null &&
+  return (
+    task.result === null &&
     task.cancelledRunId === undefined &&
     task.deadlineCancellationAt === undefined &&
-    (isOrchestrationV2WorkActive(task.status) || task.status === "idle");
+    (isOrchestrationV2WorkActive(task.status) || task.status === "idle")
+  );
 }
 
-export const readDelegationStartPermission = Effect.fn("ProviderTurnControl.readDelegationStartPermission")(
-  function* (projectionStore: ProjectionStore.ProjectionStoreV2["Service"], threadId: ThreadId, runId: RunId) {
-    const owner = yield* delegatedTaskOwner(projectionStore, yield* projectionStore.getThread(threadId), runId);
-    return timedDelegationStartAllowed(owner, yield* DateTime.now);
-  },
-);
+export const readDelegationStartPermission = Effect.fn(
+  "ProviderTurnControl.readDelegationStartPermission",
+)(function* (
+  projectionStore: ProjectionStore.ProjectionStoreV2["Service"],
+  threadId: ThreadId,
+  runId: RunId,
+) {
+  const owner = yield* delegatedTaskOwner(
+    projectionStore,
+    yield* projectionStore.getThread(threadId),
+    runId,
+  );
+  return timedDelegationStartAllowed(owner, yield* DateTime.now);
+});
 
 type StrictSteerProjection = {
   readonly thread: OrchestrationV2AppThread;
@@ -191,7 +220,11 @@ export interface StrictRouteNativeAuthorizationInput {
 
 export class StrictRouteNativeAuthorization extends Context.Service<
   StrictRouteNativeAuthorization,
-  { readonly authorize: (input: StrictRouteNativeAuthorizationInput) => Effect.Effect<string | null> }
+  {
+    readonly authorize: (
+      input: StrictRouteNativeAuthorizationInput,
+    ) => Effect.Effect<string | null>;
+  }
 >()("@j1code/server/orchestration-v2/ProviderTurnControlService/StrictRouteNativeAuthorization") {}
 
 /** The native implementation must compare the target and applied policy at the write boundary. */
@@ -216,21 +249,30 @@ export const layerStrictNativeSteering = Layer.effect(
     return StrictNativeSteeringV2.of({
       canSteer: Effect.fn("StrictNativeSteeringV2.canSteer")(function* (input) {
         if (input.session.strictSteering === undefined) return false;
-        const records = yield* projections.getThreadRecords(
-          input.threadId, ["providerThreads"],
-          { providerThreadIds: [input.target.providerThreadId] },
-        ).pipe(Effect.mapError((cause) => new ProviderAdapter.ProviderAdapterSteerRunError({
-          driver: input.session.driver,
-          providerThreadId: input.target.providerThreadId,
-          providerTurnId: input.target.providerTurnId,
-          cause,
-        })));
+        const records = yield* projections
+          .getThreadRecords(input.threadId, ["providerThreads"], {
+            providerThreadIds: [input.target.providerThreadId],
+          })
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderAdapter.ProviderAdapterSteerRunError({
+                  driver: input.session.driver,
+                  providerThreadId: input.target.providerThreadId,
+                  providerTurnId: input.target.providerTurnId,
+                  cause,
+                }),
+            ),
+          );
         const providerThread = records.providerThreads.find(
           (thread) => thread.id === input.target.providerThreadId,
         );
         if (providerThread === undefined) return false;
         return yield* input.session.strictSteering.canSteer({
-          threadId: input.threadId, providerThread, target: input.target, policy: input.policy,
+          threadId: input.threadId,
+          providerThread,
+          target: input.target,
+          policy: input.policy,
         });
       }),
       steer: Effect.fn("StrictNativeSteeringV2.steer")(function* (input, stillAuthorized) {
@@ -242,10 +284,16 @@ export const layerStrictNativeSteering = Layer.effect(
             cause: "This provider session has no exact-turn native steering implementation.",
           });
         }
-        return yield* input.session.strictSteering.steer({
-          threadId: input.threadId, providerThread: input.providerThread,
-          target: input.target, policy: input.policy, message: input.message,
-        }, stillAuthorized);
+        return yield* input.session.strictSteering.steer(
+          {
+            threadId: input.threadId,
+            providerThread: input.providerThread,
+            target: input.target,
+            policy: input.policy,
+            message: input.message,
+          },
+          stillAuthorized,
+        );
       }),
     });
   }),
@@ -742,7 +790,11 @@ export const layer: Layer.Layer<
               providerThread === undefined ||
               session.value.driver !== providerThread.driver ||
               !matchesStrictSteerTarget(input.threadId, target, {
-                thread, run, attempt, providerThread, providerTurn,
+                thread,
+                run,
+                attempt,
+                providerThread,
+                providerTurn,
               })
             ) {
               return yield* invalidTarget();
@@ -761,23 +813,30 @@ export const layer: Layer.Layer<
             if (input.messageId.startsWith(STRICT_ROUTE_STEER_MESSAGE_PREFIX)) {
               if (Option.isNone(routeAuthorization)) return yield* invalidTarget();
               const readAuthorization = routeAuthorization.value.authorize({
-                threadId: input.threadId, messageId: input.messageId,
-                commandFingerprint: input.strictCommandFingerprint, target,
+                threadId: input.threadId,
+                messageId: input.messageId,
+                commandFingerprint: input.strictCommandFingerprint,
+                target,
               });
               const authorizedIdentity = yield* readAuthorization;
               if (authorizedIdentity === null) return yield* invalidTarget();
-              stillAuthorized = readAuthorization.pipe(Effect.map((current) => current === authorizedIdentity));
+              stillAuthorized = readAuthorization.pipe(
+                Effect.map((current) => current === authorizedIdentity),
+              );
             }
-            return yield* strictNative.value.steer({
-              threadId: input.threadId,
-              target,
-              policy,
-              session: session.value,
-              runId: run.id,
-              providerThread,
-              providerTurnId: providerTurn.id,
-              message: steeringMessage(message),
-            }, stillAuthorized);
+            return yield* strictNative.value.steer(
+              {
+                threadId: input.threadId,
+                target,
+                policy,
+                session: session.value,
+                runId: run.id,
+                providerThread,
+                providerTurnId: providerTurn.id,
+                message: steeringMessage(message),
+              },
+              stillAuthorized,
+            );
           }
           const ownership = context.message?.delegatedCompletion;
           if (ownership !== undefined) {

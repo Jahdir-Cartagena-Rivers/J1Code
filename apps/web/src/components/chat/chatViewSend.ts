@@ -205,21 +205,35 @@ export async function rewindToMessage(input: {
       throw new Error("Make room for this message's attachments in the composer before rewinding.");
     }
     const commandId = CommandId.make(randomUUID());
-    await waitForRevertedMessage(input.routeThreadRef, input.turnCount, commandId, async () => {
-      const result = await input.revertThreadCheckpoint({
-        environmentId,
-        input: {
-          commandId,
-          threadId: input.threadId,
-          turnCount: input.turnCount,
-          restoreFiles: input.restoreFiles,
-          ...(input.checkpoint === undefined
-            ? {}
-            : { checkpointId: input.checkpoint.id, scopeId: input.checkpoint.scopeId }),
-        },
-      });
-      if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-    });
+    const unrestoredRepositories = await waitForRevertedMessage(
+      input.routeThreadRef,
+      input.turnCount,
+      commandId,
+      async () => {
+        const result = await input.revertThreadCheckpoint({
+          environmentId,
+          input: {
+            commandId,
+            threadId: input.threadId,
+            turnCount: input.turnCount,
+            restoreFiles: input.restoreFiles,
+            ...(input.checkpoint === undefined
+              ? {}
+              : { checkpointId: input.checkpoint.id, scopeId: input.checkpoint.scopeId }),
+          },
+        });
+        if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+      },
+    );
+    if (unrestoredRepositories.length > 0) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "warning",
+          title: "Some repository files could not be restored",
+          description: unrestoredRepositories.join(", "),
+        }),
+      );
+    }
     const currentPrompt = store.getComposerDraft(draftTarget)?.prompt ?? "";
     const { prompt: restoredPrompt, mentions } = recallComposerMessage(message);
     const nextPrompt =

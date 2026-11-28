@@ -451,39 +451,46 @@ export const runBackendProcess = Effect.fn("runBackendProcess")(function* (
       catch: (cause) => new BackendProcessSpawnError({ ...options, cause }),
     });
     yield* options.onStarted?.(record.serverPid) ?? Effect.void;
-    const ready = yield* waitForHttpReady({
+    const observeExit = Effect.gen(function* () {
+      while (true) {
+        yield* Effect.sleep(Duration.seconds(1));
+        const alive = yield* Effect.tryPromise({
+          try: () =>
+            BackgroundBackend.backgroundRequest(background.baseDir, record.secret, "status"),
+          catch: (cause) =>
+            new BackendProcessExitStatusError({ ...options, pid: record.serverPid, cause }),
+        }).pipe(Effect.option);
+        if (
+          Option.isNone(alive) ||
+          alive.value.hostPid !== record.hostPid ||
+          alive.value.serverPid !== record.serverPid
+        ) {
+          yield* options.onExitObserved?.() ?? Effect.void;
+          return {
+            code: Option.none(),
+            reason: Option.isNone(alive)
+              ? "background host exited"
+              : "background host identity changed",
+          } satisfies BackendProcessExit;
+        }
+      }
+    });
+    const readiness = waitForHttpReady({
       ...options,
       timeout: options.readinessTimeout ?? DEFAULT_BACKEND_READINESS_TIMEOUT,
     }).pipe(
-      Effect.tapError((error) => options.onReadinessFailure?.(error) ?? Effect.void),
-      Effect.option,
+      Effect.as("ready" as const),
+      Effect.catch((error) =>
+        (options.onReadinessFailure?.(error) ?? Effect.void).pipe(
+          Effect.as({ code: Option.none(), reason: "background server readiness failed" }),
+        ),
+      ),
     );
-    if (Option.isNone(ready)) {
-      return { code: Option.none(), reason: "background server readiness failed" };
-    }
+    const startup = yield* Effect.raceFirst(readiness, observeExit);
+    if (startup !== "ready") return startup;
     yield* options.onReady?.(record.serverPid) ?? Effect.void;
     // Cancelling this observer detaches the desktop; the independently owned host stays alive.
-    while (true) {
-      yield* Effect.sleep(Duration.seconds(1));
-      const alive = yield* Effect.tryPromise({
-        try: () => BackgroundBackend.backgroundRequest(background.baseDir, record.secret, "status"),
-        catch: (cause) =>
-          new BackendProcessExitStatusError({ ...options, pid: record.serverPid, cause }),
-      }).pipe(Effect.option);
-      if (
-        Option.isNone(alive) ||
-        alive.value.hostPid !== record.hostPid ||
-        alive.value.serverPid !== record.serverPid
-      ) {
-        yield* options.onExitObserved?.() ?? Effect.void;
-        return {
-          code: Option.none(),
-          reason: Option.isNone(alive)
-            ? "background host exited"
-            : "background host identity changed",
-        };
-      }
-    }
+    return yield* observeExit;
   }
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const bootstrapJson = yield* encodeBootstrapJson(options.bootstrap).pipe(

@@ -40,6 +40,7 @@ import * as IdAllocator from "@j1code/provider-core/server/IdAllocator";
 import * as McpProviderSessions from "@j1code/provider-core/server/McpProviderSessions";
 import * as ProviderAdapter from "@j1code/provider-core/server/ProviderAdapter";
 import * as RuntimePolicy from "../RuntimePolicy.ts";
+import * as WorkspaceFolders from "../../workspace/WorkspaceFolders.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import { acpPermissionDisposition } from "@j1code/provider-acp/server/clientPolicy";
 import { acpCompletedTurnShouldTerminalizeTool } from "@j1code/provider-acp/server/adapter";
@@ -91,20 +92,34 @@ function runtimePolicy(input: {
 describe("GrokAdapterV2 capabilities", () => {
   it("replaces a failed transport for deliberate recovery without restarting on ordinary prompt errors", () => {
     const flavor = makeGrokAcpAdapterFlavor(
-      { makeRuntime: () => Effect.never } as unknown as Parameters<typeof makeGrokAcpAdapterFlavor>[0],
+      { makeRuntime: () => Effect.never } as unknown as Parameters<
+        typeof makeGrokAcpAdapterFlavor
+      >[0],
       "/home/ada",
     );
-    assert.isTrue(flavor.restartRuntimeAfterPromptError?.(new EffectAcpErrors.AcpTransportError({
-      detail: "The pipe closed",
-      cause: "Fixture pipe closed",
-    })));
-    assert.isTrue(flavor.restartRuntimeAfterPromptError?.(new EffectAcpErrors.AcpProcessExitedError({
-      code: 1,
-    })));
-    assert.isFalse(flavor.restartRuntimeAfterPromptError?.(new EffectAcpErrors.AcpRequestError({
-      code: xAiRateLimitedErrorCode,
-      errorMessage: "Rate limited",
-    })));
+    assert.isTrue(
+      flavor.restartRuntimeAfterPromptError?.(
+        new EffectAcpErrors.AcpTransportError({
+          detail: "The pipe closed",
+          cause: "Fixture pipe closed",
+        }),
+      ),
+    );
+    assert.isTrue(
+      flavor.restartRuntimeAfterPromptError?.(
+        new EffectAcpErrors.AcpProcessExitedError({
+          code: 1,
+        }),
+      ),
+    );
+    assert.isFalse(
+      flavor.restartRuntimeAfterPromptError?.(
+        new EffectAcpErrors.AcpRequestError({
+          code: xAiRateLimitedErrorCode,
+          errorMessage: "Rate limited",
+        }),
+      ),
+    );
   });
   it("preserves Grok's rate-limit stop and distinguishes other prompt failures", () => {
     const flavor = makeGrokAcpAdapterFlavor(
@@ -311,7 +326,10 @@ describe("Grok launch permission mode", () => {
 
   it.effect("rejects a different account before launching Grok", () =>
     Effect.gen(function* () {
-      assert.deepEqual(yield* launchArgs(policy("full-access"), ProviderInstanceId.make("other-grok")), []);
+      assert.deepEqual(
+        yield* launchArgs(policy("full-access"), ProviderInstanceId.make("other-grok")),
+        [],
+      );
     }),
   );
 
@@ -367,6 +385,11 @@ describe("Grok launch permission mode", () => {
       }).pipe(
         Effect.provide(
           RuntimePolicy.layerFromProjectStore.pipe(
+            Layer.provide(
+              Layer.mock(WorkspaceFolders.WorkspaceFolders)({
+                forThread: () => Effect.succeed({ folders: [], extraRoots: [] }),
+              }),
+            ),
             Layer.provide(ServerSettings.layerTest()),
             Layer.provide(
               Layer.mock(ProjectStore.ProjectStoreV2)({

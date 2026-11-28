@@ -10,6 +10,7 @@ export const J1_PROJECT_FILE_NAME = "t3.json";
 export const J1_PROJECT_FILE_SCHEMA_URL = "https://t3.codes/schema/t3.json";
 
 const J1_PROJECT_FILE_PATH_MAX_LENGTH = 512;
+const J1_PROJECT_FILE_COMMAND_MAX_LENGTH = 4096;
 const J1_PROJECT_FILE_MAX_SCRIPTS = 50;
 
 // Encoded-side annotations survive into JSON Schema; decoding still trims and rejects empty strings.
@@ -76,6 +77,29 @@ export const J1ProjectFileScript = Schema.Struct({
 export type J1ProjectFileScript = typeof J1ProjectFileScript.Type;
 
 export const J1ProjectFile = Schema.Struct({
+  ignoreRepositories: Schema.optionalKey(
+    Schema.Array(Schema.String).annotate({
+      description: "Project-relative repository paths to omit from automatic discovery.",
+    }),
+  ),
+  worktreeLayout: Schema.optionalKey(
+    Schema.Struct({
+      create: trimmedNonEmpty(
+        {
+          description: "Saved project script command that lays out a multi-repository worktree.",
+        },
+        J1_PROJECT_FILE_COMMAND_MAX_LENGTH,
+      ),
+      remove: Schema.optionalKey(
+        trimmedNonEmpty(
+          {
+            description: "Saved project script command that cleans up a custom worktree layout.",
+          },
+          J1_PROJECT_FILE_COMMAND_MAX_LENGTH,
+        ),
+      ),
+    }),
+  ),
   $schema: Schema.optionalKey(
     Schema.String.annotate({
       description: `URL of the JSON Schema for this file, typically "${J1_PROJECT_FILE_SCHEMA_URL}".`,

@@ -189,7 +189,7 @@ export function getRenderablePatch(
 }
 
 /** Uses the parser-decoded filename, including Git's quoted and escaped names. */
-export function resolveFileDiffPath(fileDiff: FileDiffMetadata): string {
+export function resolveFileDiffPath(fileDiff: Pick<FileDiffMetadata, "name" | "prevName">): string {
   return fileDiff.name ?? fileDiff.prevName ?? "";
 }
 

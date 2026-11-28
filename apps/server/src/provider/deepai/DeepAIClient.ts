@@ -1,4 +1,5 @@
 import * as NodePerfHooks from "node:perf_hooks";
+// @effect-diagnostics-next-line nodeBuiltinImport:off - This Promise client also serves the native runtime bridge.
 import * as NodeCrypto from "node:crypto";
 import * as Schema from "effect/Schema";
 
@@ -47,26 +48,27 @@ const decodeCatalog = Schema.decodeUnknownSync(Catalog);
 const decodeAllowance = Schema.decodeUnknownSync(Allowance);
 
 /** Upstream bodies may echo prompts or credentials; expose only fixed messages. */
-export class DeepAIRequestError extends Error {
-  readonly status: number;
-  readonly retryAfter: string | null;
-  constructor(status: number, retryAfter: string | null = null, code?: string) {
-    super(
-      code === "check_in_refused"
-        ? "DeepAI refused this app's connection check-in. Its reset time and restart limit are not provided by this response."
-        : code === "machine_required"
-          ? "DeepAI could not identify this server's machine. Check the server's system-information access."
-          : status === 401
-            ? "Sign in to DeepAI again."
-            : status === 402
-              ? "DeepAI requires a subscription or additional allowance for this request."
-              : status === 429
-                ? "DeepAI is at capacity or its request limit was reached."
-                : `DeepAI request failed (HTTP ${status}).`,
-    );
-    this.name = "DeepAIRequestError";
-    this.status = status;
-    this.retryAfter = retryAfter;
+export class DeepAIRequestError extends Schema.TaggedError<DeepAIRequestError>()(
+  "DeepAIRequestError",
+  { message: Schema.String, status: Schema.Number, retryAfter: Schema.NullOr(Schema.String) },
+) {
+  static fromResponse(status: number, retryAfter: string | null, code?: string) {
+    return new DeepAIRequestError({
+      status,
+      retryAfter,
+      message:
+        code === "check_in_refused"
+          ? "DeepAI refused this app's connection check-in. Its reset time and restart limit are not provided by this response."
+          : code === "machine_required"
+            ? "DeepAI could not identify this server's machine. Check the server's system-information access."
+            : status === 401
+              ? "Sign in to DeepAI again."
+              : status === 402
+                ? "DeepAI requires a subscription or additional allowance for this request."
+                : status === 429
+                  ? "DeepAI is at capacity or its request limit was reached."
+                  : `DeepAI request failed (HTTP ${status}).`,
+    });
   }
 }
 
@@ -138,7 +140,11 @@ export function makeDeepAIClient(
         typeof payload.error.code === "string"
           ? payload.error.code
           : undefined;
-      throw new DeepAIRequestError(response.status, response.headers.get("retry-after"), code);
+      throw DeepAIRequestError.fromResponse(
+        response.status,
+        response.headers.get("retry-after"),
+        code,
+      );
     }
     return response;
   }

@@ -19,6 +19,7 @@ import { acpPermissionDisposition } from "@j1code/provider-acp/server/clientPoli
 import * as ServerSettings from "../serverSettings.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ProjectStore from "./ProjectStore.ts";
+import * as WorkspaceFolders from "../workspace/WorkspaceFolders.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 
 const projectId = ProjectId.make("project:runtime-policy");
@@ -80,6 +81,11 @@ const providerInstanceFor = (instanceId: ProviderInstanceId) =>
 
 const layerWithPolicy = (policy?: ManagedPolicySummary) =>
   RuntimePolicy.layerFromProjectStore.pipe(
+    Layer.provide(
+      Layer.mock(WorkspaceFolders.WorkspaceFolders)({
+        forThread: () => Effect.succeed({ folders: [], extraRoots: [] }),
+      }),
+    ),
     Layer.provide(ServerSettings.layerTest({}, policy)),
     Layer.provide(
       Layer.succeed(ProviderInstanceRegistry.ProviderInstanceRegistry, {
@@ -104,6 +110,7 @@ const layerWithPolicy = (policy?: ManagedPolicySummary) =>
             faviconPath: null,
             projectIcon: null,
             scripts: [],
+            trackedFolders: [],
             pinnedAt: null,
             archivedAt: null,
             createdAt: "2026-06-21T00:00:00.000Z",

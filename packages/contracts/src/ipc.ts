@@ -1053,6 +1053,53 @@ export const DesktopMediaReadSchema = Schema.Struct({
 });
 export type DesktopMediaRead = typeof DesktopMediaReadSchema.Type;
 
+const MAUSBOT_SAVED_APP_ID = /^la_[A-Za-z0-9_-]{16}$/;
+const MAUSBOT_SAVED_APP_LAUNCH = /^t3code:\/\/app\/assistants\?savedApp=(la_[A-Za-z0-9_-]{16})$/;
+const MausbotSavedAppId = Schema.String.check(Schema.isPattern(MAUSBOT_SAVED_APP_ID));
+
+export function mausbotSavedAppLaunchId(url: string): string | null {
+  return MAUSBOT_SAVED_APP_LAUNCH.exec(url)?.[1] ?? null;
+}
+
+export function mausbotSavedAppLaunchUrl(appId: string): string | null {
+  return MAUSBOT_SAVED_APP_ID.test(appId) ? `t3code://app/assistants?savedApp=${appId}` : null;
+}
+
+export const MausbotSavedAppWindowSchema = Schema.Struct({
+  appId: MausbotSavedAppId,
+  viewKey: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
+});
+
+export const MausbotShortcutRequest = Schema.Union([
+  Schema.Struct({ operation: Schema.Literal("list") }),
+  Schema.Struct({
+    operation: Schema.Literal("install"),
+    appId: MausbotSavedAppId,
+    name: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
+  }),
+  Schema.Struct({
+    operation: Schema.Literals(["addToDesktop", "removeFromDesktop", "uninstall"]),
+    appId: MausbotSavedAppId,
+  }),
+]);
+
+const MausbotShortcutApp = Schema.Struct({
+  id: MausbotSavedAppId,
+  name: Schema.String,
+  path: Schema.NullOr(Schema.String),
+  desktop: Schema.Boolean,
+});
+
+export const MausbotShortcutResult = Schema.Union([
+  Schema.Struct({ available: Schema.Boolean, apps: Schema.Array(MausbotShortcutApp) }),
+  Schema.Struct({ ok: Schema.Literal(true), app: MausbotShortcutApp }),
+  Schema.Struct({ ok: Schema.Literal(true), removed: Schema.Boolean }),
+  Schema.Struct({
+    ok: Schema.Literal(false),
+    reason: Schema.Literals(["unavailable", "not-installed", "no-desktop", "taken", "failed"]),
+  }),
+]);
+
 export const SystemSettingsPaneSchema = Schema.Literals(["full-disk-access"]);
 export type SystemSettingsPane = typeof SystemSettingsPaneSchema.Type;
 
@@ -1069,6 +1116,10 @@ export interface DesktopBridge {
   setCloseBehavior?: (behavior: DesktopCloseBehavior) => Promise<void>;
   /** A bounded preview requested by the integrated assistant's visible computer panel. */
   captureMausbotScreenFrame?: () => Promise<string | null>;
+  openMausbotSavedApp?: (input: typeof MausbotSavedAppWindowSchema.Type) => Promise<boolean>;
+  manageMausbotShortcuts?: (
+    input: typeof MausbotShortcutRequest.Type,
+  ) => Promise<typeof MausbotShortcutResult.Type>;
   getAppBranding: () => DesktopAppBranding | null;
   getRelayTelemetryEnabled: () => boolean;
   getPathForFile: (file: File) => string;

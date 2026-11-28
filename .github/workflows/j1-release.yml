@@ -4,6 +4,17 @@ on:
   push:
     branches: [j1-code]
   workflow_dispatch:
+    inputs:
+      stage_only:
+        description: Build and verify the release installer without publishing it
+        type: boolean
+        default: true
+      promote_run_id:
+        description: Successful staging run to publish without another build
+        type: string
+      verified_installer_sha256:
+        description: SHA-256 of the installer verified in Windows desktop QA
+        type: string
   public:
 
 permissions:
@@ -15,7 +26,7 @@ concurrency:
 
 jobs:
   prepare:
-    if: github.ref == 'refs/heads/j1-code' && github.repository != 'pingdotgg/t3code'
+    if: ${{ !inputs.promote_run_id && (github.ref == 'refs/heads/j1-code' || (github.event_name == 'workflow_dispatch' && inputs.stage_only)) && github.repository != 'pingdotgg/t3code' }}
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -49,6 +60,9 @@ jobs:
     needs: [prepare, checks, linux]
     runs-on: windows-2022
     timeout-minutes: 90
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      installer_sha256: ${{ steps.receipt.outputs.sha256 }}
     env:
       J1_RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
       T3CODE_DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
@@ -117,7 +131,17 @@ jobs:
           AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME }}
           AZURE_TRUSTED_SIGNING_PUBLISHER_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_PUBLISHER_NAME }}
         run: node scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64 --build-version "$env:J1_RELEASE_VERSION" --wsl-runtime "wsl-runtime/t3-${env:J1_RELEASE_VERSION}-linux-x64.tar.gz" --output-dir release --verbose
-      - uses: actions/upload-artifact@v4
+      - name: Record the installer for hosted upgrade testing
+        id: receipt
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem -LiteralPath release -File -Filter '*-setup.exe')
+          if ($installers.Count -ne 1) { throw 'Expected one Windows installer.' }
+          $sha = (Get-FileHash -LiteralPath $installers[0].FullName -Algorithm SHA256).Hash
+          "sha256=$sha" >> $env:GITHUB_OUTPUT
+          "Windows installer SHA-256: $sha" >> $env:GITHUB_STEP_SUMMARY
+      - id: upload
+        uses: actions/upload-artifact@v4
         with:
           name: j1-windows-update
           path: |
@@ -127,8 +151,20 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  verify_upgrade:
+    needs: windows
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/j1-windows-upgrade-qa.yml
+    with:
+      candidate_run_id: ${{ github.run_id }}
+      candidate_artifact_id: ${{ needs.windows.outputs.artifact_id }}
+      candidate_sha256: ${{ needs.windows.outputs.installer_sha256 }}
+
   publish:
-    needs: [prepare, windows]
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/j1-code' && !inputs.stage_only && !inputs.promote_run_id
+    needs: [prepare, windows, verify_upgrade]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -159,4 +195,66 @@ jobs:
       - name: Verify and publish complete release
         env:
           GH_TOKEN: ${{ github.token }}
+        run: node .github/scripts/j1-release.cjs publish release
+
+  promote:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/j1-code' && inputs.promote_run_id && github.repository != 'pingdotgg/t3code'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: write
+    env:
+      STAGE_RUN_ID: ${{ inputs.promote_run_id }}
+      VERIFIED_INSTALLER_SHA256: ${{ inputs.verified_installer_sha256 }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: false
+      - name: Verify the original staging run
+        id: staging
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$STAGE_RUN_ID" =~ ^[1-9][0-9]*$ && "$VERIFIED_INSTALLER_SHA256" =~ ^[0-9a-fA-F]{64}$ ]]
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$STAGE_RUN_ID")
+          jq -e --arg sha "$GITHUB_SHA" --arg repo "$GITHUB_REPOSITORY" '
+            .path == ".github/workflows/j1-release.yml" and .head_sha == $sha and
+            .head_branch == "j1-code" and .head_repository.full_name == $repo and
+            .status == "completed" and .conclusion == "success"
+          ' <<< "$run" >/dev/null
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$STAGE_RUN_ID/jobs" --paginate --slurp |
+            jq -e 'any(.[].jobs[]; .name == "verify_upgrade / upgrade" and .conclusion == "success")' >/dev/null
+          GITHUB_RUN_NUMBER=$(jq -r '.run_number' <<< "$run") node .github/scripts/j1-release.cjs version
+      - uses: actions/download-artifact@v4
+        with:
+          name: j1-windows-update
+          path: release
+          run-id: ${{ inputs.promote_run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: j1-linux-runtime
+          path: release
+          run-id: ${{ inputs.promote_run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify the exact installer used in desktop QA
+        run: |
+          mapfile -t installers < <(find release -maxdepth 1 -type f -iname '*.exe')
+          [[ "${#installers[@]}" -eq 1 ]]
+          printf '%s  %s\n' "${VERIFIED_INSTALLER_SHA256,,}" "${installers[0]}" | sha256sum --check
+      - run: vp install --frozen-lockfile --filter=@j1code/server...
+      - name: Publish the original staged release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          J1_RELEASE_VERSION: ${{ steps.staging.outputs.version }}
+          J1_RELEASE_BUILD_RUN_ID: ${{ inputs.promote_run_id }}
         run: node .github/scripts/j1-release.cjs publish release

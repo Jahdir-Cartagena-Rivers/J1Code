@@ -17,6 +17,9 @@ import type * as AcpCompat from "effect-acp/compat";
 import { beginAcpMockPrompt } from "./acpMockCancellationState.ts";
 
 const requestLogPath = process.env.T3_ACP_REQUEST_LOG_PATH;
+const failResumeSession = process.env.T3_ACP_FAIL_RESUME_SESSION === "1";
+const crashOnPrompt = process.env.T3_ACP_CRASH_PROMPT === "1";
+const emitCursorQuestion = process.env.T3_ACP_CURSOR_QUESTION === "1";
 const antigravityProfile = process.env.T3_ACP_ANTIGRAVITY === "1";
 // GitHub Copilot CLI advertises URL-shaped session mode ids.
 const copilotModesProfile = process.env.T3_ACP_COPILOT_MODES === "1";
@@ -646,7 +649,7 @@ const program = Effect.gen(function* () {
   yield* agent.handleResumeSession((request) =>
     Effect.gen(function* () {
       yield* requireAuthentication();
-      if (process.env.T3_ACP_FAIL_RESUME_SESSION === "1") {
+      if (failResumeSession) {
         return yield* AcpError.AcpRequestError.internalError("Mock resume session failure");
       }
       yield* agent.client.sessionUpdate({
@@ -892,7 +895,7 @@ const program = Effect.gen(function* () {
       beginAcpMockPrompt(cancelledSessions, requestedSessionId);
       promptCount += 1;
       if (
-        process.env.T3_ACP_CRASH_PROMPT === "1" &&
+        crashOnPrompt &&
         request.prompt.some((part) => part.type === "text" && part.text === "crash now")
       ) {
         return yield* Effect.sync(() => process.exit(23));
@@ -1656,10 +1659,12 @@ const program = Effect.gen(function* () {
         return yield* finishPrompt(requestedSessionId, "end_turn");
       }
 
-      if (process.env.T3_ACP_CURSOR_QUESTION === "1") {
+      if (emitCursorQuestion) {
         const response = yield* agent.client.extRequest("cursor/ask_question", {
           toolCallId: "cursor-question",
-          questions: [{ id: "choice", prompt: "Choose a path", options: [{ id: "tests", label: "Tests" }] }],
+          questions: [
+            { id: "choice", prompt: "Choose a path", options: [{ id: "tests", label: "Tests" }] },
+          ],
         });
         if (elicitationResponseLogPath)
           NodeFS.appendFileSync(elicitationResponseLogPath, `${encodeJson(response)}\n`, "utf8");

@@ -10,7 +10,7 @@ import { ExitCode } from "effect/process/ChildProcessSpawner";
 import * as Desktop from "../desktop/DesktopAutomation.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as ServerConfig from "../config.ts";
-import { DesktopToolkitRegistration } from "./McpHttpServer.ts";
+import { DesktopToolkitRegistration, layerInProcessMcpServer } from "./McpHttpServer.ts";
 import {
   McpInvocationContext,
   type McpInvocationScope,
@@ -18,10 +18,15 @@ import {
 } from "./McpInvocationContext.ts";
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
+const isInvalidParams = Schema.is(McpSchema.InvalidParams);
 const invocation: McpInvocationScope = {
   environmentId: EnvironmentId.make("desktop-mcp"),
   requestNamespace: "desktop-fixture",
-  thread: { threadId: ThreadId.make("desktop-mcp-thread"), providerSessionId: "session", providerInstanceId: ProviderInstanceId.make("codex") },
+  thread: {
+    threadId: ThreadId.make("desktop-mcp-thread"),
+    providerSessionId: "session",
+    providerInstanceId: ProviderInstanceId.make("codex"),
+  },
   client: undefined,
   capabilities: new Set(["desktop"]),
   issuedAt: 1,
@@ -83,7 +88,7 @@ it.effect(
       }),
     );
     const testLayer = DesktopToolkitRegistration.pipe(
-      Layer.provideMerge(McpServer.McpServer.layer),
+      Layer.provideMerge(layerInProcessMcpServer),
       Layer.provide(Desktop.layer.pipe(Layer.provide(runner))),
       Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "j1-desktop-mcp-" })),
       Layer.provide(NodeServices.layer),
@@ -117,7 +122,7 @@ it.effect(
       const invalid = yield* call("desktop_read", { command: "click", args: ["@s:e1"] }).pipe(
         Effect.flip,
       );
-      expect(invalid._tag).toBe("InvalidParams");
+      expect(isInvalidParams(invalid)).toBe(true);
       expect(calls).toBe(0);
       const read = yield* call("desktop_read", {
         command: "snapshot",

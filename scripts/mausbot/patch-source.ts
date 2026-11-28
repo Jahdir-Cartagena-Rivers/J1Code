@@ -3,23 +3,30 @@ import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeUtil from "node:util";
+import { MAUSBOT_SOURCE } from "../../apps/server/src/mausbot/SourcePin.ts";
 import { patchOpenMausImport } from "./patch-import.ts";
 import { patchMobileShell } from "./patch-mobile-shell.ts";
+import { patchSavedAppFiles } from "./patch-saved-app-files.ts";
 import { patchLegacySettingsWindow, patchSettingsWindow } from "./patch-settings-window.ts";
 import { patchSharedExecution } from "./patch-shared-execution.ts";
 
 const MAUSBOT_V0182 = "140172d88382a97e1c3420d55f3df8ba472a9cfe";
-export const MAUSBOT_SOURCE = "aa64baefae8d94c5b032b4e0745b3d7fb7a07658";
+const MAUSBOT_V0184 = "aa64baefae8d94c5b032b4e0745b3d7fb7a07658";
+export { MAUSBOT_SOURCE };
 const root = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "../..");
 
 /** Applies only to our disposable, pinned OSS assembly; never edits the reference checkout. */
 export async function patchMausbotSource(stage: string, sourceRef = MAUSBOT_SOURCE) {
-  const latestSource = sourceRef === MAUSBOT_SOURCE || sourceRef === MAUSBOT_V0182;
+  const savedApps = sourceRef === MAUSBOT_SOURCE || sourceRef === MAUSBOT_V0184;
+  const latestSource = savedApps || sourceRef === MAUSBOT_V0182;
   await patchOpenMausImport(stage, { useNativeBackupVersion: latestSource });
   const bubblePath = NodePath.join(stage, "src/components/chat-bubble.ts");
   const bubbles = await NodeFSP.readFile(bubblePath, "utf8");
   if (!bubbles.includes("calc(100%-82px)")) throw new Error("Pinned bubble width changed.");
-  await NodeFSP.writeFile(bubblePath, bubbles.replace("calc(100%-82px)", "calc(100%-var(--chat-bubble-gutter,82px))"));
+  await NodeFSP.writeFile(
+    bubblePath,
+    bubbles.replace("calc(100%-82px)", "calc(100%-var(--chat-bubble-gutter,82px))"),
+  );
   // v0.1.182 already contains both upstream fixes.
   const backports = latestSource
     ? []
@@ -39,6 +46,7 @@ export async function patchMausbotSource(stage: string, sourceRef = MAUSBOT_SOUR
   };
   const copy = (from: string, to: string) =>
     NodeFSP.copyFile(NodePath.join(root, from), NodePath.join(stage, to));
+  if (savedApps) await patchSavedAppFiles(change);
   await change(
     "src/lib/composer-attachments.ts",
     `export function isImageFile(file: { type: string; size?: number }): boolean {
@@ -109,23 +117,31 @@ export function isImageFile(file: { type: string; name?: string; size?: number }
     NodePath.join(stage, "server/reply-habits.ts"),
     '\nexport const REPLY_HABITS_PROMPT = BASE_REPLY_HABITS_PROMPT + "\\n\\n" + AUTHORIZATION_INSTRUCTIONS;\n',
   );
+  const outboundFile = latestSource
+    ? "packages/phone-protocol/src/outbound.ts"
+    : "shared/outbound.ts";
+  const outboundSource = await NodeFSP.readFile(NodePath.join(stage, outboundFile), "utf8");
+  const toolName = outboundSource.includes("  if (AGENTS_X_READS.test(resolved)) return false;")
+    ? "resolved"
+    : "name";
+  const outboundAnchor = `  if (AGENTS_X_READS.test(${toolName})) return false;`;
   await change(
-    latestSource ? "packages/phone-protocol/src/outbound.ts" : "shared/outbound.ts",
-    "  if (AGENTS_X_READS.test(name)) return false;",
-    "  if (AGENTS_X_READS.test(name)) return false;\n  // J1 validates this return channel against the two original route participants.\n  if (/^(?:mcp__agents__|agents__|agents_)?reply_to_route$/.test(name)) return false;",
+    outboundFile,
+    outboundAnchor,
+    `${outboundAnchor}\n  // J1 limits this return channel to the original route participants.\n  if (/^(?:mcp__agents__|mcp_agents_|agents__|agents_)?reply_to_route$/.test(${toolName})) return false;`,
   );
   await copy("scripts/mausbot/routing-feedback.test.ts.txt", "server/j1/routing-feedback.test.ts");
   // Preserve upstream checksum/version gates without PowerShell's non-terminating extraction errors.
   if (!latestSource) {
     await change(
-    "scripts/prepare-cua-win.mjs",
-    `  await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
+      "scripts/prepare-cua-win.mjs",
+      `  await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
     "Expand-Archive -LiteralPath $env:OMB_CUA_ARCHIVE -DestinationPath $env:OMB_CUA_EXTRACT"], {
     env: { ...process.env, OMB_CUA_ARCHIVE: archive, OMB_CUA_EXTRACT: cache },
     timeout: 60_000,
     windowsHide: true,
   });`,
-    `  const systemRoot = process.env.SystemRoot ?? process.env.windir;
+      `  const systemRoot = process.env.SystemRoot ?? process.env.windir;
   if (!systemRoot) throw new Error("Windows system directory is unavailable for CUA extraction");
   await run(join(systemRoot, "System32", "tar.exe"), ["-xf", archive, "-C", cache], {
     timeout: 60_000,
@@ -217,7 +233,8 @@ export function isImageFile(file: { type: string; name?: string; size?: number }
   await copy("scripts/mausbot/TranscriptApproval.tsx", "src/components/TranscriptApproval.tsx");
   await copy("scripts/mausbot/J1RouteCard.tsx", "src/components/J1RouteCard.tsx");
   await copy("scripts/mausbot/route-card.test.ts.txt", "src/components/j1-route-card.test.ts");
-  const messagePick = 'export interface Message extends Pick<import("../../shared/wire").WireMessage, ';
+  const messagePick =
+    'export interface Message extends Pick<import("../../shared/wire").WireMessage, ';
   await change(
     "src/state/store.tsx",
     messagePick,
@@ -244,7 +261,9 @@ export function isImageFile(file: { type: string; name?: string; size?: number }
   );
   await change(
     "src/components/Composer.tsx",
-    latestSource ? "ELEVATED_CARD, ELEVATED_COMPOSER, ELEVATED_FLOAT" : "ELEVATED_CARD, ELEVATED_FLOAT",
+    latestSource
+      ? "ELEVATED_CARD, ELEVATED_COMPOSER, ELEVATED_FLOAT"
+      : "ELEVATED_CARD, ELEVATED_FLOAT",
     latestSource ? "ELEVATED_COMPOSER, ELEVATED_FLOAT" : "ELEVATED_FLOAT",
   );
   await change(
@@ -455,17 +474,32 @@ function j1InputSent(threadId: string, generation: string, turnId: string) {
     `(${mounted} ? hiveProviderPrompt(toolScopeForTurn(bot.id), bot.memoryEnabled !== false) : "") + `;
   const memoryRules = latestSource ? "memoryRulesPrompt" : "memorySystemPrompt";
   const directMemory = `${memoryRules}(bot.id, { managedWrites: agentsMounted,`;
-  await change("server/index.ts", `text: ${directMemory}`, `text: ${hiveGuide("agentsMounted")}${directMemory}`);
+  await change(
+    "server/index.ts",
+    `text: ${directMemory}`,
+    `text: ${hiveGuide("agentsMounted")}${directMemory}`,
+  );
   const threadMemory = latestSource
     ? "memoryRulesPrompt(teamHost.layer(bot.id, threadId), memoryOpts)"
     : "memorySystemPrompt(teamHost.layer(bot.id, threadId),";
-  await change("server/index.ts", `text: ${threadMemory}`, `text: ${hiveGuide("integrations.agents")}${threadMemory}`);
+  await change(
+    "server/index.ts",
+    `text: ${threadMemory}`,
+    `text: ${hiveGuide("integrations.agents")}${threadMemory}`,
+  );
   if (latestSource) {
     const roomRules = "memoryRulesPrompt(teamHost.layer(bot.id, threadId), roomMemoryOpts)";
-    await change("server/index.ts", `text: ${roomRules}`, `text: ${hiveGuide("integrations.agents")}${roomRules}`);
+    await change(
+      "server/index.ts",
+      `text: ${roomRules}`,
+      `text: ${hiveGuide("integrations.agents")}${roomRules}`,
+    );
   } else {
-    await change("server/index.ts", "const roomMemory = memorySystemPrompt(",
-      `const roomMemory = ${hiveGuide("integrations.agents")}memorySystemPrompt(`);
+    await change(
+      "server/index.ts",
+      "const roomMemory = memorySystemPrompt(",
+      `const roomMemory = ${hiveGuide("integrations.agents")}memorySystemPrompt(`,
+    );
   }
   const codexMountTest = await NodeFSP.readFile(
     NodePath.join(root, "scripts/mausbot/codex-hive-mount.test.ts.txt"),
@@ -480,26 +514,68 @@ function j1InputSent(threadId: string, generation: string, turnId: string) {
   const threadRoutes = (
     await NodeFSP.readFile(NodePath.join(stage, "server/routes/internal-threads.ts"), "utf8")
   ).replaceAll("\r\n", "\n");
-  const rowsStart = threadRoutes.indexOf("      const rows: ThreadRow[] = [];");
-  const rowsEnd = threadRoutes.indexOf(
-    latestSource
-      ? '      const asked = Number(url.searchParams.get("page"));'
-      : "      return json(res, 200, { threads: rows.slice(0, 100) });",
-    rowsStart,
+  const routeFile = "server/routes/internal-threads.ts";
+  const pageStart = threadRoutes.indexOf(
+    '      const asked = Number(url.searchParams.get("page"));',
   );
-  if (rowsStart < 0 || rowsEnd < 0)
-    throw new Error("Pinned Mausbot thread visibility policy changed.");
-  const rowsBody = threadRoutes.slice(rowsStart, rowsEnd);
-  await change(
-    "server/routes/internal-threads.ts",
-    rowsBody,
-    "      const rows = internalThreadRows(deps);\n",
+  const visibleStart = threadRoutes.indexOf(
+    "      const visible: { bot: BotRecord; task: TaskRecord;",
   );
-  await change(
-    "server/routes/internal-threads.ts",
-    "type ThreadState =",
-    `export function internalThreadRows(deps: Parameters<typeof createInternalThreadRoutes>[0]): ThreadRow[] {\n  const { store, coordinator, from } = deps;\n${rowsBody}\n  return rows;\n}\n\ntype ThreadState =`,
-  );
+  if (visibleStart >= 0) {
+    const activityStart = threadRoutes.indexOf(
+      "      const pageThreads = new Map<string, Set<string>>();",
+      pageStart,
+    );
+    const activityEnd = threadRoutes.indexOf(
+      "      return json(res, 200, { threads, total: visible.length, page, pageSize: THREADS_PAGE });",
+      activityStart,
+    );
+    if (!(visibleStart < pageStart && pageStart < activityStart && activityStart < activityEnd))
+      throw new Error("Pinned Mausbot paged thread visibility policy changed.");
+    const visibleBody = threadRoutes.slice(visibleStart, pageStart);
+    const activityBody = threadRoutes.slice(activityStart, activityEnd);
+    await change(routeFile, visibleBody, "      const visible = visibleInternalThreads(deps);\n");
+    await change(
+      routeFile,
+      activityBody,
+      "      const threads = describeInternalThreads(deps, selected);\n",
+    );
+    await change(
+      routeFile,
+      "type ThreadState =",
+      `type InternalThreadDependencies = Parameters<typeof createInternalThreadRoutes>[0];
+function visibleInternalThreads(deps: InternalThreadDependencies) {
+  const { store, from } = deps;
+${visibleBody}  return visible;
+}
+function describeInternalThreads(deps: InternalThreadDependencies, selected: ReturnType<typeof visibleInternalThreads>): ThreadRow[] {
+  const { coordinator, from } = deps;
+${activityBody}  return threads;
+}
+export function internalThreadRows(deps: InternalThreadDependencies): ThreadRow[] {
+  return describeInternalThreads(deps, visibleInternalThreads(deps).slice(0, 100));
+}
+
+type ThreadState =`,
+    );
+  } else {
+    const rowsStart = threadRoutes.indexOf("      const rows: ThreadRow[] = [];");
+    const rowsEnd = threadRoutes.indexOf(
+      latestSource
+        ? '      const asked = Number(url.searchParams.get("page"));'
+        : "      return json(res, 200, { threads: rows.slice(0, 100) });",
+      rowsStart,
+    );
+    if (rowsStart < 0 || rowsEnd < 0)
+      throw new Error("Pinned Mausbot thread visibility policy changed.");
+    const rowsBody = threadRoutes.slice(rowsStart, rowsEnd);
+    await change(routeFile, rowsBody, "      const rows = internalThreadRows(deps);\n");
+    await change(
+      routeFile,
+      "type ThreadState =",
+      `export function internalThreadRows(deps: Parameters<typeof createInternalThreadRoutes>[0]): ThreadRow[] {\n  const { store, coordinator, from } = deps;\n${rowsBody}\n  return rows;\n}\n\ntype ThreadState =`,
+    );
+  }
   await change(
     "server/index.ts",
     'import { createInternalThreadRoutes } from "./routes/internal-threads.ts";',
@@ -750,7 +826,9 @@ ${installPoint}`,
     "  const serverUpdate = useServerUpdateItem(!window.ogb?.updater);",
     "  const j1Navigation = useJ1Navigation();\n  const serverUpdate = useServerUpdateItem(!window.ogb?.updater && !j1Navigation);",
   );
-  const updateSource = latestSource ? "desktopUpdate ?? elsewhereUpdate ?? serverUpdate" : "desktopUpdate ?? serverUpdate";
+  const updateSource = latestSource
+    ? "desktopUpdate ?? elsewhereUpdate ?? serverUpdate"
+    : "desktopUpdate ?? serverUpdate";
   await change(
     "src/components/SidebarProfileMenu.tsx",
     `  const update = ${updateSource};`,
@@ -825,21 +903,21 @@ ${installPoint}`,
   } : saved, floats, false);`,
     );
   } else {
-  await change(
-    "src/components/Sidebar.tsx",
-    "  const { primary, unsectionedChief, pinnedBots, sectionChiefs, sectionedBots, unsectionedBots } = { ...saved, ...activeBotsFirst(saved, (bot) => {",
-    "  const mergedSaved = j1Navigation ? { ...saved, sectionChiefs: [], sectionedBots: [...saved.sectionedBots, ...saved.sectionChiefs].sort((a, b) => state.bots.findIndex((bot) => bot.id === a.id) - state.bots.findIndex((bot) => bot.id === b.id)) } : saved;\n  const { primary, unsectionedChief, pinnedBots, sectionChiefs, sectionedBots, unsectionedBots } = { ...mergedSaved, ...activeBotsFirst(mergedSaved, (bot) => {",
-  );
-  await change(
-    "src/components/Sidebar.tsx",
-    "    return waiting || working;",
-    "    return !j1Navigation && (waiting || working);",
-  );
-  await change(
-    "src/components/Sidebar.tsx",
-    "sectioned: saved.sectionedBots, departments: sectionNames",
-    "sectioned: mergedSaved.sectionedBots, departments: sectionNames",
-  );
+    await change(
+      "src/components/Sidebar.tsx",
+      "  const { primary, unsectionedChief, pinnedBots, sectionChiefs, sectionedBots, unsectionedBots } = { ...saved, ...activeBotsFirst(saved, (bot) => {",
+      "  const mergedSaved = j1Navigation ? { ...saved, sectionChiefs: [], sectionedBots: [...saved.sectionedBots, ...saved.sectionChiefs].sort((a, b) => state.bots.findIndex((bot) => bot.id === a.id) - state.bots.findIndex((bot) => bot.id === b.id)) } : saved;\n  const { primary, unsectionedChief, pinnedBots, sectionChiefs, sectionedBots, unsectionedBots } = { ...mergedSaved, ...activeBotsFirst(mergedSaved, (bot) => {",
+    );
+    await change(
+      "src/components/Sidebar.tsx",
+      "    return waiting || working;",
+      "    return !j1Navigation && (waiting || working);",
+    );
+    await change(
+      "src/components/Sidebar.tsx",
+      "sectioned: saved.sectionedBots, departments: sectionNames",
+      "sectioned: mergedSaved.sectionedBots, departments: sectionNames",
+    );
   }
   await change(
     "src/components/DesktopWorkspaceSwitcher.tsx",
@@ -879,10 +957,15 @@ ${installPoint}`,
     "  const j1Navigation = useJ1Navigation();\n  const [searchOpen, setSearchOpen] = useState(false);",
   );
   if (latestSource) {
+    const sidebar = await NodeFSP.readFile(
+      NodePath.join(stage, "src/components/Sidebar.tsx"),
+      "utf8",
+    );
+    const placedMenu = sidebar.includes("<PlacedBotMenuHost />") ? "<PlacedBotMenuHost />" : "";
     await change(
       "src/components/Sidebar.tsx",
-      '<OtherPlaceLine query={query} icons={density === "icons"} /><MovedBotRows bots={state.bots} /><MovedToMyCloudRow bots={state.bots} /><SearchResults',
-      '<J1Navigation />{!j1Navigation && <OtherPlaceLine query={query} icons={density === "icons"} />}<MovedBotRows bots={state.bots} />{!j1Navigation && <MovedToMyCloudRow bots={state.bots} />}<SearchResults',
+      `<OtherPlaceLine query={query} icons={density === "icons"} />${placedMenu}<MovedBotRows bots={state.bots} /><MovedToMyCloudRow bots={state.bots} /><SearchResults`,
+      `<J1Navigation />{!j1Navigation && <OtherPlaceLine query={query} icons={density === "icons"} />}${placedMenu}<MovedBotRows bots={state.bots} />{!j1Navigation && <MovedToMyCloudRow bots={state.bots} />}<SearchResults`,
     );
   } else {
     await change(
@@ -951,21 +1034,21 @@ ${installPoint}`,
       : 'merged ? "text-[13px] font-medium leading-5" : simpleRow ? "text-[14px] font-medium leading-5" : "text-[15px] font-semibold leading-5"',
   );
   if (!latestSource) {
-  await change(
-    "src/components/SettingsModal.tsx",
-    "{visibleSections.length === 0 && (",
-    "{!j1Navigation && visibleSections.length === 0 && (",
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    'aria-current={section === id ? "page" : undefined}',
-    'aria-current={(!j1Path || j1SettingsSection(j1Path) === id) && section === id ? "page" : undefined}',
-  );
-  await change(
-    "src/components/SettingsModal.tsx",
-    'section === id ? "bg-ink/[0.08]"',
-    '(!j1Path || j1SettingsSection(j1Path) === id) && section === id ? "bg-ink/[0.08]"',
-  );
+    await change(
+      "src/components/SettingsModal.tsx",
+      "{visibleSections.length === 0 && (",
+      "{!j1Navigation && visibleSections.length === 0 && (",
+    );
+    await change(
+      "src/components/SettingsModal.tsx",
+      'aria-current={section === id ? "page" : undefined}',
+      'aria-current={(!j1Path || j1SettingsSection(j1Path) === id) && section === id ? "page" : undefined}',
+    );
+    await change(
+      "src/components/SettingsModal.tsx",
+      'section === id ? "bg-ink/[0.08]"',
+      '(!j1Path || j1SettingsSection(j1Path) === id) && section === id ? "bg-ink/[0.08]"',
+    );
   }
   await change(
     "src/components/CommandPalette.tsx",
@@ -1040,17 +1123,26 @@ ${installPoint}`,
     '      {state.activeView === "team-map" ? (',
     '      {j1ShowingProject ? <main data-j1-main-slot className="min-w-0 flex-1 bg-app" /> : state.activeView === "team-map" ? (',
   );
+  const appSource = await NodeFSP.readFile(NodePath.join(stage, "src/App.tsx"), "utf8");
+  const filterPlacedBot = appSource.includes("<PlaceChatKeeper />") ? " && !isPlaceId(bot.id)" : "";
+  if (filterPlacedBot) {
+    const placedPanel =
+      "{(state.settingsOpen || state.computerOpen) && bot && isPlaceId(bot.id) && <PlacedBotPanel";
+    await change("src/App.tsx", placedPanel, placedPanel.replace("{", "{!j1ShowingProject && "));
+  }
   await change(
     "src/App.tsx",
-    "      {state.computerOpen && bot && (",
-    "      {!j1ShowingProject && state.computerOpen && bot && (",
+    `{state.computerOpen && bot${filterPlacedBot} && (`,
+    `{!j1ShowingProject && state.computerOpen && bot${filterPlacedBot} && (`,
   );
   await change(
     "src/App.tsx",
-    "      {state.settingsOpen && bot && (",
-    "      {!j1ShowingProject && state.settingsOpen && bot && (",
+    `{state.settingsOpen && bot${filterPlacedBot} && (`,
+    `{!j1ShowingProject && state.settingsOpen && bot${filterPlacedBot} && (`,
   );
-  const roomPanel = latestSource ? "!state.forkPanel && roomPanelOpen && group" : "roomPanelOpen && group";
+  const roomPanel = latestSource
+    ? "!state.forkPanel && roomPanelOpen && group"
+    : "roomPanelOpen && group";
   await change(
     "src/App.tsx",
     `      {${roomPanel} && (`,
@@ -1068,39 +1160,42 @@ ${installPoint}`,
   );
   await change(
     "src/components/onboarding/WelcomeGate.tsx",
-    'export function WelcomeGate({ viewer }: { viewer: WelcomeViewer | null }) {',
-    'export function WelcomeGate({ viewer, automatic = true }: { viewer: WelcomeViewer | null; automatic?: boolean }) {',
+    "export function WelcomeGate({ viewer }: { viewer: WelcomeViewer | null }) {",
+    "export function WelcomeGate({ viewer, automatic = true }: { viewer: WelcomeViewer | null; automatic?: boolean }) {",
   );
   await change(
     "src/components/onboarding/WelcomeGate.tsx",
-    '  if (!viewer) return null;',
-    '  if (!viewer || (!automatic && !state.welcomeOpen)) return null;',
+    "  if (!viewer) return null;",
+    "  if (!viewer || (!automatic && !state.welcomeOpen)) return null;",
   );
   await change(
     "src/components/onboarding/WelcomeGate.tsx",
-    '  const due =\n    !dismissed &&',
-    '  const due =\n    automatic &&\n    !dismissed &&',
+    "  const due =\n    !dismissed &&",
+    "  const due =\n    automatic &&\n    !dismissed &&",
   );
-  await copy("scripts/mausbot/j1-welcome-gate.test.ts.txt", "src/components/onboarding/j1-welcome-gate.test.ts");
+  await copy(
+    "scripts/mausbot/j1-welcome-gate.test.ts.txt",
+    "src/components/onboarding/j1-welcome-gate.test.ts",
+  );
   if (latestSource) {
     await change(
       "src/components/HelperSetup.tsx",
-      '  if (!steps.length) return null;',
+      "  if (!steps.length) return null;",
       '  const offered = state.config?.j1Managed ? steps.filter((step) => step !== "cloud") : steps;\n  if (!offered.length) return null;',
     );
     await change(
       "src/components/HelperSetup.tsx",
-      '        {steps.map((step) => {',
-      '        {offered.map((step) => {',
+      "        {steps.map((step) => {",
+      "        {offered.map((step) => {",
     );
     await change(
       "src/components/HelperSetup.tsx",
-      '  const { dispatch } = useStore();',
-      '  const { state, dispatch } = useStore();',
+      "  const { dispatch } = useStore();",
+      "  const { state, dispatch } = useStore();",
     );
     await change(
       "src/components/HelperSetup.tsx",
-      '  const shown = chips.filter((chip) => !tapped.has(chip)).slice(0, INTRO_CHIPS);',
+      "  const shown = chips.filter((chip) => !tapped.has(chip)).slice(0, INTRO_CHIPS);",
       '  const shown = chips.filter((chip) => !tapped.has(chip) && (!state.config?.j1Managed || chip !== "cloud")).slice(0, INTRO_CHIPS);',
     );
     await change(
@@ -1270,7 +1365,8 @@ describe("what MausBot says first", () => {`,
     "function browserReady(profile: string | undefined): boolean {",
     "function browserReady(profile: string | undefined): boolean {\n    if (J1Browser.managed) return J1Browser.ready;",
   );
-  const browserIntegration = "async function browserIntegration(botId: string, profile: string | undefined, turn?: { threadId: string; generation: string }, audience = browserAudience(turn?.threadId)";
+  const browserIntegration =
+    "async function browserIntegration(botId: string, profile: string | undefined, turn?: { threadId: string; generation: string }, audience = browserAudience(turn?.threadId)";
   const browserIntegrationDeclaration = latestSource
     ? `${browserIntegration}, options: { opening?: string | null } = {}) {`
     : `${browserIntegration}) {`;
@@ -1370,9 +1466,7 @@ describe("what MausBot says first", () => {`,
     configDecoder,
     `import { publishNativeCapabilities } from "../j1-native-client";\n${configDecoder}`,
   );
-  const configDispatch = latestSource
-    ? "forgetSharedSession();"
-    : "\n          rawDispatch({";
+  const configDispatch = latestSource ? "forgetSharedSession();" : "\n          rawDispatch({";
   await change(
     "src/state/store.tsx",
     `        case "config":${latestSource ? " " : ""}${configDispatch}`,
@@ -1386,8 +1480,24 @@ describe("what MausBot says first", () => {`,
   await change(
     "src/main.tsx",
     'import { StrictMode } from "react";',
-    'import "./j1-client-base";\nimport { StrictMode } from "react";',
+    `${
+      sourceRef === MAUSBOT_SOURCE
+        ? 'import { runtimePathname } from "./j1-client-base";'
+        : 'import "./j1-client-base";'
+    }\nimport { StrictMode } from "react";`,
   );
+  if (sourceRef === MAUSBOT_SOURCE) {
+    await change(
+      "src/main.tsx",
+      "PAGES_WITHOUT_THE_APP.has(location.pathname)",
+      "PAGES_WITHOUT_THE_APP.has(runtimePathname)",
+    );
+    await change(
+      "src/main.tsx",
+      'if (location.pathname === "/local-app") {',
+      'if (runtimePathname === "/local-app") {',
+    );
+  }
   await change(
     "src/lib/brand.ts",
     'export const PRODUCT_NAME = "MausBot";',
@@ -1418,7 +1528,9 @@ describe("what MausBot says first", () => {`,
     "async function readyLocalVmForTurn(botId: string, target: LocalVmTarget, isCurrent = () => true) {",
     'async function readyLocalVmForTurn(botId: string, target: LocalVmTarget, isCurrent = () => true) {\n  if (J1Browser.managed) throw new Error("Container desktops are not included in this J1 runtime. Choose This computer to use native tools.");',
   );
-  const shutdownRegistration = latestSource ? installPoint : "  process.on(signal, gracefulShutdown);\n}";
+  const shutdownRegistration = latestSource
+    ? installPoint
+    : "  process.on(signal, gracefulShutdown);\n}";
   await change(
     "server/index.ts",
     shutdownRegistration,

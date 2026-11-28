@@ -676,6 +676,7 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
       Effect.andThen(Ref.get(settings)),
     ),
     updateSettings,
+    insertBotProfileIfAbsent: () => Effect.die("Unexpected bot enrollment"),
     updateProviderInstance: () => Effect.die("Unexpected provider mutation"),
     withSettingsSnapshot: (use) => Ref.get(settings).pipe(Effect.flatMap(use)),
     streamChanges: Stream.fromPubSub(settingsChanges),
@@ -686,12 +687,13 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
 
   const layerDependencies = Layer.mergeAll(
     Layer.mock(ProjectStore.ProjectStoreV2)({
-      listShells: (options) => Ref.update(projectReads, (reads) => [...reads, options?.projectIds]).pipe(
-        Effect.andThen(Ref.get(snapshots)),
-        Effect.map(({ projects }) => projects.filter(
-          (project) => options?.projectIds?.includes(project.id) ?? true,
-        )),
-      ),
+      listShells: (options) =>
+        Ref.update(projectReads, (reads) => [...reads, options?.projectIds]).pipe(
+          Effect.andThen(Ref.get(snapshots)),
+          Effect.map(({ projects }) =>
+            projects.filter((project) => options?.projectIds?.includes(project.id) ?? true),
+          ),
+        ),
     }),
     Layer.mock(ProjectionStore.ProjectionStoreV2)({
       ...options.projections,
@@ -868,20 +870,21 @@ describe("ThreadSettlementServiceV2 worker", () => {
       yield* Effect.gen(function* () {
         const reactor = yield* ThreadSettlementService.ThreadSettlementServiceV2;
         yield* startHarness(reactor, fixture.activation, fixture.snapshotReads);
-        const refresh = (threadId: ThreadId) => fixture.publishEvent({
-          type: "run.background-work-cancelled",
-          id: EventId.make(`event:targeted-projects:${threadId}`),
-          threadId,
-          occurredAt: DateTime.makeUnsafe(NOW),
-          payload: { runId: RunId.make(`run:${threadId}`), restartCancelledBackgroundWork: [] },
-        }).pipe(
-          Effect.andThen(Queue.take(fixture.snapshotReads)),
-          Effect.andThen(reactor.drain),
-        );
+        const refresh = (threadId: ThreadId) =>
+          fixture
+            .publishEvent({
+              type: "run.background-work-cancelled",
+              id: EventId.make(`event:targeted-projects:${threadId}`),
+              threadId,
+              occurredAt: DateTime.makeUnsafe(NOW),
+              payload: { runId: RunId.make(`run:${threadId}`), restartCancelledBackgroundWork: [] },
+            })
+            .pipe(Effect.andThen(Queue.take(fixture.snapshotReads)), Effect.andThen(reactor.drain));
         yield* refresh(target.id);
         yield* refresh(ThreadId.make("missing-settlement-target"));
         assert.deepStrictEqual(yield* Ref.get(fixture.projectReads), [
-          undefined, [target.projectId, externalProjectId],
+          undefined,
+          [target.projectId, externalProjectId],
         ]);
       }).pipe(Effect.provide(fixture.layer));
     }),

@@ -107,8 +107,9 @@ describe("delivery dispatcher", () => {
     Effect.gen(function* () {
       const f = yield* fixture();
       yield* f.dispatcher.register(request);
-      const results = yield* Effect.all(
-        [f.dispatcher.dispatch("r"), f.dispatcher.dispatch("r")].map(Effect.exit),
+      const results = yield* Effect.forEach(
+        [f.dispatcher.dispatch("r"), f.dispatcher.dispatch("r")],
+        Effect.exit,
         { concurrency: "unbounded" },
       );
       expect(results).toHaveLength(2);

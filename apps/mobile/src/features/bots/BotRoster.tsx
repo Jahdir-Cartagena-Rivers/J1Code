@@ -2,6 +2,7 @@ import { botVoice, type BotVoice } from "../../native/botVoice";
 import { BOT_ICON_CHOICES } from "@j1code/shared/bot-icons";
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentThreadShell } from "@j1code/client-runtime/state/shell";
+import { scopeThreadRef } from "@j1code/client-runtime/environment";
 import {
   BotId,
   BotRoutine,
@@ -16,7 +17,7 @@ import { resolveProjectSettings } from "@j1code/shared/projectSettings";
 import * as Schema from "effect/Schema";
 import { BotRoutineHistory } from "./BotRoutineHistory";
 import { BotRoutinesEditor } from "./BotRoutinesEditor";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -27,15 +28,18 @@ import {
   View,
 } from "react-native";
 import { AppText } from "../../components/ui/AppText";
-import { ControlPill, ControlPillMenu } from "../../components/ui/ControlPill";
+import { ControlPill } from "../../components/ui/ControlPill";
+import { Menu } from "../../components/ui/Menu";
 import { Button } from "../../components/ui/Button";
 import { RowPressable } from "../../components/ui/RowPressable";
 import { uuidv4 } from "../../lib/uuid";
 import { useProjects, useThreadShells, waitForProject } from "../../state/entities";
+import { appAtomRegistry } from "../../state/atom-registry";
 import { environmentServerConfigsAtom, serverEnvironment } from "../../state/server";
 import { projectEnvironment } from "../../state/projects";
-import { threadEnvironment } from "../../state/threads";
+import { environmentThreadShells, threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { waitForThreadShell } from "../threads/threadForkNavigation";
 
 const isRoutine = Schema.is(BotRoutine);
 
@@ -56,11 +60,9 @@ export function BotRoster({
   const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
   const [editor, setEditor] = useState<Target | null>(null);
   const [showArchived, setShowArchived] = useState(false);
-  const [pending, setPending] = useState<{
-    environmentId: EnvironmentId;
-    threadId: ThreadId;
-  } | null>(null);
   const [creating, setCreating] = useState(false);
+  const [waitingForOpen, setWaitingForOpen] = useState(false);
+  const openingCancelled = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const entries = useMemo(
     () =>
@@ -76,19 +78,8 @@ export function BotRoster({
     [configs],
   );
   const firstEnvironment = configs.keys().next().value;
-  useEffect(() => {
-    if (!pending) return;
-    const thread = threads.find(
-      (entry) => entry.environmentId === pending.environmentId && entry.id === pending.threadId,
-    );
-    if (thread) {
-      setPending(null);
-      onSelectThread(thread);
-    }
-  }, [pending, threads, onSelectThread]);
-
   const open = async (environmentId: EnvironmentId, profile: BotProfile, fresh: boolean) => {
-    if (creating || pending) return;
+    if (creating) return;
     setError(null);
     const existing = !fresh ? latestBotConversation(threads, environmentId, profile.id) : undefined;
     if (existing) {
@@ -101,7 +92,9 @@ export function BotRoster({
       return;
     }
     setCreating(true);
-    try {
+    const openConversation = async () => {
+      // oxlint-disable-next-line react/purity -- The timestamp is captured in the user's open-conversation event.
+      const createdAt = new Date().toISOString();
       let project = projects.find(
         (entry) => entry.environmentId === environmentId && entry.id === profile.projectId,
       );
@@ -122,7 +115,7 @@ export function BotRoster({
               title: profile.name,
               createWorkspaceRootIfMissing: true,
               defaultModelSelection: null,
-              createdAt: new Date().toISOString(),
+              createdAt,
             },
           });
           project =
@@ -151,16 +144,28 @@ export function BotRoster({
           interactionMode: "default",
           branch: null,
           worktreePath: null,
-          createdAt: new Date().toISOString(),
+          createdAt,
         },
       });
-      if (result._tag === "Success") setPending({ environmentId, threadId });
-      else setError("The conversation could not be created.");
-    } catch {
-      setError("The bot workspace could not be opened. Try again.");
-    } finally {
-      setCreating(false);
-    }
+      if (result._tag !== "Success") {
+        setError("The conversation could not be created.");
+        return;
+      }
+      const ref = scopeThreadRef(environmentId, threadId);
+      openingCancelled.current = false;
+      setWaitingForOpen(true);
+      await waitForThreadShell(ref);
+      if (openingCancelled.current) return;
+      const thread = appAtomRegistry.get(environmentThreadShells.threadShellAtom(ref));
+      if (thread) onSelectThread(thread);
+      else setError("The conversation was created. Reopen it from the bot's conversation list.");
+    };
+    await openConversation()
+      .catch(() => setError("The bot workspace could not be opened. Try again."))
+      .finally(() => {
+        setWaitingForOpen(false);
+        setCreating(false);
+      });
   };
 
   return (
@@ -182,7 +187,7 @@ export function BotRoster({
               <View className="flex-1">
                 <RowPressable
                   accessibilityLabel={profile.name}
-                  disabled={creating || pending !== null || profile.archived}
+                  disabled={creating || profile.archived}
                   onPress={() => void open(environmentId, profile, false)}
                 >
                   <AppText>
@@ -193,7 +198,7 @@ export function BotRoster({
                   </AppText>
                 </RowPressable>
               </View>
-              <ControlPillMenu
+              <Menu
                 title={profile.name}
                 actions={[
                   {
@@ -213,7 +218,7 @@ export function BotRoster({
                     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
                     .map((thread) => ({
                       id: `thread:${thread.id}`,
-                      title: `${thread.title} - ${thread.latestTurn?.state ?? "starting"}`,
+                      title: `${thread.title} - ${thread.latestRun?.status ?? "starting"}`,
                     })),
                 ]}
                 onPressAction={({ nativeEvent }) => {
@@ -234,7 +239,7 @@ export function BotRoster({
                   accessibilityLabel={`Options for ${profile.name}`}
                   variant="pill"
                 />
-              </ControlPillMenu>
+              </Menu>
             </View>
           ))}
       </ScrollView>
@@ -245,11 +250,14 @@ export function BotRoster({
           onPress={() => setShowArchived(!showArchived)}
         />
       ) : null}
-      {pending ? (
+      {waitingForOpen ? (
         <Button
           tone="text"
           label="Cancel opening conversation"
-          onPress={() => setPending(null)}
+          onPress={() => {
+            openingCancelled.current = true;
+            setWaitingForOpen(false);
+          }}
         />
       ) : null}
       {error ? <AppText accessibilityRole="alert">{error}</AppText> : null}
@@ -299,6 +307,7 @@ function BotEditor({
   const [voiceURI, setVoiceURI] = useState(target.profile?.voiceURI ?? "");
   const [voiceAutoPlay, setVoiceAutoPlay] = useState(target.profile?.voiceAutoPlay ?? false);
   const [voices, setVoices] = useState<ReadonlyArray<BotVoice>>([]);
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Ask the native voice service for its available voices.
   useEffect(() => {
     let mounted = true;
     void botVoice
@@ -313,7 +322,7 @@ function BotEditor({
   }, []);
   const [pinned, setPinned] = useState(target.profile?.pinned ?? false);
   const [archived, setArchived] = useState(target.profile?.archived ?? false);
-  const [routines, setRoutines] = useState<ReadonlyArray<typeof BotRoutine.Type>>(
+  const [routines, setRoutines] = useState<ReadonlyArray<BotRoutine>>(
     target.profile?.routines ?? [],
   );
   const models =
@@ -351,7 +360,7 @@ function BotEditor({
       return;
     setSaving(true);
     setError(null);
-    try {
+    const commit = async () => {
       const now = new Date().toISOString();
       const profile: BotProfile = {
         id: target.profile?.id ?? BotId.make(uuidv4()),
@@ -375,16 +384,19 @@ function BotEditor({
       });
       if (result._tag === "Success") onClose();
       else setError("The bot was not saved. Your changes are still here.");
-    } finally {
-      setSaving(false);
-    }
+    };
+    await commit()
+      .catch(() => setError("The bot was not saved. Your changes are still here."))
+      .finally(() => setSaving(false));
   };
   return (
     <Modal
       visible
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={() => !saving && onClose()}
+      onRequestClose={() => {
+        if (!saving) onClose();
+      }}
     >
       <KeyboardAvoidingView
         className="flex-1 bg-screen"
@@ -444,7 +456,7 @@ function BotEditor({
               maxLength={500}
             />
           </View>
-          <ControlPillMenu
+          <Menu
             title="Project"
             actions={[
               { id: "standalone", title: "Standalone" },
@@ -472,8 +484,8 @@ function BotEditor({
               accessibilityLabel="Bot project"
               variant="pill"
             />
-          </ControlPillMenu>
-          <ControlPillMenu
+          </Menu>
+          <Menu
             title="Model"
             actions={models.map((model) => ({
               id: model.key,
@@ -487,11 +499,11 @@ function BotEditor({
               accessibilityLabel="Bot model"
               variant="pill"
             />
-          </ControlPillMenu>
+          </Menu>
           {botVoice ? (
             <View className="gap-2">
               <AppText>Voice</AppText>
-              <ControlPillMenu
+              <Menu
                 title="Bot voice"
                 actions={[
                   { id: "default", title: "Device default" },
@@ -509,7 +521,7 @@ function BotEditor({
                   accessibilityLabel="Bot voice"
                   variant="pill"
                 />
-              </ControlPillMenu>
+              </Menu>
               <View className="flex-row items-center justify-between">
                 <AppText>Read replies automatically</AppText>
                 <Switch

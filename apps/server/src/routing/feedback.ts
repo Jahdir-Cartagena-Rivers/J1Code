@@ -1,3 +1,4 @@
+// @effect-diagnostics-next-line nodeBuiltinImport:off - Feedback identities are computed in the pure route reducer.
 import * as NodeCrypto from "node:crypto";
 import { routeEndpointUrl } from "@j1code/shared/routeEndpointUrl";
 import type { RouteEndpoint, RouteRequest, RouteState } from "./routeState.ts";

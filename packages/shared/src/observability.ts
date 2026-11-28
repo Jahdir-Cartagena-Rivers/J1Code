@@ -7,6 +7,7 @@ import type * as Exit from "effect/Exit";
 import * as ExitRuntime from "effect/Exit";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
+import * as References from "effect/References";
 import * as Result from "effect/Result";
 import * as Semaphore from "effect/Semaphore";
 import * as Schema from "effect/Schema";
@@ -16,6 +17,15 @@ import * as Tracer from "effect/Tracer";
 import { OtlpResource, OtlpTracer, OtlpSerialization } from "effect/observability";
 
 import { makeAsyncRotatingFileSink } from "./logging.ts";
+
+const ROUTINE_ATTRIBUTE = "t3.trace.routine";
+export const routineSpan = { [ROUTINE_ATTRIBUTE]: true } as const;
+
+export const withoutRoutineSpans = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  Effect.updateService(effect, References.TracerSpanAnnotations, (annotations) => {
+    const { [ROUTINE_ATTRIBUTE]: _, ...rest } = annotations;
+    return rest;
+  });
 
 export const OtlpProtocol = Schema.Literals(["http/json", "http/protobuf"]);
 export type OtlpProtocol = typeof OtlpProtocol.Type;

@@ -1,6 +1,7 @@
-import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as NodeEffectCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as NativeCrypto from "node:crypto";
+// @effect-diagnostics-next-line nodeBuiltinImport:off - Sign fixtures as an independent HTTP client.
+import * as NodeCrypto from "node:crypto";
 import {
   computeDpopAccessTokenHash,
   DPOP_MAX_CLOCK_SKEW_SECONDS,
@@ -78,11 +79,13 @@ const makeLayerRoutes = (
   );
   const otlpRoutes = otlp
     ? ServerHttp.layerOtlpTracesProxyRoute.pipe(
-        Layer.provideMerge(Layer.mergeAll(
-          Layer.succeed(HttpClient.HttpClient, otlp.client),
-          Layer.succeed(BrowserTraceCollector.BrowserTraceCollector, otlp.collector),
-          layerOtlpSerialization(overrides.otlpTracesExport?.protocol ?? "http/json"),
-        )),
+        Layer.provideMerge(
+          Layer.mergeAll(
+            Layer.succeed(HttpClient.HttpClient, otlp.client),
+            Layer.succeed(BrowserTraceCollector.BrowserTraceCollector, otlp.collector),
+            layerOtlpSerialization(overrides.otlpTracesExport?.protocol ?? "http/json"),
+          ),
+        ),
       )
     : Layer.empty;
   return Layer.mergeAll(authRoutes, otlpRoutes, ServerHttp.layerBrowserApiCors).pipe(
@@ -90,11 +93,11 @@ const makeLayerRoutes = (
     Layer.provideMerge(layerConfig),
     Layer.provideMerge(
       HttpPlatform.layer.pipe(
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeEffectCrypto.layer)),
         Layer.provideMerge(Etag.layerWeak),
       ),
     ),
-    Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+    Layer.provide(Layer.mergeAll(NodeServices.layer, NodeEffectCrypto.layer)),
   );
 };
 
@@ -153,19 +156,27 @@ const withSessionRoutes = (
     const requestContext = Context.make(SecureRandom.SecureRandom, random).pipe(
       Context.add(ServerSecretStore.ServerSecretStore, unusedSecretStore),
     );
-    const routes = makeLayerRoutes({
-      devUrl: undefined,
-      desktopBootstrapToken: DESKTOP_FIXTURE_CREDENTIAL,
-      ...overrides,
-    }, otlp);
+    const routes = makeLayerRoutes(
+      {
+        devUrl: undefined,
+        desktopBootstrapToken: DESKTOP_FIXTURE_CREDENTIAL,
+        ...overrides,
+      },
+      otlp,
+    );
     const configuredRoutes = otlp
-      ? routes.pipe(Layer.provideMerge(Layer.mergeAll(
-          Layer.succeed(Tracer.Tracer, otlp.tracer),
-          // The in-process handler needs the same tracing predicate as the served app.
-          Layer.effect(HttpMiddleware.TracerDisabledWhen, HttpMiddleware.TracerDisabledWhen).pipe(
-            ServerHttp.withUntracedRequests,
+      ? routes.pipe(
+          Layer.provideMerge(
+            Layer.mergeAll(
+              Layer.succeed(Tracer.Tracer, otlp.tracer),
+              // The in-process handler needs the same tracing predicate as the served app.
+              Layer.effect(
+                HttpMiddleware.TracerDisabledWhen,
+                HttpMiddleware.TracerDisabledWhen,
+              ).pipe(ServerHttp.withUntracedRequests),
+            ),
           ),
-        )))
+        )
       : routes;
     // The web handler builds its own runtime. Share the fixture clock with layer
     // initialization (including the bootstrap grant) and request execution.
@@ -177,7 +188,7 @@ const withSessionRoutes = (
       (app) => Effect.promise(() => run((request) => app.handler(request, requestContext))),
       (app) => Effect.promise(() => app.dispose()),
     );
-  }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
+  }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeEffectCrypto.layer)));
 
 const sessionRequest = (headers: RequestInit["headers"] = {}) =>
   new Request("http://127.0.0.1/api/auth/session", { headers });
@@ -203,26 +214,31 @@ it.effect("records and forwards only authorized browser OTLP exports", () =>
       status: { code: 1 },
     };
     const payload = {
-      resourceSpans: [{
-        resource: {
-          attributes: [{ key: "service.name", value: { stringValue: "t3code-web" } }],
-          droppedAttributesCount: 0,
+      resourceSpans: [
+        {
+          resource: {
+            attributes: [{ key: "service.name", value: { stringValue: "t3code-web" } }],
+            droppedAttributesCount: 0,
+          },
+          scopeSpans: [{ scope: { name: "effect" }, spans: [span] }],
         },
-        scopeSpans: [{ scope: { name: "effect" }, spans: [span] }],
-      }],
+      ],
     };
     for (const protocol of ["http/json", "http/protobuf", undefined] as const) {
       const records: TraceRecord[] = [];
       const forwards: HttpClientRequest.HttpClientRequest[] = [];
       const spans: string[] = [];
-      const exportConfig = protocol === undefined ? {} : {
-        otlpTracesUrl: collectorUrl,
-        otlpTracesExport: {
-          protocol,
-          headers: { "x-collector-key": "configured-fixture" },
-          exportIntervalMs: 10_000,
-        },
-      };
+      const exportConfig =
+        protocol === undefined
+          ? {}
+          : {
+              otlpTracesUrl: collectorUrl,
+              otlpTracesExport: {
+                protocol,
+                headers: { "x-collector-key": "configured-fixture" },
+                exportIntervalMs: 10_000,
+              },
+            };
       yield* withSessionRoutes(
         { mode: "desktop", ...exportConfig },
         async (request) => {
@@ -241,14 +257,16 @@ it.effect("records and forwards only authorized browser OTLP exports", () =>
           expect(exchange.status).toBe(200);
           const { access_token } = (await exchange.json()) as { access_token: string };
 
-          const preflight = await request(new Request(origin + path, {
-            method: "OPTIONS",
-            headers: {
-              origin,
-              "access-control-request-method": "POST",
-              "access-control-request-headers": "content-type",
-            },
-          }));
+          const preflight = await request(
+            new Request(origin + path, {
+              method: "OPTIONS",
+              headers: {
+                origin,
+                "access-control-request-method": "POST",
+                "access-control-request-headers": "content-type",
+              },
+            }),
+          );
           expect(preflight.status).toBe(204);
           expect(preflight.headers.get("access-control-allow-origin")).toBe("*");
           expect(preflight.headers.get("access-control-allow-headers")).toContain("content-type");
@@ -273,24 +291,28 @@ it.effect("records and forwards only authorized browser OTLP exports", () =>
           expect(forwards).toEqual([]);
 
           spans.length = 0;
-          const response = await request(postJson(
-            `${path}?collector=https://ignored.example/v1/traces`,
-            payload,
-            { cookie, origin, "x-collector-key": "browser-fixture" },
-          ));
+          const response = await request(
+            postJson(`${path}?collector=https://ignored.example/v1/traces`, payload, {
+              cookie,
+              origin,
+              "x-collector-key": "browser-fixture",
+            }),
+          );
           expect(response.status).toBe(204);
           expect(response.headers.get("access-control-allow-origin")).toBe("*");
-          expect(records).toMatchObject([{
-            type: "otlp-span",
-            name: span.name,
-            traceId: span.traceId,
-            spanId: span.spanId,
-            kind: "client",
-            durationMs: 1,
-            attributes: { "rpc.method": "server.getSettings" },
-            resourceAttributes: { "service.name": "t3code-web" },
-            scope: { name: "effect" },
-          }]);
+          expect(records).toMatchObject([
+            {
+              type: "otlp-span",
+              name: span.name,
+              traceId: span.traceId,
+              spanId: span.spanId,
+              kind: "client",
+              durationMs: 1,
+              attributes: { "rpc.method": "server.getSettings" },
+              resourceAttributes: { "service.name": "t3code-web" },
+              scope: { name: "effect" },
+            },
+          ]);
           expect(spans).toEqual([]);
           expect((await request(sessionRequest({ cookie }))).status).toBe(200);
           expect(spans).toContain("GET");
@@ -321,11 +343,18 @@ it.effect("records and forwards only authorized browser OTLP exports", () =>
         },
         undefined,
         {
-          client: HttpClient.make((request) => Effect.sync(() => {
-            forwards.push(request);
-            return HttpClientResponse.fromWeb(request, new Response(null, { status: 204 }));
-          })),
-          collector: { record: (batch) => Effect.sync(() => { records.push(...batch); }) },
+          client: HttpClient.make((request) =>
+            Effect.sync(() => {
+              forwards.push(request);
+              return HttpClientResponse.fromWeb(request, new Response(null, { status: 204 }));
+            }),
+          ),
+          collector: {
+            record: (batch) =>
+              Effect.sync(() => {
+                records.push(...batch);
+              }),
+          },
           tracer: Tracer.make({
             span: (options) => {
               spans.push(options.name);
@@ -362,76 +391,91 @@ const ticketPreflight = (origin: string) =>
     },
   });
 
-it.effect("carries remote CORS through bearer exchange, session state and short-lived tickets", () =>
-  Effect.gen(function* () {
-    const issuedAt = Date.parse("2026-01-01T00:00:00.000Z");
-    yield* TestClock.setTime(issuedAt);
-    const clock = yield* Clock.Clock;
-    yield* withSessionRoutes(
-      { mode: "desktop" },
-      async (request) => {
-        const origin = "https://remote-client.example.test";
-        const expectCors = (response: Response, status: number) => {
-          expect(response.status).toBe(status);
-          expect(response.headers.get("access-control-allow-origin")).toBe("*");
-          expect(response.headers.get("access-control-allow-credentials")).toBeNull();
-        };
-        const preflight = await request(ticketPreflight(origin));
-        expectCors(preflight, 204);
-        const splitHeader = (name: string) =>
-          (preflight.headers.get(name) ?? "").split(",").map((part) => part.trim().toLowerCase());
-        expect(splitHeader("access-control-allow-headers")).toEqual(expect.arrayContaining([
-          "authorization", "dpop", ORCHESTRATION_PROTOCOL_HEADER.toLowerCase(),
-        ]));
-        expect(splitHeader("access-control-allow-methods").sort()).toEqual(["get", "options", "post"]);
+it.effect(
+  "carries remote CORS through bearer exchange, session state and short-lived tickets",
+  () =>
+    Effect.gen(function* () {
+      const issuedAt = Date.parse("2026-01-01T00:00:00.000Z");
+      yield* TestClock.setTime(issuedAt);
+      const clock = yield* Clock.Clock;
+      yield* withSessionRoutes(
+        { mode: "desktop" },
+        async (request) => {
+          const origin = "https://remote-client.example.test";
+          const expectCors = (response: Response, status: number) => {
+            expect(response.status).toBe(status);
+            expect(response.headers.get("access-control-allow-origin")).toBe("*");
+            expect(response.headers.get("access-control-allow-credentials")).toBeNull();
+          };
+          const preflight = await request(ticketPreflight(origin));
+          expectCors(preflight, 204);
+          const splitHeader = (name: string) =>
+            (preflight.headers.get(name) ?? "").split(",").map((part) => part.trim().toLowerCase());
+          expect(splitHeader("access-control-allow-headers")).toEqual(
+            expect.arrayContaining([
+              "authorization",
+              "dpop",
+              ORCHESTRATION_PROTOCOL_HEADER.toLowerCase(),
+            ]),
+          );
+          expect(splitHeader("access-control-allow-methods").sort()).toEqual([
+            "get",
+            "options",
+            "post",
+          ]);
 
-        const denied = await request(ticketRequest(origin));
-        expectCors(denied, 401);
-        expect(await denied.json()).toMatchObject({ code: "auth_invalid" });
+          const denied = await request(ticketRequest(origin));
+          expectCors(denied, 401);
+          expect(await denied.json()).toMatchObject({ code: "auth_invalid" });
 
-        const exchange = await request(tokenExchange(DESKTOP_FIXTURE_CREDENTIAL, undefined, origin));
-        expectCors(exchange, 200);
-        const bearer = (await exchange.json()) as { access_token: string };
-        expect(bearer).toMatchObject({ token_type: "Bearer", access_token: expect.any(String) });
-        const authorization = `Bearer ${bearer.access_token}`;
-        const session = await request(sessionRequest({ origin, authorization }));
-        expectCors(session, 200);
-        expect(await session.json()).toMatchObject({
-          authenticated: true,
-          sessionMethod: "bearer-access-token",
-        });
+          const exchange = await request(
+            tokenExchange(DESKTOP_FIXTURE_CREDENTIAL, undefined, origin),
+          );
+          expectCors(exchange, 200);
+          const bearer = (await exchange.json()) as { access_token: string };
+          expect(bearer).toMatchObject({ token_type: "Bearer", access_token: expect.any(String) });
+          const authorization = `Bearer ${bearer.access_token}`;
+          const session = await request(sessionRequest({ origin, authorization }));
+          expectCors(session, 200);
+          expect(await session.json()).toMatchObject({
+            authenticated: true,
+            sessionMethod: "bearer-access-token",
+          });
 
-        const ticket = await request(ticketRequest(origin, authorization));
-        expectCors(ticket, 200);
-        expect(ticket.headers.get("cache-control")).toBe("no-store");
-        const issued = (await ticket.json()) as { ticket: string; expiresAt: string };
-        expect(issued.ticket).toMatch(/\S/);
-        expect(Date.parse(issued.expiresAt)).toBe(issuedAt + 300_000);
-      },
-      clock,
-    );
-  }),
+          const ticket = await request(ticketRequest(origin, authorization));
+          expectCors(ticket, 200);
+          expect(ticket.headers.get("cache-control")).toBe("no-store");
+          const issued = (await ticket.json()) as { ticket: string; expiresAt: string };
+          expect(issued.ticket).toMatch(/\S/);
+          expect(Date.parse(issued.expiresAt)).toBe(issuedAt + 300_000);
+        },
+        clock,
+      );
+    }),
 );
 
 it.effect("allows credentialed dev and desktop preflights only for configured origins", () =>
-  withSessionRoutes({
-    devUrl: new URL("http://127.0.0.1:5173"),
-    devAllowedOrigins: ["https://tailnet.example.test"],
-  }, async (request) => {
-    for (const origin of [
-      "http://127.0.0.1:5173",
-      "https://tailnet.example.test",
-      "t3code://app",
-      "t3code-dev://app",
-    ]) {
-      const response = await request(ticketPreflight(origin));
-      expect(response.status).toBe(204);
-      expect(response.headers.get("access-control-allow-origin")).toBe(origin);
-      expect(response.headers.get("access-control-allow-credentials")).toBe("true");
-    }
-    const refused = await request(ticketPreflight("https://other-client.example.test"));
-    expect(refused.headers.get("access-control-allow-origin")).toBeNull();
-  }),
+  withSessionRoutes(
+    {
+      devUrl: new URL("http://127.0.0.1:5173"),
+      devAllowedOrigins: ["https://tailnet.example.test"],
+    },
+    async (request) => {
+      for (const origin of [
+        "http://127.0.0.1:5173",
+        "https://tailnet.example.test",
+        "t3code://app",
+        "t3code-dev://app",
+      ]) {
+        const response = await request(ticketPreflight(origin));
+        expect(response.status).toBe(204);
+        expect(response.headers.get("access-control-allow-origin")).toBe(origin);
+        expect(response.headers.get("access-control-allow-credentials")).toBe("true");
+      }
+      const refused = await request(ticketPreflight("https://other-client.example.test"));
+      expect(refused.headers.get("access-control-allow-origin")).toBeNull();
+    },
+  ),
 );
 
 it.effect("validates pairing scope grants and issues labeled one-time browser credentials", () =>
@@ -455,19 +499,20 @@ it.effect("validates pairing scope grants and issues labeled one-time browser cr
       });
     }
 
-    const created = await request(postJson(
-      endpoint,
-      { label: "Hosted web", scopes: ["orchestration:read"] },
-      headers,
-    ));
+    const created = await request(
+      postJson(endpoint, { label: "Hosted web", scopes: ["orchestration:read"] }, headers),
+    );
     expect(created.status).toBe(200);
     const pairing = (await created.json()) as { credential: string; expiresAt: string };
     expect(pairing).toMatchObject({ label: "Hosted web", credential: expect.stringMatching(/\S/) });
     expect(Number.isFinite(Date.parse(pairing.expiresAt))).toBe(true);
 
-    const browser = () => request(postJson("/api/auth/browser-session", {
-      credential: pairing.credential,
-    }));
+    const browser = () =>
+      request(
+        postJson("/api/auth/browser-session", {
+          credential: pairing.credential,
+        }),
+      );
     const accepted = await browser();
     expect(accepted.status).toBe(200);
     expect(await accepted.json()).toMatchObject({
@@ -492,81 +537,89 @@ it.effect("validates pairing scope grants and issues labeled one-time browser cr
   }),
 );
 
-it.effect("reports desktop session policy and keeps cookie auth healthy across bearer rotation", () =>
-  withSessionRoutes({ mode: "desktop" }, async (request) => {
-    const anonymous = await request(sessionRequest());
-    expect(anonymous.status).toBe(200);
-    expect(await anonymous.json()).toMatchObject({
-      authenticated: false,
-      auth: {
-        policy: "desktop-managed-local",
-        bootstrapMethods: ["desktop-bootstrap"],
-        sessionMethods: ["browser-session-cookie", "bearer-access-token", "dpop-access-token"],
-        sessionCookieName: expect.stringMatching(/^t3_session_\d+$/),
-      },
-    });
-
-    const openBrowser = (headers?: Readonly<Record<string, string>>) =>
-      request(postJson("/api/auth/browser-session", { credential: DESKTOP_FIXTURE_CREDENTIAL }, headers));
-    const bootstrap = await openBrowser();
-    expect(bootstrap.status).toBe(200);
-    const bootstrapBody = await bootstrap.json();
-    expect(bootstrapBody).toMatchObject({
-      authenticated: true,
-      sessionMethod: "browser-session-cookie",
-      scopes: DESKTOP_LEGACY_SCOPES,
-      permissions: AuthStandardClientScopes,
-    });
-    expect(bootstrapBody).not.toHaveProperty("sessionToken");
-    const cookie = bootstrap.headers.getSetCookie()[0];
-    expect(cookie).toMatch(/^t3_session_\d+=.+;.*HttpOnly/i);
-    const retiredBrowserHeaders = { cookie: cookie?.split(";", 1)[0] ?? "" };
-    const renewed = await openBrowser(retiredBrowserHeaders);
-    expect(renewed.status).toBe(200);
-    const renewedCookie = renewed.headers.getSetCookie()[0]?.split(";", 1)[0] ?? "";
-    expect(renewedCookie).toMatch(/^t3_session_\d+=.+/);
-    expect(renewedCookie).not.toBe(retiredBrowserHeaders.cookie);
-    const retiredBrowser = await request(sessionRequest(retiredBrowserHeaders));
-    expect(retiredBrowser.status).toBe(200);
-    expect(await retiredBrowser.json()).toMatchObject({ authenticated: false });
-    const browserHeaders = { cookie: renewedCookie };
-
-    const exchange = async () => {
-      const result = await request(tokenExchange(DESKTOP_FIXTURE_CREDENTIAL));
-      expect(result.status).toBe(200);
-      expect(result.headers.get("cache-control")).toBe("no-store");
-      const body = (await result.json()) as { access_token: string };
-      expect(body).toMatchObject({
-        access_token: expect.any(String),
-        issued_token_type: AuthAccessTokenType,
-        token_type: "Bearer",
-        scope: AuthStandardClientScopes.join(" "),
+it.effect(
+  "reports desktop session policy and keeps cookie auth healthy across bearer rotation",
+  () =>
+    withSessionRoutes({ mode: "desktop" }, async (request) => {
+      const anonymous = await request(sessionRequest());
+      expect(anonymous.status).toBe(200);
+      expect(await anonymous.json()).toMatchObject({
+        authenticated: false,
+        auth: {
+          policy: "desktop-managed-local",
+          bootstrapMethods: ["desktop-bootstrap"],
+          sessionMethods: ["browser-session-cookie", "bearer-access-token", "dpop-access-token"],
+          sessionCookieName: expect.stringMatching(/^t3_session_\d+$/),
+        },
       });
-      return { authorization: `Bearer ${body.access_token}` };
-    };
-    const first = await exchange();
-    const second = await exchange();
-    const current = await exchange();
-    for (const retired of [first, second]) {
-      const state = await request(sessionRequest(retired));
-      expect(state.status).toBe(200);
-      expect(await state.json()).toMatchObject({ authenticated: false });
-    }
-    const bearer = await request(sessionRequest(current));
-    expect(bearer.status).toBe(200);
-    expect(await bearer.json()).toMatchObject({
-      authenticated: true,
-      sessionMethod: "bearer-access-token",
-      scopes: DESKTOP_LEGACY_SCOPES,
-      permissions: AuthStandardClientScopes,
-    });
-    const browser = await request(sessionRequest(browserHeaders));
-    expect(browser.status).toBe(200);
-    expect(await browser.json()).toMatchObject({
-      authenticated: true,
-      sessionMethod: "browser-session-cookie",
-    });
-  }),
+
+      const openBrowser = (headers?: Readonly<Record<string, string>>) =>
+        request(
+          postJson(
+            "/api/auth/browser-session",
+            { credential: DESKTOP_FIXTURE_CREDENTIAL },
+            headers,
+          ),
+        );
+      const bootstrap = await openBrowser();
+      expect(bootstrap.status).toBe(200);
+      const bootstrapBody = await bootstrap.json();
+      expect(bootstrapBody).toMatchObject({
+        authenticated: true,
+        sessionMethod: "browser-session-cookie",
+        scopes: DESKTOP_LEGACY_SCOPES,
+        permissions: AuthStandardClientScopes,
+      });
+      expect(bootstrapBody).not.toHaveProperty("sessionToken");
+      const cookie = bootstrap.headers.getSetCookie()[0];
+      expect(cookie).toMatch(/^t3_session_\d+=.+;.*HttpOnly/i);
+      const retiredBrowserHeaders = { cookie: cookie?.split(";", 1)[0] ?? "" };
+      const renewed = await openBrowser(retiredBrowserHeaders);
+      expect(renewed.status).toBe(200);
+      const renewedCookie = renewed.headers.getSetCookie()[0]?.split(";", 1)[0] ?? "";
+      expect(renewedCookie).toMatch(/^t3_session_\d+=.+/);
+      expect(renewedCookie).not.toBe(retiredBrowserHeaders.cookie);
+      const retiredBrowser = await request(sessionRequest(retiredBrowserHeaders));
+      expect(retiredBrowser.status).toBe(200);
+      expect(await retiredBrowser.json()).toMatchObject({ authenticated: false });
+      const browserHeaders = { cookie: renewedCookie };
+
+      const exchange = async () => {
+        const result = await request(tokenExchange(DESKTOP_FIXTURE_CREDENTIAL));
+        expect(result.status).toBe(200);
+        expect(result.headers.get("cache-control")).toBe("no-store");
+        const body = (await result.json()) as { access_token: string };
+        expect(body).toMatchObject({
+          access_token: expect.any(String),
+          issued_token_type: AuthAccessTokenType,
+          token_type: "Bearer",
+          scope: AuthStandardClientScopes.join(" "),
+        });
+        return { authorization: `Bearer ${body.access_token}` };
+      };
+      const first = await exchange();
+      const second = await exchange();
+      const current = await exchange();
+      for (const retired of [first, second]) {
+        const state = await request(sessionRequest(retired));
+        expect(state.status).toBe(200);
+        expect(await state.json()).toMatchObject({ authenticated: false });
+      }
+      const bearer = await request(sessionRequest(current));
+      expect(bearer.status).toBe(200);
+      expect(await bearer.json()).toMatchObject({
+        authenticated: true,
+        sessionMethod: "bearer-access-token",
+        scopes: DESKTOP_LEGACY_SCOPES,
+        permissions: AuthStandardClientScopes,
+      });
+      const browser = await request(sessionRequest(browserHeaders));
+      expect(browser.status).toBe(200);
+      expect(await browser.json()).toMatchObject({
+        authenticated: true,
+        sessionMethod: "browser-session-cookie",
+      });
+    }),
 );
 
 it.effect("migrates only valid legacy cookies and revokes scoped paired sessions", () =>
@@ -685,7 +738,7 @@ it.effect("migrates only valid legacy cookies and revokes scoped paired sessions
 );
 
 function nativeProof(
-  privateKey: NativeCrypto.KeyObject,
+  privateKey: NodeCrypto.KeyObject,
   publicJwk: DpopPublicJwk,
   path: string,
   iat: number,
@@ -699,11 +752,11 @@ function nativeProof(
       htm: "POST",
       htu: `http://127.0.0.1${path}`,
       iat,
-      jti: NativeCrypto.randomUUID(),
+      jti: NodeCrypto.randomUUID(),
       ...(accessToken ? { ath: computeDpopAccessTokenHash(accessToken) } : {}),
     }),
   ).toString("base64url");
-  const signature = NativeCrypto.sign("sha256", Buffer.from(`${header}.${payload}`), {
+  const signature = NodeCrypto.sign("sha256", Buffer.from(`${header}.${payload}`), {
     key: privateKey,
     dsaEncoding: "ieee-p1363",
   }).toString("base64url");
@@ -854,7 +907,7 @@ it.effect("sets the selected browser session cookies through the HTTP route", ()
           );
           expect(replay.status).toBe(401);
 
-          const { privateKey, publicKey } = NativeCrypto.generateKeyPairSync("ec", {
+          const { privateKey, publicKey } = NodeCrypto.generateKeyPairSync("ec", {
             namedCurve: "P-256",
           });
           const publicJwk = publicKey.export({ format: "jwk" }) as DpopPublicJwk;
@@ -931,7 +984,7 @@ it.effect("sets the selected browser session cookies through the HTTP route", ()
       ([environmentA, environmentB]) =>
         Effect.promise(() => Promise.all([environmentA.dispose(), environmentB.dispose()])),
     );
-  }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+  }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeEffectCrypto.layer))),
 );
 
 it.effect.each(["DPoP", "dpop"])("challenges a refused %s request with DPoP", (scheme) =>
@@ -964,7 +1017,7 @@ it.effect.each(["DPoP", "dpop"])("challenges a refused %s request with DPoP", (s
         }),
       (environment) => Effect.promise(() => environment.dispose()),
     );
-  }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+  }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeEffectCrypto.layer))),
 );
 
 // The web handler runs on its own runtime, so proofs need wall-clock time.
@@ -985,11 +1038,7 @@ it.live("checks token-endpoint DPoP proofs without writing replay state", () =>
     const url = "http://127.0.0.1/oauth/token";
     const key = makeDpopKey();
     const iat = Math.floor((yield* DateTime.now).epochMilliseconds / 1_000);
-    const tokenRequest = (
-      subjectToken: string,
-      proof: string,
-      forwardedHost?: string,
-    ) =>
+    const tokenRequest = (subjectToken: string, proof: string, forwardedHost?: string) =>
       new Request(url, {
         method: "POST",
         headers: {
@@ -1015,10 +1064,7 @@ it.live("checks token-endpoint DPoP proofs without writing replay state", () =>
           expect(unknownToken.status).toBe(401);
           expect(await unknownToken.json()).not.toHaveProperty("dpopFailureReason");
 
-          const expectDpopRejection = async (
-            response: Response,
-            dpopFailureReason: string,
-          ) => {
+          const expectDpopRejection = async (response: Response, dpopFailureReason: string) => {
             expect(response.status).toBe(401);
             expect(response.headers.get("www-authenticate")).toBe("DPoP");
             expect(await response.json()).toMatchObject({
@@ -1085,10 +1131,14 @@ it.live("checks token-endpoint DPoP proofs without writing replay state", () =>
             [key.sign({ ...workspaceInput, token: "different-fixture-token" }), "token_mismatch"],
           ] as const) {
             const rejected = await environment.handler(
-              postJson(workspacePath, {}, {
-                authorization: `DPoP ${issued.access_token}`,
-                dpop: proof,
-              }),
+              postJson(
+                workspacePath,
+                {},
+                {
+                  authorization: `DPoP ${issued.access_token}`,
+                  dpop: proof,
+                },
+              ),
               requestContext,
             );
             await expectDpopRejection(rejected, reason);
@@ -1115,5 +1165,5 @@ it.live("checks token-endpoint DPoP proofs without writing replay state", () =>
         }),
       (environment) => Effect.promise(() => environment.dispose()),
     );
-  }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+  }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeEffectCrypto.layer))),
 );

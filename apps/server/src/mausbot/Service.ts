@@ -12,6 +12,11 @@ import { ServerSettingsService } from "../serverSettings.ts";
 import { MausbotRuntime } from "./Runtime.ts";
 import { resolveMausbotResources } from "./Resources.ts";
 import { MausbotViewGrants } from "./ViewGrants.ts";
+import {
+  SAVED_APP_FILE_KEY_HEADER,
+  savedAppDocumentPath,
+  upstreamSavedAppFilePath,
+} from "./SavedAppFiles.ts";
 import { SessionStore } from "../auth/SessionStore.ts";
 import type { AuthenticatedSession } from "../auth/EnvironmentAuth.ts";
 import { AuthAccessWriteScope, AuthOrchestrationOperateScope } from "@j1code/contracts";
@@ -61,6 +66,11 @@ export class MausbotService extends Context.Service<
       body?: Uint8Array,
       viewKey?: string,
     ) => Effect.Effect<Response, string>;
+    readonly readSavedAppFile: (
+      path: string,
+      method: string,
+      range?: string,
+    ) => Effect.Effect<Response>;
     readonly stop: Effect.Effect<void, string>;
     readonly setApprovalMode: (
       session: AuthenticatedSession,
@@ -109,45 +119,30 @@ export class MausbotService extends Context.Service<
       const environmentId = yield* (yield* ServerEnvironment).getEnvironmentId;
       const effectContext = yield* Effect.context<never>();
       const externalRoutes = yield* Effect.serviceOption(ExternalRouteEndpoints);
-      const handleConversation = (input: unknown, active: () => boolean) =>
-        Effect.gen(function* () {
-          const request = yield* decodeHostInvocation(input, {
-            onExcessProperty: "error",
-          });
-          if (!active()) return yield* Effect.fail("Conversation runtime disconnected.");
-          if (
-            "kind" in request &&
-            ["routingWake", "routeSourceCheck", "routeTransport", "routeFailed"].includes(
-              request.kind,
-            )
-          ) {
-            if (Option.isNone(externalRoutes)) return yield* Effect.fail("Routing unavailable.");
-            const event = yield* decodeRoutingEvent(request);
-            return event.kind === "routingWake"
-              ? yield* externalRoutes.value.wake
-              : yield* externalRoutes.value.receive(event);
-          }
-          if ("operation" in request) {
-            if (Option.isNone(externalRoutes))
-              return yield* Effect.fail("The routing adapter is unavailable.");
-            const result = yield* externalRoutes.value.call(
-              {
-                kind: "mausbot",
-                environmentId,
-                botId: request.botId,
-                threadId: request.threadId,
-                generation: request.generation,
-              },
-              request.operation,
-              request.arguments,
-            );
-            if (!active()) return yield* Effect.fail("Conversation runtime disconnected.");
-            return result;
-          }
-          if (!("call" in request))
-            return yield* Effect.fail("Unsupported conversation operation.");
-          const result = yield* conversationCall(
-            conversations,
+      const handleConversation = Effect.fn("Mausbot.handleConversation")(function* (
+        input: unknown,
+        active: () => boolean,
+      ) {
+        const request = yield* decodeHostInvocation(input, {
+          onExcessProperty: "error",
+        });
+        if (!active()) return yield* Effect.fail("Conversation runtime disconnected.");
+        if (
+          "kind" in request &&
+          ["routingWake", "routeSourceCheck", "routeTransport", "routeFailed"].includes(
+            request.kind,
+          )
+        ) {
+          if (Option.isNone(externalRoutes)) return yield* Effect.fail("Routing unavailable.");
+          const event = yield* decodeRoutingEvent(request);
+          return event.kind === "routingWake"
+            ? yield* externalRoutes.value.wake
+            : yield* externalRoutes.value.receive(event);
+        }
+        if ("operation" in request) {
+          if (Option.isNone(externalRoutes))
+            return yield* Effect.fail("The routing adapter is unavailable.");
+          const result = yield* externalRoutes.value.call(
             {
               kind: "mausbot",
               environmentId,
@@ -155,11 +150,28 @@ export class MausbotService extends Context.Service<
               threadId: request.threadId,
               generation: request.generation,
             },
-            request.call,
+            request.operation,
+            request.arguments,
           );
           if (!active()) return yield* Effect.fail("Conversation runtime disconnected.");
           return result;
-        }).pipe(Effect.runPromiseWith(effectContext));
+        }
+        if (!("call" in request)) return yield* Effect.fail("Unsupported conversation operation.");
+        const result = yield* conversationCall(
+          conversations,
+          {
+            kind: "mausbot",
+            environmentId,
+            botId: request.botId,
+            threadId: request.threadId,
+            generation: request.generation,
+          },
+          request.call,
+        );
+        if (!active()) return yield* Effect.fail("Conversation runtime disconnected.");
+        return result;
+      });
+      const run = Effect.runPromiseWith(effectContext);
       const grants = new MausbotViewGrants();
       const hiveMemory = new MausbotHiveMemory({
         file: path.join(config.stateDir, "hive-mind.json"),
@@ -248,7 +260,7 @@ export class MausbotService extends Context.Service<
               dataDir: path.join(config.baseDir, "userdata", "mausbot"),
               lightpandaExecutablePath: browserExecutable(current.lightpandaExecutablePath),
               memory: (input, active) => hiveMemory.handle(input, active),
-              conversationCall: handleConversation,
+              conversationCall: (input, active) => run(handleConversation(input, active)),
               execution,
             });
             return runtime;
@@ -339,6 +351,8 @@ export class MausbotService extends Context.Service<
       const expiredView = "This assistant window expired. Reopen it from J1.";
       const runtimeFailure = (error: unknown) =>
         error instanceof Error ? error.message : "The assistant runtime is unavailable.";
+      const unavailableSavedAppFile = () =>
+        new Response(null, { status: 404, headers: { "cache-control": "no-store" } });
       const forward = Effect.fn("Mausbot.forward")(function* (
         url: string,
         method: string,
@@ -347,8 +361,7 @@ export class MausbotService extends Context.Service<
         viewKey?: string,
       ) {
         let view = viewKey ? yield* authorizeView(viewKey) : undefined;
-        if (viewKey && !view)
-          return yield* Effect.fail(expiredView);
+        if (viewKey && !view) return yield* Effect.fail(expiredView);
         const child = yield* getRuntime();
         const wasRunning = child.running;
         yield* Effect.tryPromise({ try: () => child.start(), catch: runtimeFailure });
@@ -362,7 +375,9 @@ export class MausbotService extends Context.Service<
           return new Response(null, { status: 403, headers: { "cache-control": "no-store" } });
         const signal = viewKey ? grants.signal(viewKey, yield* Clock.currentTimeMillis) : undefined;
         if (viewKey && !signal) return yield* Effect.fail(expiredView);
-        return yield* Effect.tryPromise({
+        const savedAppView =
+          method === "GET" && savedAppDocumentPath.test(url.split("?")[0]!) ? viewKey : undefined;
+        const response = yield* Effect.tryPromise({
           try: (requestSignal) =>
             child.forward(
               url,
@@ -373,9 +388,50 @@ export class MausbotService extends Context.Service<
               viewKey ? grants.frameOrigin(viewKey) : undefined,
               viewKey ? grants.clientSession(viewKey) : undefined,
               view?.pairedSettingsSession,
+              undefined,
+              savedAppView,
             ),
           catch: runtimeFailure,
         });
+        const token = response.headers.get(SAVED_APP_FILE_KEY_HEADER);
+        if (token !== null) {
+          response.headers.delete(SAVED_APP_FILE_KEY_HEADER);
+          if (viewKey && response.ok)
+            grants.bindSavedAppFiles(token, viewKey, yield* Clock.currentTimeMillis);
+        }
+        return response;
+      });
+      const readSavedAppFile = Effect.fn("Mausbot.readSavedAppFile")(function* (
+        path: string,
+        method: string,
+        range?: string,
+      ) {
+        const token = upstreamSavedAppFilePath.exec(path)?.[1];
+        if (!token || !["GET", "HEAD", "OPTIONS"].includes(method)) {
+          return unavailableSavedAppFile();
+        }
+        const key = grants.savedAppFileView(token, yield* Clock.currentTimeMillis);
+        const child = runtime;
+        if (!key || !child?.running || !(yield* authorizeView(key))) {
+          return unavailableSavedAppFile();
+        }
+        const signal = grants.signal(key, yield* Clock.currentTimeMillis);
+        if (!signal) return unavailableSavedAppFile();
+        return yield* Effect.tryPromise({
+          try: (requestSignal) =>
+            child.forward(
+              path,
+              method,
+              undefined,
+              undefined,
+              AbortSignal.any([signal, requestSignal]),
+              undefined,
+              grants.clientSession(key),
+              undefined,
+              range,
+            ),
+          catch: runtimeFailure,
+        }).pipe(Effect.orElseSucceed(unavailableSavedAppFile));
       });
       const open = Effect.fn("Mausbot.open")(function* (
         session: AuthenticatedSession,
@@ -409,6 +465,7 @@ export class MausbotService extends Context.Service<
           running: runtime?.running ?? false,
         })),
         forward,
+        readSavedAppFile,
         stop,
         setApprovalMode: Effect.fn("MausbotService.setApprovalMode")((session, input) =>
           Effect.tryPromise({
@@ -420,7 +477,8 @@ export class MausbotService extends Context.Service<
             },
             catch: (error) =>
               error instanceof Error ? error.message : "Could not change assistant permissions.",
-          })),
+          }),
+        ),
         open,
         authorizeView: Effect.fn("MausbotService.authorizeView")((key) =>
           authorizeView(key).pipe(Effect.map(Boolean)),

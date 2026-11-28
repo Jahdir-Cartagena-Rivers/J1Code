@@ -11,7 +11,7 @@ import { scopeProjectRef } from "@j1code/client-runtime/environment";
 import { isScratchProject } from "@j1code/client-runtime/state/projects";
 
 import type { ComposerThreadTarget, DraftId } from "../../composerDraftStore";
-import { useJ1ProjectFileScripts } from "../../hooks/useJ1ProjectFileScripts";
+import { useJ1ProjectFileState } from "../../hooks/useJ1ProjectFileScripts";
 import { type EnvMode, type EnvironmentOption } from "../BranchToolbar.logic";
 import { BranchToolbar } from "../BranchToolbar";
 import BaseGitActionsControl from "../GitActionsControl";
@@ -96,7 +96,7 @@ interface ThreadDetailsPanelProps extends Pick<
 export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
   const visible = useClientSettings(resolveThreadDetailsVisibility);
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
-  const fileScripts = useJ1ProjectFileScripts(
+  const projectFile = useJ1ProjectFileState(
     props.environmentId,
     props.activeProjectScripts && visible.scripts ? props.gitCwd : null,
   );
@@ -218,7 +218,8 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                         environmentId={props.environmentId}
                         displayMode="panel"
                         scripts={props.activeProjectScripts}
-                        fileScripts={fileScripts}
+                        fileScripts={projectFile.scripts}
+                        onActionsMenuOpen={projectFile.refresh}
                         preferredScriptId={props.preferredScriptId}
                         onRunScript={props.onRunProjectScript}
                         onAddScript={props.onAddProjectScript}

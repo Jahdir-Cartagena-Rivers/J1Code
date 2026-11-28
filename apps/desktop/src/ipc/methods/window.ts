@@ -7,6 +7,9 @@ import {
   DesktopThemeSchema,
   EDITORS,
   EditorId,
+  MausbotSavedAppWindowSchema,
+  MausbotShortcutRequest,
+  MausbotShortcutResult,
   PickedThemeFileSchema,
   PickFolderOptionsSchema,
   PRIMARY_LOCAL_ENVIRONMENT_ID,
@@ -33,6 +36,7 @@ import * as DesktopLocalEnvironmentAuth from "../../backend/DesktopLocalEnvironm
 import * as DesktopEnvironment from "../../app/DesktopEnvironment.ts";
 import * as DesktopManagedPolicy from "../../app/DesktopManagedPolicy.ts";
 import * as DesktopPrimaryPaste from "../../app/DesktopPrimaryPaste.ts";
+import { manageMausbotShortcuts as resolveMausbotShortcuts } from "../../app/MausbotShortcuts.ts";
 import * as DesktopAppSettings from "../../settings/DesktopAppSettings.ts";
 import * as DesktopWslBackend from "../../wsl/DesktopWslBackend.ts";
 import * as DesktopWslEnvironment from "../../wsl/DesktopWslEnvironment.ts";
@@ -378,6 +382,139 @@ export const captureMausbotScreenFrame = DesktopIpc.makeIpcMethod({
 });
 
 const READ_MEDIA_MAX_BYTES = 256 * 1024 * 1024;
+
+const savedAppWindows = new Map<string, Electron.BrowserWindow>();
+
+export const manageMausbotShortcuts = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.MAUSBOT_SHORTCUTS_CHANNEL,
+  payload: MausbotShortcutRequest,
+  result: MausbotShortcutResult,
+  handler: Effect.fn("desktop.ipc.window.manageMausbotShortcuts")(function* (request, event) {
+    const unavailable =
+      request.operation === "list"
+        ? ({ available: false, apps: [] } as const)
+        : ({ ok: false, reason: "unavailable" } as const);
+    if (!(yield* HostProcess.isWindows) || !Electron.app.isPackaged) return unavailable;
+    const owner = yield* (yield* ElectronWindow.ElectronWindow).main;
+    if (
+      Option.isNone(owner) ||
+      event?.sender.id !== owner.value.webContents.id ||
+      event.senderFrame !== owner.value.webContents.mainFrame
+    )
+      return unavailable;
+    const path = yield* Path.Path;
+    const executable = yield* HostProcess.ExecutablePath;
+    return yield* Effect.tryPromise({
+      try: () =>
+        resolveMausbotShortcuts(
+          request,
+          {
+            executable,
+            programs: path.join(
+              Electron.app.getPath("appData"),
+              "Microsoft",
+              "Windows",
+              "Start Menu",
+              "Programs",
+            ),
+            desktop: Electron.app.getPath("desktop"),
+          },
+          {
+            read: Electron.shell.readShortcutLink,
+            write: (file, target, args) =>
+              Electron.shell.writeShortcutLink(file, "create", { target, args }),
+          },
+        ),
+      catch: () => unavailable,
+    }).pipe(Effect.catch(Effect.succeed));
+  }),
+});
+
+export const openMausbotSavedApp = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.OPEN_MAUSBOT_SAVED_APP_CHANNEL,
+  payload: MausbotSavedAppWindowSchema,
+  result: Schema.Boolean,
+  handler: Effect.fn("desktop.ipc.window.openMausbotSavedApp")(function* (
+    { appId, viewKey },
+    event,
+  ) {
+    const windows = yield* ElectronWindow.ElectronWindow;
+    const owner = yield* windows.main;
+    if (
+      Option.isNone(owner) ||
+      event?.sender.id !== owner.value.webContents.id ||
+      event.senderFrame !== owner.value.webContents.mainFrame
+    )
+      return false;
+    const pool = yield* DesktopBackendPool.DesktopBackendPool;
+    const backend = yield* pool.primary;
+    const config = yield* backend.currentConfig;
+    if (
+      Option.isNone(config) ||
+      Option.isSome(config.value.preflightFailure) ||
+      config.value.runningDistro
+    )
+      return false;
+
+    const url = new URL(`/api/mausbot/runtime/${viewKey}/local-app`, config.value.httpBaseUrl);
+    url.searchParams.set("id", appId);
+    const windowKey = `${url.origin}:${appId}`;
+    const existing = savedAppWindows.get(windowKey);
+    if (existing && !existing.isDestroyed()) {
+      if (existing.webContents.getURL() !== url.href) {
+        const reloaded = yield* Effect.promise(() =>
+          existing.loadURL(url.href).then(
+            () => true,
+            () => false,
+          ),
+        );
+        if (!reloaded || existing.isDestroyed()) return false;
+      }
+      yield* windows.reveal(existing);
+      return true;
+    }
+
+    const child = yield* windows.create(
+      {
+        width: 1000,
+        height: 750,
+        show: false,
+        title: "J1 Code",
+        backgroundColor: Electron.nativeTheme.shouldUseDarkColors ? "#141414" : "#ffffff",
+        webPreferences: {
+          partition: "j1-mausbot-saved-apps",
+          contextIsolation: true,
+          sandbox: true,
+          nodeIntegration: false,
+          webviewTag: false,
+        },
+      },
+      { auxiliary: true },
+    );
+    savedAppWindows.set(windowKey, child);
+    child.once("closed", () => savedAppWindows.delete(windowKey));
+    child.webContents.session.setPermissionRequestHandler((_, __, respond) => respond(false));
+    child.webContents.session.setPermissionCheckHandler(() => false);
+    child.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    child.webContents.on("will-navigate", (navigation) => navigation.preventDefault());
+    child.webContents.on("will-redirect", (navigation) => {
+      if (navigation.isMainFrame) navigation.preventDefault();
+    });
+    const loaded = yield* Effect.promise(() =>
+      child.loadURL(url.href).then(
+        () => true,
+        () => false,
+      ),
+    );
+    if (child.isDestroyed()) return false;
+    if (!loaded) {
+      child.destroy();
+      return false;
+    }
+    yield* windows.reveal(child);
+    return true;
+  }),
+});
 
 // No URL field: media URLs can carry signed query tokens.
 class MediaReadError extends Schema.TaggedError<MediaReadError>()("MediaReadError", {

@@ -20,6 +20,7 @@ import * as ProjectService from "../project/ProjectService.ts";
 import { makeIsManagedWorktreePath } from "../worktreesDirectory.ts";
 import { isWithinRoot } from "./KnownWorkspaces.ts";
 import { withWorkspaceLease } from "./workspaceLease.ts";
+import * as TaskFolders from "./TaskFolders.ts";
 import { TerminalCwdRecovery } from "../terminal/Manager.ts";
 
 export class WorktreeRecreateError extends Schema.TaggedError<WorktreeRecreateError>()(
@@ -59,6 +60,7 @@ export const makeRestoreMissingWorktree = Effect.gen(function* () {
   const path = yield* Path.Path;
   const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
   const projects = yield* ProjectService.ProjectService;
+  const taskFolders = Option.getOrUndefined(yield* Effect.serviceOption(TaskFolders.TaskFolders));
   const isManagedWorktreePath = yield* makeIsManagedWorktreePath;
   const serverConfig = yield* ServerConfig.ServerConfig;
 
@@ -104,6 +106,19 @@ export const makeRestoreMissingWorktree = Effect.gen(function* () {
       ),
       Effect.orElseSucceed(() => false),
     );
+
+  const clearLeftovers = Effect.fn("restoreMissingWorktree.clearLeftovers")(function* (
+    worktreePath: string,
+  ) {
+    const real = yield* fileSystem.realPath(worktreePath);
+    if (path.relative(real, worktreePath) !== "") return;
+    const entries = yield* fileSystem.readDirectory(worktreePath);
+    yield* Effect.forEach(
+      entries.filter((entry) => LEFTOVER_WORKTREE_ENTRIES.has(entry)),
+      (entry) => fileSystem.remove(path.join(worktreePath, entry), { recursive: true }),
+      { discard: true },
+    );
+  });
 
   const resolveRecreateBase = Effect.fn("restoreMissingWorktree.resolveRecreateBase")(function* (
     cwd: string,
@@ -175,6 +190,47 @@ export const makeRestoreMissingWorktree = Effect.gen(function* () {
     const { worktreePath, branch } = thread;
     if (worktreePath === null) return;
     if (branch === null) return yield* recreateScratchFolder(thread, worktreePath);
+    if (taskFolders !== undefined) {
+      const taskFolder = yield* taskFolders
+        .find(worktreePath)
+        .pipe(
+          Effect.mapError((cause) => new WorktreeRecreateError({ worktreePath, branch, cause })),
+        );
+      if (taskFolder !== null) {
+        const real = (target: string) =>
+          fileSystem.realPath(target).pipe(Effect.orElseSucceed(() => target));
+        if (
+          taskFolder.projectId !== thread.projectId ||
+          path.relative(yield* real(taskFolder.projectPath), yield* real(worktreePath)) !== ""
+        ) {
+          return yield* new WorktreeRecreateError({
+            worktreePath,
+            branch,
+            cause: "The recorded task folder does not belong to this chat's project.",
+          });
+        }
+        return yield* taskFolders
+          .restore({
+            taskFolder,
+            branch,
+            recreate: ({ repositoryPath, worktreePath }) =>
+              Effect.flatMap(isLeftoverFolder(worktreePath), (leftover) =>
+                leftover ? clearLeftovers(worktreePath) : Effect.void,
+              ).pipe(
+                Effect.andThen(
+                  recreateMissingWorktree({ cwd: repositoryPath, worktreePath, branch }),
+                ),
+              ),
+          })
+          .pipe(
+            Effect.mapError((cause) =>
+              cause._tag === "WorktreeRecreateNoBaseError"
+                ? cause
+                : new WorktreeRecreateError({ worktreePath, branch, cause }),
+            ),
+          );
+      }
+    }
     const exists = yield* fileSystem.exists(worktreePath).pipe(Effect.orElseSucceed(() => true));
     const leftover = exists && (yield* isLeftoverFolder(worktreePath));
     if ((exists && !leftover) || !(yield* isManagedWorktreePath(worktreePath))) return;
@@ -189,7 +245,7 @@ export const makeRestoreMissingWorktree = Effect.gen(function* () {
       branch,
     });
     // `git worktree add` refuses a non-empty target.
-    yield* (leftover ? fileSystem.remove(worktreePath, { recursive: true }) : Effect.void).pipe(
+    yield* (leftover ? clearLeftovers(worktreePath) : Effect.void).pipe(
       Effect.andThen(recreateMissingWorktree({ cwd: project.workspaceRoot, worktreePath, branch })),
       Effect.mapError((cause) =>
         cause._tag === "WorktreeRecreateNoBaseError"
@@ -229,7 +285,9 @@ export const layerThreadWorktreeRestore = Layer.effect(
 export const makePrepareTerminalLaunch = Effect.fn(
   "restoreMissingWorktree.makePrepareTerminalLaunch",
 )(function* <LookupError>(
-  lookupThread: (threadId: ThreadId) => Effect.Effect<
+  lookupThread: (
+    threadId: ThreadId,
+  ) => Effect.Effect<
     (WorktreeThread & Partial<Pick<OrchestrationV2AppThread, "deletedAt">>) | null,
     LookupError
   >,
@@ -244,10 +302,11 @@ export const makePrepareTerminalLaunch = Effect.fn(
       readonly worktreePath?: string | null | undefined;
     },
   >(input: Input) {
-    const unavailable = () => new TerminalSessionLookupError({
-      threadId: input.threadId,
-      terminalId: input.terminalId,
-    });
+    const unavailable = () =>
+      new TerminalSessionLookupError({
+        threadId: input.threadId,
+        terminalId: input.terminalId,
+      });
     const threadId = ThreadId.make(input.threadId);
     const thread = yield* lookupThread(threadId).pipe(Effect.mapError(unavailable));
     if (thread !== null && (thread.id !== threadId || thread.deletedAt != null)) {

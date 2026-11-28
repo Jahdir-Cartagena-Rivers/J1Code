@@ -1,8 +1,9 @@
 import { routeRequestAnchors } from "@j1code/shared/routeRequestAnchors";
-import { CommonActions, useNavigation } from "@react-navigation/native";
+import { useSelectWorkspaceDetail } from "../layout/workspace/useSelectWorkspaceDetail";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { AppState, Pressable, View } from "react-native";
 import { Option } from "effect";
+import * as DateTime from "effect/DateTime";
 import {
   ThreadId,
   manualRouteReasonLabel,
@@ -30,7 +31,7 @@ export function MobileRouteRequests({
   messages?: Parameters<typeof routeRequestAnchors>[1];
   children?: (render: (messageId: string) => ReactNode) => ReactNode;
 }) {
-  const navigation = useNavigation();
+  const selectDetail = useSelectWorkspaceDetail();
   const list = useAtomCommand(serverEnvironment.routingList, { reportFailure: false });
   const prepare = useAtomCommand(serverEnvironment.routingPrepare, { reportFailure: false });
   const confirm = useAtomCommand(serverEnvironment.routingConfirm, { reportFailure: false });
@@ -64,6 +65,7 @@ export function MobileRouteRequests({
       setNotice("Could not load requests. Try again.");
     }
   }, [environmentId, projectId, threadId, list]);
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Refresh routes when the native app enters the foreground.
   useEffect(() => {
     const update = () => {
       if (AppState.currentState === "active") void refresh();
@@ -85,36 +87,53 @@ export function MobileRouteRequests({
     if (!proposal || (!target && !native)) return;
     setNoticeRequestId(id);
     setBusy(true);
-    try {
-      const prepared = await prepare({
-        environmentId,
-        input: {
-          requestId: id,
-          source: { environmentId, projectId, threadId },
-          destination: proposal,
-        },
-      });
-      if (prepared._tag === "Failure") {
-        setNotice("Request changed or destination unavailable. Review it again.");
+    await prepare({
+      environmentId,
+      input: {
+        requestId: id,
+        source: { environmentId, projectId, threadId },
+        destination: proposal,
+      },
+    })
+      .then(async (prepared) => {
+        if (prepared._tag === "Failure") {
+          setNotice("Request changed or destination unavailable. Review it again.");
+          await refresh();
+          return;
+        }
+        const result = await confirm({ environmentId, input: { token: prepared.value.token } });
+        setNotice(
+          result._tag === "Success"
+            ? `Queued for ${target?.title ?? "the assistant conversation"}. Delivery and acceptance appear separately.`
+            : "Request changed. Review it again.",
+        );
         await refresh();
-        return;
-      }
-      const result = await confirm({ environmentId, input: { token: prepared.value.token } });
-      setNotice(
-        result._tag === "Success"
-          ? `Queued for ${target?.title ?? "the assistant conversation"}. Delivery and acceptance appear separately.`
-          : "Request changed. Review it again.",
-      );
-      await refresh();
-    } finally {
-      setBusy(false);
-    }
+      })
+      .catch(() => {
+        setNotice("Could not queue the request. Review it again.");
+      })
+      .finally(() => {
+        setBusy(false);
+      });
   };
   const thread = Option.getOrNull(detail.data);
+  const routeMessages =
+    messages ??
+    thread?.messages.map(({ id, role, createdAt, text }) => ({
+      id,
+      role,
+      createdAt: DateTime.formatIso(createdAt),
+      text,
+    })) ??
+    [];
   const anchors = routeRequestAnchors(
     requests,
-    messages ?? thread?.messages ?? [],
-    thread?.activities ?? [],
+    routeMessages,
+    thread?.thread.routeNotices?.map((notice) => ({
+      kind: "routing.updated",
+      createdAt: notice.occurredAt,
+      payload: notice,
+    })) ?? [],
   );
   const render = (messageId?: string) => {
     const visible = messageId
@@ -123,9 +142,7 @@ export function MobileRouteRequests({
     const relevantNotice =
       notice &&
       (noticeRequestId === null
-        ? !messageId ||
-          messageId ===
-            (messages ?? thread?.messages ?? []).find((message) => message.role === "user")?.id
+        ? !messageId || messageId === routeMessages.find((message) => message.role === "user")?.id
         : visible.some((request) => request.requestId === noticeRequestId));
     if (!visible.length)
       return relevantNotice ? (
@@ -170,12 +187,13 @@ export function MobileRouteRequests({
                     <Pressable
                       accessibilityRole="link"
                       onPress={() =>
-                        navigation.dispatch(
-                          CommonActions.navigate("Thread", {
+                        selectDetail({
+                          name: "Thread",
+                          params: {
                             environmentId: request.destination!.environmentId,
                             threadId: request.destination!.threadId,
-                          }),
-                        )
+                          },
+                        })
                       }
                     >
                       <Text className="text-accent underline">

@@ -292,25 +292,26 @@ export function createWorkspaceBrowserSessionCommand<R, E>(
 ) {
   return createEnvironmentCommand(runtime, {
     label: "workspace-browser-session",
-    execute: (_input: void) =>
-      Effect.gen(function* () {
-        const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
-        const current = yield* SubscriptionRef.get(supervisor.prepared);
-        if (Option.isNone(current))
-          return yield* new RemoteEnvironmentAuthFetchError({
-            message: "Reconnect this environment to open the workspace.",
-            cause: "disconnected",
-          });
-        return yield* executeAuthenticatedEnvironmentHttpRequest({
-          prepared: current.value,
-          signer: yield* Effect.serviceOption(ManagedRelay.ManagedRelayDpopSigner),
-          remoteAuthorization: yield* Effect.serviceOption(RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization),
-          group: "auth",
-          method: "POST",
-          timeoutMs: 10_000,
-          url: (urls) => urls.workspaceCredential(),
-          request: ({ client, headers }) => client.workspaceCredential({ headers }),
+    execute: Effect.fn("createWorkspaceBrowserSessionCommand.execute")(function* (_input: void) {
+      const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
+      const current = yield* SubscriptionRef.get(supervisor.prepared);
+      if (Option.isNone(current))
+        return yield* new RemoteEnvironmentAuthFetchError({
+          message: "Reconnect this environment to open the workspace.",
+          cause: "disconnected",
         });
-      }),
+      return yield* executeAuthenticatedEnvironmentHttpRequest({
+        prepared: current.value,
+        signer: yield* Effect.serviceOption(ManagedRelay.ManagedRelayDpopSigner),
+        remoteAuthorization: yield* Effect.serviceOption(
+          RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization,
+        ),
+        group: "auth",
+        method: "POST",
+        timeoutMs: 10_000,
+        url: (urls) => urls.workspaceCredential(),
+        request: ({ client, headers }) => client.workspaceCredential({ headers }),
+      });
+    }),
   });
 }

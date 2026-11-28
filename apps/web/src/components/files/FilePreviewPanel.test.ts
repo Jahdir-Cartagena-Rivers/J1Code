@@ -245,6 +245,11 @@ Third}`;
     const result = openRtf(input.buffer);
     if (result.type !== "document") throw new Error("Expected document");
     expect(result.pages[0]!.html).toBe("<p>А А<br>あ</p>");
+    const chinese = openRtf(
+      bytes(String.raw`{\rtf1\ansi\ansicpg54936 \'d6\'d0\'ce\'c4 \'95\'32\'82\'36}`),
+    );
+    if (chinese.type !== "document") throw new Error("Expected GB18030 document");
+    expect(chinese.pages[0]!.html).toBe("<p>中文 𠀀</p>");
     expect(() => openRtf(bytes(String.raw`{\rtf1\ansicpg99999 text}`))).toThrow("code page");
   });
 

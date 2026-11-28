@@ -1,4 +1,5 @@
 import * as NodePerfHooks from "node:perf_hooks";
+// @effect-diagnostics-next-line nodeBuiltinImport:off - Job IDs are issued synchronously before registering child processes.
 import * as NodeCrypto from "node:crypto";
 import * as Effect from "effect/Effect";
 

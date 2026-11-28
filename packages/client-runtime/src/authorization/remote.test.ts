@@ -5,10 +5,12 @@ import * as Duration from "effect/Duration";
 import * as Fiber from "effect/Fiber";
 import * as TestClock from "effect/testing/TestClock";
 import * as Schema from "effect/Schema";
+import * as Redacted from "effect/Redacted";
 
 import { EnvironmentAuthInvalidError } from "@j1code/contracts";
 import { hashTelemetryId } from "@j1code/shared/telemetryId";
 import {
+  appendClientConnectionParams,
   bootstrapRemoteBearerSession,
   exchangeRemoteDpopAccessToken,
   fetchRemoteSessionState,
@@ -221,9 +223,7 @@ describe("remote environment authorization", () => {
         httpBaseUrl: "https://remote.example.com/",
         bearerToken: "bearer-token",
       }).pipe(provideRemoteHttp(fetch.fetchFn));
-      expect(ticket).toMatchObject({
-        ticket: "ws-ticket",
-      });
+      expect(Redacted.value(ticket.ticket)).toBe("ws-ticket");
 
       expectFetchCall(fetch.calls, 1, {
         url: "https://remote.example.com/.well-known/t3/environment",
@@ -250,18 +250,20 @@ describe("remote environment authorization", () => {
     Effect.gen(function* () {
       const started = yield* Deferred.make<void>();
       const fetchFn = ((_input, _init) => {
-        Effect.runSync(Deferred.succeed(started, undefined));
+        Deferred.doneUnsafe(started, Effect.void);
         return new Promise<Response>(() => {});
       }) satisfies typeof fetch;
       const pending = yield* fetchRemoteEnvironmentDescriptor({
-        httpBaseUrl: "http://remote.example.com/", timeoutMs: 25,
+        httpBaseUrl: "http://remote.example.com/",
+        timeoutMs: 25,
       }).pipe(provideRemoteHttp(fetchFn), Effect.flip, Effect.forkChild);
       yield* Deferred.await(started);
       yield* TestClock.adjust(Duration.millis(25));
       const error = yield* Fiber.join(pending);
       expect(error).toBeInstanceOf(RpcHttp.RemoteEnvironmentAuthTimeoutError);
       expect(error.message).toBe(
-        "Remote environment endpoint http://remote.example.com/.well-known/t3/environment timed out after 25ms.");
+        "Remote environment endpoint http://remote.example.com/.well-known/t3/environment timed out after 25ms.",
+      );
     }).pipe(Effect.provide(TestClock.layer())),
   );
 
@@ -410,15 +412,28 @@ describe("remote environment authorization", () => {
         scopes: ["orchestration:read"],
       }).pipe(provideRemoteHttp(fetch.fetchFn));
 
-      const dpop = recordedFetch(Response.json({ access_token: "dpop-read-only",
-        issued_token_type: "urn:ietf:params:oauth:token-type:access_token", token_type: "DPoP",
-        expires_in: 3600, scope: "orchestration:read" }));
-      yield* exchangeRemoteDpopAccessToken({ httpBaseUrl: "https://remote.example.com/",
-        credential: "pairing-token", dpopProof: "proof", scopes: ["orchestration:read"],
+      const dpop = recordedFetch(
+        Response.json({
+          access_token: "dpop-read-only",
+          issued_token_type: "urn:ietf:params:oauth:token-type:access_token",
+          token_type: "DPoP",
+          expires_in: 3600,
+          scope: "orchestration:read",
+        }),
+      );
+      yield* exchangeRemoteDpopAccessToken({
+        httpBaseUrl: "https://remote.example.com/",
+        credential: "pairing-token",
+        dpopProof: "proof",
+        scopes: ["orchestration:read"],
       }).pipe(provideRemoteHttp(dpop.fetchFn));
       const dpopBody = dpop.calls[0]?.[1].body;
-      const encoded = typeof dpopBody === "string" ? dpopBody
-        : dpopBody instanceof Uint8Array ? new TextDecoder().decode(dpopBody) : "";
+      const encoded =
+        typeof dpopBody === "string"
+          ? dpopBody
+          : dpopBody instanceof Uint8Array
+            ? new TextDecoder().decode(dpopBody)
+            : "";
       expect(new URLSearchParams(encoded).get("scope")).toBe("orchestration:read");
       expect(dpop.calls).toHaveLength(1);
 
@@ -549,18 +564,30 @@ describe("remote environment authorization", () => {
   it.effect.each([401, 403])("does not fall back after ticket authorization denial %s", (status) =>
     Effect.gen(function* () {
       const denied = () => Response.json({ message: "Denied" }, { status });
-      const fallback = () => Response.json({ ticket: "must-not-be-used", expiresAt: "2026-05-01T12:05:00.000Z" });
+      const fallback = () =>
+        Response.json({ ticket: "must-not-be-used", expiresAt: "2026-05-01T12:05:00.000Z" });
       const bearer = recordedFetch(denied(), fallback());
-      yield* issueRemoteWebSocketTicket({ httpBaseUrl: "https://remote.example.com/",
-        bearerToken: "restricted-token", use: "media" }).pipe(provideRemoteHttp(bearer.fetchFn), Effect.flip);
+      yield* issueRemoteWebSocketTicket({
+        httpBaseUrl: "https://remote.example.com/",
+        bearerToken: "restricted-token",
+        use: "media",
+      }).pipe(provideRemoteHttp(bearer.fetchFn), Effect.flip);
       expect(bearer.calls).toHaveLength(1);
-      expect(String(bearer.calls[0]?.[0])).toBe("https://remote.example.com/api/auth/websocket-ticket/media");
+      expect(String(bearer.calls[0]?.[0])).toBe(
+        "https://remote.example.com/api/auth/websocket-ticket/media",
+      );
 
       let fallbackProofs = 0;
       const dpop = recordedFetch(denied(), fallback());
-      yield* issueRemoteDpopWebSocketTicket({ httpBaseUrl: "https://remote.example.com/",
-        accessToken: "restricted-token", dpopProof: "scoped-proof", use: "media",
-        fallbackProof: Effect.sync(() => { fallbackProofs += 1; return "must-not-be-used"; }),
+      yield* issueRemoteDpopWebSocketTicket({
+        httpBaseUrl: "https://remote.example.com/",
+        accessToken: "restricted-token",
+        dpopProof: "scoped-proof",
+        use: "media",
+        fallbackProof: Effect.sync(() => {
+          fallbackProofs += 1;
+          return "must-not-be-used";
+        }),
       }).pipe(provideRemoteHttp(dpop.fetchFn), Effect.flip);
       expect(dpop.calls).toHaveLength(1);
       expect(fallbackProofs).toBe(0);

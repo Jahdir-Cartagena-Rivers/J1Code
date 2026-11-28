@@ -11,7 +11,9 @@ import { selectWorkspaceEnvironment, workspaceConversationUrl } from "../mausbot
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 import { useHomeListOptions } from "./home-list-options";
 
-export type HomeRouteParameters = { workspaceEnvironmentId?: string; workspaceThreadId?: string } | undefined;
+export type HomeRouteParameters =
+  | { workspaceEnvironmentId?: string; workspaceThreadId?: string }
+  | undefined;
 
 export function HomeRouteScreen() {
   const navigation = useNavigation();
@@ -47,7 +49,9 @@ export function HomeRouteScreen() {
     setLastAddress(currentAddress);
   // Suspension may temporarily clear connection/config snapshots. Keep the same
   // document mounted; the existing session and server still decide authorization.
-  const address = lastAddress?.environmentId === selected?.environmentId ? lastAddress : null;
+  const previousEnvironmentId = lastAddress?.environmentId;
+  const selectedEnvironmentId = selected?.environmentId;
+  const address = previousEnvironmentId === selectedEnvironmentId ? lastAddress : null;
   const openConnections = useCallback(() => navigation.navigate("Connections"), [navigation]);
   return (
     <>

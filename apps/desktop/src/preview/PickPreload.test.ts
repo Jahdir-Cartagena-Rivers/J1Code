@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vite-plus/test";
 
 import { START_PICK_CHANNEL } from "./GuestProtocol.ts";
-import "./PickPreload.ts";
+import { captureElement } from "./PickPreload.ts";
 
 const ipcListeners = vi.hoisted(() => new Map<string, Array<(...args: unknown[]) => void>>());
 
@@ -17,6 +17,13 @@ vi.mock("electron", () => ({
 }));
 
 vi.mock("react-grab/primitives", () => ({ getElementContext: async () => null }));
+
+it("keeps the HTML fallback well formed when an emoji crosses the preview boundary", async () => {
+  const element = document.createElement("div");
+  element.textContent = `${"a".repeat(494)}🚀tail`;
+  const preview = await captureElement(element);
+  expect(preview.htmlPreview).toBe(element.outerHTML.slice(0, 499));
+});
 
 const startAnnotation = (): ShadowRoot => {
   vi.stubGlobal(

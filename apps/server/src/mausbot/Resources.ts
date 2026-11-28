@@ -6,16 +6,20 @@ import * as NodePath from "node:path";
 import * as NodeStreamPromises from "node:stream/promises";
 import * as Yauzl from "yauzl";
 import * as Schema from "effect/Schema";
+import { MAUSBOT_SOURCE } from "./SourcePin.ts";
 
-const sourcePin = "aa64baefae8d94c5b032b4e0745b3d7fb7a07658";
 const decodeManifest = Schema.decodeUnknownSync(
   Schema.fromJsonString(
     Schema.Struct({
-      commit: Schema.Literal(sourcePin),
+      commit: Schema.Literal(MAUSBOT_SOURCE),
       files: Schema.Record(Schema.String, Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/))),
     }),
   ),
 );
+const readManifest = (directory: string) =>
+  NodeFSP.readFile(NodePath.join(directory, "j1-mausbot-manifest.json"), "utf8").then(
+    decodeManifest,
+  );
 
 /** The archive is copied with J1's versioned background runtime; expansion is lazy and atomic. */
 export async function resolveMausbotResources(resources: string, cacheRoot: string) {
@@ -24,11 +28,15 @@ export async function resolveMausbotResources(resources: string, cacheRoot: stri
   for await (const chunk of NodeFS.createReadStream(archive)) hash.update(chunk);
   const digest = hash.digest("hex");
   const target = NodePath.join(cacheRoot, digest);
-  try {
-    if ((await NodeFSP.readFile(NodePath.join(target, ".complete"), "utf8")) === digest)
-      return target;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  const complete = await NodeFSP.readFile(NodePath.join(target, ".complete"), "utf8").catch(
+    (error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+      return undefined;
+    },
+  );
+  if (complete === digest) {
+    await readManifest(target);
+    return target;
   }
   await NodeFSP.mkdir(cacheRoot, { recursive: true, mode: 0o700 });
   const staging = await NodeFSP.mkdtemp(NodePath.join(cacheRoot, ".stage-"));
@@ -90,9 +98,7 @@ export async function resolveMausbotResources(resources: string, cacheRoot: stri
     } finally {
       zip.close();
     }
-    const manifest = decodeManifest(
-      await NodeFSP.readFile(NodePath.join(staging, "j1-mausbot-manifest.json"), "utf8"),
-    );
+    const manifest = await readManifest(staging);
     const expected = new Set(Object.keys(manifest.files).map((name) => name.toLowerCase()));
     for (const name of seen) {
       if (name === "j1-mausbot-manifest.json" || expected.has(name)) continue;
@@ -128,6 +134,7 @@ export async function resolveMausbotResources(resources: string, cacheRoot: stri
         () => undefined,
       );
       if (published !== digest) throw error;
+      await readManifest(target);
       await NodeFSP.rm(staging, { recursive: true, force: true });
     }
     return target;

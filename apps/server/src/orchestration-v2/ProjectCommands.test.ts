@@ -1,5 +1,11 @@
 import { assert, describe, it } from "@effect/vitest";
-import { CommandId, EventId, ProjectId, ProviderInstanceId, type ProjectScript } from "@j1code/contracts";
+import {
+  CommandId,
+  EventId,
+  ProjectId,
+  ProviderInstanceId,
+  type ProjectScript,
+} from "@j1code/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Result from "effect/Result";
 
@@ -24,6 +30,7 @@ const row = (overrides: Partial<ProjectRow> = {}): ProjectRow => ({
   faviconPath: null,
   projectIcon: null,
   scripts: [],
+  trackedFolders: [],
   pinnedAt: null,
   archivedAt: null,
   createdAt: "2026-01-01T00:00:00.000Z",
@@ -69,22 +76,33 @@ describe("planProjectCommand", () => {
     });
     assert.deepEqual(payloadOf(created).scripts, []);
     assert.isNull(payloadOf(created).defaultModelSelection);
-    const selection = { instanceId: ProviderInstanceId.make("fixture-provider"), model: "fixture-model" };
-    assert.deepEqual(payloadOf(plan({
-      type: "project.create",
-      commandId: CommandId.make("cmd-create-with-model"),
-      projectId,
-      title: "With model",
-      workspaceRoot: "/tmp/scripts",
-      defaultModelSelection: selection,
-    })).defaultModelSelection, selection);
+    const selection = {
+      instanceId: ProviderInstanceId.make("fixture-provider"),
+      model: "fixture-model",
+    };
+    assert.deepEqual(
+      payloadOf(
+        plan({
+          type: "project.create",
+          commandId: CommandId.make("cmd-create-with-model"),
+          projectId,
+          title: "With model",
+          workspaceRoot: "/tmp/scripts",
+          defaultModelSelection: selection,
+        }),
+      ).defaultModelSelection,
+      selection,
+    );
     const scripts = [script("lint"), script("a".repeat(24))];
-    const updated = plan({
-      type: "project.meta.update",
-      commandId: CommandId.make("cmd-add-scripts"),
-      projectId,
-      scripts,
-    }, { project: row() });
+    const updated = plan(
+      {
+        type: "project.meta.update",
+        commandId: CommandId.make("cmd-add-scripts"),
+        projectId,
+        scripts,
+      },
+      { project: row() },
+    );
     assert.deepEqual(payloadOf(updated).scripts, scripts);
   });
 
@@ -92,12 +110,17 @@ describe("planProjectCommand", () => {
     "rejects a new script ID that cannot be a shortcut (%s)",
     (id) => {
       const current = row();
-      const error = failureOf(plan({
-        type: "project.meta.update",
-        commandId: CommandId.make("cmd-bad-script"),
-        projectId,
-        scripts: [script("lint"), script(id)],
-      }, { project: current }));
+      const error = failureOf(
+        plan(
+          {
+            type: "project.meta.update",
+            commandId: CommandId.make("cmd-bad-script"),
+            projectId,
+            scripts: [script("lint"), script(id)],
+          },
+          { project: current },
+        ),
+      );
       assert.equal(error._tag, "ProjectCommandInvariantError");
       assert.include(error.message, "Script IDs must be 1-24");
       assert.deepEqual(current.scripts, []);
@@ -105,22 +128,31 @@ describe("planProjectCommand", () => {
   );
 
   it("preserves icon metadata and enforces the two-grapheme monogram limit", () => {
-    const update = (projectIcon: NonNullable<ProjectRow["projectIcon"]>) => plan({
-      type: "project.meta.update",
-      commandId: CommandId.make("cmd-project-icon"),
-      projectId,
-      faviconPath: "brand/icon.svg",
-      projectIcon,
-    }, { project: row() });
+    const update = (projectIcon: NonNullable<ProjectRow["projectIcon"]>) =>
+      plan(
+        {
+          type: "project.meta.update",
+          commandId: CommandId.make("cmd-project-icon"),
+          projectId,
+          faviconPath: "brand/icon.svg",
+          projectIcon,
+        },
+        { project: row() },
+      );
     const icon = { kind: "lucide", name: "alarm-clock", color: "violet" } as const;
-    assert.deepInclude(payloadOf(update(icon)), { faviconPath: "brand/icon.svg", projectIcon: icon });
+    assert.deepInclude(payloadOf(update(icon)), {
+      faviconPath: "brand/icon.svg",
+      projectIcon: icon,
+    });
     for (const text of ["J1", "e\u0301", "किखि", "क्ष्म", "\u1100\u1161\u11a8"]) {
       const monogram = { kind: "monogram", text, color: "violet" } as const;
       assert.deepEqual(payloadOf(update(monogram)).projectIcon, monogram);
     }
     for (const text of ["ABC", "किखिगि", "J1 Code"]) {
-      assert.equal(failureOf(update({ kind: "monogram", text, color: "violet" }))._tag,
-        "ProjectCommandInvariantError");
+      assert.equal(
+        failureOf(update({ kind: "monogram", text, color: "violet" }))._tag,
+        "ProjectCommandInvariantError",
+      );
     }
   });
 

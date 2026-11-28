@@ -233,50 +233,72 @@ describe("MessagesTimeline work rows", () => {
     "keeps questions visible while attachment history expands: %j",
     async (answers) => {
       setup();
-      await using screen = await renderTimeline([work("question-answer", {
-        label: "Question answer submitted",
-        tone: "info",
-        questionAnswer: {
-          requestId: RuntimeRequestId.make("question-request"),
-          answers,
-          questionTextById: { file: "Provide a spec", image: "Provide a screenshot" },
-          attachmentsByQuestionId: {
-            file: [{ type: "file", id: "spec", name: "spec.txt", mimeType: "text/plain", sizeBytes: 4 }],
-            image: [{ type: "image", id: "shot", name: "shot.png", mimeType: "image/png", sizeBytes: 4 }],
+      await using screen = await renderTimeline([
+        work("question-answer", {
+          label: "Question answer submitted",
+          tone: "info",
+          questionAnswer: {
+            requestId: RuntimeRequestId.make("question-request"),
+            answers,
+            questionTextById: { file: "Provide a spec", image: "Provide a screenshot" },
+            attachmentsByQuestionId: {
+              file: [
+                {
+                  type: "file",
+                  id: "spec",
+                  name: "spec.txt",
+                  mimeType: "text/plain",
+                  sizeBytes: 4,
+                },
+              ],
+              image: [
+                {
+                  type: "image",
+                  id: "shot",
+                  name: "shot.png",
+                  mimeType: "image/png",
+                  sizeBytes: 4,
+                },
+              ],
+            },
           },
-        },
-      })]);
+        }),
+      ]);
       const toggle = screen.getByRole("button", { name: /^Provide a spec/ });
       await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
-      await expect.element(toggle).toContainText("Provide a spec");
+      await expect.element(toggle).toHaveTextContent("Provide a spec");
       await userEvent.click(toggle);
       await expect.element(toggle).toHaveAttribute("aria-expanded", "true");
       await expect.element(screen.getByText("spec.txt", { exact: true }).first()).toBeVisible();
       await expect.element(screen.getByText("shot.png", { exact: true }).first()).toBeVisible();
-      await expect.element(screen.getByText("Provide a screenshot", { exact: true }).first()).toBeVisible();
+      await expect
+        .element(screen.getByText("Provide a screenshot", { exact: true }).first())
+        .toBeVisible();
       for (const answer of Object.values(answers)) {
         await expect.element(screen.getByText(answer, { exact: true }).first()).toBeVisible();
       }
       await userEvent.click(toggle);
       await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
-      await expect.element(toggle).toContainText("Provide a spec");
+      await expect.element(toggle).toHaveTextContent("Provide a spec");
     },
   );
 
   it("leads an unanswered row with its question", async () => {
     setup();
-    await using screen = await renderTimeline([work("unanswered-question", {
-      label: "User input requested",
-      tone: "tool",
-      questionAnswer: {
-        requestId: RuntimeRequestId.make("question-request"),
-        answers: {},
-        questionTextById: { scope: "Which repository?" },
-        attachmentsByQuestionId: {},
-      },
-    })]);
+    await using screen = await renderTimeline([
+      work("unanswered-question", {
+        label: "User input requested",
+        tone: "tool",
+        questionAnswer: {
+          requestId: RuntimeRequestId.make("question-request"),
+          answers: {},
+          questionTextById: { scope: "Which repository?" },
+          attachmentsByQuestionId: {},
+        },
+      }),
+    ]);
     const toggle = screen.getByRole("button", { name: "Which repository?", exact: true });
-    await expect.element(toggle).toContainText("Which repository?");
+    await expect.element(toggle).toHaveTextContent("Which repository?");
     await userEvent.click(toggle);
     await expect.element(toggle).toHaveAttribute("aria-expanded", "true");
   });

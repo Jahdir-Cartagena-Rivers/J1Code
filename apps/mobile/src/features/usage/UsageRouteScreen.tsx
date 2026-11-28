@@ -322,12 +322,20 @@ function UsageScreen(props: {
                     </View>
                   ) : (
                     <>
-                      {selectedEnvironments.filter((environment) => environment.summary?.sources.some(
-                        (source) => source.action === "enableCursorKeychain",
-                      )).map((environment) => (
-                        <EnableCursorUsage key={environment.environmentId} environmentId={environment.environmentId}
-                          label={environment.label} onEnabled={() => void refresh(window)} />
-                      ))}
+                      {selectedEnvironments
+                        .filter((environment) =>
+                          environment.summary?.sources.some(
+                            (source) => source.action === "enableCursorKeychain",
+                          ),
+                        )
+                        .map((environment) => (
+                          <EnableCursorUsage
+                            key={environment.environmentId}
+                            environmentId={environment.environmentId}
+                            label={environment.label}
+                            onEnabled={() => void refresh(window)}
+                          />
+                        ))}
                       {sourceMessages.map((message) => (
                         <Text key={message} className="text-sm text-foreground-muted">
                           {message}
@@ -512,7 +520,7 @@ function UsageSummary(props: { readonly merged: MergedUsage; readonly metric: Us
       <Text className="text-sm text-foreground-muted">
         {metric === "cost"
           ? "* if billed at full API rate"
-          : `Across ${formatCount(merged.sessions)} sessions`}
+          : `Across ${formatCount(merged.sessions)} ${merged.sessions === 1 ? "session" : "sessions"}`}
       </Text>
     </View>
   );

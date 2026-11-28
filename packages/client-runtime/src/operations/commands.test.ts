@@ -1,4 +1,5 @@
 import {
+  BotId,
   CheckpointId,
   CheckpointRef,
   CheckpointScopeId,
@@ -44,6 +45,7 @@ import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
 import { v2Now, v2Projection, v2ThreadId } from "../state/orchestrationV2TestFixtures.ts";
 import {
   archiveThread,
+  createThread,
   interruptThreadTurn,
   revertThreadCheckpoint,
   resumeThreadQueue,
@@ -144,6 +146,27 @@ const makeSupervisor = Effect.fn("TestEnvironmentCommands.makeSupervisor")(funct
 });
 
 describe("V2 environment commands", () => {
+  it.effect("preserves bot identity when the mobile roster creates a conversation", () =>
+    Effect.gen(function* () {
+      const commands: OrchestrationV2Command[] = [];
+      const supervisor = yield* makeSupervisor({ commands, projects: [] });
+      const bot = { id: BotId.make("assistant"), name: "Assistant", instructions: "Review code." };
+      yield* createThread({
+        creationSource: "mobile",
+        threadId: ThreadId.make("bot-conversation"),
+        projectId: ProjectId.make("project"),
+        title: bot.name,
+        bot,
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+      expect(commands).toEqual([expect.objectContaining({ type: "thread.create", bot })]);
+    }).pipe(Effect.provide(layerTestRandom)),
+  );
+
   it.effect("distinguishes sending a selected queued message from resuming queue order", () =>
     Effect.gen(function* () {
       const commands: OrchestrationV2Command[] = [];
@@ -226,52 +249,56 @@ describe("V2 environment commands", () => {
     }).pipe(Effect.provide(layerTestRandom)),
   );
 
-  it.effect.each([false, true])("preserves the worktree and explicit Auto intent on first-message launch (Auto: %s)", (automatic) =>
-    Effect.gen(function* () {
-      const launches: OrchestrationV2ThreadLaunchInput[] = [];
-      const supervisor = yield* makeSupervisor({ commands: [], projects: [], launches });
+  it.effect.each([false, true])(
+    "preserves the worktree and explicit Auto intent on first-message launch (Auto: %s)",
+    (automatic) =>
+      Effect.gen(function* () {
+        const launches: OrchestrationV2ThreadLaunchInput[] = [];
+        const supervisor = yield* makeSupervisor({ commands: [], projects: [], launches });
 
-      yield* startThreadTurn({
-        commandId: CommandId.make("launch-existing-worktree"),
-        ...(automatic ? { autoRouting: { taskId: "launch-task", requestEscalation: false } } : {}),
-        threadId: v2ThreadId,
-        message: {
-          messageId: MessageId.make("message-existing-worktree"),
-          role: "user",
-          text: "Continue here",
-          attachments: [],
-        },
-        runtimeMode: "full-access",
-        interactionMode: "default",
-        titleSeed: "Continue here",
-        bootstrap: {
-          createThread: {
-            projectId: ProjectId.make("project-1"),
-            title: "Thread",
-            modelSelection: v2Projection.thread.modelSelection,
-            runtimeMode: "full-access",
-            interactionMode: "default",
-            branch: "feature",
-            worktreePath: "/workspace/project-worktrees/feature",
-            createdAt: "2026-06-20T00:00:00.000Z",
+        yield* startThreadTurn({
+          commandId: CommandId.make("launch-existing-worktree"),
+          ...(automatic
+            ? { autoRouting: { taskId: "launch-task", requestEscalation: false } }
+            : {}),
+          threadId: v2ThreadId,
+          message: {
+            messageId: MessageId.make("message-existing-worktree"),
+            role: "user",
+            text: "Continue here",
+            attachments: [],
           },
-        },
-      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          titleSeed: "Continue here",
+          bootstrap: {
+            createThread: {
+              projectId: ProjectId.make("project-1"),
+              title: "Thread",
+              modelSelection: v2Projection.thread.modelSelection,
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              branch: "feature",
+              worktreePath: "/workspace/project-worktrees/feature",
+              createdAt: "2026-06-20T00:00:00.000Z",
+            },
+          },
+        }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
 
-      expect(launches[0]).toMatchObject({
-        threadId: v2ThreadId,
-        title: "Continue here",
-        generateTitle: true,
-        workspaceStrategy: {
-          type: "existing_worktree",
-          worktreePath: "/workspace/project-worktrees/feature",
-          branch: "feature",
-        },
-      });
-      expect(launches[0]?.autoRouting).toEqual(automatic
-        ? { taskId: "launch-task", requestEscalation: false }
-        : undefined);
-    }).pipe(Effect.provide(layerTestRandom)),
+        expect(launches[0]).toMatchObject({
+          threadId: v2ThreadId,
+          title: "Continue here",
+          generateTitle: true,
+          workspaceStrategy: {
+            type: "existing_worktree",
+            worktreePath: "/workspace/project-worktrees/feature",
+            branch: "feature",
+          },
+        });
+        expect(launches[0]?.autoRouting).toEqual(
+          automatic ? { taskId: "launch-task", requestEscalation: false } : undefined,
+        );
+      }).pipe(Effect.provide(layerTestRandom)),
   );
 
   it.effect("uses server-resolved delivery intent without fetching the full projection", () =>
@@ -313,10 +340,14 @@ describe("V2 environment commands", () => {
           threadId: v2ThreadId,
           message: {
             messageId: MessageId.make(`auto-message-${mode}`),
-            role: "user", text: "Continue the task", attachments: [],
+            role: "user",
+            text: "Continue the task",
+            attachments: [],
           },
           autoRouting,
-          runtimeMode: "full-access", interactionMode: "default", dispatchMode: mode,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          dispatchMode: mode,
         }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
         expect(commands.at(-1)).toMatchObject({ type: "message.dispatch", autoRouting });
       }

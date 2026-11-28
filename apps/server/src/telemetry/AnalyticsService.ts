@@ -1,4 +1,5 @@
 import * as HostProcess from "@j1code/shared/HostProcess";
+import { isCiEnvironment, isDoNotTrackSet } from "@j1code/shared/otelEnvironment";
 import type { ClientOs } from "@j1code/contracts";
 import { isTelemetryIdHash } from "@j1code/shared/telemetryId";
 import * as Clock from "effect/Clock";
@@ -106,8 +107,8 @@ export class AnalyticsService extends Context.Service<
   static readonly layerTest = Layer.succeed(
     AnalyticsService,
     AnalyticsService.of({
-      record: () => Effect.void,
-      recordOwners: () => Effect.void,
+      record: Effect.fn("AnalyticsService.recordTest")(() => Effect.void),
+      recordOwners: Effect.fn("AnalyticsService.recordOwnersTest")(() => Effect.void),
       ownerReportingEnabled: Effect.succeed(false),
       flush: Effect.void,
     }),
@@ -141,14 +142,17 @@ export const make = Effect.gen(function* () {
   const telemetryEnabled = (explicit = false) =>
     Effect.suspend(() => {
       const configured = Option.getOrUndefined(telemetryConfig.enabled);
-      if (!policyAllows || configured === false) return Effect.succeed(false);
-      if (!awaitingShellConsent) return Effect.succeed(configured ?? !explicit);
+      if (!policyAllows || configured === false || isDoNotTrackSet(hostEnvironment)) {
+        return Effect.succeed(false);
+      }
+      const defaultEnabled = !explicit && !isCiEnvironment(hostEnvironment);
+      if (!awaitingShellConsent) return Effect.succeed(configured ?? defaultEnabled);
       if (hostEnvironment.T3CODE_DESKTOP_SHELL_DISCOVERY_PENDING === "1") {
         return Effect.succeed(false);
       }
       const preference = hostEnvironment.T3CODE_TELEMETRY_ENABLED;
       return Config.Boolean("T3CODE_TELEMETRY_ENABLED").pipe(
-        Config.withDefault(!explicit),
+        Config.withDefault(defaultEnabled),
         Effect.provideService(
           ConfigProvider.ConfigProvider,
           ConfigProvider.fromEnv({
@@ -161,7 +165,9 @@ export const make = Effect.gen(function* () {
   const httpClient = yield* HttpClient.HttpClient;
   const serverConfig = yield* ServerConfig.ServerConfig;
   const identityServices = yield* Effect.context<Effect.Services<typeof getTelemetryIdentity>>();
-  const identity = yield* Effect.cached(Effect.provideContext(getTelemetryIdentity, identityServices));
+  const identity = yield* Effect.cached(
+    Effect.provideContext(getTelemetryIdentity, identityServices),
+  );
   const crypto = yield* SecureRandom.SecureRandom;
   const bufferRef = yield* Ref.make<ReadonlyArray<BufferedAnalyticsEvent>>([]);
   const deliveryRef = yield* Ref.make<DeliveryState>({

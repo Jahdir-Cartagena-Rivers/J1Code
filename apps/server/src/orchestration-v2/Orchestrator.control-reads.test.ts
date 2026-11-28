@@ -44,7 +44,13 @@ import {
   orchestrationCommandDuration,
   orchestrationCommandsTotal,
 } from "../observability/Metrics.ts";
-import { CompatibilityApprovalOwner, compatibilityApprovalCommand, compatibilityMessageId, compatibilityThreadId, ownsCompatibilityApproval } from "../mausbot/CompatibilityApproval.ts";
+import {
+  CompatibilityApprovalOwner,
+  compatibilityApprovalCommand,
+  compatibilityMessageId,
+  compatibilityThreadId,
+  ownsCompatibilityApproval,
+} from "../mausbot/CompatibilityApproval.ts";
 import { ProviderRegistry } from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as AgentSessionImporter from "../project/AgentSessionImporter.ts";
@@ -97,26 +103,42 @@ it.effect("persists Auto's attachment-specific model choice and context estimate
     const fast = { instanceId, model: "fast" };
     const deep = { instanceId, model: "deep" };
     const provider: ServerProvider = {
-      instanceId, driver: adapter.driver, enabled: true, installed: true, version: null,
-      status: "ready", auth: { status: "authenticated" }, checkedAt: "2026-01-01T00:00:00Z",
+      instanceId,
+      driver: adapter.driver,
+      enabled: true,
+      installed: true,
+      version: null,
+      status: "ready",
+      auth: { status: "authenticated" },
+      checkedAt: "2026-01-01T00:00:00Z",
       models: [fast, deep, modelSelection].map(({ model }) => ({
-        slug: model, name: model, isCustom: false, capabilities: null,
+        slug: model,
+        name: model,
+        isCustom: false,
+        capabilities: null,
       })),
-      slashCommands: [], skills: [],
+      slashCommands: [],
+      skills: [],
     };
-    const autoModelRouting = AutoModelRouting.layer.pipe(Layer.provide(Layer.mergeAll(
-      layerDatabase,
-      Layer.mock(ProviderRegistry)({ getProviders: Effect.succeed([provider]) }),
-      ServerSettings.layerTest({
-        autoModelPolicy: {
-          mode: "auto", fast, deep,
-          capabilities: {
-            fast: { tools: true, images: false, contextWindow: 80_000 },
-            deep: { tools: true, images: true, contextWindow: 200_000 },
-          },
-        },
-      }),
-    )));
+    const autoModelRouting = AutoModelRouting.layer.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          layerDatabase,
+          Layer.mock(ProviderRegistry)({ getProviders: Effect.succeed([provider]) }),
+          ServerSettings.layerTest({
+            autoModelPolicy: {
+              mode: "auto",
+              fast,
+              deep,
+              capabilities: {
+                fast: { tools: true, images: false, contextWindow: 80_000 },
+                deep: { tools: true, images: true, contextWindow: 200_000 },
+              },
+            },
+          }),
+        ),
+      ),
+    );
     const harness = Layer.merge(
       ProjectionStore.layer.pipe(Layer.provide(layerDatabase)),
       ProviderReplayHarness.layerWithRegistry(
@@ -136,18 +158,36 @@ it.effect("persists Auto's attachment-specific model choice and context estimate
         const threadId = ThreadId.make(`auto-attachment-${type}`);
         const taskId = `attachment-${type}`;
         yield* orchestrator.dispatch({
-          type: "thread.create", commandId: CommandId.make(`create-${taskId}`), threadId,
+          type: "thread.create",
+          commandId: CommandId.make(`create-${taskId}`),
+          threadId,
           projectId: ProjectId.make("auto-attachment-project"),
-          title: "Rewrite", modelSelection, runtimeMode: "approval-required",
-          interactionMode: "default", branch: null, worktreePath: null,
-          createdBy: "user", creationSource: "web",
+          title: "Rewrite",
+          modelSelection,
+          runtimeMode: "approval-required",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdBy: "user",
+          creationSource: "web",
         });
-        const attachment = { type, id: ChatAttachmentId.make(taskId), name, mimeType, sizeBytes: 1000 };
+        const attachment = {
+          type,
+          id: ChatAttachmentId.make(taskId),
+          name,
+          mimeType,
+          sizeBytes: 1000,
+        };
         const command = {
-          type: "message.dispatch", commandId: CommandId.make(taskId), threadId,
-          messageId: MessageId.make(taskId), text: "Rewrite this", attachments: [attachment],
+          type: "message.dispatch",
+          commandId: CommandId.make(taskId),
+          threadId,
+          messageId: MessageId.make(taskId),
+          text: "Rewrite this",
+          attachments: [attachment],
           dispatchMode: { type: "defer_start", workspaceStrategy: { type: "root" } },
-          createdBy: "user", creationSource: "web",
+          createdBy: "user",
+          creationSource: "web",
           autoRouting: { taskId, requestEscalation: false },
         } as const;
         yield* orchestrator.dispatch(command);
@@ -262,7 +302,9 @@ it.effect("starts commands from persisted projections on reopen without loading 
       assert.equal(yield* sink.latestSequence(), accepted.sequence);
     }).pipe(
       Effect.provideService(Statement.CurrentTransformer, observe),
-      Effect.provide(harness.pipe(Layer.provide(Layer.succeed(Statement.CurrentTransformer, observe)))),
+      Effect.provide(
+        harness.pipe(Layer.provide(Layer.succeed(Statement.CurrentTransformer, observe))),
+      ),
     );
     assert.deepEqual(historicalReads, []);
   }).pipe(Effect.provide(NodeServices.layer)),
@@ -2449,7 +2491,10 @@ it.effect("persists a blocked settle receipt and rejects the same command after 
       const error = yield* Effect.flip(orchestrator.dispatch(settle));
       assert.include(error, { _tag: "OrchestratorThreadSettleBlockedError", threadId, message });
       assert.equal(userFacingDispatchErrorMessage(error), message);
-      assert.deepEqual(Option.getOrThrow(yield* receipts.getByCommandId(commandId)), rejectedReceipt);
+      assert.deepEqual(
+        Option.getOrThrow(yield* receipts.getByCommandId(commandId)),
+        rejectedReceipt,
+      );
       assert.equal(yield* events.latestSequence(), sequence);
       assert.deepEqual(yield* projections.getThreadProjection(threadId), before);
       assert.isEmpty(yield* outbox.listByCommandId(commandId));
@@ -2711,11 +2756,11 @@ it.effect.each(["projection", "outbox"] as const)(
         yield* sql.unsafe(
           stage === "projection"
             ? "CREATE TRIGGER rollback_fixture BEFORE INSERT ON orchestration_v2_projection_runs " +
-              "WHEN (SELECT COUNT(*) FROM orchestration_events WHERE command_id = 'dispatch-rollback') > 1 " +
-              "BEGIN SELECT RAISE(ABORT, 'fixture projection failed'); END"
+                "WHEN (SELECT COUNT(*) FROM orchestration_events WHERE command_id = 'dispatch-rollback') > 1 " +
+                "BEGIN SELECT RAISE(ABORT, 'fixture projection failed'); END"
             : "CREATE TRIGGER rollback_fixture BEFORE INSERT ON orchestration_v2_effect_outbox " +
-              "WHEN NEW.command_id = 'dispatch-rollback' AND EXISTS (SELECT 1 FROM orchestration_v2_projection_runs) " +
-              "BEGIN SELECT RAISE(ABORT, 'fixture outbox failed'); END",
+                "WHEN NEW.command_id = 'dispatch-rollback' AND EXISTS (SELECT 1 FROM orchestration_v2_projection_runs) " +
+                "BEGIN SELECT RAISE(ABORT, 'fixture outbox failed'); END",
         );
         const error = yield* Effect.flip(orchestrator.dispatch(command));
         assert.equal(error._tag, "OrchestratorDispatchError");
@@ -2749,123 +2794,68 @@ it.effect.each(["projection", "outbox"] as const)(
         assert.deepEqual(replay.storedEvents, committed.storedEvents);
         assert.equal(yield* sink.latestSequence(), committed.sequence);
         const records = yield* projections.getThreadProjection(command.threadId);
-        assert.deepEqual(records.messages.map(({ id }) => id), [command.messageId]);
+        assert.deepEqual(
+          records.messages.map(({ id }) => id),
+          [command.messageId],
+        );
         assert.lengthOf(records.runs, 1);
+        const [run] = records.runs;
+        if (run === undefined) return yield* Effect.die("Expected a committed run");
         const receipt = Option.getOrThrow(yield* receipts.getByCommandId(command.commandId));
         assert.include(receipt, { status: "accepted", resultSequence: committed.sequence });
         const effects = yield* outbox.listByCommandId(command.commandId);
         assert.lengthOf(effects, 1);
         assert.deepEqual(effects[0]?.request, {
           type: "provider-turn.start",
-          runId: records.runs[0]?.id,
+          runId: run.id,
         });
       }).pipe(Effect.provide(harness));
     }).pipe(Effect.provide(NodeServices.layer)),
 );
 
-it.effect("dispatch records successful, failed and replayed attempts with one committed acknowledgement", () =>
-  Effect.gen(function* () {
-    const orchestrator = yield* Orchestrator.OrchestratorV2;
-    const successes = Metric.value(
-      Metric.withAttributes(orchestrationCommandsTotal, {
-        commandType: "thread.create",
-        aggregateKind: "thread",
-        outcome: "success",
-      }),
-    );
-    const durations = Metric.value(
-      Metric.withAttributes(orchestrationCommandDuration, {
-        commandType: "thread.create",
-        aggregateKind: "thread",
-      }),
-    );
-    const failures = Metric.value(
-      Metric.withAttributes(orchestrationCommandsTotal, {
-        commandType: "thread.create",
-        aggregateKind: "thread",
-        outcome: "failure",
-      }),
-    );
-    const acknowledgements = Metric.value(
-      Metric.withAttributes(orchestrationCommandAckDuration, {
-        commandType: "thread.create",
-        aggregateKind: "thread",
-        ackEventType: "thread.created",
-      }),
-    );
-    const successesBefore = (yield* successes).count;
-    const durationsBefore = (yield* durations).count;
-    const failuresBefore = (yield* failures).count;
-    const acksBefore = (yield* acknowledgements).count;
+it.effect(
+  "dispatch records successful, failed and replayed attempts with one committed acknowledgement",
+  () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const successes = Metric.value(
+        Metric.withAttributes(orchestrationCommandsTotal, {
+          commandType: "thread.create",
+          aggregateKind: "thread",
+          outcome: "success",
+        }),
+      );
+      const durations = Metric.value(
+        Metric.withAttributes(orchestrationCommandDuration, {
+          commandType: "thread.create",
+          aggregateKind: "thread",
+        }),
+      );
+      const failures = Metric.value(
+        Metric.withAttributes(orchestrationCommandsTotal, {
+          commandType: "thread.create",
+          aggregateKind: "thread",
+          outcome: "failure",
+        }),
+      );
+      const acknowledgements = Metric.value(
+        Metric.withAttributes(orchestrationCommandAckDuration, {
+          commandType: "thread.create",
+          aggregateKind: "thread",
+          ackEventType: "thread.created",
+        }),
+      );
+      const successesBefore = (yield* successes).count;
+      const durationsBefore = (yield* durations).count;
+      const failuresBefore = (yield* failures).count;
+      const acksBefore = (yield* acknowledgements).count;
 
-    const command = {
-      type: "thread.create",
-      commandId: CommandId.make("create-dispatch-metrics"),
-      threadId: ThreadId.make("thread:dispatch-metrics"),
-      projectId: ProjectId.make("project:dispatch-metrics"),
-      title: "Dispatch metrics",
-      modelSelection,
-      runtimeMode: "full-access",
-      interactionMode: "default",
-      branch: null,
-      worktreePath: null,
-      createdBy: "user",
-      creationSource: "web",
-    } as const;
-    yield* orchestrator.dispatch(command);
-    assert.strictEqual((yield* acknowledgements).count - acksBefore, 1);
-    assert.isTrue((yield* orchestrator.dispatch(command)).replayed);
-    const failure = yield* Effect.flip(orchestrator.dispatch({
-      ...command,
-      commandId: CommandId.make("create-dispatch-metrics-duplicate"),
-    }));
-    assert.equal(failure._tag, "OrchestratorThreadAlreadyExistsError");
-
-    assert.strictEqual((yield* successes).count - successesBefore, 2);
-    assert.strictEqual((yield* failures).count - failuresBefore, 1);
-    assert.strictEqual((yield* durations).count - durationsBefore, 3);
-    assert.strictEqual((yield* acknowledgements).count - acksBefore, 1);
-  }).pipe(Effect.provide(layerTest)),
-);
-
-it.effect("guards the imported first prompt under its thread lock and replays without rescanning", () => {
-  const imported = ThreadId.make("import:codex:first-prompt");
-  const ordinary = ThreadId.make("thread:first-prompt-neighbor");
-  let refuse = true;
-  let scans = 0;
-  const entered = Deferred.makeUnsafe<void>();
-  const release = Deferred.makeUnsafe<void>();
-  const contenderEntered = Deferred.makeUnsafe<void>();
-  const layer = ThreadManagementService.layer.pipe(
-    Layer.provideMerge(Layer.mergeAll(
-      ServerSettings.layerTest(),
-      CommandReceiptStore.layer,
-      Layer.mock(AgentSessionImporter.AgentSessionImporter)({
-        refreshBeforeFirstPrompt: ({ threadId }) =>
-          Effect.gen(function* () {
-            if (threadId !== imported) return;
-            scans += 1;
-            if (!refuse) return;
-            yield* Deferred.succeed(entered, undefined);
-            yield* Deferred.await(release);
-            return yield* new AgentSessionImporter.AgentSessionFirstPromptError({ threadId });
-          }),
-      }),
-    )),
-    Layer.provideMerge(layerTest),
-  );
-  return Effect.gen(function* () {
-    const orchestrator = yield* Orchestrator.OrchestratorV2;
-    const threads = yield* ThreadManagementService.ThreadManagementService;
-    const locks = yield* ThreadCommandExecutor.ThreadCommandExecutor;
-    const receipts = yield* CommandReceiptStore.CommandReceiptStoreV2;
-    for (const threadId of [imported, ordinary]) {
-      yield* orchestrator.dispatch({
+      const command = {
         type: "thread.create",
-        commandId: CommandId.make(`create:${threadId}`),
-        threadId,
-        projectId: ProjectId.make("project:first-prompt"),
-        title: "First prompt",
+        commandId: CommandId.make("create-dispatch-metrics"),
+        threadId: ThreadId.make("thread:dispatch-metrics"),
+        projectId: ProjectId.make("project:dispatch-metrics"),
+        title: "Dispatch metrics",
         modelSelection,
         runtimeMode: "full-access",
         interactionMode: "default",
@@ -2873,62 +2863,143 @@ it.effect("guards the imported first prompt under its thread lock and replays wi
         worktreePath: null,
         createdBy: "user",
         creationSource: "web",
-      });
-    }
-    const prompt = (threadId: ThreadId) => ({
-      type: "message.dispatch",
-      threadId,
-      commandId: CommandId.make(`first-prompt:${threadId}`),
-      messageId: MessageId.make(`first-message:${threadId}`),
-      text: "First prompt",
-      attachments: [],
-      dispatchMode: { type: "defer_start" },
-      createdBy: "user",
-      creationSource: "web",
-    } as const);
-    const command = prompt(imported);
-    const before = yield* orchestrator.getThreadEventSequence(imported);
-    const refusal = yield* threads.dispatch(command).pipe(Effect.flip, Effect.forkChild);
-    yield* Deferred.await(entered);
-    const contender = yield* locks.withLock(imported, Deferred.succeed(contenderEntered, undefined))
-      .pipe(Effect.forkChild({ startImmediately: true }));
-    assert.isFalse(yield* Deferred.isDone(contenderEntered));
+      } as const;
+      yield* orchestrator.dispatch(command);
+      assert.strictEqual((yield* acknowledgements).count - acksBefore, 1);
+      assert.isTrue((yield* orchestrator.dispatch(command)).replayed);
+      const failure = yield* Effect.flip(
+        orchestrator.dispatch({
+          ...command,
+          commandId: CommandId.make("create-dispatch-metrics-duplicate"),
+        }),
+      );
+      assert.equal(failure._tag, "OrchestratorThreadAlreadyExistsError");
 
-    const neighbor = yield* threads.dispatch(prompt(ordinary));
-    assert.isUndefined(neighbor.replayed);
-    const ordinaryRecords = yield* orchestrator.getThreadRecords(ordinary, ["messages", "runs"]);
-    assert.deepEqual(ordinaryRecords.messages.map(({ id }) => id), [prompt(ordinary).messageId]);
-    assert.deepEqual(ordinaryRecords.runs.map(({ userMessageId }) => userMessageId), [
-      prompt(ordinary).messageId,
-    ]);
-    assert.equal(scans, 1);
-    assert.isFalse(yield* Deferred.isDone(contenderEntered));
-    yield* Deferred.succeed(release, undefined);
+      assert.strictEqual((yield* successes).count - successesBefore, 2);
+      assert.strictEqual((yield* failures).count - failuresBefore, 1);
+      assert.strictEqual((yield* durations).count - durationsBefore, 3);
+      assert.strictEqual((yield* acknowledgements).count - acksBefore, 1);
+    }).pipe(Effect.provide(layerTest)),
+);
 
-    const failure = yield* Fiber.join(refusal);
-    assert.instanceOf(failure, Orchestrator.OrchestratorDispatchError);
-    if (failure._tag !== "OrchestratorDispatchError") return yield* Effect.die(failure);
-    assert.instanceOf(failure.cause, AgentSessionImporter.AgentSessionFirstPromptError);
-    yield* Fiber.join(contender);
-    assert.equal(yield* orchestrator.getThreadEventSequence(imported), before);
-    assert.isTrue(Option.isNone(yield* receipts.getByCommandId(command.commandId)));
-    const refused = yield* orchestrator.getThreadRecords(imported, ["messages", "runs"]);
-    assert.isEmpty(refused.messages);
-    assert.isEmpty(refused.runs);
+it.effect(
+  "guards the imported first prompt under its thread lock and replays without rescanning",
+  () => {
+    const imported = ThreadId.make("import:codex:first-prompt");
+    const ordinary = ThreadId.make("thread:first-prompt-neighbor");
+    let refuse = true;
+    let scans = 0;
+    const entered = Deferred.makeUnsafe<void>();
+    const release = Deferred.makeUnsafe<void>();
+    const contenderEntered = Deferred.makeUnsafe<void>();
+    const layer = ThreadManagementService.layer.pipe(
+      Layer.provideMerge(
+        Layer.mergeAll(
+          ServerSettings.layerTest(),
+          CommandReceiptStore.layer,
+          Layer.mock(AgentSessionImporter.AgentSessionImporter)({
+            refreshBeforeFirstPrompt: ({ threadId }) =>
+              Effect.gen(function* () {
+                if (threadId !== imported) return;
+                scans += 1;
+                if (!refuse) return;
+                yield* Deferred.succeed(entered, undefined);
+                yield* Deferred.await(release);
+                return yield* new AgentSessionImporter.AgentSessionFirstPromptError({ threadId });
+              }),
+          }),
+        ),
+      ),
+      Layer.provideMerge(layerTest),
+    );
+    return Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const threads = yield* ThreadManagementService.ThreadManagementService;
+      const locks = yield* ThreadCommandExecutor.ThreadCommandExecutor;
+      const receipts = yield* CommandReceiptStore.CommandReceiptStoreV2;
+      for (const threadId of [imported, ordinary]) {
+        yield* orchestrator.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make(`create:${threadId}`),
+          threadId,
+          projectId: ProjectId.make("project:first-prompt"),
+          title: "First prompt",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdBy: "user",
+          creationSource: "web",
+        });
+      }
+      const prompt = (threadId: ThreadId) =>
+        ({
+          type: "message.dispatch",
+          threadId,
+          commandId: CommandId.make(`first-prompt:${threadId}`),
+          messageId: MessageId.make(`first-message:${threadId}`),
+          text: "First prompt",
+          attachments: [],
+          dispatchMode: { type: "defer_start" },
+          createdBy: "user",
+          creationSource: "web",
+        }) as const;
+      const command = prompt(imported);
+      const before = yield* orchestrator.getThreadEventSequence(imported);
+      const refusal = yield* threads.dispatch(command).pipe(Effect.flip, Effect.forkChild);
+      yield* Deferred.await(entered);
+      const contender = yield* locks
+        .withLock(imported, Deferred.succeed(contenderEntered, undefined))
+        .pipe(Effect.forkChild({ startImmediately: true }));
+      assert.isFalse(yield* Deferred.isDone(contenderEntered));
 
-    refuse = false;
-    const accepted = yield* threads.dispatch(command);
-    assert.isUndefined(accepted.replayed);
-    assert.equal(scans, 2);
-    refuse = true;
-    assert.deepEqual(yield* threads.dispatch(command), { ...accepted, replayed: true });
-    assert.equal(scans, 2);
-    assert.equal(yield* orchestrator.getThreadEventSequence(imported), accepted.sequence);
-    const records = yield* orchestrator.getThreadRecords(imported, ["messages", "runs"]);
-    assert.deepEqual(records.messages.map(({ id }) => id), [command.messageId]);
-    assert.deepEqual(records.runs.map(({ userMessageId }) => userMessageId), [command.messageId]);
-  }).pipe(Effect.provide(layer));
-});
+      const neighbor = yield* threads.dispatch(prompt(ordinary));
+      assert.isUndefined(neighbor.replayed);
+      const ordinaryRecords = yield* orchestrator.getThreadRecords(ordinary, ["messages", "runs"]);
+      assert.deepEqual(
+        ordinaryRecords.messages.map(({ id }) => id),
+        [prompt(ordinary).messageId],
+      );
+      assert.deepEqual(
+        ordinaryRecords.runs.map(({ userMessageId }) => userMessageId),
+        [prompt(ordinary).messageId],
+      );
+      assert.equal(scans, 1);
+      assert.isFalse(yield* Deferred.isDone(contenderEntered));
+      yield* Deferred.succeed(release, undefined);
+
+      const failure = yield* Fiber.join(refusal);
+      assert.instanceOf(failure, Orchestrator.OrchestratorDispatchError);
+      if (failure._tag !== "OrchestratorDispatchError") return yield* Effect.die(failure);
+      assert.instanceOf(failure.cause, AgentSessionImporter.AgentSessionFirstPromptError);
+      yield* Fiber.join(contender);
+      assert.equal(yield* orchestrator.getThreadEventSequence(imported), before);
+      assert.isTrue(Option.isNone(yield* receipts.getByCommandId(command.commandId)));
+      const refused = yield* orchestrator.getThreadRecords(imported, ["messages", "runs"]);
+      assert.isEmpty(refused.messages);
+      assert.isEmpty(refused.runs);
+
+      refuse = false;
+      const accepted = yield* threads.dispatch(command);
+      assert.isUndefined(accepted.replayed);
+      assert.equal(scans, 2);
+      refuse = true;
+      assert.deepEqual(yield* threads.dispatch(command), { ...accepted, replayed: true });
+      assert.equal(scans, 2);
+      assert.equal(yield* orchestrator.getThreadEventSequence(imported), accepted.sequence);
+      const records = yield* orchestrator.getThreadRecords(imported, ["messages", "runs"]);
+      assert.deepEqual(
+        records.messages.map(({ id }) => id),
+        [command.messageId],
+      );
+      assert.deepEqual(
+        records.runs.map(({ userMessageId }) => userMessageId),
+        [command.messageId],
+      );
+    }).pipe(Effect.provide(layer));
+  },
+);
 
 it.effect("refuses reserved import IDs before recording a live message or receipt", () =>
   Effect.gen(function* () {
@@ -2973,8 +3044,14 @@ it.effect("refuses reserved import IDs before recording a live message or receip
     const messageId = MessageId.make("message:normal-live-send");
     yield* orchestrator.dispatch({ ...command, messageId });
     const accepted = yield* orchestrator.getThreadRecords(threadId, ["messages", "runs"]);
-    assert.deepEqual(accepted.messages.map(({ id }) => id), [messageId]);
-    assert.deepEqual(accepted.runs.map(({ userMessageId }) => userMessageId), [messageId]);
+    assert.deepEqual(
+      accepted.messages.map(({ id }) => id),
+      [messageId],
+    );
+    assert.deepEqual(
+      accepted.runs.map(({ userMessageId }) => userMessageId),
+      [messageId],
+    );
 
     const launch = {
       type: "thread.create",
@@ -2991,7 +3068,10 @@ it.effect("refuses reserved import IDs before recording a live message or receip
       creationSource: "web",
       initialMessage: { messageId: command.messageId, text: command.text, attachments: [] },
     } as const;
-    for (const create of [launch, { ...launch, type: "thread.bot.create", botId: BotId.make("mausbot:fixture") }] as const) {
+    for (const create of [
+      launch,
+      { ...launch, type: "thread.bot.create", botId: BotId.make("mausbot:fixture") },
+    ] as const) {
       const error = yield* orchestrator.dispatch(create).pipe(Effect.flip);
       assert.equal(error._tag, "OrchestratorDispatchError");
       if (error._tag === "OrchestratorDispatchError") {
@@ -3005,9 +3085,18 @@ it.effect("refuses reserved import IDs before recording a live message or receip
       initialMessage: { ...launch.initialMessage, messageId: launchMessageId },
     });
     assert.isUndefined(launched.replayed);
-    const launchRecords = yield* orchestrator.getThreadRecords(launch.threadId, ["messages", "runs"]);
-    assert.deepEqual(launchRecords.messages.map(({ id }) => id), [launchMessageId]);
-    assert.deepEqual(launchRecords.runs.map(({ userMessageId }) => userMessageId), [launchMessageId]);
+    const launchRecords = yield* orchestrator.getThreadRecords(launch.threadId, [
+      "messages",
+      "runs",
+    ]);
+    assert.deepEqual(
+      launchRecords.messages.map(({ id }) => id),
+      [launchMessageId],
+    );
+    assert.deepEqual(
+      launchRecords.runs.map(({ userMessageId }) => userMessageId),
+      [launchMessageId],
+    );
   }).pipe(Effect.provide(layerTest)),
 );
 
@@ -3047,7 +3136,10 @@ it.effect("reserves native room thread identities for owned creation even when f
     assert.isNull(yield* orchestrator.getThreadShell(fork.targetThreadId));
     const targetThreadId = ThreadId.make("thread:ordinary-fork-target");
     yield* orchestrator.dispatch({ ...fork, targetThreadId });
-    assert.equal((yield* orchestrator.getThreadShell(targetThreadId))?.lineage.parentThreadId, sourceThreadId);
+    assert.equal(
+      (yield* orchestrator.getThreadShell(targetThreadId))?.lineage.parentThreadId,
+      sourceThreadId,
+    );
   }).pipe(Effect.provide(layerTest)),
 );
 
@@ -3646,13 +3738,20 @@ it.effect("reopens a compatibility approval and queues only its owned response",
     const fs = yield* FileSystem.FileSystem;
     const directory = yield* fs.makeTempDirectoryScoped();
     const path = yield* Path.Path;
-    const db = SqlitePersistence.layerFromPath(path.join(directory, "state.sqlite")).pipe(Layer.provide(NodeServices.layer));
+    const db = SqlitePersistence.layerFromPath(path.join(directory, "state.sqlite")).pipe(
+      Layer.provide(NodeServices.layer),
+    );
     const graph = ProviderReplayHarness.layerWithRegistry(
       { name: "compatibility-approval" },
       ProviderAdapterRegistry.layerFromAdapters([adapter]),
       { databaseLayer: db, runEffectWorker: false },
     );
-    const owner = { botId: "test-bot", nativeThreadId: "test-thread", nativeTurnId: "test-turn", current: () => true };
+    const owner = {
+      botId: "test-bot",
+      nativeThreadId: "test-thread",
+      nativeTurnId: "test-turn",
+      current: () => true,
+    };
     const threadId = compatibilityThreadId(owner);
     const messageId = compatibilityMessageId(owner);
     const projectId = ProjectId.make("compat-project");
@@ -3665,45 +3764,211 @@ it.effect("reopens a compatibility approval and queues only its owned response",
     const requestId = RuntimeRequestId.make("compat-request");
     const now = yield* DateTime.now;
     const nativeThreadId = "retained-provider-thread";
-    const native = (nativeId: string) => ({ driver: adapter.driver, nativeId, strength: "strong" as const });
+    const native = (nativeId: string) => ({
+      driver: adapter.driver,
+      nativeId,
+      strength: "strong" as const,
+    });
     const events: OrchestrationV2DomainEvent[] = [
-      { id: EventId.make("compat-created"), type: "thread.created", threadId, occurredAt: now,
-        payload: { id: threadId, projectId, title: "Saved compatibility turn", providerInstanceId: instanceId,
-          modelSelection, runtimeMode: "approval-required", interactionMode: "default",
-          branch: null, worktreePath: null, bot: { id: BotId.make("mausbot:test-bot"), name: "Fixture", instructions: "" },
-          activeProviderThreadId: providerThreadId, lineage: { rootThreadId: threadId, parentThreadId: null, relationshipToParent: null },
-          forkedFrom: null, createdAt: now, updatedAt: now, archivedAt: null, deletedAt: null,
-          settledOverride: null, settledAt: null, lastVisitedAt: null, createdBy: "user", creationSource: "server" } },
-      { id: EventId.make("compat-session"), type: "provider-session.attached", threadId, occurredAt: now,
-        payload: { id: sessionId, driver: adapter.driver, providerInstanceId: instanceId,
-          status: "ready", cwd: "/repo", model: modelSelection.model, capabilities: CodexProviderCapabilitiesV2,
-          createdAt: now, updatedAt: now, lastError: null } },
-      { id: EventId.make("compat-provider-thread"), type: "provider-thread.updated", threadId, occurredAt: now,
-        payload: { id: providerThreadId, driver: adapter.driver, providerInstanceId: instanceId, providerSessionId: sessionId,
-          appThreadId: threadId, ownerNodeId: null, nativeThreadRef: native(nativeThreadId), nativeConversationHeadRef: null,
-          status: "idle", firstRunOrdinal: 1, lastRunOrdinal: 1, handoffIds: [], forkedFrom: null, createdAt: now, updatedAt: now } },
-      { id: EventId.make("compat-run"), type: "run.created", threadId, runId, occurredAt: now,
-        payload: { id: runId, threadId, ordinal: 1, providerInstanceId: instanceId, modelSelection, providerThreadId,
-          userMessageId: messageId, rootNodeId: nodeId, activeAttemptId: attemptId, status: "running",
-          requestedAt: now, startedAt: now, completedAt: null, checkpointId: null, contextHandoffId: null } },
-      { id: EventId.make("compat-attempt"), type: "run-attempt.updated", threadId, runId, occurredAt: now,
-        payload: { id: attemptId, nativeThreadId, runId, attemptOrdinal: 1, rootNodeId: nodeId,
-          providerInstanceId: instanceId, providerThreadId, providerTurnId, reason: "initial",
-          status: "running", startedAt: now, completedAt: null } },
-      { id: EventId.make("compat-message"), type: "message.updated", threadId, runId, occurredAt: now,
-        payload: { id: messageId, threadId, runId, nodeId, createdBy: "user", creationSource: "server", role: "user",
-          text: "Saved request", attachments: [], streaming: false, createdAt: now, updatedAt: now } },
-      { id: EventId.make("compat-turn"), type: "provider-turn.updated", threadId, runId, occurredAt: now,
-        payload: { id: providerTurnId, providerThreadId, nodeId, runAttemptId: attemptId,
-          nativeTurnRef: native("retained-provider-turn"), ordinal: 1, status: "running", startedAt: now, completedAt: null } },
-      { id: EventId.make("compat-approval"), type: "runtime-request.updated", threadId, runId, occurredAt: now,
-        payload: { id: requestId, nodeId, providerTurnId, nativeRequestRef: native("retained-approval"),
-          kind: "command", status: "pending", responseCapability: { type: "live", providerSessionId: sessionId },
-          createdAt: now, resolvedAt: null } },
-      { id: EventId.make("compat-item"), type: "turn-item.updated", threadId, runId, occurredAt: now,
-        payload: { id: TurnItemId.make("compat-item"), threadId, runId, nodeId, providerThreadId, providerTurnId,
-          nativeItemRef: null, parentItemId: null, ordinal: 0, status: "pending", title: "Approval", startedAt: now,
-          completedAt: null, updatedAt: now, type: "approval_request", requestId, requestKind: "command" } },
+      {
+        id: EventId.make("compat-created"),
+        type: "thread.created",
+        threadId,
+        occurredAt: now,
+        payload: {
+          id: threadId,
+          projectId,
+          title: "Saved compatibility turn",
+          providerInstanceId: instanceId,
+          modelSelection,
+          runtimeMode: "approval-required",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          bot: { id: BotId.make("mausbot:test-bot"), name: "Fixture", instructions: "" },
+          activeProviderThreadId: providerThreadId,
+          lineage: { rootThreadId: threadId, parentThreadId: null, relationshipToParent: null },
+          forkedFrom: null,
+          createdAt: now,
+          updatedAt: now,
+          archivedAt: null,
+          deletedAt: null,
+          settledOverride: null,
+          settledAt: null,
+          lastVisitedAt: null,
+          createdBy: "user",
+          creationSource: "server",
+        },
+      },
+      {
+        id: EventId.make("compat-session"),
+        type: "provider-session.attached",
+        threadId,
+        occurredAt: now,
+        payload: {
+          id: sessionId,
+          driver: adapter.driver,
+          providerInstanceId: instanceId,
+          status: "ready",
+          cwd: "/repo",
+          model: modelSelection.model,
+          capabilities: CodexProviderCapabilitiesV2,
+          createdAt: now,
+          updatedAt: now,
+          lastError: null,
+        },
+      },
+      {
+        id: EventId.make("compat-provider-thread"),
+        type: "provider-thread.updated",
+        threadId,
+        occurredAt: now,
+        payload: {
+          id: providerThreadId,
+          driver: adapter.driver,
+          providerInstanceId: instanceId,
+          providerSessionId: sessionId,
+          appThreadId: threadId,
+          ownerNodeId: null,
+          nativeThreadRef: native(nativeThreadId),
+          nativeConversationHeadRef: null,
+          status: "idle",
+          firstRunOrdinal: 1,
+          lastRunOrdinal: 1,
+          handoffIds: [],
+          forkedFrom: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      },
+      {
+        id: EventId.make("compat-run"),
+        type: "run.created",
+        threadId,
+        runId,
+        occurredAt: now,
+        payload: {
+          id: runId,
+          threadId,
+          ordinal: 1,
+          providerInstanceId: instanceId,
+          modelSelection,
+          providerThreadId,
+          userMessageId: messageId,
+          rootNodeId: nodeId,
+          activeAttemptId: attemptId,
+          status: "running",
+          requestedAt: now,
+          startedAt: now,
+          completedAt: null,
+          checkpointId: null,
+          contextHandoffId: null,
+        },
+      },
+      {
+        id: EventId.make("compat-attempt"),
+        type: "run-attempt.updated",
+        threadId,
+        runId,
+        occurredAt: now,
+        payload: {
+          id: attemptId,
+          nativeThreadId,
+          runId,
+          attemptOrdinal: 1,
+          rootNodeId: nodeId,
+          providerInstanceId: instanceId,
+          providerThreadId,
+          providerTurnId,
+          reason: "initial",
+          status: "running",
+          startedAt: now,
+          completedAt: null,
+        },
+      },
+      {
+        id: EventId.make("compat-message"),
+        type: "message.updated",
+        threadId,
+        runId,
+        occurredAt: now,
+        payload: {
+          id: messageId,
+          threadId,
+          runId,
+          nodeId,
+          createdBy: "user",
+          creationSource: "server",
+          role: "user",
+          text: "Saved request",
+          attachments: [],
+          streaming: false,
+          createdAt: now,
+          updatedAt: now,
+        },
+      },
+      {
+        id: EventId.make("compat-turn"),
+        type: "provider-turn.updated",
+        threadId,
+        runId,
+        occurredAt: now,
+        payload: {
+          id: providerTurnId,
+          providerThreadId,
+          nodeId,
+          runAttemptId: attemptId,
+          nativeTurnRef: native("retained-provider-turn"),
+          ordinal: 1,
+          status: "running",
+          startedAt: now,
+          completedAt: null,
+        },
+      },
+      {
+        id: EventId.make("compat-approval"),
+        type: "runtime-request.updated",
+        threadId,
+        runId,
+        occurredAt: now,
+        payload: {
+          id: requestId,
+          nodeId,
+          providerTurnId,
+          nativeRequestRef: native("retained-approval"),
+          kind: "command",
+          status: "pending",
+          responseCapability: { type: "live", providerSessionId: sessionId },
+          createdAt: now,
+          resolvedAt: null,
+        },
+      },
+      {
+        id: EventId.make("compat-item"),
+        type: "turn-item.updated",
+        threadId,
+        runId,
+        occurredAt: now,
+        payload: {
+          id: TurnItemId.make("compat-item"),
+          threadId,
+          runId,
+          nodeId,
+          providerThreadId,
+          providerTurnId,
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal: 0,
+          status: "pending",
+          title: "Approval",
+          startedAt: now,
+          completedAt: null,
+          updatedAt: now,
+          type: "approval_request",
+          requestId,
+          requestKind: "command",
+        },
+      },
     ];
     yield* Effect.gen(function* () {
       const store = yield* ProjectionStore.ProjectionStoreV2;
@@ -3717,47 +3982,82 @@ it.effect("reopens a compatibility approval and queues only its owned response",
       const correct = compatibilityApprovalCommand(owner, requestId, "decline");
       const projection = yield* store.getThreadProjection(threadId);
       assert.isTrue(ownsCompatibilityApproval(owner, correct, projection));
-      assert.isTrue(ownsCompatibilityApproval(owner, correct, { ...projection,
-        attempts: projection.attempts.map(row => ({ ...row, providerTurnId: null })),
-      }));
-      assert.isFalse(ownsCompatibilityApproval(owner, correct, { ...projection,
-        attempts: projection.attempts.map(row => ({ ...row, providerTurnId: ProviderTurnId.make("foreign-turn") })),
-      }));
-      assert.isFalse(ownsCompatibilityApproval(owner, correct, { ...projection,
-        attempts: projection.attempts.map((attempt) => ({ ...attempt, nativeThreadId: "changed-native-thread" })),
-      }));
-      assert.isFalse(ownsCompatibilityApproval(owner, correct, { ...projection,
-        messages: [],
-      }));
+      assert.isTrue(
+        ownsCompatibilityApproval(owner, correct, {
+          ...projection,
+          attempts: projection.attempts.map((row) => ({ ...row, providerTurnId: null })),
+        }),
+      );
+      assert.isFalse(
+        ownsCompatibilityApproval(owner, correct, {
+          ...projection,
+          attempts: projection.attempts.map((row) => ({
+            ...row,
+            providerTurnId: ProviderTurnId.make("foreign-turn"),
+          })),
+        }),
+      );
+      assert.isFalse(
+        ownsCompatibilityApproval(owner, correct, {
+          ...projection,
+          attempts: projection.attempts.map((attempt) => ({
+            ...attempt,
+            nativeThreadId: "changed-native-thread",
+          })),
+        }),
+      );
+      assert.isFalse(ownsCompatibilityApproval(owner, correct, { ...projection, messages: [] }));
       for (const invalid of [
         { ...owner, nativeTurnId: "previous-turn" },
         { ...owner, botId: "foreign-bot" },
       ]) {
         const command = compatibilityApprovalCommand(invalid, requestId, "decline");
-        assert.isTrue(Result.isFailure(yield* orchestrator.dispatch(command).pipe(
-          Effect.provideService(CompatibilityApprovalOwner, invalid), Effect.result,
-        )));
+        assert.isTrue(
+          Result.isFailure(
+            yield* orchestrator
+              .dispatch(command)
+              .pipe(Effect.provideService(CompatibilityApprovalOwner, invalid), Effect.result),
+          ),
+        );
         assert.deepEqual(yield* outbox.listByCommandId(command.commandId), []);
       }
       assert.isTrue(Result.isFailure(yield* orchestrator.dispatch(correct).pipe(Effect.result)));
       assert.deepEqual(yield* outbox.listByCommandId(correct.commandId), []);
-      const respond = orchestrator.dispatch(correct).pipe(Effect.provideService(CompatibilityApprovalOwner, owner));
+      const respond = orchestrator
+        .dispatch(correct)
+        .pipe(Effect.provideService(CompatibilityApprovalOwner, owner));
       yield* respond;
       for (const foreign of [
         { ...owner, botId: "foreign-bot" },
         { ...owner, nativeTurnId: "previous-turn" },
       ]) {
-        assert.isTrue(Result.isFailure(yield* orchestrator.dispatch(correct).pipe(
-          Effect.provideService(CompatibilityApprovalOwner, foreign), Effect.result,
-        )));
+        assert.isTrue(
+          Result.isFailure(
+            yield* orchestrator
+              .dispatch(correct)
+              .pipe(Effect.provideService(CompatibilityApprovalOwner, foreign), Effect.result),
+          ),
+        );
       }
       assert.isTrue((yield* respond).replayed);
-      assert.isTrue(Result.isFailure(yield* orchestrator.dispatch({ ...correct, decision: "accept" }).pipe(
-        Effect.provideService(CompatibilityApprovalOwner, owner), Effect.result,
-      )));
-      assert.deepEqual((yield* outbox.listByCommandId(correct.commandId)).map((effect) => effect.request), [
-        { type: "runtime-request.respond", requestId, providerSessionId: sessionId, decision: "decline" },
-      ]);
+      assert.isTrue(
+        Result.isFailure(
+          yield* orchestrator
+            .dispatch({ ...correct, decision: "accept" })
+            .pipe(Effect.provideService(CompatibilityApprovalOwner, owner), Effect.result),
+        ),
+      );
+      assert.deepEqual(
+        (yield* outbox.listByCommandId(correct.commandId)).map((effect) => effect.request),
+        [
+          {
+            type: "runtime-request.respond",
+            requestId,
+            providerSessionId: sessionId,
+            decision: "decline",
+          },
+        ],
+      );
       assert.equal((yield* store.getThreadProjection(threadId)).messages[0]?.text, "Saved request");
     }).pipe(Effect.provide(graph), Effect.scoped);
   }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),

@@ -182,7 +182,7 @@ function* paragraphs(node: XmlNode): Generator<TextPart, void> {
       yield "\n";
     } else {
       yield* paragraphs(child);
-      if (["li", "div", "section"].includes(child.name)) yield "\n";
+      if (["li", "div", "section", "dt", "dd"].includes(child.name)) yield "\n";
     }
   }
 }
@@ -382,10 +382,80 @@ function* notebook(source: string): Generator<string, void> {
   }
 }
 
+const FONT_CODE_PAGES = new Map([
+  [0, "windows-1252"],
+  [77, "macintosh"],
+  [128, "shift_jis"],
+  [129, "euc-kr"],
+  [134, "gbk"],
+  [136, "big5"],
+  [161, "windows-1253"],
+  [162, "windows-1254"],
+  [163, "windows-1258"],
+  [177, "windows-1255"],
+  [178, "windows-1256"],
+  [186, "windows-1257"],
+  [204, "windows-1251"],
+  [222, "windows-874"],
+  [238, "windows-1250"],
+  [255, "ibm866"],
+]);
+
+const RTF_CODE_PAGES = new Map([
+  [0, "windows-1252"],
+  [866, "ibm866"],
+  [874, "windows-874"],
+  [932, "shift_jis"],
+  [936, "gbk"],
+  [949, "euc-kr"],
+  [950, "big5"],
+  [10000, "macintosh"],
+  [54936, "gb18030"],
+  [65001, "utf-8"],
+]);
+
+const rtfCodePage = (value: number) =>
+  RTF_CODE_PAGES.get(value) ?? (value >= 1250 && value <= 1258 ? `windows-${value}` : undefined);
+
 function* rtf(source: string): Generator<string, void> {
   if (!source.startsWith("{\\rtf")) throw new Error("Invalid RTF document");
-  let state = { skip: false, uc: 1, decoder: new TextDecoder("windows-1252") };
+  let state = {
+    skip: false,
+    deleted: false,
+    hiddenText: false,
+    uc: 1,
+    font: 0,
+    fontTable: false,
+    fontFile: false,
+    decoder: new TextDecoder("windows-1252"),
+  };
   const stack: Array<typeof state> = [];
+  // A font's \cpg, else its \fcharset, not the document code page, encodes the bytes written in
+  // that font. A \cpg inside \fontfile encodes the font's file name instead.
+  const fonts = new Map<number, typeof state.decoder>();
+  let defaultFont = 0;
+  const decoder = () => fonts.get(state.font) ?? state.decoder;
+  const hidden = () => state.skip || state.deleted || state.hiddenText;
+  let encoded: Uint8Array | undefined;
+  let encodedLength = 0;
+  function* flushBytes(): Generator<string, void> {
+    if (!encodedLength) return;
+    const chunk = encoded!.subarray(0, encodedLength);
+    encodedLength = 0;
+    yield decoder().decode(chunk);
+  }
+  function* emitByte(byte: number): Generator<string, void> {
+    // No supported multibyte code page uses bytes below 0x30 as trail bytes.
+    if ((!encodedLength && byte < 128) || (encodedLength && byte < 0x30)) {
+      yield* flushBytes();
+      yield String.fromCharCode(byte);
+      return;
+    }
+    // GB18030 spends up to 4 bytes per UTF-16 unit, so a full buffer decodes past MAX_OUTPUT.
+    encoded ??= new Uint8Array(Math.min(source.length, MAX_OUTPUT * 4 + 4));
+    if (encodedLength === encoded.length) yield* flushBytes();
+    encoded[encodedLength++] = byte;
+  }
   const symbols = new Map([
     ["endash", "–"],
     ["emdash", characterEntities.mdash],
@@ -408,7 +478,10 @@ function* rtf(source: string): Generator<string, void> {
   let fallback = 0;
   for (let i = 0; i < source.length; i++) {
     const char = source[i]!;
-    if (char === "{" || char === "}") fallback = 0;
+    if (char === "{" || char === "}") {
+      yield* flushBytes();
+      fallback = 0;
+    }
     if (char === "{") {
       stack.push({ ...state });
       if (stack.length > 128) throw new Truncation("RTF depth limit");
@@ -419,8 +492,7 @@ function* rtf(source: string): Generator<string, void> {
       const word = /^([a-z]+)(-?\d+)? ?/i.exec(rest);
       if (hex) {
         if (fallback) fallback--;
-        else if (!state.skip)
-          yield state.decoder.decode(Uint8Array.of(Number.parseInt(hex[1]!, 16)));
+        else if (!hidden()) yield* emitByte(Number.parseInt(hex[1]!, 16));
         i += 3;
       } else if (word) {
         i += word[0].length;
@@ -435,6 +507,7 @@ function* rtf(source: string): Generator<string, void> {
           fallback--;
           continue;
         }
+        yield* flushBytes();
         if (
           [
             "fonttbl",
@@ -445,42 +518,75 @@ function* rtf(source: string): Generator<string, void> {
             "object",
             "fldinst",
             "header",
+            "headerf",
+            "headerl",
+            "headerr",
             "footer",
+            "footerf",
+            "footerl",
+            "footerr",
           ].includes(control)
         )
           state.skip = true;
-        if (control === "ansicpg") {
-          // Per-byte decoding only supports single-byte Windows code pages.
-          if (value !== 874 && (value < 1250 || value > 1258))
-            throw new Error("Unsupported RTF code page");
-          state.decoder = new TextDecoder(`windows-${value}`, { fatal: true });
+        if (control === "fonttbl") state.fontTable = true;
+        else if (control === "fontfile") state.fontFile = true;
+        else if (control === "deff") state.font = defaultFont = value;
+        else if (control === "f") {
+          state.font = value;
+          if (state.fontTable) fonts.delete(value);
+        } else if (control === "fcharset" && state.fontTable) {
+          const codePage = FONT_CODE_PAGES.get(value);
+          if (value === 1) fonts.delete(state.font);
+          else if (codePage) fonts.set(state.font, new TextDecoder(codePage));
+        } else if (control === "cpg" && state.fontTable && !state.fontFile) {
+          const codePage = rtfCodePage(value);
+          if (codePage) fonts.set(state.font, new TextDecoder(codePage));
+        }
+        if (control === "deleted") state.deleted = value !== 0;
+        else if (control === "v") state.hiddenText = value !== 0;
+        else if (control === "plain") {
+          state.deleted = false;
+          state.hiddenText = false;
+          state.font = defaultFont;
+        }
+        if (control === "mac") state.decoder = new TextDecoder("macintosh");
+        else if (control === "ansicpg") {
+          const label = rtfCodePage(value);
+          if (!label) throw new Error("Unsupported RTF code page");
+          state.decoder = new TextDecoder(label);
         } else if (control === "uc") {
           if (!Number.isSafeInteger(value) || value < 0)
             throw new Error("Invalid RTF fallback count");
           state.uc = value;
-        } else if (control === "u" && !state.skip) {
-          yield String.fromCharCode(value < 0 ? value + 65536 : value);
+        } else if (control === "u") {
+          if (!hidden()) yield String.fromCharCode(value < 0 ? value + 65536 : value);
           fallback = state.uc;
-        } else if (!state.skip && ["par", "line", "row"].includes(control)) yield "\n";
-        else if (!state.skip && ["tab", "cell"].includes(control)) yield "\t";
-        else if (!state.skip && symbols.has(control)) yield symbols.get(control)!;
+        } else if (!hidden() && ["par", "line", "sect", "page", "column"].includes(control))
+          yield "\n";
+        else if (!hidden() && control === "tab") yield "\t";
+        // Table structure survives tracked deletions; only the deleted cell text is dropped.
+        else if (!state.skip && control === "row") yield "\n";
+        else if (!state.skip && control === "cell") yield "\t";
+        else if (!hidden() && symbols.has(control)) yield symbols.get(control)!;
       } else {
         i++;
         if (fallback) fallback--;
-        else if (rest[0] === "*") state.skip = true;
-        // A backslash before a line break is \par; TextEdit ends paragraphs this way.
-        else if (!state.skip && (rest[0] === "\n" || rest[0] === "\r")) yield "\n";
-        else if (!state.skip && ["\\", "{", "}"].includes(rest[0]!)) yield rest[0]!;
-        else if (!state.skip && symbols.has(rest[0]!)) yield symbols.get(rest[0]!)!;
+        else if (!hidden() && ["\\", "{", "}"].includes(rest[0]!))
+          yield* emitByte(rest[0]!.charCodeAt(0));
+        else {
+          yield* flushBytes();
+          if (rest[0] === "*") state.skip = true;
+          // A backslash before a line break is \par; TextEdit ends paragraphs this way.
+          else if (!hidden() && (rest[0] === "\n" || rest[0] === "\r")) yield "\n";
+          else if (!hidden() && symbols.has(rest[0]!)) yield symbols.get(rest[0]!)!;
+        }
       }
-    } else if (!state.skip && char !== "\n" && char !== "\r") {
+    } else if (char !== "\n" && char !== "\r") {
       if (fallback) fallback--;
-      else
-        yield char.charCodeAt(0) < 128
-          ? char
-          : state.decoder.decode(Uint8Array.of(char.charCodeAt(0)));
+      else if (!hidden()) yield* emitByte(char.charCodeAt(0));
     }
   }
+  yield* flushBytes();
 }
 
 async function* document(path: string, extension: string): AsyncGenerator<TextPart, void> {

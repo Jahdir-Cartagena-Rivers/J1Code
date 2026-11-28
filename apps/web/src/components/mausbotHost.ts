@@ -5,7 +5,11 @@ export function localMausbotHost(
   bridge:
     | Pick<
         DesktopBridge,
-        "getClientPlatform" | "getLocalEnvironmentBootstraps" | "captureMausbotScreenFrame"
+        | "getClientPlatform"
+        | "getLocalEnvironmentBootstraps"
+        | "captureMausbotScreenFrame"
+        | "openMausbotSavedApp"
+        | "manageMausbotShortcuts"
       >
     | undefined,
   httpBaseUrl: string | null,
@@ -32,7 +36,14 @@ export function localMausbotHost(
           new URL(entry.httpBaseUrl).origin === origin,
       );
     return local
-      ? { platform, capture: typeof bridge.captureMausbotScreenFrame === "function" }
+      ? {
+          platform,
+          capture: typeof bridge.captureMausbotScreenFrame === "function",
+          ...(bridge.openMausbotSavedApp ? { savedAppWindows: true } : {}),
+          ...(platform === "win32" && bridge.manageMausbotShortcuts
+            ? { savedAppShortcuts: true }
+            : {}),
+        }
       : null;
   } catch {
     return null;

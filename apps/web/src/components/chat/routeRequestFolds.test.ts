@@ -1,15 +1,16 @@
 import { expect, it } from "vite-plus/test";
-import { MessageId, RunId } from "@j1code/contracts";
+import { MessageId, RunId, ThreadId } from "@j1code/contracts";
 import type { ChatMessage } from "../../types";
 import { deriveMessagesTimelineRows } from "./MessagesTimeline.logic";
 import {
   deriveThreadFeedPresentation,
   type ThreadFeedEntry,
+  type ThreadFeedMessage,
 } from "../../../../mobile/src/lib/threadActivity";
 import { routeRequestAnchors } from "@j1code/shared/routeRequestAnchors";
 
 const runId = RunId.make("turn-1");
-const messages: ReadonlyArray<ChatMessage> = ["intro", "handoff", "final"].map(
+const messages: ReadonlyArray<ChatMessage & ThreadFeedMessage> = ["intro", "handoff", "final"].map(
   (id, index) => ({
     id: MessageId.make(id),
     role: "assistant" as const,
@@ -18,6 +19,9 @@ const messages: ReadonlyArray<ChatMessage> = ["intro", "handoff", "final"].map(
     createdAt: `2026-01-01T00:00:0${index + 1}Z`,
     updatedAt: `2026-01-01T00:00:0${index + 1}Z`,
     streaming: false,
+    attachments: [],
+    visibility: "local",
+    sourceThreadId: ThreadId.make("thread-1"),
   }),
 );
 const anchorMessages = [

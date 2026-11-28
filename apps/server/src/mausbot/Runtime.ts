@@ -17,11 +17,22 @@ import type {
 } from "@j1code/contracts";
 import { startMausbotComputer } from "./NativeComputer.ts";
 import {
-  readNativeBotEnrollmentSnapshot, readNativeRoomMemberEnrollment, stageColdNativeRoomAttachments, stageNativeBotEnrollment, validateColdNativeRoomTurn,
-  type SavedNativeHistoryRequest, type SavedNativeResumeRequest,
+  readNativeBotEnrollmentSnapshot,
+  readNativeRoomMemberEnrollment,
+  stageColdNativeRoomAttachments,
+  stageNativeBotEnrollment,
+  validateColdNativeRoomTurn,
+  type SavedNativeHistoryRequest,
+  type SavedNativeResumeRequest,
 } from "./NativeBotEnrollment.ts";
 import type { MausbotExecutionHost, MausbotExecutionOwner } from "./ExecutionHost.ts";
 import { mausbotChildEnvironment } from "./ChildEnvironment.ts";
+import {
+  SAVED_APP_FILE_KEY_HEADER,
+  SAVED_APP_VIEW_HEADER,
+  savedAppDocumentPath,
+  upstreamSavedAppFilePath,
+} from "./SavedAppFiles.ts";
 
 import { startDeepAIBridge, type DeepAIBridge, type DeepAIBridgeOptions } from "./DeepAIBridge.ts";
 
@@ -107,7 +118,10 @@ export class MausbotRuntime {
   }
 
   async readSavedBotEnrollment(
-    owner: MausbotExecutionOwner, botId: string, threadId: string, request?: SavedNativeHistoryRequest | SavedNativeResumeRequest,
+    owner: MausbotExecutionOwner,
+    botId: string,
+    threadId: string,
+    request?: SavedNativeHistoryRequest | SavedNativeResumeRequest,
   ) {
     const child = this.child;
     if (!child?.connected || this.executionOwner !== owner) {
@@ -124,38 +138,72 @@ export class MausbotRuntime {
     }
     const current = () => this.child === child && this.executionOwner === owner && child.connected;
     const result = await this.readOwnedChild(child, "saved-bot-enrollment", {
-      botId, threadId, ...(history ? { turnId: history.turnId } : {}),
+      botId,
+      threadId,
+      ...(history ? { turnId: history.turnId } : {}),
       ...(resume ? { resumeTurnId: resume.resumeTurnId } : {}),
     });
     if (!current()) throw new Error("The bot runtime disconnected.");
     return history
-      ? stageNativeBotEnrollment(result, botId, threadId, NodePath.join(this.options.dataDir, "attachments"), history, current)
+      ? stageNativeBotEnrollment(
+          result,
+          botId,
+          threadId,
+          NodePath.join(this.options.dataDir, "attachments"),
+          history,
+          current,
+        )
       : readNativeBotEnrollmentSnapshot(result, botId, threadId, resume !== undefined);
   }
 
-  async readSavedRoomMemberEnrollment(owner: MausbotExecutionOwner, botId: string, threadId: string, roomTurnId: string) {
+  async readSavedRoomMemberEnrollment(
+    owner: MausbotExecutionOwner,
+    botId: string,
+    threadId: string,
+    roomTurnId: string,
+  ) {
     const child = this.child;
-    if (!child?.connected || this.executionOwner !== owner) throw new Error("The bot runtime disconnected.");
+    if (!child?.connected || this.executionOwner !== owner)
+      throw new Error("The bot runtime disconnected.");
     const id = /^[\w-]{1,120}$/u;
-    if (![botId, threadId, roomTurnId].every(value => id.test(value))) throw new Error("Invalid native room turn identity.");
-    const result = await this.readOwnedChild(child, "saved-bot-enrollment", { botId, threadId, roomTurnId });
+    if (![botId, threadId, roomTurnId].every((value) => id.test(value)))
+      throw new Error("Invalid native room turn identity.");
+    const result = await this.readOwnedChild(child, "saved-bot-enrollment", {
+      botId,
+      threadId,
+      roomTurnId,
+    });
     if (this.child !== child || this.executionOwner !== owner || !child.connected)
       throw new Error("The bot runtime disconnected.");
     return readNativeRoomMemberEnrollment(result, botId, threadId, roomTurnId);
   }
 
-  async stageSavedColdRoomTurn(input: Parameters<typeof validateColdNativeRoomTurn>[1] & {
-    owner: MausbotExecutionOwner; attachmentsDir: string; current: () => boolean; previousRoomSnapshot?: string;
-  }) {
+  async stageSavedColdRoomTurn(
+    input: Parameters<typeof validateColdNativeRoomTurn>[1] & {
+      owner: MausbotExecutionOwner;
+      attachmentsDir: string;
+      current: () => boolean;
+      previousRoomSnapshot?: string;
+    },
+  ) {
     const { owner, botId, threadId, turnId, attachmentsDir } = input;
     const child = this.child;
-    const current = () => input.current() && this.child === child && child?.connected === true && this.executionOwner === owner;
+    const current = () =>
+      input.current() &&
+      this.child === child &&
+      child?.connected === true &&
+      this.executionOwner === owner;
     if (!current()) throw new Error("The native room turn disconnected.");
     const proof = await this.readSavedRoomMemberEnrollment(owner, botId, threadId, turnId);
     if (!proof || !current()) return null;
     const plan = validateColdNativeRoomTurn(proof, input);
     const staged = await stageColdNativeRoomAttachments(
-      proof, NodePath.join(this.options.dataDir, "attachments"), attachmentsDir, plan.threadId, current, input.previousRoomSnapshot,
+      proof,
+      NodePath.join(this.options.dataDir, "attachments"),
+      attachmentsDir,
+      plan.threadId,
+      current,
+      input.previousRoomSnapshot,
     );
     const refreshed = await this.readSavedRoomMemberEnrollment(owner, botId, threadId, turnId);
     if (!current() || JSON.stringify(refreshed) !== JSON.stringify(proof))
@@ -166,7 +214,15 @@ export class MausbotRuntime {
   private async readOwnedChild(
     child: NodeChildProcess.ChildProcess,
     channel: "conversation" | "saved-bot-enrollment",
-    fields: { input: unknown } | { botId: string; threadId: string; turnId?: string; resumeTurnId?: string; roomTurnId?: string },
+    fields:
+      | { input: unknown }
+      | {
+          botId: string;
+          threadId: string;
+          turnId?: string;
+          resumeTurnId?: string;
+          roomTurnId?: string;
+        },
     signal?: AbortSignal,
   ): Promise<unknown> {
     if (this.conversationReads >= 8) throw new Error("Too many conversation reads are open.");
@@ -359,8 +415,11 @@ export class MausbotRuntime {
         typeof message.requestId === "string"
       ) {
         const requestId = message.requestId;
-        const current = () => this.child === child && this.executionOwner === executionOwner &&
-          child.connected && this.stopping === undefined;
+        const current = () =>
+          this.child === child &&
+          this.executionOwner === executionOwner &&
+          child.connected &&
+          this.stopping === undefined;
         const reply = (result: object) => {
           if (current())
             // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Captured child IPC, not a browser Window.
@@ -379,8 +438,10 @@ export class MausbotRuntime {
               if (current()) privatePort.postMessage({ type: "j1:execution-event", event });
             },
             executionOwner,
-            (botId, threadId, history) => this.readSavedBotEnrollment(executionOwner, botId, threadId, history),
-            (botId, threadId, turnId) => this.readSavedRoomMemberEnrollment(executionOwner, botId, threadId, turnId),
+            (botId, threadId, history) =>
+              this.readSavedBotEnrollment(executionOwner, botId, threadId, history),
+            (botId, threadId, turnId) =>
+              this.readSavedRoomMemberEnrollment(executionOwner, botId, threadId, turnId),
             (input) => this.stageSavedColdRoomTurn({ ...input, owner: executionOwner }),
           )
           .then(
@@ -687,16 +748,22 @@ export class MausbotRuntime {
     frameOrigin?: string,
     clientSessionId?: string,
     pairedSettingsSession?: string,
+    range?: string,
+    savedAppView?: string,
   ) {
     const pathname = path.split("?")[0]!;
+    const savedFile = upstreamSavedAppFilePath.test(pathname);
+    const savedDocument = method === "GET" && savedAppDocumentPath.test(pathname);
     if (
       !path.startsWith("/") ||
       path.startsWith("//") ||
-      // oxlint-disable-next-line no-control-regex -- Reject every encoded or literal control/space in a runtime path.
       /[\\\x00-\x20#]|%2e|%2f|%5c|(?:^|\/)\.\.(?:\/|$)/i.test(pathname)
     )
       throw new Error("Invalid runtime path.");
-    if (!["GET", "HEAD", "POST", "PATCH", "PUT", "DELETE"].includes(method))
+    if (
+      !["GET", "HEAD", "POST", "PATCH", "PUT", "DELETE"].includes(method) &&
+      !(savedFile && method === "OPTIONS")
+    )
       throw new Error("Unsupported runtime method.");
     if (/^\/api\/updates(?:\/|$)/.test(pathname))
       throw new Error("J1 Code owns updates for the bundled assistant runtime.");
@@ -711,17 +778,32 @@ export class MausbotRuntime {
       throw new Error("Runtime upload exceeded 32 MiB.");
     if (!this.origin || !this.token) throw new Error("The Mausbot runtime is not running.");
     let phoneSettings: string | undefined;
-    if (pathname === "/api/config" && new URLSearchParams(path.slice(pathname.length)).has("j1NamedCredential")) {
+    if (
+      pathname === "/api/config" &&
+      new URLSearchParams(path.slice(pathname.length)).has("j1NamedCredential")
+    ) {
       const headers = { "cache-control": "no-store" };
       if (path !== "/api/config?j1NamedCredential=1")
         return new Response(null, { status: 403, headers });
       if (method !== "GET" && method !== "PATCH")
         return new Response(null, { status: 405, headers: { ...headers, allow: "GET, PATCH" } });
-      if (!pairedSettingsSession || !signal || signal.aborted || clientSessionId || this.stopping || !this.phoneSettingsKey)
+      if (
+        !pairedSettingsSession ||
+        !signal ||
+        signal.aborted ||
+        clientSessionId ||
+        this.stopping ||
+        !this.phoneSettingsKey
+      )
         return new Response(null, { status: 403, headers });
       const key = this.phoneSettingsKey;
-      const device = NodeCrypto.createHmac("sha256", key).update("device\0").update(pairedSettingsSession).digest("base64url");
-      const signature = NodeCrypto.createHmac("sha256", key).update(method + "\0" + device).digest("base64url");
+      const device = NodeCrypto.createHmac("sha256", key)
+        .update("device\0")
+        .update(pairedSettingsSession)
+        .digest("base64url");
+      const signature = NodeCrypto.createHmac("sha256", key)
+        .update(method + "\0" + device)
+        .digest("base64url");
       phoneSettings = `${device}.${signature}`;
     }
     const origin = this.origin;
@@ -739,6 +821,14 @@ export class MausbotRuntime {
             authorization: `Bearer ${token}`,
             ...(contentType ? { "content-type": contentType } : {}),
             ...(phoneSettings ? { "x-j1-phone-settings": phoneSettings } : {}),
+            ...(savedFile && range ? { range } : {}),
+            ...(savedDocument && savedAppView
+              ? {
+                  [SAVED_APP_VIEW_HEADER]: NodeCrypto.createHash("sha256")
+                    .update(savedAppView)
+                    .digest("hex"),
+                }
+              : {}),
           },
         },
         (response) => {
@@ -760,6 +850,27 @@ export class MausbotRuntime {
           ]) {
             const value = response.headers[key];
             if (typeof value === "string") headers.set(key, value);
+          }
+          if (savedDocument) {
+            const token = response.headers[SAVED_APP_FILE_KEY_HEADER];
+            if (typeof token === "string") headers.set(SAVED_APP_FILE_KEY_HEADER, token);
+          }
+          if (savedFile) {
+            for (const key of [
+              "access-control-allow-origin",
+              "access-control-allow-methods",
+              "access-control-allow-headers",
+              "access-control-expose-headers",
+              "accept-ranges",
+              "content-length",
+              "content-range",
+            ]) {
+              const value = response.headers[key];
+              if (typeof value === "string") headers.set(key, value);
+            }
+            headers.set("content-security-policy", "sandbox allow-scripts; default-src 'none'");
+            headers.set("cross-origin-resource-policy", "cross-origin");
+            headers.set("x-content-type-options", "nosniff");
           }
           const policy = headers.get("content-security-policy");
           if (policy)

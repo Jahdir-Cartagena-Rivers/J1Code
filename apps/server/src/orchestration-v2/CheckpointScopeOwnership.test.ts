@@ -1,4 +1,5 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -213,6 +214,7 @@ it.effect("resolves the thread baseline after a second root run replaces scope o
     assert.equal(context.checkpointScopes[0]?.runId, secondRunId);
 
     const layerQuery = CheckpointDiffQuery.layer.pipe(
+      Layer.provide(NodeServices.layer),
       Layer.provide(
         Layer.mergeAll(
           Layer.mock(ThreadManagement.ThreadManagementService)({

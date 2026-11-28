@@ -1,11 +1,17 @@
 import type { ChatAttachment } from "@j1code/contracts";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import * as Hive from "../hiveMind/backend.ts";
 import { isConversationalOnly } from "../hiveMind/store.ts";
 import { WorkflowCapture, workflowSummary } from "../hiveMind/workflowCapture.ts";
 import { LivePresence, type PresenceTarget } from "../hiveMind/livePresence.ts";
 
 const MiB = 1024 * 1024;
+
+class HiveRecallError extends Schema.TaggedError<HiveRecallError>()("HiveRecallError", {
+  operation: Schema.Literals(["select", "materialize", "acknowledge", "capture"]),
+  cause: Schema.Defect(),
+}) {}
 
 export interface HiveTurnCapture {
   readonly presenceTarget?: PresenceTarget<Hive.HiveConnection>;
@@ -20,8 +26,8 @@ export class HiveRunPresence {
   private closed = false;
 
   constructor(
-    send: ConstructorParameters<typeof LivePresence<Hive.HiveConnection>>[0] =
-      (connection, body) => Hive.requestHive(connection, "/v1/presence", body),
+    send: ConstructorParameters<typeof LivePresence<Hive.HiveConnection>>[0] = (connection, body) =>
+      Hive.requestHive(connection, "/v1/presence", body),
     now: () => number = Date.now,
   ) {
     this.presence = new LivePresence(send, now);
@@ -69,17 +75,33 @@ export const prepareHiveTurnRecall = Effect.fn("HiveTurnRecall.prepare")(functio
     readonly attachments: readonly ChatAttachment[];
     readonly charactersAvailable: number;
   },
-  backend: Pick<typeof Hive, "selectedHiveContext" | "materializeHiveImage" |
-    "acknowledgeHiveContext" | "captureHiveEvent"> = Hive,
+  backend: Pick<
+    typeof Hive,
+    "selectedHiveContext" | "materializeHiveImage" | "acknowledgeHiveContext" | "captureHiveEvent"
+  > = Hive,
 ) {
   const query = input.query.trim();
-  if (!query || query.startsWith("/") || isConversationalOnly(query) || input.charactersAvailable < 3)
+  if (
+    !query ||
+    query.startsWith("/") ||
+    isConversationalOnly(query) ||
+    input.charactersAvailable < 3
+  )
     return undefined;
-  const selection = yield* Effect.tryPromise(() =>
-    backend.selectedHiveContext(input.file, query, input.standalone ? [] : input.projects, input.threadId),
-  ).pipe(Effect.catch(() => Effect.logWarning("Selected Hive Mind recall was unavailable.").pipe(
-    Effect.as(undefined),
-  )));
+  const selection = yield* Effect.tryPromise({
+    try: () =>
+      backend.selectedHiveContext(
+        input.file,
+        query,
+        input.standalone ? [] : input.projects,
+        input.threadId,
+      ),
+    catch: (cause) => new HiveRecallError({ operation: "select", cause }),
+  }).pipe(
+    Effect.catch(() =>
+      Effect.logWarning("Selected Hive Mind recall was unavailable.").pipe(Effect.as(undefined)),
+    ),
+  );
   if (!selection?.context.trim() || selection.context.length + 2 > input.charactersAvailable)
     return undefined;
   const { connection, packet } = selection;
@@ -87,20 +109,27 @@ export const prepareHiveTurnRecall = Effect.fn("HiveTurnRecall.prepare")(functio
   let context = selection.context;
   const attachments = [...input.attachments];
   const assetIds: string[] = [];
-  let imageBytes = attachments.reduce((bytes, attachment) =>
-    bytes + (attachment.type === "image" ? attachment.sizeBytes : 0), 0);
+  let imageBytes = attachments.reduce(
+    (bytes, attachment) => bytes + (attachment.type === "image" ? attachment.sizeBytes : 0),
+    0,
+  );
   if (connection && packet) {
     for (const asset of packet.assets) {
       if (attachments.length >= 100 || imageBytes + 10 * MiB > 80 * MiB) {
-        const notice = "\n\nSome Hive Mind references exceeded the attachment budget. Retrieve them with hive_mind_read_reference.";
+        const notice =
+          "\n\nSome Hive Mind references exceeded the attachment budget. Retrieve them with hive_mind_read_reference.";
         if (context.length + notice.length + 2 <= input.charactersAvailable) context += notice;
         break;
       }
-      const retained = yield* Effect.tryPromise(() =>
-        backend.materializeHiveImage(connection, asset.id, input.attachmentsDir, input.threadId),
-      ).pipe(Effect.catch(() => Effect.logWarning("A Hive Mind reference was unavailable.").pipe(
-        Effect.as(undefined),
-      )));
+      const retained = yield* Effect.tryPromise({
+        try: () =>
+          backend.materializeHiveImage(connection, asset.id, input.attachmentsDir, input.threadId),
+        catch: (cause) => new HiveRecallError({ operation: "materialize", cause }),
+      }).pipe(
+        Effect.catch(() =>
+          Effect.logWarning("A Hive Mind reference was unavailable.").pipe(Effect.as(undefined)),
+        ),
+      );
       if (!retained) continue;
       const hint = `\n\nRetained Hive Mind reference ${asset.id}: ${retained.path}. Inspect the actual reference when relevant.`;
       if (context.length + hint.length + 2 <= input.charactersAvailable) context += hint;
@@ -110,25 +139,34 @@ export const prepareHiveTurnRecall = Effect.fn("HiveTurnRecall.prepare")(functio
     }
   }
   const acknowledge = Effect.fn("HiveTurnRecall.acknowledge")(function* (
-    provider: string, instance: string, turn: string,
+    provider: string,
+    instance: string,
+    turn: string,
   ) {
     if (!connection || !packet) return;
-    yield* Effect.tryPromise(async () => {
-      await backend.acknowledgeHiveContext(input.file, connection, input.threadId, packet);
-      await backend.captureHiveEvent(connection, {
-        eventId: Hive.hiveEventId(input.file, input.threadId, instance, turn, "input"),
-        threadId: input.threadId, provider,
-        project: input.standalone ? null : (packet.project ?? input.projects[0] ?? "J1Code"),
-        summary: `User request excerpt (source message remains authoritative): ${query.slice(0, 4000)}`,
-        ...(packet.taskId ? { taskId: packet.taskId } : {}),
-        assetIds, contextSequence: packet.sequence,
-        ...(packet.streamId ? { contextStreamId: packet.streamId } : {}),
-        deliveredIds: packet.usedIds,
-      });
+    yield* Effect.tryPromise({
+      try: async () => {
+        await backend.acknowledgeHiveContext(input.file, connection, input.threadId, packet);
+        await backend.captureHiveEvent(connection, {
+          eventId: Hive.hiveEventId(input.file, input.threadId, instance, turn, "input"),
+          threadId: input.threadId,
+          provider,
+          project: input.standalone ? null : (packet.project ?? input.projects[0] ?? "J1Code"),
+          summary: `User request excerpt (source message remains authoritative): ${query.slice(0, 4000)}`,
+          ...(packet.taskId ? { taskId: packet.taskId } : {}),
+          assetIds,
+          contextSequence: packet.sequence,
+          ...(packet.streamId ? { contextStreamId: packet.streamId } : {}),
+          deliveredIds: packet.usedIds,
+        });
+      },
+      catch: (cause) => new HiveRecallError({ operation: "acknowledge", cause }),
     }).pipe(Effect.catch(() => Effect.logWarning("Could not record delivered Hive Mind context.")));
   });
   const track = Effect.fn("HiveTurnRecall.track")(function* (
-    provider: string, instance: string, turn: string,
+    provider: string,
+    instance: string,
+    turn: string,
   ) {
     if (!connection || !packet) return undefined;
     const workflow = new WorkflowCapture();
@@ -137,7 +175,8 @@ export const prepareHiveTurnRecall = Effect.fn("HiveTurnRecall.prepare")(functio
     const project = input.standalone ? null : (packet.project ?? input.projects[0] ?? "J1Code");
     return {
       presenceTarget: {
-        connection, provider,
+        connection,
+        provider,
         ...(project ? { project } : {}),
         ...(packet.taskId && !input.standalone ? { taskId: packet.taskId } : {}),
       },
@@ -150,23 +189,33 @@ export const prepareHiveTurnRecall = Effect.fn("HiveTurnRecall.prepare")(functio
         if (turnId !== turn || finished) return undefined;
         finished = true;
         const output = workflow.take(input.threadId, instance, turn);
-        return acknowledged.pipe(Effect.andThen(Effect.tryPromise(() =>
-          backend.captureHiveEvent(connection, {
-            eventId: Hive.hiveEventId(input.file, input.threadId, instance, turn, "terminal"),
-            threadId: input.threadId,
-            provider,
-            project,
-            summary: workflowSummary(query, output, status, turn),
-            contextSequence: packet.sequence,
-            ...(packet.streamId ? { contextStreamId: packet.streamId } : {}),
-            deliveredIds: packet.usedIds,
-            ...(packet.taskId ? { taskId: packet.taskId } : {}),
-          }),
-        ).pipe(
-          Effect.retry({ times: 2 }),
-          Effect.catch(() => Effect.logWarning("Hive Mind could not save the turn outcome after three attempts.")),
-          Effect.asVoid,
-        )));
+        return acknowledged.pipe(
+          Effect.andThen(
+            Effect.tryPromise({
+              try: () =>
+                backend.captureHiveEvent(connection, {
+                  eventId: Hive.hiveEventId(input.file, input.threadId, instance, turn, "terminal"),
+                  threadId: input.threadId,
+                  provider,
+                  project,
+                  summary: workflowSummary(query, output, status, turn),
+                  contextSequence: packet.sequence,
+                  ...(packet.streamId ? { contextStreamId: packet.streamId } : {}),
+                  deliveredIds: packet.usedIds,
+                  ...(packet.taskId ? { taskId: packet.taskId } : {}),
+                }),
+              catch: (cause) => new HiveRecallError({ operation: "capture", cause }),
+            }).pipe(
+              Effect.retry({ times: 2 }),
+              Effect.catch(() =>
+                Effect.logWarning(
+                  "Hive Mind could not save the turn outcome after three attempts.",
+                ),
+              ),
+              Effect.asVoid,
+            ),
+          ),
+        );
       },
     } satisfies HiveTurnCapture;
   });

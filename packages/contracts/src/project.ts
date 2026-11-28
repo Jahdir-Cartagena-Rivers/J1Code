@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
+import * as Struct from "effect/Struct";
 import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import {
@@ -45,6 +46,23 @@ export const ProjectScript = Schema.Struct({
   autoOpenPreview: Schema.optional(Schema.Boolean),
 });
 export type ProjectScript = typeof ProjectScript.Type;
+
+export const ProjectTrackedFolder = Schema.Struct({
+  path: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
+  discovered: Schema.optional(Schema.Boolean),
+});
+export type ProjectTrackedFolder = typeof ProjectTrackedFolder.Type;
+
+export const PROJECT_TRACKED_FOLDERS_MAX = 128;
+
+const ProjectAddedFolders = Schema.Array(
+  ProjectTrackedFolder.mapFields(Struct.omit(["discovered"])),
+).check(Schema.isMaxLength(PROJECT_TRACKED_FOLDERS_MAX));
+
+export const ProjectTrackedFolders = Schema.Array(ProjectTrackedFolder).check(
+  Schema.isMaxLength(PROJECT_TRACKED_FOLDERS_MAX),
+);
 
 export const ProjectIconColor = Schema.Literals([
   "gray",
@@ -163,6 +181,7 @@ export const Project = Schema.Struct({
   // Opt-in because background sync performs network I/O and may move the checkout.
   autoPull: Schema.optional(Schema.Boolean),
   scripts: Schema.Array(ProjectScript),
+  trackedFolders: Schema.optional(ProjectTrackedFolders),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   createdAt: IsoDateTime,
@@ -183,6 +202,7 @@ export const ProjectCreatePayload = Schema.Struct({
   createWorkspaceRootIfMissing: Schema.optional(Schema.Boolean),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  trackedFolders: Schema.optional(ProjectAddedFolders),
 });
 export type ProjectCreatePayload = typeof ProjectCreatePayload.Type;
 
@@ -195,6 +215,7 @@ export const ProjectUpdatePayload = Schema.Struct({
   faviconPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  trackedFolders: Schema.optional(ProjectAddedFolders),
   pinned: Schema.optional(Schema.Boolean),
   archived: Schema.optional(
     Schema.Boolean.annotate({
@@ -216,6 +237,10 @@ export const ProjectMutation = Schema.Union([
     commandId: CommandId,
     projectId: ProjectId,
     ...ProjectUpdatePayload.fields,
+    trackFolders: Schema.optional(ProjectAddedFolders),
+    untrackFolders: Schema.optional(
+      Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(PROJECT_TRACKED_FOLDERS_MAX)),
+    ),
   }),
   Schema.Struct({
     type: Schema.Literal("project.delete"),

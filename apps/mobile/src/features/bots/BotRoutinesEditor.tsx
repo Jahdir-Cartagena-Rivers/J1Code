@@ -1,7 +1,8 @@
 import type { BotRoutine } from "@j1code/contracts";
 import { Switch, TextInput, View } from "react-native";
 import { AppText } from "../../components/ui/AppText";
-import { ControlPill, ControlPillMenu } from "../../components/ui/ControlPill";
+import { ControlPill } from "../../components/ui/ControlPill";
+import { Menu } from "../../components/ui/Menu";
 import { Button as MaterialButton } from "../../components/ui/Button";
 import { uuidv4 } from "../../lib/uuid";
 
@@ -39,7 +40,7 @@ export function BotRoutinesEditor({
               multiline
               onChangeText={(prompt) => update(routine.id, (old) => ({ ...old, prompt }))}
             />
-            <ControlPillMenu
+            <Menu
               title="Schedule"
               actions={[
                 { id: "once", title: "Once" },
@@ -60,7 +61,7 @@ export function BotRoutinesEditor({
                 accessibilityLabel="Routine schedule"
                 variant="pill"
               />
-            </ControlPillMenu>
+            </Menu>
             <AppText>Start time (UTC, for example 2026-12-01T09:00:00Z)</AppText>
             <TextInput
               accessibilityLabel="Routine start time UTC"

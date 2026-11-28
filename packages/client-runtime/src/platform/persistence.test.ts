@@ -7,7 +7,7 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import * as Arbitrary from "effect/unstable/arbitrary/Arbitrary";
+import * as Arbitrary from "effect/Arbitrary";
 
 import { makeStoredShellSnapshotEncoder } from "./shellCacheEncoding.ts";
 import {
@@ -39,14 +39,14 @@ describe("stored shell cache generated encoding", () => {
       const threads = yield* sampleDecoded(OrchestrationV2ThreadShellJson);
       const projects = yield* sampleDecoded(OrchestrationProjectShell);
       const midpoint = Math.ceil(threads.length / 2);
-      const snapshot: typeof StoredOrchestrationShellSnapshot.Type["snapshot"] = {
+      const snapshot: (typeof StoredOrchestrationShellSnapshot.Type)["snapshot"] = {
         schemaVersion: 1,
         snapshotSequence: 1,
         // The generator rarely makes monogram icons, and they are the one
         // project field whose encoding differs from the decoded value.
         projects: projects.map((project, index) =>
           index % 2 === 0
-            ? { ...project, projectIcon: { kind: "monogram", text: "J1 Code", color: "blue" } }
+            ? { ...project, projectIcon: { kind: "monogram", text: "J1", color: "blue" } }
             : project,
         ),
         threads: threads.slice(0, midpoint),
@@ -61,9 +61,9 @@ describe("stored shell cache generated encoding", () => {
         environmentId: EnvironmentId.make("generated-cache-environment"),
         snapshot,
       };
-      expect(
-        yield* makeStoredShellSnapshotEncoder({ yieldToHost: Effect.void })(stored),
-      ).toEqual(yield* encodeSnapshot(stored));
+      expect(yield* makeStoredShellSnapshotEncoder({ yieldToHost: Effect.void })(stored)).toEqual(
+        yield* encodeSnapshot(stored),
+      );
     }),
   );
 });

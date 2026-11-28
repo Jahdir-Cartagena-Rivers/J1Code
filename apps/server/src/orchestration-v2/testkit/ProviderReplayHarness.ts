@@ -2,6 +2,8 @@ import * as OtelEnvironment from "@j1code/shared/otelEnvironment";
 import { DEFAULT_SIGNAL_EXPORT } from "@j1code/shared/observability";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as WorkspaceFolders from "../../workspace/WorkspaceFolders.ts";
+import { layerNoTaskFolders } from "../ProviderTurnStartService.testkit.ts";
 import type {
   ManagedPolicyDocument,
   ProviderDriverKind,
@@ -134,6 +136,7 @@ export function makeReplayServerConfig(
       host: undefined,
       cwd: process.cwd(),
       baseDir,
+      workflowsDir: path.join(baseDir, "workflows"),
       staticDir: undefined,
       devUrl: undefined,
       devAllowedOrigins: [],
@@ -289,7 +292,10 @@ export function layerWithRegistry<Error>(
     readonly wrapProjectionStore?: (
       store: ProjectionStore.ProjectionStoreV2Shape,
     ) => ProjectionStore.ProjectionStoreV2Shape;
-    readonly autoModelRouting?: Layer.Layer<AutoModelRoutingV2>;
+    readonly autoModelRouting?: Layer.Layer<
+      AutoModelRoutingV2,
+      Error | MigrationError | PlatformError.PlatformError | SqlError
+    >;
     readonly managedPolicy?: ManagedPolicyDocument;
   } = {},
 ): Layer.Layer<
@@ -393,7 +399,17 @@ export function layerWithRegistry<Error>(
     Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   );
   const layerCheckpointServiceProvided = CheckpointService.layer.pipe(
-    Layer.provide(Layer.mergeAll(layerCheckpointStore, IdAllocator.layer)),
+    Layer.provide(
+      Layer.mergeAll(
+        layerCheckpointStore,
+        IdAllocator.layer,
+        NodeServices.layer,
+        Layer.mock(WorkspaceFolders.WorkspaceFolders)({
+          forThread: () => Effect.succeed({ folders: [], extraRoots: [] }),
+          submodules: () => Effect.succeed([]),
+        }),
+      ),
+    ),
   );
   const layerContextHandoffServiceProvided = ContextHandoffService.layer.pipe(
     Layer.provide(IdAllocator.layer),
@@ -473,6 +489,7 @@ export function layerWithRegistry<Error>(
     Layer.provide(Layer.merge(layerStores, layerProviderSessionManagerProvided)),
   );
   const layerCheckpointRollbackServiceProvided = CheckpointRollbackService.layer.pipe(
+    Layer.provide(layerNoTaskFolders),
     Layer.provide(
       Layer.mergeAll(
         layerCheckpointServiceProvided,

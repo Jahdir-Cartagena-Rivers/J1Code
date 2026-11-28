@@ -1,4 +1,6 @@
 import { useNavigation } from "@react-navigation/native";
+import { useAtomValue } from "@effect/atom-react";
+import { environmentServerConfigsAtom } from "../../state/server";
 import { SettingsRow } from "./components/SettingsRow";
 import { AuthSettingsWriteScope } from "@j1code/contracts";
 import { readEnvironmentScope, useEnvironmentsWithScope } from "../../state/session";
@@ -206,6 +208,10 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
   const displayTargets = pendingWrites > 0 && pendingTargets !== null ? pendingTargets : targets;
   const hasConnectedSelection = targets.length > 0;
   const reference = displayTargets[0] ?? null;
+  const configs = useAtomValue(environmentServerConfigsAtom);
+  const referenceProviders = reference
+    ? (configs.get(reference.environment.environmentId)?.providers ?? [])
+    : [];
   const [editingAutoModel, setEditingAutoModel] = useState<"fast" | "deep" | null>(null);
   const uniform = <K extends keyof ServerSettings>(key: K) =>
     uniformMobileSetting(displayTargets, key);
@@ -367,162 +373,170 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                     />
                   ))}
                 </SettingsSection>
-                  <SettingsSection title="Automatic model selection">
+                <SettingsSection title="Automatic model selection">
+                  <SettingsChoiceRow
+                    label="Manual selection"
+                    separated={false}
+                    description="Choose the model in each conversation."
+                    selected={reference?.settings.autoModelPolicy?.mode !== "auto"}
+                    disabled={disabledFor("autoModelPolicy")}
+                    onPress={() => write({ autoModelPolicy: { mode: "manual" } })}
+                  />
+                  {(["fast", "deep"] as const).map((kind) => (
                     <SettingsChoiceRow
-                      label="Manual selection"
-                      separated={false}
-                      description="Choose the model in each conversation."
-                      selected={reference?.settings.autoModelPolicy?.mode !== "auto"}
-                      disabled={disabledFor("autoModelPolicy")}
-                      onPress={() => write({ autoModelPolicy: { mode: "manual" } })}
+                      key={kind}
+                      label={kind === "fast" ? "Fast model" : "Deep-work model"}
+                      description={
+                        reference?.settings.autoModelPolicy?.mode === "auto"
+                          ? reference.settings.autoModelPolicy[kind].model
+                          : "Choose a configured model to enable Auto."
+                      }
+                      selected={editingAutoModel === kind}
+                      separated
+                      disabled={disabledFor("autoModelPolicy") || displayTargets.length !== 1}
+                      onPress={() => setEditingAutoModel(editingAutoModel === kind ? null : kind)}
                     />
-                    {(["fast", "deep"] as const).map((kind) => (
+                  ))}
+                  {editingAutoModel &&
+                    reference &&
+                    referenceProviders.flatMap((provider) =>
+                      provider.models.map((model) => (
+                        <SettingsChoiceRow
+                          key={`${provider.instanceId}:${model.slug}`}
+                          label={`${provider.displayName ?? provider.driver} · ${model.name}`}
+                          description={model.slug}
+                          selected={
+                            reference.settings.autoModelPolicy?.mode === "auto" &&
+                            reference.settings.autoModelPolicy[editingAutoModel].instanceId ===
+                              provider.instanceId &&
+                            reference.settings.autoModelPolicy[editingAutoModel].model ===
+                              model.slug
+                          }
+                          separated
+                          disabled={disabledFor("autoModelPolicy") || displayTargets.length !== 1}
+                          onPress={() => {
+                            if (disabledFor("autoModelPolicy") || displayTargets.length !== 1)
+                              return;
+                            const selection = {
+                              instanceId: provider.instanceId,
+                              model: model.slug,
+                            };
+                            const previous = reference.settings.autoModelPolicy;
+                            write({
+                              autoModelPolicy: {
+                                mode: "auto",
+                                fast: previous?.mode === "auto" ? previous.fast : selection,
+                                deep: previous?.mode === "auto" ? previous.deep : selection,
+                                ...(previous?.mode === "auto"
+                                  ? {
+                                      capabilities: {
+                                        ...previous.capabilities,
+                                        [editingAutoModel]: undefined,
+                                      },
+                                    }
+                                  : {}),
+                                [editingAutoModel]: selection,
+                              },
+                            });
+                            setEditingAutoModel(null);
+                          }}
+                        />
+                      )),
+                    )}
+                  {reference?.settings.autoModelPolicy?.mode === "auto" && (
+                    <View className="gap-2 px-4 py-3">
+                      <Text>
+                        Use models that support agent tools. Enter the documented context capacity
+                        when the provider does not report it.
+                      </Text>
+                      {(["fast", "deep"] as const).map((tier) => {
+                        const policy = reference.settings.autoModelPolicy;
+                        if (policy?.mode !== "auto") return null;
+                        const capacity = policy.capabilities?.[tier]?.contextWindow;
+                        return (
+                          <View key={`${tier}-capabilities`} className="gap-2">
+                            <SettingsSwitchRow
+                              icon="photo"
+                              label={`${tier === "fast" ? "Fast" : "Deep-work"} model supports images`}
+                              subtitle="Enable only for a model that accepts images."
+                              disabled={
+                                disabledFor("autoModelPolicy") || displayTargets.length !== 1
+                              }
+                              value={policy.capabilities?.[tier]?.images === true}
+                              onValueChange={(images) => {
+                                if (disabledFor("autoModelPolicy") || displayTargets.length !== 1)
+                                  return;
+                                write({
+                                  autoModelPolicy: {
+                                    ...policy,
+                                    capabilities: {
+                                      ...policy.capabilities,
+                                      [tier]: { ...policy.capabilities?.[tier], images },
+                                    },
+                                  },
+                                });
+                              }}
+                            />
+                            <TextInput
+                              key={`${tier}:${policy[tier].instanceId}:${policy[tier].model}:${capacity}`}
+                              accessibilityLabel={`${tier} model context capacity in tokens`}
+                              placeholder={`${tier === "fast" ? "Fast" : "Deep-work"} model token limit`}
+                              keyboardType="number-pad"
+                              editable={
+                                !disabledFor("autoModelPolicy") && displayTargets.length === 1
+                              }
+                              defaultValue={typeof capacity === "number" ? String(capacity) : ""}
+                              className="rounded-lg border border-border px-3 py-2 text-foreground"
+                              onEndEditing={(event) => {
+                                if (disabledFor("autoModelPolicy") || displayTargets.length !== 1)
+                                  return;
+                                const value = Number(event.nativeEvent.text);
+                                if (!Number.isSafeInteger(value) || value <= 0) {
+                                  Dialog.alert("Enter a valid token limit");
+                                  return;
+                                }
+                                write({
+                                  autoModelPolicy: {
+                                    ...policy,
+                                    capabilities: {
+                                      ...policy.capabilities,
+                                      [tier]: {
+                                        ...policy.capabilities?.[tier],
+                                        tools: true,
+                                        contextWindow: value,
+                                      },
+                                    },
+                                  },
+                                });
+                              }}
+                            />
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
+                </SettingsSection>
+                {!projectSelected && (
+                  <SettingsSection title="Request routing">
+                    {(["off", "suggest", "auto"] as const).map((mode, index) => (
                       <SettingsChoiceRow
-                        key={kind}
-                        label={kind === "fast" ? "Fast model" : "Deep-work model"}
+                        key={mode}
+                        label={mode === "off" ? "Off" : mode === "suggest" ? "Suggest" : "Auto"}
                         description={
-                          reference?.settings.autoModelPolicy?.mode === "auto"
-                            ? reference.settings.autoModelPolicy[kind].model
-                            : "Choose a configured model to enable Auto."
+                          mode === "auto"
+                            ? "Route when the work has a clear owner."
+                            : mode === "suggest"
+                              ? "Choose a destination before sending."
+                              : "Keep requests in the current conversation."
                         }
-                        selected={editingAutoModel === kind}
-                        separated
-                        disabled={disabledFor("autoModelPolicy") || displayTargets.length !== 1}
-                        onPress={() => setEditingAutoModel(editingAutoModel === kind ? null : kind)}
+                        selected={uniform("chatRoutingMode") === mode}
+                        separated={index > 0}
+                        disabled={disabledFor("chatRoutingMode")}
+                        onPress={() => write({ chatRoutingMode: mode })}
                       />
                     ))}
-                    {editingAutoModel &&
-                      reference?.environment.serverConfig.providers.flatMap((provider) =>
-                        provider.models.map((model) => (
-                          <SettingsChoiceRow
-                            key={`${provider.instanceId}:${model.slug}`}
-                            label={`${provider.displayName ?? provider.driver} · ${model.name}`}
-                            description={model.slug}
-                            selected={
-                              reference.settings.autoModelPolicy?.mode === "auto" &&
-                              reference.settings.autoModelPolicy[editingAutoModel].instanceId ===
-                                provider.instanceId &&
-                              reference.settings.autoModelPolicy[editingAutoModel].model ===
-                                model.slug
-                            }
-                            separated
-                            disabled={disabledFor("autoModelPolicy") || displayTargets.length !== 1}
-                            onPress={() => {
-                              if (disabledFor("autoModelPolicy") || displayTargets.length !== 1) return;
-                              const selection = {
-                                instanceId: provider.instanceId,
-                                model: model.slug,
-                              };
-                              const previous = reference.settings.autoModelPolicy;
-                              write({
-                                autoModelPolicy: {
-                                  mode: "auto",
-                                  fast: previous?.mode === "auto" ? previous.fast : selection,
-                                  deep: previous?.mode === "auto" ? previous.deep : selection,
-                                  ...(previous?.mode === "auto"
-                                    ? {
-                                        capabilities: {
-                                          ...previous.capabilities,
-                                          [editingAutoModel]: undefined,
-                                        },
-                                      }
-                                    : {}),
-                                  [editingAutoModel]: selection,
-                                },
-                              });
-                              setEditingAutoModel(null);
-                            }}
-                          />
-                        )),
-                      )}
-                    {reference?.settings.autoModelPolicy?.mode === "auto" && (
-                      <View className="gap-2 px-4 py-3">
-                        <Text>
-                          Use models that support agent tools. Enter the documented context capacity
-                          when the provider does not report it.
-                        </Text>
-                        {(["fast", "deep"] as const).map((tier) => {
-                          const policy = reference.settings.autoModelPolicy;
-                          if (policy?.mode !== "auto") return null;
-                          const capacity = policy.capabilities?.[tier]?.contextWindow;
-                          return (
-                            <View key={`${tier}-capabilities`} className="gap-2">
-                              <SettingsSwitchRow
-                                icon="photo"
-                                label={`${tier === "fast" ? "Fast" : "Deep-work"} model supports images`}
-                                subtitle="Enable only for a model that accepts images."
-                                disabled={disabledFor("autoModelPolicy") || displayTargets.length !== 1}
-                                value={policy.capabilities?.[tier]?.images === true}
-                                onValueChange={(images) => {
-                                  if (disabledFor("autoModelPolicy") || displayTargets.length !== 1) return;
-                                  write({
-                                    autoModelPolicy: {
-                                      ...policy,
-                                      capabilities: {
-                                        ...policy.capabilities,
-                                        [tier]: { ...policy.capabilities?.[tier], images },
-                                      },
-                                    },
-                                  });
-                                }}
-                              />
-                              <TextInput
-                                key={`${tier}:${policy[tier].instanceId}:${policy[tier].model}:${capacity}`}
-                                accessibilityLabel={`${tier} model context capacity in tokens`}
-                                placeholder={`${tier === "fast" ? "Fast" : "Deep-work"} model token limit`}
-                                keyboardType="number-pad"
-                                editable={!disabledFor("autoModelPolicy") && displayTargets.length === 1}
-                                defaultValue={typeof capacity === "number" ? String(capacity) : ""}
-                                className="rounded-lg border border-border px-3 py-2 text-foreground"
-                                onEndEditing={(event) => {
-                                  if (disabledFor("autoModelPolicy") || displayTargets.length !== 1) return;
-                                  const value = Number(event.nativeEvent.text);
-                                  if (!Number.isSafeInteger(value) || value <= 0) {
-                                    Dialog.alert("Enter a valid token limit");
-                                    return;
-                                  }
-                                  write({
-                                    autoModelPolicy: {
-                                      ...policy,
-                                      capabilities: {
-                                        ...policy.capabilities,
-                                        [tier]: {
-                                          ...policy.capabilities?.[tier],
-                                          tools: true,
-                                          contextWindow: value,
-                                        },
-                                      },
-                                    },
-                                  });
-                                }}
-                              />
-                            </View>
-                          );
-                        })}
-                      </View>
-                    )}
                   </SettingsSection>
-                  {!projectSelected && (
-                    <SettingsSection title="Request routing">
-                      {(["off", "suggest", "auto"] as const).map((mode, index) => (
-                        <SettingsChoiceRow
-                          key={mode}
-                          label={mode === "off" ? "Off" : mode === "suggest" ? "Suggest" : "Auto"}
-                          description={
-                            mode === "auto"
-                              ? "Route when the work has a clear owner."
-                              : mode === "suggest"
-                                ? "Choose a destination before sending."
-                                : "Keep requests in the current conversation."
-                          }
-                          selected={uniform("chatRoutingMode") === mode}
-                          separated={index > 0}
-                          disabled={disabledFor("chatRoutingMode")}
-                          onPress={() => write({ chatRoutingMode: mode })}
-                        />
-                      ))}
-                    </SettingsSection>
-                  )}
+                )}
                 <SettingsSection
                   title="Response streaming"
                   footer={managed("responseStreamingMode")}
@@ -559,13 +573,13 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                 </SettingsSection>
                 <SettingsSection title="Computer access">
                   <SettingsSwitchRow
-                      icon="desktopcomputer"
-                      label="Agent desktop access"
-                      subtitle="Allow accessibility controls and screenshots on the connected server's desktop. Applies to new agent sessions."
-                      value={uniform("enableAgentDesktopAccess")}
-                      disabled={disabledFor("enableAgentDesktopAccess")}
-                      onValueChange={(value) => write({ enableAgentDesktopAccess: value })}
-                    />
+                    icon="desktopcomputer"
+                    label="Agent desktop access"
+                    subtitle="Allow accessibility controls and screenshots on the connected server's desktop. Applies to new agent sessions."
+                    value={uniform("enableAgentDesktopAccess")}
+                    disabled={disabledFor("enableAgentDesktopAccess")}
+                    onValueChange={(value) => write({ enableAgentDesktopAccess: value })}
+                  />
                 </SettingsSection>
                 <AutoSettleSettingsRows write={write} pending={pendingWrites > 0} />
               </>

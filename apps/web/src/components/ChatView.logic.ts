@@ -891,7 +891,7 @@ export async function waitForRevertedMessage(
   requestId: CommandId,
   revert: () => Promise<void>,
   timeoutMs = 120_000,
-): Promise<void> {
+): Promise<ReadonlyArray<string>> {
   const threadAtom = environmentThreadDetails.stateAtom(threadRef);
   const readProjection = () => Option.getOrNull(appAtomRegistry.get(threadAtom).data);
   const initial = readProjection();
@@ -915,18 +915,18 @@ export async function waitForRevertedMessage(
   if (witness === undefined) {
     throw new Error("The thread has changed. Select a message to rewind again.");
   }
-  return new Promise<void>((resolve, reject) => {
+  return new Promise<ReadonlyArray<string>>((resolve, reject) => {
     let settled = false;
     let accepted = false;
     let unsubscribe = () => {};
     let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
-    const finish = (error?: unknown) => {
+    const finish = (error?: unknown, unrestoredRepositories: ReadonlyArray<string> = []) => {
       if (settled) return;
       settled = true;
       if (timeout !== undefined) globalThis.clearTimeout(timeout);
       unsubscribe();
       if (error !== undefined) reject(error);
-      else resolve();
+      else resolve(unrestoredRepositories);
     };
     const inspect = () => {
       const thread = readProjection();
@@ -951,7 +951,12 @@ export async function waitForRevertedMessage(
         ) &&
         thread.runs.some((run) => run.id === witness.id && run.status === "rolled_back")
       )
-        finish();
+        finish(
+          undefined,
+          thread.thread.rollbackUnrestored?.requestId === requestId
+            ? thread.thread.rollbackUnrestored.repositories
+            : [],
+        );
     };
     unsubscribe = appAtomRegistry.subscribe(threadAtom, inspect);
     timeout = globalThis.setTimeout(() => {

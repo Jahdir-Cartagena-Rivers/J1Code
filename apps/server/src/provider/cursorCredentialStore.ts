@@ -1,23 +1,19 @@
 import * as NodeModule from "node:module";
+import * as Schema from "effect/Schema";
 
 const CACHE_MS = 5 * 60_000;
 
 const requireForKeyring = NodeModule.createRequire(import.meta.url);
 
 /** Rejected when nobody answers the macOS Keychain prompt in time. */
-export class CursorKeychainTimeoutError extends Error {
-  constructor() {
-    super("Timed out waiting for Keychain access.");
-  }
-}
+export class CursorKeychainTimeoutError extends Schema.TaggedError<CursorKeychainTimeoutError>()(
+  "CursorKeychainTimeoutError",
+  { message: Schema.String },
+) {}
 
 /**
- * Share one Keychain request across usage history and limits in this server process.
- *
- * macOS shows the access prompt on the server's own screen, which a remote
- * client cannot answer, so callers give up after `timeoutMs`. The read stays in
- * flight: the next call reuses it instead of stacking a second prompt, and picks
- * up the token once someone allows access.
+ * Remote clients cannot answer the server's Keychain prompt. Keep its read in flight
+ * after a caller times out so a retry reuses the prompt and picks up an eventual approval.
  */
 export function makeCachedCursorAccessTokenReader(
   read: () => Promise<string | null>,
@@ -40,9 +36,14 @@ export function makeCachedCursorAccessTokenReader(
     return Promise.race([
       pending,
       new Promise<never>((_, reject) => {
-        deadline.addEventListener("abort", () => reject(new CursorKeychainTimeoutError()), {
-          once: true,
-        });
+        deadline.addEventListener(
+          "abort",
+          () =>
+            reject(
+              new CursorKeychainTimeoutError({ message: "Timed out waiting for Keychain access." }),
+            ),
+          { once: true },
+        );
       }),
     ]);
   };

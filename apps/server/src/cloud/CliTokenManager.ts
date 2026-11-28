@@ -481,7 +481,9 @@ const pollDeviceToken = Effect.fn("cloud.cli_token.poll_device_token")(function*
         interval = Duration.sum(interval, DEVICE_AUTHORIZATION_SLOW_DOWN_INCREMENT);
         continue;
       case "expired_token":
-        return yield* new CloudCliAuthorizationTimeoutError({ cause: new Error("The device code expired.") });
+        return yield* new CloudCliAuthorizationTimeoutError({
+          cause: new Error("The device code expired."),
+        });
       case "access_denied":
         return yield* new CloudCliAuthorizationDeniedError();
       default:
@@ -547,11 +549,14 @@ export const make = Effect.gen(function* () {
   });
 
   const clear = semaphore.withPermits(1)(
-    secrets.remove(CLOUD_CLI_OAUTH_TOKEN_SECRET).pipe(
-      Effect.mapError(() =>
-        new CloudCliCredentialRemovalError({ cause: new Error("Credential removal failed.") }),
+    secrets
+      .remove(CLOUD_CLI_OAUTH_TOKEN_SECRET)
+      .pipe(
+        Effect.mapError(
+          () =>
+            new CloudCliCredentialRemovalError({ cause: new Error("Credential removal failed.") }),
+        ),
       ),
-    ),
   );
 
   const read = Effect.fn("cloud.cli_token.read")(function* () {
@@ -684,7 +689,10 @@ export const make = Effect.gen(function* () {
     return Option.some(
       // The endpoint can rotate the refresh token before shutdown interrupts us.
       // Keep the lock through persistence; the exchange still times out internally.
-      yield* refresh(token.value, destination).pipe(Effect.flatMap(persist), Effect.uninterruptible),
+      yield* refresh(token.value, destination).pipe(
+        Effect.flatMap(persist),
+        Effect.uninterruptible,
+      ),
     );
   });
 
@@ -694,8 +702,7 @@ export const make = Effect.gen(function* () {
         ? cause
         : new CloudCliCredentialRefreshError({
             cause: new Error("Credential read, refresh, or persistence failed."),
-            ...(HttpClientError.isHttpClientError(cause) &&
-            cause.reason._tag === "StatusCodeError"
+            ...(HttpClientError.isHttpClientError(cause) && cause.reason._tag === "StatusCodeError"
               ? { status: cause.reason.response.status }
               : {}),
           }),
@@ -706,15 +713,18 @@ export const make = Effect.gen(function* () {
   const hasCredential = semaphore.withPermits(1)(
     read().pipe(
       Effect.map(Option.isSome),
-      Effect.mapError(() =>
-        new CloudCliCredentialReadError({ cause: new Error("Credential read failed.") }),
+      Effect.mapError(
+        () => new CloudCliCredentialReadError({ cause: new Error("Credential read failed.") }),
       ),
     ),
   );
   const get = semaphore.withPermits(1)(
     Effect.gen(function* () {
       const token = yield* readExisting.pipe(
-        Effect.catch((error) => (error.requiresLogin ? Effect.succeedNone : Effect.fail(error))),
+        Effect.catchIf(
+          (error) => error.requiresLogin,
+          () => Effect.succeedNone,
+        ),
       );
       if (Option.isSome(token)) {
         return { _tag: "Authorized", token: token.value } as const;
@@ -727,7 +737,9 @@ export const make = Effect.gen(function* () {
       Effect.mapError((cause) =>
         Terminal.isQuitError(cause) || isCloudCliCredentialRefreshError(cause)
           ? cause
-          : new CloudCliAuthorizationError({ cause: new Error("Credential authorization failed.") }),
+          : new CloudCliAuthorizationError({
+              cause: new Error("Credential authorization failed."),
+            }),
       ),
       Effect.provide(services),
     ),
@@ -739,7 +751,9 @@ export const make = Effect.gen(function* () {
         Effect.mapError((cause) =>
           isCloudCliCredentialRefreshError(cause)
             ? cause
-            : new CloudCliAuthorizationError({ cause: new Error("Credential persistence failed.") }),
+            : new CloudCliAuthorizationError({
+                cause: new Error("Credential persistence failed."),
+              }),
         ),
       ),
     );

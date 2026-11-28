@@ -2,6 +2,7 @@ import * as NodeAssert from "node:assert/strict";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import * as HostProcess from "@j1code/shared/HostProcess";
 import { resolveMausbotResources } from "../apps/server/src/mausbot/Resources.ts";
 import { MausbotRuntime } from "../apps/server/src/mausbot/Runtime.ts";
 
@@ -13,8 +14,9 @@ const resources = await resolveMausbotResources(
   NodePath.join(sandbox, "cache"),
 );
 const memoryRequests: unknown[] = [];
+const platform = HostProcess.Platform.defaultValue();
 const runtime = new MausbotRuntime({
-  platform: process.platform,
+  platform,
   resources,
   dataDir: NodePath.join(sandbox, "state"),
   lightpandaExecutablePath: NodePath.resolve(process.argv[3]),
@@ -33,7 +35,7 @@ try {
   NodeAssert.equal(ui.status, 200);
   const html = await ui.text();
   NodeAssert.match(html, /\.\/assets\//);
-  const entry = /src="(\.\/assets\/[^\"]+\.js)"/.exec(html);
+  const entry = /src="(\.\/assets\/[^"]+\.js)"/.exec(html);
   NodeAssert.ok(entry);
   const script = await runtime.forward(entry[1]!.slice(1), "GET");
   NodeAssert.equal(script.status, 200);
@@ -43,6 +45,12 @@ try {
   );
   const session = await runtime.forward("/api/auth/session", "GET");
   NodeAssert.equal(session.status, 200);
+  const savedApps = await runtime.forward("/api/local-apps", "GET");
+  NodeAssert.equal(savedApps.status, 200);
+  NodeAssert.deepEqual(await savedApps.json(), { apps: [] });
+  const missingApp = await runtime.forward("/api/local-apps/la_0000000000000000/app", "GET");
+  NodeAssert.equal(missingApp.status, 404);
+  NodeAssert.deepEqual(await missingApp.json(), { error: "No such app." });
   const config = await runtime.forward("/api/config", "GET");
   NodeAssert.equal(config.status, 200);
   const configuration = await config.json();
@@ -50,7 +58,7 @@ try {
     JSON.stringify(configuration).includes("j1-lightpanda"),
     "The managed runtime did not report its native browser.",
   );
-  if (process.platform === "win32")
+  if (platform === "win32")
     NodeAssert.equal(
       configuration.j1DesktopCapabilities.localComputer.available,
       true,
@@ -94,7 +102,7 @@ try {
   const approval = await runtime.setApprovalMode({ botId, mode: "ask" });
   NodeAssert.ok(approval, "The original trusted approval handshake did not complete.");
   console.log(
-    "J1_MAUSBOT_PACKAGED_RUNTIME_OK: verified archive, owned native helper acceptance, relative UI assets, private authentication, native browser, original trusted approval handshake, opt-in full-note Hive IPC, expired-note filtering, off/on and notes preservation. Hive transport is a fixture; no screen/input/model call was made.",
+    "J1_MAUSBOT_PACKAGED_RUNTIME_OK: verified archive, native helper, relative UI assets, private authentication, saved-app routes, native browser, approval handshake, and opt-in Hive IPC with notes preservation.",
   );
 } finally {
   await runtime.stop();

@@ -145,6 +145,7 @@ import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
 import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
 import * as McpAppRequests from "./mcpApps/McpAppRequests.ts";
+import * as McpSignIn from "./mcpApps/McpSignIn.ts";
 import * as ModelManifest from "./provider/ModelManifest.ts";
 import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
 import * as OtlpEndpointCheck from "./observability/OtlpEndpointCheck.ts";
@@ -212,6 +213,9 @@ import * as UsageService from "./usage/UsageService.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
+import * as WorkspaceFolders from "./workspace/WorkspaceFolders.ts";
+import * as Workflows from "./workflows/Workflows.ts";
+import * as WorkflowRuntime from "./workflows/WorkflowRuntime.ts";
 import * as KnownWorkspaces from "./workspace/KnownWorkspaces.ts";
 import { WorkspaceSearchIndexSearchFailed } from "./workspace/WorkspaceSearchIndex.ts";
 import { symlinksSupported } from "@j1code/shared/testing/symlinks";
@@ -515,12 +519,16 @@ it.effect("rejects a zero replay cursor for a thread with no snapshot", () =>
       cause: new ProjectionStore.ProjectionStoreThreadNotFoundError({ threadId }),
     });
     const result = yield* subscribeOrchestrationV2Thread({
-      threadId, afterSequence: 0, requestCompletionMarker: true,
+      threadId,
+      afterSequence: 0,
+      requestCompletionMarker: true,
     }).pipe(
-      Effect.provide(Layer.mock(ThreadManagement.ThreadManagementService)({
-        ensureLegacyTranscript: () => Effect.void,
-        getThreadSnapshot: () => Effect.fail(missing),
-      })),
+      Effect.provide(
+        Layer.mock(ThreadManagement.ThreadManagementService)({
+          ensureLegacyTranscript: () => Effect.void,
+          getThreadSnapshot: () => Effect.fail(missing),
+        }),
+      ),
       Effect.flip,
     );
     assert.equal(result._tag, "OrchestrationV2GetThreadProjectionError");
@@ -859,10 +867,12 @@ it.effect("shares each live event item across subscribers and dedupes bodies per
       subscribeOrchestrationV2Thread({ threadId, afterSequence, acceptDedupedBodies }).pipe(
         Effect.flatMap(Stream.runCollect),
         Effect.map((items) => Array.from(items)),
-        Effect.provide(Layer.mock(ThreadManagement.ThreadManagementService)({
-          ensureLegacyTranscript: () => Effect.void,
-          streamStoredEventsFrom: () => Stream.fromIterable(live),
-        })),
+        Effect.provide(
+          Layer.mock(ThreadManagement.ThreadManagementService)({
+            ensureLegacyTranscript: () => Effect.void,
+            streamStoredEventsFrom: () => Stream.fromIterable(live),
+          }),
+        ),
       );
     const [deduped, first, second] = yield* Effect.forEach([true, false, false], subscribe);
 
@@ -1002,46 +1012,65 @@ it.effect("shell snapshots omit idle children and older settled threads only on 
   }).pipe(Effect.scoped, Effect.provide(ReplayTestLayer)),
 );
 
-it.effect("checkpoint diff lookup distinguishes missing threads from projection read failures", () =>
-  Effect.gen(function* () {
-    const threadId = ThreadId.make("checkpoint-diff-error");
-    const storageError = new Orchestrator.OrchestratorProjectionError({
-      threadId,
-      cause: new Error("Fixture projection read failed"),
-    });
-    const missingThread = new Orchestrator.OrchestratorProjectionError({
-      threadId,
-      cause: new ProjectionStore.ProjectionStoreThreadNotFoundError({ threadId }),
-    });
-    for (const [projectionError, expectedTag] of [
-      [storageError, "OrchestratorProjectionError"],
-      [missingThread, "CheckpointThreadNotFoundError"],
-    ] as const) {
-      const run = Effect.gen(function* () {
-        const query = yield* CheckpointDiffQuery.CheckpointDiffQuery;
-        const turn = yield* query.getTurnDiff({ threadId, fromTurnCount: 0, toTurnCount: 1 }).pipe(Effect.flip);
-        const full = yield* query.getFullThreadDiff({ threadId, toTurnCount: 1 }).pipe(Effect.flip);
-        assert.equal(turn._tag, expectedTag);
-        assert.equal(full._tag, expectedTag);
-        if (expectedTag === "OrchestratorProjectionError") {
-          assert.strictEqual(turn, storageError);
-          assert.strictEqual(full, storageError);
-        }
-        assert.deepEqual(yield* query.getTurnDiff({ threadId, fromTurnCount: 0, toTurnCount: 0 }), {
-          threadId, fromTurnCount: 0, toTurnCount: 0, diff: "",
-        });
+it.effect(
+  "checkpoint diff lookup distinguishes missing threads from projection read failures",
+  () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("checkpoint-diff-error");
+      const storageError = new Orchestrator.OrchestratorProjectionError({
+        threadId,
+        cause: new Error("Fixture projection read failed"),
       });
-      yield* run.pipe(Effect.provide(
-        CheckpointDiffQuery.layer.pipe(Layer.provide(Layer.mergeAll(
-          Layer.mock(ThreadManagement.ThreadManagementService)({
-            getCheckpointContext: () => Effect.fail(projectionError),
-          }),
-          Layer.mock(CheckpointStore.CheckpointStore)({}),
-          NodeCrypto.layer,
-        ))),
-      ));
-    }
-  }),
+      const missingThread = new Orchestrator.OrchestratorProjectionError({
+        threadId,
+        cause: new ProjectionStore.ProjectionStoreThreadNotFoundError({ threadId }),
+      });
+      for (const [projectionError, expectedTag] of [
+        [storageError, "OrchestratorProjectionError"],
+        [missingThread, "CheckpointThreadNotFoundError"],
+      ] as const) {
+        const run = Effect.gen(function* () {
+          const query = yield* CheckpointDiffQuery.CheckpointDiffQuery;
+          const turn = yield* query
+            .getTurnDiff({ threadId, fromTurnCount: 0, toTurnCount: 1 })
+            .pipe(Effect.flip);
+          const full = yield* query
+            .getFullThreadDiff({ threadId, toTurnCount: 1 })
+            .pipe(Effect.flip);
+          assert.equal(turn._tag, expectedTag);
+          assert.equal(full._tag, expectedTag);
+          if (expectedTag === "OrchestratorProjectionError") {
+            assert.strictEqual(turn, storageError);
+            assert.strictEqual(full, storageError);
+          }
+          assert.deepEqual(
+            yield* query.getTurnDiff({ threadId, fromTurnCount: 0, toTurnCount: 0 }),
+            {
+              threadId,
+              fromTurnCount: 0,
+              toTurnCount: 0,
+              diff: "",
+            },
+          );
+        });
+        yield* run.pipe(
+          Effect.provide(
+            CheckpointDiffQuery.layer.pipe(
+              Layer.provide(
+                Layer.mergeAll(
+                  Layer.mock(ThreadManagement.ThreadManagementService)({
+                    getCheckpointContext: () => Effect.fail(projectionError),
+                  }),
+                  Layer.mock(CheckpointStore.CheckpointStore)({}),
+                  NodeServices.layer,
+                  NodeCrypto.layer,
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+    }),
 );
 
 // Build the production RPC layer; unrelated capabilities fail if this test calls them.
@@ -1104,6 +1133,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(GitWorkflowService.GitWorkflowService)({}),
   Layer.mock(HostResources.HostResources)({}),
   Layer.mock(McpAppRequests.McpAppRequests)({}),
+  Layer.mock(McpSignIn.McpSignIn)({}),
   Layer.mock(ModelManifest.ModelManifest)({}),
   Layer.mock(OrchestrationEventStore.OrchestrationEventStore)({}),
   Layer.mock(Orchestrator.OrchestratorV2)({}),
@@ -1154,6 +1184,9 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(VcsProvisioningService.VcsProvisioningService)({}),
   Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({}),
   Layer.mock(WorkspaceEntries.WorkspaceEntries)({}),
+  Layer.mock(WorkspaceFolders.WorkspaceFolders)({}),
+  Workflows.layerDisabled,
+  Layer.mock(WorkflowRuntime.WorkflowDefinitions)({}),
   Layer.mock(WorkspaceFileSystem.WorkspaceFileSystem)({}),
   Layer.mock(WorktreeSetupTracker.WorktreeSetupTracker)({}),
 );
@@ -1308,19 +1341,25 @@ it.live("enforces provider auth scope and private flow ownership over WebSocket"
         methods: Effect.succeed([method]),
         defaultMethodId: method.id,
         authenticate: (_, context) =>
-          context.setInteraction(
-            {
-              id: "browser-consent",
-              type: "browser",
-              url: id === instanceId ? authorizationUrl : workAuthorizationUrl,
-              requiresConsent: true,
-              acceptsCallback: true,
-            },
-            () => Deferred.succeed(responded, undefined).pipe(Effect.asVoid),
-            (url) =>
-              Effect.sync(() => { callbacks.push(url); }).pipe(Effect.andThen(context.verifying)),
-          ).pipe(Effect.andThen(Effect.never)),
-        logout: Effect.sync(() => { loggedOut.push(id); }),
+          context
+            .setInteraction(
+              {
+                id: "browser-consent",
+                type: "browser",
+                url: id === instanceId ? authorizationUrl : workAuthorizationUrl,
+                requiresConsent: true,
+                acceptsCallback: true,
+              },
+              () => Deferred.succeed(responded, undefined).pipe(Effect.asVoid),
+              (url) =>
+                Effect.sync(() => {
+                  callbacks.push(url);
+                }).pipe(Effect.andThen(context.verifying)),
+            )
+            .pipe(Effect.andThen(Effect.never)),
+        logout: Effect.sync(() => {
+          loggedOut.push(id);
+        }),
       });
       return {
         instanceId: id,
@@ -1334,26 +1373,35 @@ it.live("enforces provider auth scope and private flow ownership over WebSocket"
             const stream = controller.subscribe(sessionId);
             if (!watchOwner || id !== instanceId || sessionId !== ownerId) return stream;
             return stream.pipe(
-              Stream.tap((state) => state.phase === "waiting"
-                ? Deferred.succeed(ownerSubscribed, undefined)
-                : Effect.void),
+              Stream.tap((state) =>
+                state.phase === "waiting"
+                  ? Deferred.succeed(ownerSubscribed, undefined)
+                  : Effect.void,
+              ),
               Stream.ensuring(Deferred.succeed(ownerSubscriptionClosed, undefined)),
             );
           },
         },
-        get snapshot(): never { throw new Error("No provider probe in the auth fixture"); },
-        get orchestrationAdapter(): never { throw new Error("No provider calls in the auth fixture"); },
-        get textGeneration(): never { throw new Error("No text generation in the auth fixture"); },
+        get snapshot(): never {
+          throw new Error("No provider probe in the auth fixture");
+        },
+        get orchestrationAdapter(): never {
+          throw new Error("No provider calls in the auth fixture");
+        },
+        get textGeneration(): never {
+          throw new Error("No text generation in the auth fixture");
+        },
       } satisfies ProviderInstance;
     });
     const personal = yield* makeInstance(instanceId);
     const work = yield* makeInstance(foreignId);
     const changes = yield* PubSub.unbounded<void>();
     const instanceLayer = Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
-      getInstance: (id) => Effect.sync(() => {
-        instanceLookups++;
-        return id === instanceId ? personal : id === foreignId ? work : undefined;
-      }),
+      getInstance: (id) =>
+        Effect.sync(() => {
+          instanceLookups++;
+          return id === instanceId ? personal : id === foreignId ? work : undefined;
+        }),
       listInstances: Effect.succeed([personal, work]),
       subscribeChanges: PubSub.subscribe(changes),
     });
@@ -1369,23 +1417,65 @@ it.live("enforces provider auth scope and private flow ownership over WebSocket"
       OrchestrationEventStore.layer,
     );
     const installState: ProviderInstallState = {
-      driver: driverKind, phase: "idle", operationId: null, downloadedBytes: 0,
-      totalBytes: null, version: null, installedVersion: null, canRemove: false, message: null,
+      driver: driverKind,
+      phase: "idle",
+      operationId: null,
+      downloadedBytes: 0,
+      totalBytes: null,
+      version: null,
+      installedVersion: null,
+      canRemove: false,
+      message: null,
     };
     const sessionsByToken = new Map<string, EnvironmentAuth.AuthenticatedSession>([
-      ["Bearer owner", { sessionId: ownerId, subject: "fixture-owner", method: "bearer-access-token",
-        scopes: [AuthOrchestrationReadScope, AuthProvidersManageScope] }],
-      ["Bearer neighbor", { sessionId: neighborId, subject: "fixture-neighbor", method: "bearer-access-token",
-        scopes: [AuthOrchestrationReadScope, AuthProvidersManageScope] }],
-      ["Bearer reader", { sessionId: AuthSessionId.make("socket-auth-reader"), subject: "fixture-reader",
-        method: "bearer-access-token", scopes: [AuthOrchestrationReadScope] }],
-      ["Bearer operator", { sessionId: AuthSessionId.make("socket-auth-operator"), subject: "fixture-operator",
-        method: "bearer-access-token", scopes: [AuthOrchestrationReadScope, AuthOrchestrationOperateScope] }],
+      [
+        "Bearer owner",
+        {
+          sessionId: ownerId,
+          subject: "fixture-owner",
+          method: "bearer-access-token",
+          scopes: [AuthOrchestrationReadScope, AuthProvidersManageScope],
+        },
+      ],
+      [
+        "Bearer neighbor",
+        {
+          sessionId: neighborId,
+          subject: "fixture-neighbor",
+          method: "bearer-access-token",
+          scopes: [AuthOrchestrationReadScope, AuthProvidersManageScope],
+        },
+      ],
+      [
+        "Bearer reader",
+        {
+          sessionId: AuthSessionId.make("socket-auth-reader"),
+          subject: "fixture-reader",
+          method: "bearer-access-token",
+          scopes: [AuthOrchestrationReadScope],
+        },
+      ],
+      [
+        "Bearer operator",
+        {
+          sessionId: AuthSessionId.make("socket-auth-operator"),
+          subject: "fixture-operator",
+          method: "bearer-access-token",
+          scopes: [AuthOrchestrationReadScope, AuthOrchestrationOperateScope],
+        },
+      ],
     ]);
-    const dependencies = Layer.mergeAll(graph, instanceLayer, database, NodeCrypto.layer, NodeServices.layer);
+    const dependencies = Layer.mergeAll(
+      graph,
+      instanceLayer,
+      database,
+      NodeCrypto.layer,
+      NodeServices.layer,
+    );
     const services = Layer.mergeAll(
-      layerUnusedConfigRpcServices,
-      Layer.mock(ServerBrowser.ServerBrowser)({ profileReporter: Effect.succeed(() => Effect.void) }),
+      Layer.mock(ServerBrowser.ServerBrowser)({
+        profileReporter: Effect.succeed(() => Effect.void),
+      }),
       Layer.mock(BackgroundBrowser)({}),
       Layer.mock(MausbotService)({}),
       Layer.mock(V2RoutingOwner)({}),
@@ -1402,198 +1492,263 @@ it.live("enforces provider auth scope and private flow ownership over WebSocket"
         getEnvironmentId: Effect.succeed(EnvironmentId.make("provider-auth-websocket")),
       }),
       Layer.mock(ProviderInstallation.ProviderInstallation)({
-        start: () => Effect.sync(() => { installStarts++; return installState; }),
+        start: () =>
+          Effect.sync(() => {
+            installStarts++;
+            return installState;
+          }),
         subscribe: () => Stream.succeed(installState),
       }),
       Layer.mock(AnalyticsService.AnalyticsService)({
-        recordOwners: () => Effect.void, record: () => Effect.void,
+        recordOwners: () => Effect.void,
+        record: () => Effect.void,
       }),
       Layer.mock(EnvironmentAuth.EnvironmentAuth)({
-        authenticateWebSocketUpgrade: (request) => Effect.suspend(() => {
-          const session = sessionsByToken.get(request.headers.authorization ?? "");
-          return session
-            ? Effect.succeed(session)
-            : Effect.fail(new EnvironmentAuth.ServerAuthMissingCredentialError({}));
-        }),
+        authenticateWebSocketUpgrade: (request) =>
+          Effect.suspend(() => {
+            const session = sessionsByToken.get(request.headers.authorization ?? "");
+            return session
+              ? Effect.succeed(session)
+              : Effect.fail(new EnvironmentAuth.ServerAuthMissingCredentialError({}));
+          }),
       }),
       Layer.mock(SessionStore.SessionStore)({
-        cookieName: "fixture", legacyCookieName: undefined,
+        cookieName: "fixture",
+        legacyCookieName: undefined,
         markConnected: () => Effect.void,
-        markDisconnected: (id) => id === ownerId
-          ? Deferred.succeed(ownerDisconnected, undefined).pipe(Effect.asVoid)
-          : Effect.void,
+        markDisconnected: (id) =>
+          id === ownerId
+            ? Deferred.succeed(ownerDisconnected, undefined).pipe(Effect.asVoid)
+            : Effect.void,
         awaitInvalidation: () => Effect.never,
       }),
       Layer.mock(VcsProcess.VcsProcess)({
-        run: (input) => Effect.fail(new VcsProcessSpawnError({
-          operation: input.operation,
-          command: input.command,
-          cwd: input.cwd,
-          cause: "Git is unavailable in the provider auth fixture",
-        })),
+        run: (input) =>
+          Effect.fail(
+            new VcsProcessSpawnError({
+              operation: input.operation,
+              command: input.command,
+              cwd: input.cwd,
+              cause: "Git is unavailable in the provider auth fixture",
+            }),
+          ),
       }),
       ProviderInstallationGate.layer,
       FetchHttpClient.layer,
       config,
       ProviderAuthService.layer,
-    ).pipe(Layer.provide(dependencies), Layer.merge(dependencies));
+    ).pipe(
+      Layer.provide(dependencies),
+      Layer.provideMerge(layerUnusedConfigRpcServices.pipe(Layer.provide(database))),
+      Layer.merge(dependencies),
+    );
     const context = yield* Layer.build(
       HttpRouter.serve(Ws.layer, { disableListenLog: true }).pipe(
-        Layer.provideMerge(NodeHttpServer.layer(NodeHttp.createServer, { host: "127.0.0.1", port: 0 })),
+        Layer.provideMerge(
+          NodeHttpServer.layer(NodeHttp.createServer, { host: "127.0.0.1", port: 0 }),
+        ),
         Layer.provide(services),
       ),
     );
-    const origin = HttpServer.formatAddress(Context.get(context, HttpServer.HttpServer).address)
-      .replace(/^http/, "ws");
+    const origin = HttpServer.formatAddress(
+      Context.get(context, HttpServer.HttpServer).address,
+    ).replace(/^http/, "ws");
     const url = new URL("/ws", origin);
-    url.searchParams.set(ORCHESTRATION_PROTOCOL_QUERY_PARAM, String(ORCHESTRATION_PROTOCOL_VERSION));
+    url.searchParams.set(
+      ORCHESTRATION_PROTOCOL_QUERY_PARAM,
+      String(ORCHESTRATION_PROTOCOL_VERSION),
+    );
     const makeClient = Effect.fn("wsFixture.makeClient")(function* (
       token: string,
       onSocket?: (socket: WebSocket) => void,
     ) {
       // The protocol owns the live socket until the surrounding client scope closes.
-      const protocol = yield* Layer.build(RpcClient.layerProtocolSocket({
-        retryTransientErrors: false,
-        retryPolicy: Schedule.recurs(0),
-      }).pipe(
-        Layer.provide(Socket.layerWebSocket(url.href, {
-          headers: { authorization: `Bearer ${token}` },
+      const protocol = yield* Layer.build(
+        RpcClient.layerProtocolSocket({
+          retryTransientErrors: false,
+          retryPolicy: Schedule.recurs(0),
         }).pipe(
-          Layer.provide(Layer.succeed(Socket.WebSocketConstructor, (address, options) => {
-            const socket = typeof options === "string" || Array.isArray(options) || options === undefined
-              ? new WebSocket(address, options)
-              : new WebSocket(address, options.protocols, { headers: options.headers });
-            onSocket?.(socket);
-            return socket;
-          })),
-        )),
-        Layer.provide(RpcSerialization.layerJson),
-      ));
+          Layer.provide(
+            Socket.layerWebSocket(url.href, {
+              headers: { authorization: `Bearer ${token}` },
+            }).pipe(
+              Layer.provide(
+                Layer.succeed(Socket.WebSocketConstructor, (address, options) => {
+                  const socket =
+                    typeof options === "string" || Array.isArray(options) || options === undefined
+                      ? new WebSocket(address, options)
+                      : new WebSocket(address, options.protocols, { headers: options.headers });
+                  onSocket?.(socket);
+                  return socket;
+                }),
+              ),
+            ),
+          ),
+          Layer.provide(RpcSerialization.layerJson),
+        ),
+      );
       return yield* RpcClient.make(WsRpcGroup).pipe(Effect.provide(protocol));
     });
     const head = <A, E>(stream: Stream.Stream<A, E>) =>
       stream.pipe(Stream.runHead, Effect.map(Option.getOrThrow));
     const rejectedUpgrade = yield* Effect.tryPromise({
-      try: () => new Promise<number | undefined>((resolve, reject) => {
-        const socket = new WebSocket(url.href, { handshakeTimeout: 2_000 });
-        socket.once("unexpected-response", (_request, response) => {
-          response.resume();
-          resolve(response.statusCode);
-          socket.terminate();
-        });
-        socket.once("error", reject);
-        socket.once("open", () => {
-          socket.close();
-          reject(new Error("Unauthenticated WebSocket unexpectedly upgraded"));
-        });
-      }),
-      catch: (cause) => new WsFixtureFailure({ message: "Could not verify the unauthenticated upgrade", cause }),
+      try: () =>
+        new Promise<number | undefined>((resolve, reject) => {
+          const socket = new WebSocket(url.href, { handshakeTimeout: 2_000 });
+          socket.once("unexpected-response", (_request, response) => {
+            response.resume();
+            resolve(response.statusCode);
+            socket.terminate();
+          });
+          socket.once("error", reject);
+          socket.once("open", () => {
+            socket.close();
+            reject(new Error("Unauthenticated WebSocket unexpectedly upgraded"));
+          });
+        }),
+      catch: (cause) =>
+        new WsFixtureFailure({ message: "Could not verify the unauthenticated upgrade", cause }),
     });
     assert.equal(rejectedUpgrade, 401);
     const target = { instanceId };
     const startupLookups = instanceLookups;
-    yield* Effect.scoped(Effect.gen(function* () {
-      const reader = yield* makeClient("reader");
-      const operator = yield* makeClient("operator");
-      assert.deepEqual(yield* head(reader[WS_METHODS.providerInstallSubscribe](target)), installState);
-      const denied = yield* reader[WS_METHODS.providerInstallStart](target).pipe(Effect.flip);
-      assert.equal(denied._tag, "EnvironmentAuthorizationError");
-      if (denied._tag === "EnvironmentAuthorizationError") {
-        assert.equal(denied.requiredPermission, AuthProvidersManageScope);
-      }
-      const errors = yield* Effect.all([
-        reader[WS_METHODS.providerAuthStart](target).pipe(Effect.flip),
-        reader[WS_METHODS.providerAuthSubscribe](target).pipe(Stream.runHead, Effect.flip),
-        operator[WS_METHODS.providerAuthStart](target).pipe(Effect.flip),
-      ]);
-      for (const error of errors) {
-        assert.equal(error._tag, "EnvironmentAuthorizationError");
-        if (error._tag === "EnvironmentAuthorizationError") {
-          assert.equal(error.requiredPermission, AuthProvidersManageScope);
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        const reader = yield* makeClient("reader");
+        const operator = yield* makeClient("operator");
+        assert.deepEqual(
+          yield* head(reader[WS_METHODS.providerInstallSubscribe](target)),
+          installState,
+        );
+        const denied = yield* reader[WS_METHODS.providerInstallStart](target).pipe(Effect.flip);
+        assert.equal(denied._tag, "EnvironmentAuthorizationError");
+        if (denied._tag === "EnvironmentAuthorizationError") {
+          assert.equal(denied.requiredPermission, AuthProvidersManageScope);
         }
-      }
-      assert.equal(installStarts, 0);
-      assert.equal(instanceLookups, startupLookups);
-    }));
+        const errors = yield* Effect.all([
+          reader[WS_METHODS.providerAuthStart](target).pipe(Effect.flip),
+          reader[WS_METHODS.providerAuthSubscribe](target).pipe(Stream.runHead, Effect.flip),
+          operator[WS_METHODS.providerAuthStart](target).pipe(Effect.flip),
+        ]);
+        for (const error of errors) {
+          assert.equal(error._tag, "EnvironmentAuthorizationError");
+          if (error._tag === "EnvironmentAuthorizationError") {
+            assert.equal(error.requiredPermission, AuthProvidersManageScope);
+          }
+        }
+        assert.equal(installStarts, 0);
+        assert.equal(instanceLookups, startupLookups);
+      }),
+    );
 
-    const flowId = yield* Effect.scoped(Effect.gen(function* () {
-      let socket: WebSocket | undefined;
-      const owner = yield* makeClient("owner", (connected) => { socket = connected; });
-      const neighbor = yield* makeClient("neighbor");
-      const forgedStart = { ...target, ownerSessionId: neighborId };
-      const started = yield* owner[WS_METHODS.providerAuthStart](forgedStart);
-      assert.isNotNull(started.flowId);
-      const flowId = started.flowId!;
-      const ownerStates = yield* Queue.unbounded<string | null>();
-      yield* owner[WS_METHODS.providerAuthSubscribe](target).pipe(
-        Stream.filter((state) => state.phase === "waiting"),
-        Stream.runForEach((state) => Queue.offer(ownerStates, state.authorizationUrl)),
-        Effect.ignore,
-        Effect.forkScoped,
-      );
-      assert.equal(yield* Queue.take(ownerStates), authorizationUrl);
-      yield* Deferred.await(ownerSubscribed);
-
-      const claimedOwner = { ...target, flowId, ownerSessionId: ownerId };
-      const otherState = yield* head(neighbor[WS_METHODS.providerAuthSubscribe](claimedOwner));
-      assert.equal(otherState.phase, "waiting");
-      assert.isNull(otherState.flowId);
-      assert.isNull(otherState.authorizationUrl);
-      assert.isNull(otherState.interaction);
-      assert.isNull(otherState.expiresAt);
-      const forgedCallback = { ...claimedOwner, callbackUrl };
-      const forgedResponse = {
-        ...claimedOwner,
-        interactionId: "browser-consent",
-        response: { type: "browser" as const, action: "accept" as const },
-      };
-      const errors = yield* Effect.all([
-        neighbor[WS_METHODS.providerAuthComplete](forgedCallback).pipe(Effect.flip),
-        neighbor[WS_METHODS.providerAuthRespond](forgedResponse).pipe(Effect.flip),
-        neighbor[WS_METHODS.providerAuthCancel](claimedOwner).pipe(Effect.flip),
-        owner[WS_METHODS.providerAuthComplete]({ instanceId: foreignId, flowId, callbackUrl }).pipe(Effect.flip),
-        owner[WS_METHODS.providerAuthStart]({ instanceId: unknownId }).pipe(Effect.flip),
-        owner[WS_METHODS.providerAuthSubscribe]({ instanceId: unknownId }).pipe(Stream.runHead, Effect.flip),
-      ]);
-      for (const error of errors) {
-        assert.equal(error._tag, "ProviderSetupError");
-        assert.notInclude(JSON.stringify(error), "fixture-code");
-      }
-      assert.deepEqual(callbacks, []);
-      assert.isFalse(yield* Deferred.isDone(responded));
-
-      const independent = yield* neighbor[WS_METHODS.providerAuthStart]({ instanceId: foreignId });
-      assert.notEqual(independent.flowId, flowId);
-      const workState = yield* head(
-        neighbor[WS_METHODS.providerAuthSubscribe]({ instanceId: foreignId }).pipe(
+    const flowId = yield* Effect.scoped(
+      Effect.gen(function* () {
+        let socket: WebSocket | undefined;
+        const owner = yield* makeClient("owner", (connected) => {
+          socket = connected;
+        });
+        const neighbor = yield* makeClient("neighbor");
+        const forgedStart = { ...target, ownerSessionId: neighborId };
+        const started = yield* owner[WS_METHODS.providerAuthStart](forgedStart);
+        assert.isNotNull(started.flowId);
+        const flowId = started.flowId!;
+        const ownerStates = yield* Queue.unbounded<string | null>();
+        yield* owner[WS_METHODS.providerAuthSubscribe](target).pipe(
           Stream.filter((state) => state.phase === "waiting"),
-        ),
-      );
-      assert.equal(workState.authorizationUrl, workAuthorizationUrl);
-      assert.equal((yield* neighbor[WS_METHODS.providerAuthCancel]({
-        instanceId: foreignId, flowId: independent.flowId!,
-      })).phase, "cancelled");
+          Stream.runForEach((state) => Queue.offer(ownerStates, state.authorizationUrl)),
+          Effect.ignore,
+          Effect.forkScoped,
+        );
+        assert.equal(yield* Queue.take(ownerStates), authorizationUrl);
+        yield* Deferred.await(ownerSubscribed);
 
-      yield* Effect.sync(() => socket!.terminate());
-      yield* Deferred.await(ownerSubscriptionClosed);
-    yield* Deferred.await(ownerDisconnected);
-      watchOwner = false;
-      return flowId;
-    }));
+        const claimedOwner = { ...target, flowId, ownerSessionId: ownerId };
+        const otherState = yield* head(neighbor[WS_METHODS.providerAuthSubscribe](claimedOwner));
+        assert.equal(otherState.phase, "waiting");
+        assert.isNull(otherState.flowId);
+        assert.isNull(otherState.authorizationUrl);
+        assert.isNull(otherState.interaction);
+        assert.isNull(otherState.expiresAt);
+        const forgedCallback = { ...claimedOwner, callbackUrl };
+        const forgedResponse = {
+          ...claimedOwner,
+          interactionId: "browser-consent",
+          response: { type: "browser" as const, action: "accept" as const },
+        };
+        const errors = yield* Effect.all([
+          neighbor[WS_METHODS.providerAuthComplete](forgedCallback).pipe(Effect.flip),
+          neighbor[WS_METHODS.providerAuthRespond](forgedResponse).pipe(Effect.flip),
+          neighbor[WS_METHODS.providerAuthCancel](claimedOwner).pipe(Effect.flip),
+          owner[WS_METHODS.providerAuthComplete]({
+            instanceId: foreignId,
+            flowId,
+            callbackUrl,
+          }).pipe(Effect.flip),
+          owner[WS_METHODS.providerAuthStart]({ instanceId: unknownId }).pipe(Effect.flip),
+          owner[WS_METHODS.providerAuthSubscribe]({ instanceId: unknownId }).pipe(
+            Stream.runHead,
+            Effect.flip,
+          ),
+        ]);
+        for (const error of errors) {
+          assert.equal(error._tag, "ProviderSetupError");
+          assert.notInclude(JSON.stringify(error), "fixture-code");
+        }
+        assert.deepEqual(callbacks, []);
+        assert.isFalse(yield* Deferred.isDone(responded));
 
-    yield* Effect.scoped(Effect.gen(function* () {
-      const owner = yield* makeClient("owner");
-      assert.equal((yield* head(owner[WS_METHODS.providerAuthSubscribe](target))).flowId, flowId);
-      yield* owner[WS_METHODS.providerAuthRespond]({
-        ...target, flowId, interactionId: "browser-consent", response: { type: "browser", action: "accept" },
-      });
-      yield* Deferred.await(responded);
-      assert.equal((yield* owner[WS_METHODS.providerAuthComplete]({
-        ...target, flowId, callbackUrl,
-      })).phase, "verifying");
-      assert.equal((yield* owner[WS_METHODS.providerAuthCancel]({ ...target, flowId })).phase, "cancelled");
-      assert.equal((yield* owner[WS_METHODS.providerAuthLogout](target)).phase, "idle");
-    }));
+        const independent = yield* neighbor[WS_METHODS.providerAuthStart]({
+          instanceId: foreignId,
+        });
+        assert.notEqual(independent.flowId, flowId);
+        const workState = yield* head(
+          neighbor[WS_METHODS.providerAuthSubscribe]({ instanceId: foreignId }).pipe(
+            Stream.filter((state) => state.phase === "waiting"),
+          ),
+        );
+        assert.equal(workState.authorizationUrl, workAuthorizationUrl);
+        assert.equal(
+          (yield* neighbor[WS_METHODS.providerAuthCancel]({
+            instanceId: foreignId,
+            flowId: independent.flowId!,
+          })).phase,
+          "cancelled",
+        );
+
+        yield* Effect.sync(() => socket!.terminate());
+        yield* Deferred.await(ownerSubscriptionClosed);
+        yield* Deferred.await(ownerDisconnected);
+        watchOwner = false;
+        return flowId;
+      }),
+    );
+
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        const owner = yield* makeClient("owner");
+        assert.equal((yield* head(owner[WS_METHODS.providerAuthSubscribe](target))).flowId, flowId);
+        yield* owner[WS_METHODS.providerAuthRespond]({
+          ...target,
+          flowId,
+          interactionId: "browser-consent",
+          response: { type: "browser", action: "accept" },
+        });
+        yield* Deferred.await(responded);
+        assert.equal(
+          (yield* owner[WS_METHODS.providerAuthComplete]({
+            ...target,
+            flowId,
+            callbackUrl,
+          })).phase,
+          "verifying",
+        );
+        assert.equal(
+          (yield* owner[WS_METHODS.providerAuthCancel]({ ...target, flowId })).phase,
+          "cancelled",
+        );
+        assert.equal((yield* owner[WS_METHODS.providerAuthLogout](target)).phase, "idle");
+      }),
+    );
     assert.deepEqual(callbacks, [callbackUrl]);
     assert.deepEqual(loggedOut, [instanceId]);
   }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
@@ -1623,41 +1778,54 @@ it.effect("records only fresh successful thread creation against the originating
       Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({ get: () => Effect.succeed(null) }),
       Layer.mock(ServerRuntimeStartup.ServerRuntimeStartup)({ enqueueCommand: (effect) => effect }),
       Layer.mock(ThreadManagement.ThreadManagementService)({
-        dispatch: (command) => Effect.gen(function* () {
-          effects.push(command.commandId);
-          if (command.commandId === "failed") {
-            return yield* new Orchestrator.OrchestratorDispatchError({
-              commandId: command.commandId,
-              commandType: command.type,
-              cause: new Error("Fixture refusal"),
-            });
-          }
-          return {
-            sequence: 1,
-            storedEvents: [],
-            ...(command.commandId === "replayed" ? { replayed: true as const } : {}),
-          };
-        }),
+        dispatch: (command) =>
+          Effect.gen(function* () {
+            effects.push(command.commandId);
+            if (command.commandId === "failed") {
+              return yield* new Orchestrator.OrchestratorDispatchError({
+                commandId: command.commandId,
+                commandType: command.type,
+                cause: new Error("Fixture refusal"),
+              });
+            }
+            return {
+              sequence: 1,
+              storedEvents: [],
+              ...(command.commandId === "replayed" ? { replayed: true as const } : {}),
+            };
+          }),
       }),
       Layer.mock(AnalyticsService.AnalyticsService)({
-        record: (event, props) => Effect.sync(() => { effects.push({ event, props }); }),
+        record: (event, props) =>
+          Effect.sync(() => {
+            effects.push({ event, props });
+          }),
       }),
-      Layer.succeed(SqlClient.SqlClient, sql),
-    );
+    ).pipe(Layer.provideMerge(Layer.succeed(SqlClient.SqlClient, sql)));
     const browser = yield* ServerBrowser.ServerBrowser;
-    const makeClient = (surface: "web" | "mobile", scopes: EnvironmentAuth.AuthenticatedSession["scopes"]) =>
+    const makeClient = (
+      surface: "web" | "mobile",
+      scopes: EnvironmentAuth.AuthenticatedSession["scopes"],
+    ) =>
       RpcTest.makeClient(WsRpcGroup.middleware(RpcInstrumentation)).pipe(
-        Effect.provide(layerWsRpc(
-          { sessionId: AuthSessionId.make(surface), subject: surface, method: "browser-session-cookie", scopes },
-          { surface },
-          browser,
-          () => Effect.void,
-          { secretReferences: true },
-        ).pipe(
-          Layer.provide(services),
-          Layer.merge(RpcAuthorization.layer(scopes)),
-          Layer.merge(rpcInstrumentationLayer),
-        )),
+        Effect.provide(
+          layerWsRpc(
+            {
+              sessionId: AuthSessionId.make(surface),
+              subject: surface,
+              method: "browser-session-cookie",
+              scopes,
+            },
+            { surface },
+            browser,
+            () => Effect.void,
+            { secretReferences: true },
+          ).pipe(
+            Layer.provide(services),
+            Layer.merge(RpcAuthorization.layer(scopes)),
+            Layer.merge(rpcInstrumentationLayer),
+          ),
+        ),
       );
     const command = (id: string) => ({
       type: "thread.create" as const,
@@ -1734,22 +1902,29 @@ it.effect("authorizes editor launches before dispatch and preserves typed launch
             if (input.cwd === "/fixture/missing-editor") return yield* missing;
           }),
       }),
-      Layer.succeed(SqlClient.SqlClient, sql),
+
       ProjectionStore.layer.pipe(Layer.provide(Layer.succeed(SqlClient.SqlClient, sql))),
-    );
+    ).pipe(Layer.provideMerge(Layer.succeed(SqlClient.SqlClient, sql)));
     const makeClient = (id: string, scopes: EnvironmentAuth.AuthenticatedSession["scopes"]) =>
       RpcTest.makeClient(WsRpcGroup.middleware(RpcInstrumentation)).pipe(
-        Effect.provide(layerWsRpc(
-          { sessionId: AuthSessionId.make(id), subject: id, method: "browser-session-cookie", scopes },
-          {},
-          browser,
-          () => Effect.void,
-          { secretReferences: true },
-        ).pipe(
-          Layer.provide(services),
-          Layer.merge(RpcAuthorization.layer(scopes)),
-          Layer.merge(rpcInstrumentationLayer),
-        )),
+        Effect.provide(
+          layerWsRpc(
+            {
+              sessionId: AuthSessionId.make(id),
+              subject: id,
+              method: "browser-session-cookie",
+              scopes,
+            },
+            {},
+            browser,
+            () => Effect.void,
+            { secretReferences: true },
+          ).pipe(
+            Layer.provide(services),
+            Layer.merge(RpcAuthorization.layer(scopes)),
+            Layer.merge(rpcInstrumentationLayer),
+          ),
+        ),
       );
 
     const reader = yield* makeClient("editor-reader", [AuthOrchestrationReadScope]);
@@ -1760,7 +1935,12 @@ it.effect("authorizes editor launches before dispatch and preserves typed launch
 
     const operator = yield* makeClient("editor-operator", [AuthOrchestrationOperateScope]);
     yield* operator[WS_METHODS.shellOpenInEditor](target);
-    const positioned = { ...target, cwd: "/fixture/project/file.ts", projectRoot: target.cwd, position: { line: 5, column: 2 } };
+    const positioned = {
+      ...target,
+      cwd: "/fixture/project/file.ts",
+      projectRoot: target.cwd,
+      position: { line: 5, column: 2 },
+    };
     yield* operator[WS_METHODS.shellOpenInEditor](positioned);
     const missingTarget = { ...target, cwd: "/fixture/missing-editor" };
     const failed = yield* operator[WS_METHODS.shellOpenInEditor](missingTarget).pipe(Effect.flip);
@@ -1786,272 +1966,409 @@ const botRpcTags = [
 ] as const;
 const botRpcs = WsRpcGroup.omit(
   ...[...WsRpcGroup.requests.keys()].filter(
-    (tag): tag is Exclude<keyof typeof RpcAuthorization.RPC_REQUIRED_SCOPES, (typeof botRpcTags)[number]> =>
-      !(botRpcTags as ReadonlyArray<string>).includes(tag),
+    (
+      tag,
+    ): tag is Exclude<
+      keyof typeof RpcAuthorization.RPC_REQUIRED_SCOPES,
+      (typeof botRpcTags)[number]
+    > => !(botRpcTags as ReadonlyArray<string>).includes(tag),
   ),
 ).middleware(RpcInstrumentation);
 
-it.effect("bot RPCs isolate projections and require authorization before touching the browser", () =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const projections = yield* ProjectionStore.ProjectionStoreV2;
-    const settings = yield* ServerSettings.ServerSettingsService;
-    const projectId = ProjectId.make("bot-rpc-project");
-    const foreignProjectId = ProjectId.make("bot-rpc-other-project");
-    const botId = BotId.make("bot-rpc-owner");
-    const unknownBotId = BotId.make("bot-rpc-unknown");
-    const archivedBotId = BotId.make("bot-rpc-archived");
-    const good = ThreadId.make("bot-rpc-thread");
-    const foreign = ThreadId.make("bot-rpc-foreign");
-    const ordinary = ThreadId.make("bot-rpc-ordinary");
-    const missing = ThreadId.make("bot-rpc-missing");
-    const deleted = ThreadId.make("bot-rpc-deleted");
-    const archived = ThreadId.make("bot-rpc-archived");
-    const messageId = MessageId.make("bot-rpc-message");
-    const runId = RunId.make("bot-rpc-run");
-    const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "default" };
-    const now = DateTime.makeUnsafe("2026-10-15T00:00:00Z");
-    const at = DateTime.formatIso(now);
-    const profile = {
-      id: botId, name: "Fixture bot", description: "", instructions: "", projectId,
-      modelSelection, pinned: false, archived: false, createdAt: at, updatedAt: at,
-    };
-    yield* settings.insertBotProfileIfAbsent(profile);
-    yield* settings.insertBotProfileIfAbsent({ ...profile, id: archivedBotId, archived: true });
+it.effect(
+  "bot RPCs isolate projections and require authorization before touching the browser",
+  () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const settings = yield* ServerSettings.ServerSettingsService;
+      const projectId = ProjectId.make("bot-rpc-project");
+      const foreignProjectId = ProjectId.make("bot-rpc-other-project");
+      const botId = BotId.make("bot-rpc-owner");
+      const unknownBotId = BotId.make("bot-rpc-unknown");
+      const archivedBotId = BotId.make("bot-rpc-archived");
+      const good = ThreadId.make("bot-rpc-thread");
+      const foreign = ThreadId.make("bot-rpc-foreign");
+      const ordinary = ThreadId.make("bot-rpc-ordinary");
+      const missing = ThreadId.make("bot-rpc-missing");
+      const deleted = ThreadId.make("bot-rpc-deleted");
+      const archived = ThreadId.make("bot-rpc-archived");
+      const messageId = MessageId.make("bot-rpc-message");
+      const runId = RunId.make("bot-rpc-run");
+      const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "default" };
+      const now = DateTime.makeUnsafe("2026-10-15T00:00:00Z");
+      const at = DateTime.formatIso(now);
+      const profile = {
+        id: botId,
+        name: "Fixture bot",
+        description: "",
+        instructions: "",
+        projectId,
+        modelSelection,
+        pinned: false,
+        archived: false,
+        createdAt: at,
+        updatedAt: at,
+      };
+      yield* settings.insertBotProfileIfAbsent(profile);
+      yield* settings.insertBotProfileIfAbsent({ ...profile, id: archivedBotId, archived: true });
 
-    const seedThread = (id: ThreadId, options: {
-      readonly projectId?: ProjectId;
-      readonly botId?: BotId;
-      readonly deleted?: boolean;
-    } = {}) =>
-      projections.apply({
-        id: EventId.make(`seed:${id}`), type: "thread.created", threadId: id, occurredAt: now,
+      const seedThread = (
+        id: ThreadId,
+        options: {
+          readonly projectId?: ProjectId;
+          readonly botId?: BotId;
+          readonly deleted?: boolean;
+        } = {},
+      ) =>
+        projections.apply({
+          id: EventId.make(`seed:${id}`),
+          type: "thread.created",
+          threadId: id,
+          occurredAt: now,
+          payload: {
+            id,
+            projectId: options.projectId ?? projectId,
+            title: "Fixture thread",
+            createdBy: "user",
+            creationSource: "web",
+            providerInstanceId: modelSelection.instanceId,
+            modelSelection,
+            runtimeMode: "approval-required",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            activeProviderThreadId: null,
+            lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: id },
+            forkedFrom: null,
+            createdAt: now,
+            updatedAt: now,
+            archivedAt: null,
+            settledAt: null,
+            settledOverride: null,
+            lastVisitedAt: null,
+            deletedAt: options.deleted ? now : null,
+            ...(options.botId
+              ? { bot: { id: options.botId, name: "Fixture bot", instructions: "" } }
+              : {}),
+          },
+        });
+      yield* seedThread(good, { botId });
+      yield* seedThread(foreign, { botId, projectId: foreignProjectId });
+      yield* seedThread(ordinary);
+      yield* seedThread(deleted, { botId, deleted: true });
+      yield* seedThread(archived, { botId: archivedBotId });
+
+      yield* projections.apply({
+        id: EventId.make("seed:bot-rpc-run"),
+        type: "run.created",
+        threadId: good,
+        runId,
+        occurredAt: now,
         payload: {
-          id, projectId: options.projectId ?? projectId, title: "Fixture thread", createdBy: "user",
-          creationSource: "web", providerInstanceId: modelSelection.instanceId, modelSelection,
-          runtimeMode: "approval-required", interactionMode: "default", branch: null,
-          worktreePath: null, activeProviderThreadId: null,
-          lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: id },
-          forkedFrom: null, createdAt: now, updatedAt: now, archivedAt: null, settledAt: null,
-          settledOverride: null, lastVisitedAt: null, deletedAt: options.deleted ? now : null,
-          ...(options.botId ? { bot: { id: options.botId, name: "Fixture bot", instructions: "" } } : {}),
+          id: runId,
+          threadId: good,
+          ordinal: 1,
+          providerInstanceId: modelSelection.instanceId,
+          modelSelection,
+          providerThreadId: null,
+          userMessageId: messageId,
+          rootNodeId: null,
+          activeAttemptId: null,
+          status: "running",
+          requestedAt: now,
+          startedAt: now,
+          completedAt: null,
+          checkpointId: null,
+          contextHandoffId: null,
         },
       });
-    yield* seedThread(good, { botId });
-    yield* seedThread(foreign, { botId, projectId: foreignProjectId });
-    yield* seedThread(ordinary);
-    yield* seedThread(deleted, { botId, deleted: true });
-    yield* seedThread(archived, { botId: archivedBotId });
+      yield* projections.apply({
+        id: EventId.make("seed:bot-rpc-message"),
+        type: "message.updated",
+        threadId: good,
+        runId,
+        occurredAt: now,
+        payload: {
+          id: messageId,
+          threadId: good,
+          nodeId: null,
+          runId,
+          role: "user",
+          text: "Fixture prompt",
+          attachments: [],
+          streaming: false,
+          createdAt: now,
+          updatedAt: now,
+          createdBy: "user",
+          creationSource: "web",
+        },
+      });
 
-    yield* projections.apply({
-      id: EventId.make("seed:bot-rpc-run"), type: "run.created", threadId: good, runId,
-      occurredAt: now,
-      payload: {
-        id: runId, threadId: good, ordinal: 1, providerInstanceId: modelSelection.instanceId,
-        modelSelection, providerThreadId: null, userMessageId: messageId, rootNodeId: null,
-        activeAttemptId: null, status: "running", requestedAt: now, startedAt: now,
-        completedAt: null, checkpointId: null, contextHandoffId: null,
-      },
-    });
-    yield* projections.apply({
-      id: EventId.make("seed:bot-rpc-message"), type: "message.updated", threadId: good, runId,
-      occurredAt: now,
-      payload: {
-        id: messageId, threadId: good, nodeId: null, runId, role: "user", text: "Fixture prompt",
-        attachments: [], streaming: false, createdAt: now, updatedAt: now,
-        createdBy: "user", creationSource: "web",
-      },
-    });
-
-    const routineRuns = yield* makeRoutineRuns;
-    assert.isTrue(yield* routineRuns.claim(botId, "our-routine", 1, at));
-    assert.isTrue(yield* routineRuns.settle(botId, "our-routine", 1, "admitted", at, null));
-    const later = "2026-10-15T00:00:01.000Z";
-    assert.isTrue(yield* routineRuns.claim(botId, "our-routine", 4, at));
-    assert.isTrue(yield* routineRuns.settle(
-      botId, "our-routine", 4, "uncertain", later, "Admission outcome unknown.",
-    ));
-    assert.isTrue(yield* routineRuns.claim(archivedBotId, "our-routine", 4, at));
-    const readStoredHistory = sql`SELECT * FROM bot_routine_runs ORDER BY bot_id, routine_id, occurrence_ms`;
-    const beforeHistoryReads = yield* readStoredHistory;
-
-    const shellReads: ThreadId[] = [];
-    const callRecordReads: ThreadId[] = [];
-    let changeBotIdentityInShell = false;
-    const pageUrl = "https://example.invalid/bot-view";
-    let revision = "fixture-first";
-    let requests = 0;
-    let actions = 0;
-    const browser = Layer.mock(BackgroundBrowser)({
-      requestForThread: (threadId, method, params) => Effect.sync(() => {
-        assert.equal(threadId, good);
-        assert.equal(method, "tools/call");
-        requests++;
-        const call = params as { name: string; arguments: { script: string } };
-        assert.equal(call.name, "evaluate");
-        if (call.arguments.script.includes("const action = ")) {
-          if (!call.arguments.script.includes(`"revision":"${revision}"`)) {
-            return { isError: true, content: [{ type: "text", text: "Fixture stale control" }] };
-          }
-          actions++;
-          revision = "fixture-updated";
-          return { content: [{ type: "text", text: "true" }] };
-        }
-        return {
-          content: [{ type: "text", text: JSON.stringify({
-            revision, url: pageUrl, title: "Fixture", html: "<p>Bot view</p>",
-          }) }],
-        };
-      }),
-    });
-    const services = Layer.mergeAll(
-      layerUnusedConfigRpcServices,
-      Layer.mock(ServerBrowser.ServerBrowser)({}),
-      Layer.mock(MausbotService)({}),
-      Layer.mock(V2RoutingOwner)({}),
-      Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: process.cwd() }),
-      Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
-      Layer.mock(ProviderRegistry.ProviderRegistry)({}),
-      Layer.mock(UsageLimitSources.UsageLimitSources)({}),
-      Layer.mock(ExternalLauncher.ExternalLauncher)({}),
-      Layer.mock(RemoteOpenTargets.RemoteOpenTargets)({}),
-      Layer.mock(DirectEndpoints.DirectEndpoints)({}),
-      Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
-      Layer.mock(ServerEnvironment.ServerEnvironment)({
-        getEnvironmentId: Effect.succeed(EnvironmentId.make("bot-rpc-fixture")),
-      }),
-      Layer.mock(ThreadManagement.ThreadManagementService)({
-        getThreadSnapshotWindow: (id, options) =>
-          projections.getThreadSnapshotWindow(id, options).pipe(
-            Effect.mapError((cause) => new Orchestrator.OrchestratorProjectionError({ threadId: id, cause })),
-          ),
-      }),
-      Layer.mock(Orchestrator.OrchestratorV2)({
-        getThreadShell: (id) =>
-          Effect.suspend(() => {
-            shellReads.push(id);
-            return projections.getThreadShell(id);
-          }).pipe(
-            Effect.map((thread) =>
-              thread?.bot && id === good && changeBotIdentityInShell
-                ? { ...thread, bot: { ...thread.bot, id: archivedBotId } }
-                : thread,
-            ),
-            Effect.mapError((cause) => new Orchestrator.OrchestratorProjectionError({ threadId: id, cause })),
-          ),
-      }),
-      Layer.succeed(ProjectionStore.ProjectionStoreV2, {
-        ...projections,
-        getThreadRecords: (id, fields, filter) => Effect.suspend(() => {
-          callRecordReads.push(id);
-          return projections.getThreadRecords(id, fields, filter);
-        }),
-      }),
-      Layer.succeed(SqlClient.SqlClient, sql),
-      browser,
-    );
-    const serverBrowser = yield* ServerBrowser.ServerBrowser;
-    const makeClient = (sessionId: string, scopes: EnvironmentAuth.AuthenticatedSession["scopes"]) =>
-      RpcTest.makeClient(botRpcs).pipe(
-        Effect.provide(
-          layerWsRpc(
-            { sessionId: AuthSessionId.make(sessionId), subject: "fixture",
-              method: "browser-session-cookie", scopes },
-            {},
-            serverBrowser,
-            () => Effect.void,
-            { secretReferences: true },
-          ).pipe(
-            Layer.provide(services),
-            Layer.merge(RpcAuthorization.layer(scopes)),
-            Layer.merge(rpcInstrumentationLayer),
-          ),
+      const routineRuns = yield* makeRoutineRuns;
+      assert.isTrue(yield* routineRuns.claim(botId, "our-routine", 1, at));
+      assert.isTrue(yield* routineRuns.settle(botId, "our-routine", 1, "admitted", at, null));
+      const later = "2026-10-15T00:00:01.000Z";
+      assert.isTrue(yield* routineRuns.claim(botId, "our-routine", 4, at));
+      assert.isTrue(
+        yield* routineRuns.settle(
+          botId,
+          "our-routine",
+          4,
+          "uncertain",
+          later,
+          "Admission outcome unknown.",
         ),
       );
+      assert.isTrue(yield* routineRuns.claim(archivedBotId, "our-routine", 4, at));
+      const readStoredHistory = sql`SELECT * FROM bot_routine_runs ORDER BY bot_id, routine_id, occurrence_ms`;
+      const beforeHistoryReads = yield* readStoredHistory;
 
-    const denied = yield* makeClient("none", []);
-    const reader = yield* makeClient("reader", [AuthOrchestrationReadScope]);
-    const operator = yield* makeClient("operator", [AuthOrchestrationReadScope, AuthOrchestrationOperateScope]);
-    const click = { type: "click" as const, node: 0, revision };
-    const unauthorized = yield* Effect.all([
-      denied[WS_METHODS.botRoutineHistory]({ botId }).pipe(Effect.flip),
-      denied[WS_METHODS.botCallTurn]({ threadId: good, messageId }).pipe(Effect.flip),
-      denied[WS_METHODS.botBrowserPage]({ threadId: good }).pipe(Effect.flip),
-      reader[WS_METHODS.botBrowserAction]({ threadId: good, action: click }).pipe(Effect.flip),
-    ]);
-    assert.deepEqual(unauthorized.map((error) =>
-      error._tag === "EnvironmentAuthorizationError" ? error.requiredScope : error._tag
-    ), [AuthOrchestrationReadScope, AuthOrchestrationReadScope, AuthOrchestrationReadScope, AuthOrchestrationOperateScope]);
+      const shellReads: ThreadId[] = [];
+      const callRecordReads: ThreadId[] = [];
+      let changeBotIdentityInShell = false;
+      const pageUrl = "https://example.invalid/bot-view";
+      let revision = "fixture-first";
+      let requests = 0;
+      let actions = 0;
+      const browser = Layer.mock(BackgroundBrowser)({
+        requestForThread: (threadId, method, params) =>
+          Effect.sync(() => {
+            assert.equal(threadId, good);
+            assert.equal(method, "tools/call");
+            requests++;
+            const call = params as { name: string; arguments: { script: string } };
+            assert.equal(call.name, "evaluate");
+            if (call.arguments.script.includes("const action = ")) {
+              if (!call.arguments.script.includes(`"revision":"${revision}"`)) {
+                return {
+                  isError: true,
+                  content: [{ type: "text", text: "Fixture stale control" }],
+                };
+              }
+              actions++;
+              revision = "fixture-updated";
+              return { content: [{ type: "text", text: "true" }] };
+            }
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    revision,
+                    url: pageUrl,
+                    title: "Fixture",
+                    html: "<p>Bot view</p>",
+                  }),
+                },
+              ],
+            };
+          }),
+      });
+      const services = Layer.mergeAll(
+        layerUnusedConfigRpcServices,
+        Layer.mock(ServerBrowser.ServerBrowser)({}),
+        Layer.mock(MausbotService)({}),
+        Layer.mock(V2RoutingOwner)({}),
+        Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+          namedProjectsRoot: process.cwd(),
+        }),
+        Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({}),
+        Layer.mock(UsageLimitSources.UsageLimitSources)({}),
+        Layer.mock(ExternalLauncher.ExternalLauncher)({}),
+        Layer.mock(RemoteOpenTargets.RemoteOpenTargets)({}),
+        Layer.mock(DirectEndpoints.DirectEndpoints)({}),
+        Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
+        Layer.mock(ServerEnvironment.ServerEnvironment)({
+          getEnvironmentId: Effect.succeed(EnvironmentId.make("bot-rpc-fixture")),
+        }),
+        Layer.mock(ThreadManagement.ThreadManagementService)({
+          getThreadSnapshotWindow: (id, options) =>
+            projections
+              .getThreadSnapshotWindow(id, options)
+              .pipe(
+                Effect.mapError(
+                  (cause) => new Orchestrator.OrchestratorProjectionError({ threadId: id, cause }),
+                ),
+              ),
+        }),
+        Layer.mock(Orchestrator.OrchestratorV2)({
+          getThreadShell: (id) =>
+            Effect.suspend(() => {
+              shellReads.push(id);
+              return projections.getThreadShell(id);
+            }).pipe(
+              Effect.map((thread) =>
+                thread?.bot && id === good && changeBotIdentityInShell
+                  ? { ...thread, bot: { ...thread.bot, id: archivedBotId } }
+                  : thread,
+              ),
+              Effect.mapError(
+                (cause) => new Orchestrator.OrchestratorProjectionError({ threadId: id, cause }),
+              ),
+            ),
+        }),
+        Layer.succeed(ProjectionStore.ProjectionStoreV2, {
+          ...projections,
+          getThreadRecords: (id, fields, filter) =>
+            Effect.suspend(() => {
+              callRecordReads.push(id);
+              return projections.getThreadRecords(id, fields, filter);
+            }),
+        }),
 
-    const open = reader[ORCHESTRATION_V2_WS_METHODS.getThreadProjection];
-    const visible = yield* open({ threadId: good });
-    assert.equal(visible.thread.id, good);
-    const refusal = yield* open({ threadId: deleted }).pipe(Effect.flip);
-    assert.equal(refusal._tag, "OrchestrationV2GetThreadProjectionError");
+        browser,
+      ).pipe(Layer.provideMerge(Layer.succeed(SqlClient.SqlClient, sql)));
+      const serverBrowser = yield* ServerBrowser.ServerBrowser;
+      const makeClient = (
+        sessionId: string,
+        scopes: EnvironmentAuth.AuthenticatedSession["scopes"],
+      ) =>
+        RpcTest.makeClient(botRpcs).pipe(
+          Effect.provide(
+            layerWsRpc(
+              {
+                sessionId: AuthSessionId.make(sessionId),
+                subject: "fixture",
+                method: "browser-session-cookie",
+                scopes,
+              },
+              {},
+              serverBrowser,
+              () => Effect.void,
+              { secretReferences: true },
+            ).pipe(
+              Layer.provide(services),
+              Layer.merge(RpcAuthorization.layer(scopes)),
+              Layer.merge(rpcInstrumentationLayer),
+            ),
+          ),
+        );
 
-    assert.deepEqual(yield* reader[WS_METHODS.botRoutineHistory]({ botId: unknownBotId }), []);
-    assert.deepEqual(yield* reader[WS_METHODS.botRoutineHistory]({ botId }), [
-      {
-        routineId: "our-routine", occurrence: 4, status: "uncertain",
-        createdAt: at, updatedAt: later, detail: "Admission outcome unknown.",
-      },
-      {
-        routineId: "our-routine", occurrence: 1, status: "admitted",
-        createdAt: at, updatedAt: at, detail: null,
-      },
-    ]);
-    assert.deepEqual(yield* reader[WS_METHODS.botRoutineHistory]({ botId: archivedBotId }), [
-      {
-        routineId: "our-routine", occurrence: 4, status: "claimed",
-        createdAt: at, updatedAt: at, detail: null,
-      },
-    ]);
-    assert.deepEqual(yield* readStoredHistory, beforeHistoryReads);
-    assert.deepEqual(shellReads, []);
-    assert.deepEqual(callRecordReads, []);
-    for (const threadId of [ordinary, missing, deleted]) {
-      assert.isNull(yield* reader[WS_METHODS.botCallTurn]({ threadId, messageId }));
-    }
-    assert.deepEqual(shellReads, [ordinary, missing, deleted]);
-    assert.deepEqual(callRecordReads, []);
-    assert.isNull(yield* reader[WS_METHODS.botCallTurn]({ threadId: foreign, messageId }));
-    assert.deepEqual(callRecordReads, [foreign]);
+      const denied = yield* makeClient("none", []);
+      const reader = yield* makeClient("reader", [AuthOrchestrationReadScope]);
+      const operator = yield* makeClient("operator", [
+        AuthOrchestrationReadScope,
+        AuthOrchestrationOperateScope,
+      ]);
+      const click = { type: "click" as const, node: 0, revision };
+      const unauthorized = yield* Effect.all([
+        denied[WS_METHODS.botRoutineHistory]({ botId }).pipe(Effect.flip),
+        denied[WS_METHODS.botCallTurn]({ threadId: good, messageId }).pipe(Effect.flip),
+        denied[WS_METHODS.botBrowserPage]({ threadId: good }).pipe(Effect.flip),
+        reader[WS_METHODS.botBrowserAction]({ threadId: good, action: click }).pipe(Effect.flip),
+      ]);
+      assert.deepEqual(
+        unauthorized.map((error) =>
+          error._tag === "EnvironmentAuthorizationError" ? error.requiredScope : error._tag,
+        ),
+        [
+          AuthOrchestrationReadScope,
+          AuthOrchestrationReadScope,
+          AuthOrchestrationReadScope,
+          AuthOrchestrationOperateScope,
+        ],
+      );
 
-    changeBotIdentityInShell = true;
-    assert.isNull(yield* reader[WS_METHODS.botCallTurn]({ threadId: good, messageId }));
-    changeBotIdentityInShell = false;
-    assert.isNull(yield* reader[WS_METHODS.botCallTurn]({
-      threadId: good, messageId: MessageId.make("other-message"),
-    }));
-    assert.deepEqual(yield* reader[WS_METHODS.botCallTurn]({ threadId: good, messageId }),
-      { turnId: runId, state: "running", assistantMessageId: null, text: null });
+      const open = reader[ORCHESTRATION_V2_WS_METHODS.getThreadProjection];
+      const visible = yield* open({ threadId: good });
+      assert.equal(visible.thread.id, good);
+      const refusal = yield* open({ threadId: deleted }).pipe(Effect.flip);
+      assert.equal(refusal._tag, "OrchestrationV2GetThreadProjectionError");
 
-    for (const threadId of [ordinary, missing, foreign, deleted, archived]) {
-      const read = yield* reader[WS_METHODS.botBrowserPage]({ threadId }).pipe(Effect.flip);
-      const action = yield* operator[WS_METHODS.botBrowserAction]({
-        threadId, action: { type: "open" },
+      assert.deepEqual(yield* reader[WS_METHODS.botRoutineHistory]({ botId: unknownBotId }), []);
+      assert.deepEqual(yield* reader[WS_METHODS.botRoutineHistory]({ botId }), [
+        {
+          routineId: "our-routine",
+          occurrence: 4,
+          status: "uncertain",
+          createdAt: at,
+          updatedAt: later,
+          detail: "Admission outcome unknown.",
+        },
+        {
+          routineId: "our-routine",
+          occurrence: 1,
+          status: "admitted",
+          createdAt: at,
+          updatedAt: at,
+          detail: null,
+        },
+      ]);
+      assert.deepEqual(yield* reader[WS_METHODS.botRoutineHistory]({ botId: archivedBotId }), [
+        {
+          routineId: "our-routine",
+          occurrence: 4,
+          status: "claimed",
+          createdAt: at,
+          updatedAt: at,
+          detail: null,
+        },
+      ]);
+      assert.deepEqual(yield* readStoredHistory, beforeHistoryReads);
+      assert.deepEqual(shellReads, []);
+      assert.deepEqual(callRecordReads, []);
+      for (const threadId of [ordinary, missing, deleted]) {
+        assert.isNull(yield* reader[WS_METHODS.botCallTurn]({ threadId, messageId }));
+      }
+      assert.deepEqual(shellReads, [ordinary, missing, deleted]);
+      assert.deepEqual(callRecordReads, []);
+      assert.isNull(yield* reader[WS_METHODS.botCallTurn]({ threadId: foreign, messageId }));
+      assert.deepEqual(callRecordReads, [foreign]);
+
+      changeBotIdentityInShell = true;
+      assert.isNull(yield* reader[WS_METHODS.botCallTurn]({ threadId: good, messageId }));
+      changeBotIdentityInShell = false;
+      assert.isNull(
+        yield* reader[WS_METHODS.botCallTurn]({
+          threadId: good,
+          messageId: MessageId.make("other-message"),
+        }),
+      );
+      assert.deepEqual(yield* reader[WS_METHODS.botCallTurn]({ threadId: good, messageId }), {
+        turnId: runId,
+        state: "running",
+        assistantMessageId: null,
+        text: null,
+      });
+
+      for (const threadId of [ordinary, missing, foreign, deleted, archived]) {
+        const read = yield* reader[WS_METHODS.botBrowserPage]({ threadId }).pipe(Effect.flip);
+        const action = yield* operator[WS_METHODS.botBrowserAction]({
+          threadId,
+          action: { type: "open" },
+        }).pipe(Effect.flip);
+        assert.equal(read._tag, "BotBrowserError");
+        assert.equal(action._tag, "BotBrowserError");
+      }
+      assert.equal(requests, 0);
+
+      assert.equal((yield* reader[WS_METHODS.botBrowserPage]({ threadId: good }))?.url, pageUrl);
+      assert.isNull(yield* reader[WS_METHODS.botBrowserPage]({ threadId: good, revision }));
+      const stale = yield* operator[WS_METHODS.botBrowserAction]({
+        threadId: good,
+        action: { ...click, revision: "fixture-stale" },
       }).pipe(Effect.flip);
-      assert.equal(read._tag, "BotBrowserError");
-      assert.equal(action._tag, "BotBrowserError");
-    }
-    assert.equal(requests, 0);
-
-    assert.equal((yield* reader[WS_METHODS.botBrowserPage]({ threadId: good }))?.url, pageUrl);
-    assert.isNull(yield* reader[WS_METHODS.botBrowserPage]({ threadId: good, revision }));
-    const stale = yield* operator[WS_METHODS.botBrowserAction]({
-      threadId: good, action: { ...click, revision: "fixture-stale" },
-    }).pipe(Effect.flip);
-    assert.equal(stale._tag, "BotBrowserError");
-    assert.equal(actions, 0);
-    assert.equal((yield* operator[WS_METHODS.botBrowserAction]({
-      threadId: good, action: click,
-    })).revision, "fixture-updated");
-    assert.equal(actions, 1);
-  }).pipe(
-    Effect.provide(ProjectionStore.layer.pipe(
-      Layer.provideMerge(Layer.mergeAll(layerConfigSources, Layer.mock(ServerBrowser.ServerBrowser)({}))),
-    )),
-  ),
+      assert.equal(stale._tag, "BotBrowserError");
+      assert.equal(actions, 0);
+      assert.equal(
+        (yield* operator[WS_METHODS.botBrowserAction]({
+          threadId: good,
+          action: click,
+        })).revision,
+        "fixture-updated",
+      );
+      assert.equal(actions, 1);
+    }).pipe(
+      Effect.provide(
+        ProjectionStore.layer.pipe(
+          Layer.provideMerge(
+            Layer.mergeAll(layerConfigSources, Layer.mock(ServerBrowser.ServerBrowser)({})),
+          ),
+        ),
+      ),
+    ),
 );
 
 const hiveMindRpcTags = [
@@ -2065,7 +2382,9 @@ const hiveMindRpcTags = [
 ] as const;
 const hiveMindRpcs = WsRpcGroup.omit(
   ...[...WsRpcGroup.requests.keys()].filter(
-    (tag): tag is Exclude<
+    (
+      tag,
+    ): tag is Exclude<
       keyof typeof RpcAuthorization.RPC_REQUIRED_SCOPES,
       (typeof hiveMindRpcTags)[number]
     > => !(hiveMindRpcTags as ReadonlyArray<string>).includes(tag),
@@ -2095,10 +2414,13 @@ it.effect("Hive Mind RPCs persist edits and reject unauthorized or invalid write
         getEnvironmentId: Effect.succeed(EnvironmentId.make("hive-mind-rpc-fixture")),
       }),
       Layer.succeed(ProjectionStore.ProjectionStoreV2, projections),
-      Layer.succeed(SqlClient.SqlClient, sql),
+
       Layer.succeed(HiveMindService, hive),
-    );
-    const makeClient = (sessionId: string, scopes: EnvironmentAuth.AuthenticatedSession["scopes"]) =>
+    ).pipe(Layer.provideMerge(Layer.succeed(SqlClient.SqlClient, sql)));
+    const makeClient = (
+      sessionId: string,
+      scopes: EnvironmentAuth.AuthenticatedSession["scopes"],
+    ) =>
       RpcTest.makeClient(hiveMindRpcs).pipe(
         Effect.provide(
           layerWsRpc(
@@ -2129,12 +2451,19 @@ it.effect("Hive Mind RPCs persist edits and reject unauthorized or invalid write
     const noReadScope = yield* makeClient("hive-without-read", []);
     const start = yield* writer[WS_METHODS.hiveMindSnapshot]({});
     assert.equal(start.records, 0);
-    const configured = yield* writer[WS_METHODS.hiveMindConfigure]({ version: 1, automatic: false });
+    const configured = yield* writer[WS_METHODS.hiveMindConfigure]({
+      version: 1,
+      automatic: false,
+    });
     assert.isFalse(configured.config.automatic);
     const initial = "Copper cools the engine.";
     const updated = "Aluminum cools the engine.";
     const saved = yield* writer[WS_METHODS.hiveMindMutate]({
-      action: "remember", scope: "project", project: "J1Code", subject: "Engine", fact: initial,
+      action: "remember",
+      scope: "project",
+      project: "J1Code",
+      subject: "Engine",
+      fact: initial,
     });
     assert.equal(saved.records, 1);
     const { memories } = yield* writer[WS_METHODS.hiveMindSearch]({ query: "copper" });
@@ -2144,53 +2473,79 @@ it.effect("Hive Mind RPCs persist edits and reject unauthorized or invalid write
     assert.isString(memory.revision);
     const edit = { action: "edit" as const, id: memory.id, revision: memory.revision! };
     yield* writer[WS_METHODS.hiveMindMutate]({ ...edit, fact: updated });
-    const found = yield* reader[WS_METHODS.hiveMindSearch]({ query: "aluminum", project: "J1Code" });
+    const found = yield* reader[WS_METHODS.hiveMindSearch]({
+      query: "aluminum",
+      project: "J1Code",
+    });
     assert.lengthOf(found.memories, 1);
     assert.equal(found.memories[0]?.id, memory.id);
     assert.equal(found.memories[0]?.fact, updated);
     assert.notEqual(found.memories[0]?.revision, memory.revision);
 
     const badInput = yield* Effect.all([
-      writer[WS_METHODS.hiveMindMutate]({ ...edit, fact: "An outdated correction." }).pipe(Effect.flip),
+      writer[WS_METHODS.hiveMindMutate]({ ...edit, fact: "An outdated correction." }).pipe(
+        Effect.flip,
+      ),
       writer[WS_METHODS.hiveMindConfigure]({ version: 1, vault: "relative" }).pipe(Effect.flip),
-      writer[WS_METHODS.hiveMindImport]({ url: "file:///invalid-hive-source", bank: "legacy" }).pipe(Effect.flip),
+      writer[WS_METHODS.hiveMindImport]({
+        url: "file:///invalid-hive-source",
+        bank: "legacy",
+      }).pipe(Effect.flip),
     ]);
-    assert.deepEqual(badInput.map((error) => error._tag), ["HiveMindError", "HiveMindError", "HiveMindError"]);
+    assert.deepEqual(
+      badInput.map((error) => error._tag),
+      ["HiveMindError", "HiveMindError", "HiveMindError"],
+    );
 
     const unauthorized = yield* Effect.all([
       noReadScope[WS_METHODS.hiveMindSnapshot]({}).pipe(Effect.flip),
       noReadScope[WS_METHODS.hiveMindSearch]({ query: "aluminum" }).pipe(Effect.flip),
       reader[WS_METHODS.hiveMindConfigure]({ version: 1 }).pipe(Effect.flip),
-      reader[WS_METHODS.hiveMindImport]({ url: "file:///denied-hive-source", bank: "legacy" }).pipe(Effect.flip),
+      reader[WS_METHODS.hiveMindImport]({ url: "file:///denied-hive-source", bank: "legacy" }).pipe(
+        Effect.flip,
+      ),
       reader[WS_METHODS.hiveMindMutate]({
-        action: "remember", scope: "general", subject: "Rejected", fact: "Do not write this.",
+        action: "remember",
+        scope: "general",
+        subject: "Rejected",
+        fact: "Do not write this.",
       }).pipe(Effect.flip),
       reader[WS_METHODS.hiveMindSync]({}).pipe(Effect.flip),
     ]);
-    assert.deepEqual(unauthorized.map((error) =>
-      error._tag === "EnvironmentAuthorizationError" ? error.requiredScope : error._tag
-    ), [
-      AuthOrchestrationReadScope, AuthOrchestrationReadScope,
-      AuthAccessWriteScope, AuthAccessWriteScope,
-      AuthOrchestrationOperateScope, AuthOrchestrationOperateScope,
-    ]);
+    assert.deepEqual(
+      unauthorized.map((error) =>
+        error._tag === "EnvironmentAuthorizationError" ? error.requiredScope : error._tag,
+      ),
+      [
+        AuthOrchestrationReadScope,
+        AuthOrchestrationReadScope,
+        AuthAccessWriteScope,
+        AuthAccessWriteScope,
+        AuthOrchestrationOperateScope,
+        AuthOrchestrationOperateScope,
+      ],
+    );
     const after = yield* reader[WS_METHODS.hiveMindSnapshot]({});
     assert.equal(after.records, 1);
     assert.isFalse(after.config.automatic);
     assert.isDefined(yield* reader[WS_METHODS.serverGetSettings]({}));
 
     const persisted = yield* Effect.promise(() => readHiveMind(hive.runtime.file));
-    assert.deepEqual(persisted.memories.map(({ id, fact, project }) => ({ id, fact, project })),
-      [{ id: memory.id, fact: updated, project: "J1Code" }]);
+    assert.deepEqual(
+      persisted.memories.map(({ id, fact, project }) => ({ id, fact, project })),
+      [{ id: memory.id, fact: updated, project: "J1Code" }],
+    );
     const storedConfig = yield* Effect.promise(() => readHiveConfig(hive.runtime.file));
     assert.deepEqual(storedConfig, { version: 1, automatic: false });
   }).pipe(
     Effect.scoped,
-    Effect.provide(Layer.mergeAll(
-      ProjectionStore.layer,
-      HiveMindService.layer.pipe(Layer.provide(Layer.succeed(ServerActivation, Effect.never))),
-      Layer.mock(ServerBrowser.ServerBrowser)({}),
-    ).pipe(Layer.provideMerge(layerConfigSources))),
+    Effect.provide(
+      Layer.mergeAll(
+        ProjectionStore.layer,
+        HiveMindService.layer.pipe(Layer.provide(Layer.succeed(ServerActivation, Effect.never))),
+        Layer.mock(ServerBrowser.ServerBrowser)({}),
+      ).pipe(Layer.provideMerge(layerConfigSources)),
+    ),
   ),
 );
 
@@ -2222,12 +2577,20 @@ it.effect("provider installation RPCs isolate driver operations and observe canc
     const neighborId = ProviderInstanceId.make("codex");
     const unknownId = ProviderInstanceId.make("installation-unknown");
     const calls: string[] = [];
-    const notCurrent = "This installation is no longer current. Refresh its status before cancelling.";
+    const notCurrent =
+      "This installation is no longer current. Refresh its status before cancelling.";
 
     const makeInstaller = Effect.fnUntraced(function* (driver: ProviderDriverKind) {
       const idle: ProviderInstallState = {
-        driver, phase: "idle", operationId: null, downloadedBytes: 0, totalBytes: null,
-        version: null, installedVersion: null, canRemove: false, message: null,
+        driver,
+        phase: "idle",
+        operationId: null,
+        downloadedBytes: 0,
+        totalBytes: null,
+        version: null,
+        installedVersion: null,
+        canRemove: false,
+        message: null,
       };
       const state = yield* SubscriptionRef.make(idle);
       return {
@@ -2237,7 +2600,9 @@ it.effect("provider installation RPCs isolate driver operations and observe canc
         start: Effect.gen(function* () {
           calls.push(`start:${driver}`);
           const next: ProviderInstallState = {
-            ...idle, phase: "downloading", operationId: `install:${driver}`,
+            ...idle,
+            phase: "downloading",
+            operationId: `install:${driver}`,
           };
           yield* SubscriptionRef.set(state, next);
           return next;
@@ -2262,26 +2627,41 @@ it.effect("provider installation RPCs isolate driver operations and observe canc
     });
     const primary = yield* makeInstaller(antigravity);
     const neighbor = yield* makeInstaller(codex);
-    const instance = (id: ProviderInstanceId, driverKind: ProviderDriverKind): ProviderInstance => ({
+    const instance = (
+      id: ProviderInstanceId,
+      driverKind: ProviderDriverKind,
+    ): ProviderInstance => ({
       instanceId: id,
       driverKind,
       enabled: false,
       displayName: undefined,
       continuationIdentity: { driverKind, continuationKey: id },
-      get snapshot(): never { throw new Error("Installation must not probe a provider"); },
-      get orchestrationAdapter(): never { throw new Error("Installation must not launch a provider"); },
-      get textGeneration(): never { throw new Error("Installation must not generate text"); },
+      get snapshot(): never {
+        throw new Error("Installation must not probe a provider");
+      },
+      get orchestrationAdapter(): never {
+        throw new Error("Installation must not launch a provider");
+      },
+      get textGeneration(): never {
+        throw new Error("Installation must not generate text");
+      },
     });
     const instances = [instance(primaryId, antigravity), instance(neighborId, codex)];
     const dependencies = Layer.mergeAll(
       Layer.mock(AntigravityInstallation.AntigravityInstallation)(primary),
       Layer.mock(CodexInstallation.CodexInstallation)({
         ...neighbor,
-        cancel: (operationId) => neighbor.cancel(operationId).pipe(
-          Effect.mapError((error) => new CodexInstallation.CodexInstallationError({
-            operation: error.operation, detail: error.detail, cause: error.cause,
-          })),
-        ),
+        cancel: (operationId) =>
+          neighbor.cancel(operationId).pipe(
+            Effect.mapError(
+              (error) =>
+                new CodexInstallation.CodexInstallationError({
+                  operation: error.operation,
+                  detail: error.detail,
+                  cause: error.cause,
+                }),
+            ),
+          ),
       }),
       Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
         getInstance: (id) => Effect.succeed(instances.find((entry) => entry.instanceId === id)),
@@ -2294,7 +2674,6 @@ it.effect("provider installation RPCs isolate driver operations and observe canc
       }),
     );
     const services = Layer.mergeAll(
-      layerUnusedConfigRpcServices,
       Layer.mock(BackgroundBrowser)({}),
       Layer.mock(MausbotService)({}),
       Layer.mock(V2RoutingOwner)({}),
@@ -2309,24 +2688,38 @@ it.effect("provider installation RPCs isolate driver operations and observe canc
         getEnvironmentId: Effect.succeed(EnvironmentId.make("provider-install-rpc-fixture")),
       }),
       Layer.succeed(ProjectionStore.ProjectionStoreV2, projections),
-      Layer.succeed(SqlClient.SqlClient, sql),
       ProviderInstallation.layer,
-    ).pipe(Layer.provide(dependencies), Layer.merge(dependencies));
+    ).pipe(
+      Layer.provideMerge(Layer.succeed(SqlClient.SqlClient, sql)),
+      Layer.provide(dependencies),
+      Layer.provideMerge(layerUnusedConfigRpcServices),
+      Layer.merge(dependencies),
+    );
     // Share one production installation controller across both client scopes.
     const shared = yield* Layer.build(services);
-    const makeClient = (sessionId: string, scopes: EnvironmentAuth.AuthenticatedSession["scopes"]) =>
+    const makeClient = (
+      sessionId: string,
+      scopes: EnvironmentAuth.AuthenticatedSession["scopes"],
+    ) =>
       RpcTest.makeClient(installRpcs).pipe(
-        Effect.provide(layerWsRpc(
-          { sessionId: AuthSessionId.make(sessionId), subject: "fixture", method: "browser-session-cookie", scopes },
-          {},
-          serverBrowser,
-          () => Effect.void,
-          { secretReferences: true },
-        ).pipe(
-          Layer.provide(Layer.succeedContext(shared)),
-          Layer.merge(RpcAuthorization.layer(scopes)),
-          Layer.merge(rpcInstrumentationLayer),
-        )),
+        Effect.provide(
+          layerWsRpc(
+            {
+              sessionId: AuthSessionId.make(sessionId),
+              subject: "fixture",
+              method: "browser-session-cookie",
+              scopes,
+            },
+            {},
+            serverBrowser,
+            () => Effect.void,
+            { secretReferences: true },
+          ).pipe(
+            Layer.provide(Layer.succeedContext(shared)),
+            Layer.merge(RpcAuthorization.layer(scopes)),
+            Layer.merge(rpcInstrumentationLayer),
+          ),
+        ),
       );
     const managerScopes = [AuthOrchestrationReadScope, AuthProvidersManageScope] as const;
     const manager = yield* makeClient("install-manager", managerScopes);
@@ -2345,18 +2738,33 @@ it.effect("provider installation RPCs isolate driver operations and observe canc
     assert.equal((yield* Queue.take(observed)).phase, "idle");
     const unknown = yield* Effect.all([
       manager[WS_METHODS.providerInstallStart]({ instanceId: unknownId }).pipe(Effect.flip),
-      manager[WS_METHODS.providerInstallCancel]({ instanceId: unknownId, operationId: "unknown" }).pipe(Effect.flip),
-      reader[WS_METHODS.providerInstallSubscribe]({ instanceId: unknownId }).pipe(Stream.runHead, Effect.flip),
+      manager[WS_METHODS.providerInstallCancel]({
+        instanceId: unknownId,
+        operationId: "unknown",
+      }).pipe(Effect.flip),
+      reader[WS_METHODS.providerInstallSubscribe]({ instanceId: unknownId }).pipe(
+        Stream.runHead,
+        Effect.flip,
+      ),
     ]);
-    assert.deepEqual(unknown.map((error) => error._tag), ["ProviderSetupError", "ProviderSetupError", "ProviderSetupError"]);
+    assert.deepEqual(
+      unknown.map((error) => error._tag),
+      ["ProviderSetupError", "ProviderSetupError", "ProviderSetupError"],
+    );
     const denied = yield* Effect.all([
       reader[WS_METHODS.providerInstallStart](primaryTarget).pipe(Effect.flip),
-      reader[WS_METHODS.providerInstallCancel]({ ...primaryTarget, operationId: "install:antigravity" }).pipe(Effect.flip),
+      reader[WS_METHODS.providerInstallCancel]({
+        ...primaryTarget,
+        operationId: "install:antigravity",
+      }).pipe(Effect.flip),
       reader[WS_METHODS.providerInstallRemove](primaryTarget).pipe(Effect.flip),
     ]);
-    assert.deepEqual(denied.map((error) =>
-      error._tag === "EnvironmentAuthorizationError" ? error.requiredPermission : error._tag
-    ), [AuthProvidersManageScope, AuthProvidersManageScope, AuthProvidersManageScope]);
+    assert.deepEqual(
+      denied.map((error) =>
+        error._tag === "EnvironmentAuthorizationError" ? error.requiredPermission : error._tag,
+      ),
+      [AuthProvidersManageScope, AuthProvidersManageScope, AuthProvidersManageScope],
+    );
     assert.deepEqual(calls, []);
 
     const started = yield* manager[WS_METHODS.providerInstallStart](primaryTarget);
@@ -2364,12 +2772,17 @@ it.effect("provider installation RPCs isolate driver operations and observe canc
     assert.deepEqual(yield* Queue.take(observed), started);
     const neighborStarted = yield* secondManager[WS_METHODS.providerInstallStart](neighborTarget);
     const stale = yield* manager[WS_METHODS.providerInstallCancel]({
-      ...primaryTarget, operationId: "old-operation",
+      ...primaryTarget,
+      operationId: "old-operation",
     }).pipe(Effect.flip);
     const foreign = yield* manager[WS_METHODS.providerInstallCancel]({
-      ...neighborTarget, operationId: started.operationId!,
+      ...neighborTarget,
+      operationId: started.operationId!,
     }).pipe(Effect.flip);
-    for (const [error, id] of [[stale, primaryId], [foreign, neighborId]] as const) {
+    for (const [error, id] of [
+      [stale, primaryId],
+      [foreign, neighborId],
+    ] as const) {
       assert.equal(error._tag, "ProviderSetupError");
       if (error._tag === "ProviderSetupError") {
         assert.equal(error.instanceId, id);
@@ -2379,29 +2792,53 @@ it.effect("provider installation RPCs isolate driver operations and observe canc
       }
       assert.notInclude(JSON.stringify(error), "Private download diagnostics");
     }
-    assert.deepEqual(yield* head(reader[WS_METHODS.providerInstallSubscribe](primaryTarget)), started);
-    assert.deepEqual(yield* head(reader[WS_METHODS.providerInstallSubscribe](neighborTarget)), neighborStarted);
+    assert.deepEqual(
+      yield* head(reader[WS_METHODS.providerInstallSubscribe](primaryTarget)),
+      started,
+    );
+    assert.deepEqual(
+      yield* head(reader[WS_METHODS.providerInstallSubscribe](neighborTarget)),
+      neighborStarted,
+    );
 
     const cancelled = yield* secondManager[WS_METHODS.providerInstallCancel]({
-      ...primaryTarget, operationId: started.operationId!,
+      ...primaryTarget,
+      operationId: started.operationId!,
     });
     assert.equal(cancelled.phase, "cancelled");
     assert.deepEqual(yield* Queue.take(observed), cancelled);
-    assert.deepEqual(yield* head(reader[WS_METHODS.providerInstallSubscribe](primaryTarget)), cancelled);
-    assert.deepEqual(yield* head(reader[WS_METHODS.providerInstallSubscribe](neighborTarget)), neighborStarted);
-    assert.equal((yield* secondManager[WS_METHODS.providerInstallCancel]({
-      ...neighborTarget, operationId: neighborStarted.operationId!,
-    })).phase, "cancelled");
+    assert.deepEqual(
+      yield* head(reader[WS_METHODS.providerInstallSubscribe](primaryTarget)),
+      cancelled,
+    );
+    assert.deepEqual(
+      yield* head(reader[WS_METHODS.providerInstallSubscribe](neighborTarget)),
+      neighborStarted,
+    );
+    assert.equal(
+      (yield* secondManager[WS_METHODS.providerInstallCancel]({
+        ...neighborTarget,
+        operationId: neighborStarted.operationId!,
+      })).phase,
+      "cancelled",
+    );
     assert.deepEqual(calls, [
-      "start:antigravity", "start:codex", "cancel:antigravity:old-operation",
-      "cancel:codex:install:antigravity", "cancel:antigravity:install:antigravity",
+      "start:antigravity",
+      "start:codex",
+      "cancel:antigravity:old-operation",
+      "cancel:codex:install:antigravity",
+      "cancel:antigravity:install:antigravity",
       "cancel:codex:install:codex",
     ]);
   }).pipe(
     Effect.scoped,
-    Effect.provide(ProjectionStore.layer.pipe(
-      Layer.provideMerge(Layer.mergeAll(layerConfigSources, Layer.mock(ServerBrowser.ServerBrowser)({}))),
-    )),
+    Effect.provide(
+      ProjectionStore.layer.pipe(
+        Layer.provideMerge(
+          Layer.mergeAll(layerConfigSources, Layer.mock(ServerBrowser.ServerBrowser)({})),
+        ),
+      ),
+    ),
   ),
 );
 
@@ -2416,7 +2853,9 @@ const terminalRpcTags = [
 ] as const;
 const terminalRpcs = WsRpcGroup.omit(
   ...[...WsRpcGroup.requests.keys()].filter(
-    (tag): tag is Exclude<
+    (
+      tag,
+    ): tag is Exclude<
       keyof typeof RpcAuthorization.RPC_REQUIRED_SCOPES,
       (typeof terminalRpcTags)[number]
     > => !(terminalRpcTags as ReadonlyArray<string>).includes(tag),
@@ -2433,11 +2872,21 @@ it.effect("terminal RPCs protect deleted threads and enforce viewer scopes", () 
     const terminal = { threadId: "terminal-draft", terminalId: "default" };
     const input = { ...terminal, cwd: process.cwd() };
     const snapshot = {
-      ...input, worktreePath: null, status: "running" as const, pid: 1234, history: "",
-      exitCode: null, exitSignal: null, label: "Fixture", updatedAt: "2026-01-01T00:00:00.000Z",
+      ...input,
+      worktreePath: null,
+      status: "running" as const,
+      pid: 1234,
+      history: "",
+      exitCode: null,
+      exitSignal: null,
+      label: "Fixture",
+      updatedAt: "2026-01-01T00:00:00.000Z",
     };
     const seed = { type: "snapshot" as const, snapshot };
-    const record = (operation: string) => Effect.sync(() => { calls.push(operation); });
+    const record = (operation: string) =>
+      Effect.sync(() => {
+        calls.push(operation);
+      });
     const services = Layer.mergeAll(
       layerUnusedConfigRpcServices,
       Layer.mock(BackgroundBrowser)({}),
@@ -2455,7 +2904,7 @@ it.effect("terminal RPCs protect deleted threads and enforce viewer scopes", () 
         getEnvironmentId: Effect.succeed(EnvironmentId.make("terminal-rpc-fixture")),
       }),
       Layer.succeed(ProjectionStore.ProjectionStoreV2, projections),
-      Layer.succeed(SqlClient.SqlClient, sql),
+
       Layer.mock(Orchestrator.OrchestratorV2)({
         getThreadRecords: (threadId) => {
           if (threadId === "terminal-deleted") {
@@ -2463,73 +2912,125 @@ it.effect("terminal RPCs protect deleted threads and enforce viewer scopes", () 
               thread: { id: threadId, deletedAt: DateTime.makeUnsafe(0), worktreePath: null },
             } as never);
           }
-          return Effect.fail(new Orchestrator.OrchestratorProjectionError({
-            threadId,
-            cause: threadId === "terminal-unavailable"
-              ? new Error("fixture storage outage")
-              : new ProjectionStore.ProjectionStoreThreadNotFoundError({ threadId }),
-          }));
+          return Effect.fail(
+            new Orchestrator.OrchestratorProjectionError({
+              threadId,
+              cause:
+                threadId === "terminal-unavailable"
+                  ? new Error("fixture storage outage")
+                  : new ProjectionStore.ProjectionStoreThreadNotFoundError({ threadId }),
+            }),
+          );
         },
       }),
       Layer.mock(TerminalManager.TerminalManager)({
         open: () => record("open").pipe(Effect.as(snapshot)),
-        attachOutputStream: (_input, viewer) => Stream.fromEffect(
-          record("attach").pipe(Effect.tap(() => Effect.sync(() => { viewers.push(viewer); })), Effect.as(seed)),
-        ),
-        observeStream: (_input, listener) => record("observe").pipe(
-          Effect.andThen(listener(seed)), Effect.as(() => undefined),
-        ),
+        attachOutputStream: (_input, viewer) =>
+          Stream.fromEffect(
+            record("attach").pipe(
+              Effect.tap(() =>
+                Effect.sync(() => {
+                  viewers.push(viewer);
+                }),
+              ),
+              Effect.as(seed),
+            ),
+          ),
+        observeStream: (_input, listener) =>
+          record("observe").pipe(
+            Effect.andThen(listener(seed)),
+            Effect.as(() => undefined),
+          ),
         write: (input, viewer) =>
           input.data === "fixture-error"
             ? Effect.fail(new TerminalManager.TerminalNotRunningError(terminal))
-            : record("write").pipe(Effect.tap(() => Effect.sync(() => { viewers.push(viewer); }))),
+            : record("write").pipe(
+                Effect.tap(() =>
+                  Effect.sync(() => {
+                    viewers.push(viewer);
+                  }),
+                ),
+              ),
         resize: () => record("resize"),
         clear: () => record("clear"),
         close: () => record("close"),
       }),
-    );
+    ).pipe(Layer.provideMerge(Layer.succeed(SqlClient.SqlClient, sql)));
     const makeClient = (id: string, scopes: EnvironmentAuth.AuthenticatedSession["scopes"]) =>
-      RpcTest.makeClient(terminalRpcs).pipe(Effect.provide(
-        layerWsRpc(
-          { sessionId: AuthSessionId.make(id), subject: "fixture", method: "browser-session-cookie", scopes },
-          {}, browser, () => Effect.void, { secretReferences: true },
-        ).pipe(
-          Layer.provide(services),
-          Layer.merge(RpcAuthorization.layer(scopes)),
-          Layer.merge(rpcInstrumentationLayer),
+      RpcTest.makeClient(terminalRpcs).pipe(
+        Effect.provide(
+          layerWsRpc(
+            {
+              sessionId: AuthSessionId.make(id),
+              subject: "fixture",
+              method: "browser-session-cookie",
+              scopes,
+            },
+            {},
+            browser,
+            () => Effect.void,
+            { secretReferences: true },
+          ).pipe(
+            Layer.provide(services),
+            Layer.merge(RpcAuthorization.layer(scopes)),
+            Layer.merge(rpcInstrumentationLayer),
+          ),
         ),
-      ));
+      );
     const reader = yield* makeClient("terminal-reader", [AuthTerminalReadScope]);
     const operator = yield* makeClient("terminal-operator", [AuthTerminalOperateScope]);
-    const denied = yield* reader[WS_METHODS.terminalWrite]({ ...terminal, data: "fixture" }).pipe(Effect.flip);
+    const denied = yield* reader[WS_METHODS.terminalWrite]({ ...terminal, data: "fixture" }).pipe(
+      Effect.flip,
+    );
     assert.equal(denied._tag, "EnvironmentAuthorizationError");
-    const deniedAttach = yield* reader[WS_METHODS.terminalAttach](input).pipe(Stream.runHead, Effect.flip);
+    const deniedAttach = yield* reader[WS_METHODS.terminalAttach](input).pipe(
+      Stream.runHead,
+      Effect.flip,
+    );
     assert.equal(deniedAttach._tag, "EnvironmentAuthorizationError");
     assert.deepEqual(calls, []);
-    assert.deepEqual(yield* reader[WS_METHODS.terminalObserve](terminal).pipe(Stream.runHead), Option.some(seed));
+    assert.deepEqual(
+      yield* reader[WS_METHODS.terminalObserve](terminal).pipe(Stream.runHead),
+      Option.some(seed),
+    );
     for (const threadId of ["terminal-deleted", "terminal-unavailable"]) {
-      const deniedOpen = yield* operator[WS_METHODS.terminalOpen]({ ...input, threadId }).pipe(Effect.flip);
+      const deniedOpen = yield* operator[WS_METHODS.terminalOpen]({ ...input, threadId }).pipe(
+        Effect.flip,
+      );
       assert.equal(deniedOpen._tag, "TerminalSessionLookupError");
-      const deniedAttach = yield* operator[WS_METHODS.terminalAttach]({ ...input, threadId }).pipe(Stream.runHead, Effect.flip);
+      const deniedAttach = yield* operator[WS_METHODS.terminalAttach]({ ...input, threadId }).pipe(
+        Stream.runHead,
+        Effect.flip,
+      );
       assert.equal(deniedAttach._tag, "TerminalSessionLookupError");
     }
     assert.deepEqual(calls, ["observe"]);
     assert.equal((yield* operator[WS_METHODS.terminalOpen](input)).terminalId, terminal.terminalId);
-    assert.deepEqual(yield* operator[WS_METHODS.terminalAttach](input).pipe(Stream.runHead), Option.some(seed));
+    assert.deepEqual(
+      yield* operator[WS_METHODS.terminalAttach](input).pipe(Stream.runHead),
+      Option.some(seed),
+    );
     yield* operator[WS_METHODS.terminalWrite]({ ...terminal, data: "fixture" });
     yield* operator[WS_METHODS.terminalResize]({ ...terminal, cols: 120, rows: 40 });
     yield* operator[WS_METHODS.terminalClear](terminal);
     yield* operator[WS_METHODS.terminalClose](terminal);
-    const error = yield* operator[WS_METHODS.terminalWrite]({ ...terminal, data: "fixture-error" }).pipe(Effect.flip);
+    const error = yield* operator[WS_METHODS.terminalWrite]({
+      ...terminal,
+      data: "fixture-error",
+    }).pipe(Effect.flip);
     assert.equal(error._tag, "TerminalNotRunningError");
     assert.deepEqual(calls, ["observe", "open", "attach", "write", "resize", "clear", "close"]);
     assert.isDefined(viewers[0]);
     assert.deepEqual(viewers, [viewers[0], viewers[0]]);
   }).pipe(
     Effect.scoped,
-    Effect.provide(ProjectionStore.layer.pipe(
-      Layer.provideMerge(Layer.mergeAll(layerConfigSources, Layer.mock(ServerBrowser.ServerBrowser)({}))),
-    )),
+    Effect.provide(
+      ProjectionStore.layer.pipe(
+        Layer.provideMerge(
+          Layer.mergeAll(layerConfigSources, Layer.mock(ServerBrowser.ServerBrowser)({})),
+        ),
+      ),
+    ),
   ),
 );
 
@@ -2578,7 +3079,10 @@ it.effect("workspace RPCs enforce read scope and keep structured, redacted failu
     yield* fs.makeDirectory(outsideDir);
     yield* fs.writeFileString(path.join(workspaceDir, "inside.txt"), "Inside fixture\n");
     yield* fs.makeDirectory(path.join(workspaceDir, "src"));
-    yield* fs.writeFileString(path.join(workspaceDir, "src", "index.ts"), "export const answer = 42;\n");
+    yield* fs.writeFileString(
+      path.join(workspaceDir, "src", "index.ts"),
+      "export const answer = 42;\n",
+    );
     const { secretsDir } = yield* ServerConfigModule.ServerConfig;
     yield* fs.makeDirectory(secretsDir, { recursive: true });
     const privateFile = path.join(secretsDir, "workspace-rpc-fixture.txt");
@@ -2595,18 +3099,21 @@ it.effect("workspace RPCs enforce read scope and keep structured, redacted failu
     } else if (platform === "win32") {
       const junction = yield* Effect.tryPromise({
         try: () => NodeFSP.symlink(outsideDir, path.join(workspaceDir, "outside-link"), "junction"),
-        catch: (cause) => new WsFixtureFailure({ message: "Could not create the fixture junction", cause }),
+        catch: (cause) =>
+          new WsFixtureFailure({ message: "Could not create the fixture junction", cause }),
       }).pipe(Effect.option);
       if (Option.isSome(junction)) escapedRelativePath = "outside-link/outside.txt";
     }
     const directoryLink = "linked-directory";
     const hasDirectoryLink = platform === "win32" || symlinksSupported;
     if (hasDirectoryLink) {
-      yield* Effect.promise(() => NodeFSP.symlink(
-        outsideDir,
-        path.join(workspaceDir, directoryLink),
-        platform === "win32" ? "junction" : "dir",
-      ));
+      yield* Effect.promise(() =>
+        NodeFSP.symlink(
+          outsideDir,
+          path.join(workspaceDir, directoryLink),
+          platform === "win32" ? "junction" : "dir",
+        ),
+      );
     }
     const missingRoot = path.join(workspaceDir, "missing-workspace");
     const blockedRoot = path.join(root, "blocked-workspace");
@@ -2615,14 +3122,17 @@ it.effect("workspace RPCs enforce read scope and keep structured, redacted failu
       Effect.provide(Layer.fresh(WorkspacePaths.layer)),
       Effect.provideService(FileSystem.FileSystem, {
         ...fs,
-        stat: (target) => target === blockedRoot
-          ? Effect.fail(PlatformError.systemError({
-              _tag: "PermissionDenied",
-              module: "FileSystem",
-              method: "stat",
-              pathOrDescriptor: target,
-            }))
-          : fs.stat(target),
+        stat: (target) =>
+          target === blockedRoot
+            ? Effect.fail(
+                PlatformError.systemError({
+                  _tag: "PermissionDenied",
+                  module: "FileSystem",
+                  method: "stat",
+                  pathOrDescriptor: target,
+                }),
+              )
+            : fs.stat(target),
       }),
     );
     const sensitiveQuery = "authorization: Bearer fixture-secret-token";
@@ -2641,13 +3151,15 @@ it.effect("workspace RPCs enforce read scope and keep structured, redacted failu
       Effect.provide(WorkspacePaths.layer),
     );
     const indexFailure = (input: { cwd: string; query: string; limit: number }) =>
-      Effect.fail(new WorkspaceSearchIndexSearchFailed({
-        cwd: input.cwd,
-        queryLength: input.query.length,
-        pageSize: input.limit,
-        reason: `Search backend diagnostic: ${input.query}`,
-        cause: new Error(`Private diagnostic: ${input.query}`),
-      }));
+      Effect.fail(
+        new WorkspaceSearchIndexSearchFailed({
+          cwd: input.cwd,
+          queryLength: input.query.length,
+          pageSize: input.limit,
+          reason: `Search backend diagnostic: ${input.query}`,
+          cause: new Error(`Private diagnostic: ${input.query}`),
+        }),
+      );
     const services = Layer.mergeAll(
       layerUnusedConfigRpcServices,
       Layer.mock(BackgroundBrowser)({}),
@@ -2665,49 +3177,66 @@ it.effect("workspace RPCs enforce read scope and keep structured, redacted failu
         getEnvironmentId: Effect.succeed(EnvironmentId.make("workspace-failure-fixture")),
       }),
       Layer.succeed(ProjectionStore.ProjectionStoreV2, projections),
-      Layer.succeed(SqlClient.SqlClient, sql),
+
       Layer.succeed(WorkspaceFileSystem.WorkspaceFileSystem, {
         ...files,
-        readFile: (input) => Effect.suspend(() => {
-          fileReads++;
-          return files.readFile(input);
-        }),
-        writeFile: (input) => Effect.suspend(() => {
-          fileWrites++;
-          if (input.relativePath !== "failed-write.txt") return writeFiles.writeFile(input);
-          const resolvedPath = path.join(input.cwd, input.relativePath);
-          return Effect.fail(new WorkspaceFileSystem.WorkspaceFileSystemOperationError({
-            workspaceRoot: input.cwd,
-            relativePath: input.relativePath,
-            resolvedPath,
-            operationPath: resolvedPath,
-            operation: "write-file",
-            cause: new Error(input.contents),
-          }));
-        }),
+        readFile: (input) =>
+          Effect.suspend(() => {
+            fileReads++;
+            return files.readFile(input);
+          }),
+        writeFile: (input) =>
+          Effect.suspend(() => {
+            fileWrites++;
+            if (input.relativePath !== "failed-write.txt") return writeFiles.writeFile(input);
+            const resolvedPath = path.join(input.cwd, input.relativePath);
+            return Effect.fail(
+              new WorkspaceFileSystem.WorkspaceFileSystemOperationError({
+                workspaceRoot: input.cwd,
+                relativePath: input.relativePath,
+                resolvedPath,
+                operationPath: resolvedPath,
+                operation: "write-file",
+                cause: new Error(input.contents),
+              }),
+            );
+          }),
       }),
       Layer.succeed(WorkspaceEntries.WorkspaceEntries, {
         ...entries,
-        list: (input) => Effect.suspend(() => {
-          entryLists++;
-          return input.cwd === blockedRoot
-            ? blockedPaths.normalizeWorkspaceRoot(input.cwd).pipe(Effect.andThen(entries.list(input)))
-            : entries.list(input);
-        }),
-        search: (input) => Effect.suspend(() => {
-          entrySearches++;
-          return input.cwd === workspaceDir && input.query === sensitiveQuery
-            ? indexFailure(input)
-            : entries.search(input);
-        }),
-        searchContents: (input) => input.cwd === workspaceDir ? indexFailure(input) : entries.searchContents(input),
+        list: (input) =>
+          Effect.suspend(() => {
+            entryLists++;
+            return input.cwd === blockedRoot
+              ? blockedPaths
+                  .normalizeWorkspaceRoot(input.cwd)
+                  .pipe(Effect.andThen(entries.list(input)))
+              : entries.list(input);
+          }),
+        search: (input) =>
+          Effect.suspend(() => {
+            entrySearches++;
+            return input.cwd === workspaceDir && input.query === sensitiveQuery
+              ? indexFailure(input)
+              : entries.search(input);
+          }),
+        searchContents: (input) =>
+          input.cwd === workspaceDir ? indexFailure(input) : entries.searchContents(input),
       }),
-    );
-    const makeClient = (sessionId: string, scopes: EnvironmentAuth.AuthenticatedSession["scopes"]) =>
+    ).pipe(Layer.provideMerge(Layer.succeed(SqlClient.SqlClient, sql)));
+    const makeClient = (
+      sessionId: string,
+      scopes: EnvironmentAuth.AuthenticatedSession["scopes"],
+    ) =>
       RpcTest.makeClient(workspaceFailureRpcs).pipe(
         Effect.provide(
           layerWsRpc(
-            { sessionId: AuthSessionId.make(sessionId), subject: "fixture", method: "browser-session-cookie", scopes },
+            {
+              sessionId: AuthSessionId.make(sessionId),
+              subject: "fixture",
+              method: "browser-session-cookie",
+              scopes,
+            },
             {},
             serverBrowser,
             () => Effect.void,
@@ -2748,22 +3277,28 @@ it.effect("workspace RPCs enforce read scope and keep structured, redacted failu
     });
     if (hasDirectoryLink) {
       const linkedListing = yield* reader[WS_METHODS.projectsListEntries]({
-        cwd: workspaceDir, directoryPath: directoryLink,
+        cwd: workspaceDir,
+        directoryPath: directoryLink,
       }).pipe(Effect.flip);
       if (linkedListing._tag !== "ProjectListEntriesError") return yield* Effect.die(linkedListing);
       assert.equal(linkedListing.failure, "directory_list_failed");
       assert.isFalse(listing.entries.some((entry) => entry.path === directoryLink));
       const rootListing = yield* reader[WS_METHODS.projectsListEntries]({
-        cwd: workspaceDir, directoryPath: "",
+        cwd: workspaceDir,
+        directoryPath: "",
       });
       assert.isFalse(rootListing.entries.some((entry) => entry.path === directoryLink));
     }
     const privateRead = yield* reader[WS_METHODS.projectsReadFile]({
-      cwd: workspaceDir, relativePath: privateFile,
+      cwd: workspaceDir,
+      relativePath: privateFile,
     }).pipe(Effect.flip);
     if (privateRead._tag !== "ProjectReadFileError") return yield* Effect.die(privateRead);
     assert.equal(privateRead.failure, "workspace_path_outside_root");
-    assert.notInclude(JSON.stringify((yield* encodeProjectReadFileError(privateRead))), privateContents);
+    assert.notInclude(
+      JSON.stringify(yield* encodeProjectReadFileError(privateRead)),
+      privateContents,
+    );
 
     const entryInput = { cwd: workspaceDir, query: "inside.txt", limit: 10, kind: "file" } as const;
     const entryDenied = yield* ordinaryReader[WS_METHODS.projectsSearchEntries](entryInput).pipe(
@@ -2780,7 +3315,8 @@ it.effect("workspace RPCs enforce read scope and keep structured, redacted failu
 
     const searchInput = { cwd: missingRoot, query: sensitiveQuery, limit: 10 };
     const search = yield* reader[WS_METHODS.projectsSearchEntries](searchInput).pipe(Effect.flip);
-    if (search._tag !== "ProjectSearchEntriesError") throw new Error("Expected a typed search failure");
+    if (search._tag !== "ProjectSearchEntriesError")
+      throw new Error("Expected a typed search failure");
     assert.equal(search.message, `Failed to search workspace entries in '${missingRoot}'.`);
     assert.equal(search.cwd, missingRoot);
     assert.equal(search.queryLength, sensitiveQuery.length);
@@ -2790,9 +3326,14 @@ it.effect("workspace RPCs enforce read scope and keep structured, redacted failu
     assert.isDefined(search.cause);
     assert.notProperty(search, "query");
     assert.notInclude(search.message, "Bearer");
-    assert.notInclude(JSON.stringify((yield* encodeProjectSearchEntriesError(search))), "fixture-secret-token");
+    assert.notInclude(
+      JSON.stringify(yield* encodeProjectSearchEntriesError(search)),
+      "fixture-secret-token",
+    );
 
-    const list = yield* reader[WS_METHODS.projectsListEntries]({ cwd: missingRoot }).pipe(Effect.flip);
+    const list = yield* reader[WS_METHODS.projectsListEntries]({ cwd: missingRoot }).pipe(
+      Effect.flip,
+    );
     if (list._tag !== "ProjectListEntriesError") throw new Error("Expected a typed list failure");
     assert.equal(list.message, `Failed to list workspace entries in '${missingRoot}'.`);
     assert.equal(list.cwd, missingRoot);
@@ -2805,7 +3346,7 @@ it.effect("workspace RPCs enforce read scope and keep structured, redacted failu
     );
     if (blockedList._tag !== "ProjectListEntriesError") return yield* Effect.die(blockedList);
     const decodedBlocked = yield* decodeProjectListEntriesError(
-      (yield* encodeProjectListEntriesError(blockedList)),
+      yield* encodeProjectListEntriesError(blockedList),
     );
     assert.equal(decodedBlocked.failure, "workspace_root_stat_failed");
     assert.equal(decodedBlocked.normalizedCwd, blockedRoot);
@@ -2820,9 +3361,15 @@ it.effect("workspace RPCs enforce read scope and keep structured, redacted failu
     assert.equal(fileRootList.normalizedCwd, fileRoot);
 
     const partialPath = "./missing-browse/child";
-    const browse = yield* reader[WS_METHODS.filesystemBrowse]({ cwd: workspaceDir, partialPath }).pipe(Effect.flip);
+    const browse = yield* reader[WS_METHODS.filesystemBrowse]({
+      cwd: workspaceDir,
+      partialPath,
+    }).pipe(Effect.flip);
     if (browse._tag !== "FilesystemBrowseError") throw new Error("Expected a typed browse failure");
-    assert.equal(browse.message, `Failed to browse filesystem path '${partialPath}' from '${workspaceDir}'.`);
+    assert.equal(
+      browse.message,
+      `Failed to browse filesystem path '${partialPath}' from '${workspaceDir}'.`,
+    );
     assert.equal(browse.cwd, workspaceDir);
     assert.equal(browse.partialPath, partialPath);
     assert.equal(browse.failure, "read_directory_failed");
@@ -2831,16 +3378,22 @@ it.effect("workspace RPCs enforce read scope and keep structured, redacted failu
     assert.isDefined(browse.cause);
 
     const lexicalEscape = yield* reader[WS_METHODS.projectsReadFile]({
-      cwd: workspaceDir, relativePath: "../outside/outside.txt",
+      cwd: workspaceDir,
+      relativePath: "../outside/outside.txt",
     }).pipe(Effect.flip);
-    if (lexicalEscape._tag !== "ProjectReadFileError") throw new Error("Expected a typed read failure");
+    if (lexicalEscape._tag !== "ProjectReadFileError")
+      throw new Error("Expected a typed read failure");
     assert.equal(lexicalEscape.failure, "workspace_path_outside_root");
     if (escapedRelativePath !== undefined) {
       const escaped = yield* reader[WS_METHODS.projectsReadFile]({
-        cwd: workspaceDir, relativePath: escapedRelativePath,
+        cwd: workspaceDir,
+        relativePath: escapedRelativePath,
       }).pipe(Effect.flip);
       if (escaped._tag !== "ProjectReadFileError") throw new Error("Expected a typed link failure");
-      assert.equal(escaped.message, `Failed to read workspace file '${escapedRelativePath}' in '${workspaceDir}'.`);
+      assert.equal(
+        escaped.message,
+        `Failed to read workspace file '${escapedRelativePath}' in '${workspaceDir}'.`,
+      );
       assert.equal(escaped.cwd, workspaceDir);
       assert.equal(escaped.relativePath, escapedRelativePath);
       assert.equal(escaped.failure, "resolved_path_outside_root");
@@ -2913,7 +3466,7 @@ it.effect("workspace RPCs enforce read scope and keep structured, redacted failu
     );
 
     const failedWrite = yield* expectWriteFailure(workspaceDir, "failed-write.txt");
-    const encodedWrite = (yield* encodeProjectWriteFileError(failedWrite));
+    const encodedWrite = yield* encodeProjectWriteFileError(failedWrite);
     assert.equal(encodedWrite.failure, "operation_failed");
     assert.equal(encodedWrite.operation, "write-file");
     assert.notInclude(JSON.stringify(encodedWrite), writeInput.contents);
@@ -2921,44 +3474,73 @@ it.effect("workspace RPCs enforce read scope and keep structured, redacted failu
     const ignoredWorkspace = path.join(root, "ignored-workspace");
     yield* fs.makeDirectory(ignoredWorkspace);
     const vcs = yield* Effect.service(VcsProcess.VcsProcess).pipe(Effect.provide(VcsProcess.layer));
-    const git = (args: ReadonlyArray<string>) => vcs.run({
-      operation: "workspace search RPC fixture",
-      command: "git",
-      args,
-      cwd: ignoredWorkspace,
-    });
+    const git = (args: ReadonlyArray<string>) =>
+      vcs.run({
+        operation: "workspace search RPC fixture",
+        command: "git",
+        args,
+        cwd: ignoredWorkspace,
+      });
     yield* git(["init", "--quiet", "--template="]);
     yield* fs.makeDirectory(path.join(ignoredWorkspace, ".git", "info"), { recursive: true });
     yield* fs.makeDirectory(path.join(ignoredWorkspace, ".venv", "lib"), { recursive: true });
     yield* fs.makeDirectory(path.join(ignoredWorkspace, "src"));
     yield* fs.writeFileString(path.join(ignoredWorkspace, ".gitignore"), ".venv/\n");
-    yield* fs.writeFileString(path.join(ignoredWorkspace, ".git", "info", "exclude"), "local-search-target.ts\n");
-    yield* fs.writeFileString(path.join(ignoredWorkspace, ".venv", "lib", "ignored-search-target.ts"), "export {};\n");
-    yield* fs.writeFileString(path.join(ignoredWorkspace, "local-search-target.ts"), "export {};\n");
-    yield* fs.writeFileString(path.join(ignoredWorkspace, "src", "search-target.ts"), "export {};\n");
+    yield* fs.writeFileString(
+      path.join(ignoredWorkspace, ".git", "info", "exclude"),
+      "local-search-target.ts\n",
+    );
+    yield* fs.writeFileString(
+      path.join(ignoredWorkspace, ".venv", "lib", "ignored-search-target.ts"),
+      "export {};\n",
+    );
+    yield* fs.writeFileString(
+      path.join(ignoredWorkspace, "local-search-target.ts"),
+      "export {};\n",
+    );
+    yield* fs.writeFileString(
+      path.join(ignoredWorkspace, "src", "search-target.ts"),
+      "export {};\n",
+    );
     yield* git(["add", "--force", "--", "src/search-target.ts"]);
     const ignoredSearchInput = { ...entryInput, cwd: ignoredWorkspace };
-    assert.deepEqual(yield* reader[WS_METHODS.projectsSearchEntries]({
-      ...ignoredSearchInput, query: "search-target",
-    }), {
-      entries: [{ path: "src/search-target.ts", kind: "file" }],
-      truncated: false,
-    });
-    assert.deepEqual(yield* reader[WS_METHODS.projectsSearchEntries]({
-      ...ignoredSearchInput, query: "ignored-search-target",
-    }), { entries: [], truncated: false });
+    assert.deepEqual(
+      yield* reader[WS_METHODS.projectsSearchEntries]({
+        ...ignoredSearchInput,
+        query: "search-target",
+      }),
+      {
+        entries: [{ path: "src/search-target.ts", kind: "file" }],
+        truncated: false,
+      },
+    );
+    assert.deepEqual(
+      yield* reader[WS_METHODS.projectsSearchEntries]({
+        ...ignoredSearchInput,
+        query: "ignored-search-target",
+      }),
+      { entries: [], truncated: false },
+    );
 
     const backendSearch = { ...searchInput, cwd: workspaceDir };
-    const entryFailure = yield* reader[WS_METHODS.projectsSearchEntries](backendSearch).pipe(Effect.flip);
+    const entryFailure = yield* reader[WS_METHODS.projectsSearchEntries](backendSearch).pipe(
+      Effect.flip,
+    );
     const contentFailure = yield* reader[WS_METHODS.projectsSearchContents]({
-      ...backendSearch, caseSensitive: false, wholeWord: false, useRegex: false,
+      ...backendSearch,
+      caseSensitive: false,
+      wholeWord: false,
+      useRegex: false,
     }).pipe(Effect.flip);
-    if (entryFailure._tag !== "ProjectSearchEntriesError" || contentFailure._tag !== "ProjectSearchContentsError") {
+    if (
+      entryFailure._tag !== "ProjectSearchEntriesError" ||
+      contentFailure._tag !== "ProjectSearchContentsError"
+    ) {
       throw new Error("Expected typed index failures");
     }
     const encoded = [
-      (yield* encodeProjectSearchEntriesError(entryFailure)),
-      (yield* encodeProjectSearchContentsError(contentFailure)),
+      yield* encodeProjectSearchEntriesError(entryFailure),
+      yield* encodeProjectSearchContentsError(contentFailure),
     ];
     for (const failure of encoded) {
       assert.equal(failure.failure, "search_index_search_failed");
@@ -2970,318 +3552,386 @@ it.effect("workspace RPCs enforce read scope and keep structured, redacted failu
   }).pipe(Effect.scoped, Effect.provide(layerWorkspaceFailureServices)),
 );
 
-it.effect("read-only config subscriptions isolate theme and usage-command opt-ins across live updates", () =>
-  Effect.gen(function* () {
-    const settings = yield* ServerSettings.ServerSettingsService;
-    const sql = yield* SqlClient.SqlClient;
-    const projections = yield* ProjectionStore.ProjectionStoreV2;
-    const serverBrowser = yield* ServerBrowser.ServerBrowser;
-    const checkedAt = "2026-04-11T00:00:00.000Z";
-    const codexDriver = ProviderDriverKind.make("codex");
-    const codex: ServerProvider = {
-      instanceId: ProviderInstanceId.make("codex"), driver: codexDriver,
-      enabled: true, installed: true, version: "1.0.0", status: "ready",
-      auth: { status: "authenticated" }, checkedAt, models: [], slashCommands: [], skills: [],
-    };
-    const claude: ServerProvider = {
-      ...codex, instanceId: ProviderInstanceId.make("claude"), driver: ProviderDriverKind.make("claude"),
-    };
-    const providers = [codex, claude];
-    const limits = {
-      checkedAt,
-      windows: [{ id: "weekly", kind: "weekly" as const, label: "Weekly", usedPercent: 25 }],
-    };
-    const source: UsageLimitSourceSnapshot = {
-      id: UsageLimitSourceId.make("hub"), kind: "cliproxy", label: "Accounts", checkedAt,
-      accounts: [{ id: "work", driver: codexDriver, usageLimits: limits }],
-    };
-    const published: ReadonlyArray<PublishedEnvironmentTheme> = [
-      { id: "nightfall", name: "Nightfall", appearance: "dark", canvas: "#1a1b26", accent: "#7aa2f7" },
-    ];
-    const themeState = yield* SubscriptionRef.make(published);
-    const sourceState = yield* SubscriptionRef.make<ReadonlyArray<UsageLimitSourceSnapshot>>([]);
-    const sourceDelivered = yield* Queue.unbounded<ReadonlyArray<UsageLimitSourceSnapshot>>();
-    const providerChanges = yield* PubSub.unbounded<ReadonlyArray<ServerProvider>>();
-    const providerSubscribed = yield* Queue.unbounded<void>();
-    const providerDelivered = yield* Queue.unbounded<void>();
-    let themeSubscriptions = 0;
-    let settingsWrites = 0;
-
-    const services = Layer.mergeAll(
-      layerUnusedConfigRpcServices,
-      Layer.mock(BackgroundBrowser)({}),
-      Layer.mock(MausbotService)({}),
-      Layer.mock(V2RoutingOwner)({}),
-      Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
-      Layer.mock(ExternalLauncher.ExternalLauncher)({
-        resolveAvailableEditors: () => Effect.succeed([]),
-        resolveFileManagerRevealKind: () => Effect.undefined,
-      }),
-      Layer.mock(RemoteOpenTargets.RemoteOpenTargets)({ resolveTargets: () => Effect.succeed([]) }),
-      Layer.mock(DirectEndpoints.DirectEndpoints)({
-        resolve: () => Effect.succeed([]),
-        resolveAvailable: () => Effect.succeed([]),
-      }),
-      Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
-        namedProjectsRoot: process.cwd(),
-        scratchRoot: Effect.succeedNone,
-      }),
-      Layer.mock(ServerEnvironment.ServerEnvironment)({
-        getEnvironmentId: Effect.succeed(EnvironmentId.make("config-subscription-fixture")),
-        getDescriptor: Effect.succeed({
-          environmentId: EnvironmentId.make("config-subscription-fixture"),
-          label: "Config subscription fixture", platform: { os: "linux", arch: "x64" },
-          serverVersion: "0.0.0", capabilities: { repositoryIdentity: false },
-        }),
-      }),
-      Layer.mock(EnvironmentAuth.EnvironmentAuth)({
-        getDescriptor: () => Effect.succeed({
-          policy: "loopback-browser", bootstrapMethods: [],
-          sessionMethods: ["browser-session-cookie"], sessionCookieName: "config-test-session",
-        }),
-      }),
-      Layer.mock(ProviderRegistry.ProviderRegistry)({
-        getProviders: Effect.succeed(providers),
-        streamChanges: Stream.unwrap(PubSub.subscribe(providerChanges).pipe(
-          Effect.tap(() => Queue.offer(providerSubscribed, undefined)),
-          Effect.map((subscription) => Stream.fromSubscription(subscription).pipe(
-            Stream.tap(() => Queue.offer(providerDelivered, undefined)),
-          )),
-        )),
-      }),
-      Layer.mock(UsageLimitSources.UsageLimitSources)({
-        current: SubscriptionRef.get(sourceState),
-        streamChanges: SubscriptionRef.changes(sourceState).pipe(
-          Stream.tap((value) => Queue.offer(sourceDelivered, value)),
-        ),
-      }),
-      Layer.succeed(ServerSettings.ServerSettingsService, {
-        ...settings,
-        updateSettings: (patch) => Effect.sync(() => {
-          settingsWrites++;
-        }).pipe(Effect.andThen(settings.updateSettings(patch))),
-      }),
-      Layer.mock(EnvironmentTheme.EnvironmentThemeService)({
-        current: SubscriptionRef.get(themeState),
-        streamChanges: Stream.unwrap(Effect.sync(() => {
-          themeSubscriptions++;
-          return SubscriptionRef.changes(themeState);
-        })),
-      }),
-      Layer.succeed(ProjectionStore.ProjectionStoreV2, projections),
-      Layer.succeed(SqlClient.SqlClient, sql),
-    );
-    const scopes = [AuthOrchestrationReadScope] as const;
-    const subscribe = (id: string, input: typeof WsSubscribeServerConfigRpc.payloadSchema.Type) =>
-      Effect.gen(function* () {
-        const client = yield* RpcTest.makeClient(WsRpcGroup.middleware(RpcInstrumentation)).pipe(
-          Effect.provide(layerWsRpc(
-            { sessionId: AuthSessionId.make(id), subject: "fixture", method: "browser-session-cookie", scopes },
-            {}, serverBrowser, () => Effect.void, { secretReferences: true },
-          ).pipe(
-            Layer.provide(services),
-            Layer.merge(RpcAuthorization.layer(scopes)),
-            Layer.merge(rpcInstrumentationLayer),
-          )),
-        );
-        const responses = yield* Queue.unbounded<ServerConfigStreamEvent>();
-        yield* client[WS_METHODS.subscribeServerConfig](input).pipe(
-          Stream.runForEach((event) => Queue.offer(responses, event)),
-          Effect.forkScoped,
-        );
-        return { client, responses };
-      });
-    const { client: themeReader, responses: optedIn } = yield* subscribe("config-opt-in", {
-      environmentThemes: true,
-      usageLimitsCommand: true,
-    });
-    const { responses: ordinary } = yield* subscribe("config-ordinary", {});
-    for (const responses of [optedIn, ordinary]) {
-      const initial = yield* Queue.take(responses);
-      if (initial.type !== "snapshot") return yield* Effect.die("Expected initial configuration");
-      assert.deepEqual(initial.config.providers, providers);
-      assert.isUndefined(initial.config.environmentThemes);
-    }
-    yield* Queue.take(providerSubscribed);
-    yield* Queue.take(providerSubscribed);
-    assert.deepEqual(yield* Queue.take(sourceDelivered), []);
-    assert.deepEqual(yield* Queue.take(sourceDelivered), []);
-    assert.deepEqual(yield* Queue.take(optedIn), {
-      version: 1, type: "environmentThemesUpdated", payload: { themes: published },
-    });
-    assert.equal(themeSubscriptions, 1);
-
-    const denied = yield* themeReader[WS_METHODS.serverUpdateSettings]({
-      patch: { defaultProjectScripts: [] },
-    }).pipe(Effect.flip);
-    if (denied._tag !== "EnvironmentAuthorizationError") return yield* Effect.die(denied);
-    assert.equal(denied.requiredPermission, AuthSettingsWriteScope);
-    assert.equal(settingsWrites, 0);
-
-    const updatedTheme = [{ ...published[0]!, name: "Nightfall updated" }];
-    yield* SubscriptionRef.set(themeState, updatedTheme);
-    assert.deepEqual(yield* Queue.take(optedIn), {
-      version: 1, type: "environmentThemesUpdated", payload: { themes: updatedTheme },
-    });
-
-    yield* settings.updateSettings({ defaultTheme: "nightfall" });
-    for (const responses of [optedIn, ordinary]) {
-      const updated = yield* Queue.take(responses);
-      if (updated.type !== "settingsUpdated") return yield* Effect.die("Expected a settings update");
-      assert.equal(updated.payload.settings.defaultTheme, "nightfall");
-    }
-
-    // The provider registry has emitted nothing. The source alone adds the command.
-    yield* SubscriptionRef.set(sourceState, [source]);
-    assert.deepEqual(yield* Queue.take(sourceDelivered), [source]);
-    assert.deepEqual(yield* Queue.take(sourceDelivered), [source]);
-    yield* TestClock.adjust("1 second");
-    assert.deepEqual(yield* Queue.take(optedIn), {
-      version: 1, type: "providerStatuses",
-      payload: { providers: [{ ...codex, slashCommands: [USAGE_LIMITS_COMMAND] }, claude] },
-    });
-
-    const changedQuota = {
-      ...source,
-      accounts: source.accounts.map((account) => ({
-        ...account,
-        usageLimits: {
-          ...limits,
-          windows: [{ ...limits.windows[0]!, usedPercent: 40 }],
-        },
-      })),
-    };
-    yield* SubscriptionRef.set(sourceState, [changedQuota]);
-    assert.deepEqual(yield* Queue.take(sourceDelivered), [changedQuota]);
-    assert.deepEqual(yield* Queue.take(sourceDelivered), [changedQuota]);
-    yield* TestClock.adjust("1 second");
-    assert.isTrue(Option.isNone(yield* Queue.poll(optedIn)));
-    assert.isTrue(Option.isNone(yield* Queue.poll(ordinary)));
-
-    // The next ordinary event is a real provider change, with no injected commands.
-    const native = { ...claude, version: "1.0.1", usageLimits: limits };
-    yield* PubSub.publish(providerChanges, [codex, native]);
-    yield* Queue.take(providerDelivered);
-    yield* Queue.take(providerDelivered);
-    yield* TestClock.adjust("1 second");
-    assert.deepEqual(yield* Queue.take(ordinary), {
-      version: 1, type: "providerStatuses", payload: { providers: [codex, native] },
-    });
-    assert.deepEqual(yield* Queue.take(optedIn), {
-      version: 1, type: "providerStatuses",
-      payload: { providers: [
-        { ...codex, slashCommands: [USAGE_LIMITS_COMMAND] },
-        { ...native, slashCommands: [USAGE_LIMITS_COMMAND] },
-      ] },
-    });
-
-    yield* SubscriptionRef.set(sourceState, []);
-    assert.deepEqual(yield* Queue.take(sourceDelivered), []);
-    assert.deepEqual(yield* Queue.take(sourceDelivered), []);
-    yield* TestClock.adjust("1 second");
-    assert.deepEqual(yield* Queue.take(optedIn), {
-      version: 1, type: "providerStatuses",
-      payload: { providers: [codex, { ...native, slashCommands: [USAGE_LIMITS_COMMAND] }] },
-    });
-    assert.isTrue(Option.isNone(yield* Queue.poll(ordinary)));
-
-    // A provider status change still reaches both clients when it has no limits.
-    const withoutNativeLimits = { ...claude, version: "1.0.2" };
-    yield* PubSub.publish(providerChanges, [codex, withoutNativeLimits]);
-    yield* Queue.take(providerDelivered);
-    yield* Queue.take(providerDelivered);
-    yield* TestClock.adjust("1 second");
-    for (const responses of [optedIn, ordinary]) {
-      assert.deepEqual(yield* Queue.take(responses), {
-        version: 1, type: "providerStatuses",
-        payload: { providers: [codex, withoutNativeLimits] },
-      });
-    }
-  }).pipe(
-    Effect.scoped,
-    Effect.provide(ProjectionStore.layer.pipe(
-      Layer.provideMerge(Layer.mergeAll(layerConfigSources, Layer.mock(ServerBrowser.ServerBrowser)({}))),
-    )),
-  ),
-);
-
-it.effect.each(["available", "unavailable", "editors-blocked", "reveal-blocked", "not-offered"] as const)(
-  "serves authorized configuration with %s file-manager discovery",
-  (discovery) =>
+it.effect(
+  "read-only config subscriptions isolate theme and usage-command opt-ins across live updates",
+  () =>
     Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      const browser = yield* ServerBrowser.ServerBrowser;
       const settings = yield* ServerSettings.ServerSettingsService;
-      const expectedSettings = ServerSettings.redactServerSettingsForClient(
-        yield* settings.getSettings,
-        { secretReferences: true },
-      );
-      const started = yield* Deferred.make<void>();
-      const interrupted = yield* Deferred.make<void>();
-      const block = Deferred.succeed(started, undefined).pipe(
-        Effect.andThen(Effect.never),
-        Effect.onInterrupt(() => Deferred.succeed(interrupted, undefined)),
-      );
-      let editorProbes = 0;
-      let revealProbes = 0;
-      const id = EnvironmentId.make("file-manager-config-fixture");
+      const sql = yield* SqlClient.SqlClient;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const serverBrowser = yield* ServerBrowser.ServerBrowser;
+      const checkedAt = "2026-04-11T00:00:00.000Z";
+      const codexDriver = ProviderDriverKind.make("codex");
+      const codex: ServerProvider = {
+        instanceId: ProviderInstanceId.make("codex"),
+        driver: codexDriver,
+        enabled: true,
+        installed: true,
+        version: "1.0.0",
+        status: "ready",
+        auth: { status: "authenticated" },
+        checkedAt,
+        models: [],
+        slashCommands: [],
+        skills: [],
+      };
+      const claude: ServerProvider = {
+        ...codex,
+        instanceId: ProviderInstanceId.make("claude"),
+        driver: ProviderDriverKind.make("claude"),
+      };
+      const providers = [codex, claude];
+      const limits = {
+        checkedAt,
+        windows: [{ id: "weekly", kind: "weekly" as const, label: "Weekly", usedPercent: 25 }],
+      };
+      const source: UsageLimitSourceSnapshot = {
+        id: UsageLimitSourceId.make("hub"),
+        kind: "cliproxy",
+        label: "Accounts",
+        checkedAt,
+        accounts: [{ id: "work", driver: codexDriver, usageLimits: limits }],
+      };
+      const published: ReadonlyArray<PublishedEnvironmentTheme> = [
+        {
+          id: "nightfall",
+          name: "Nightfall",
+          appearance: "dark",
+          canvas: "#1a1b26",
+          accent: "#7aa2f7",
+        },
+      ];
+      const themeState = yield* SubscriptionRef.make(published);
+      const sourceState = yield* SubscriptionRef.make<ReadonlyArray<UsageLimitSourceSnapshot>>([]);
+      const sourceDelivered = yield* Queue.unbounded<ReadonlyArray<UsageLimitSourceSnapshot>>();
+      const providerChanges = yield* PubSub.unbounded<ReadonlyArray<ServerProvider>>();
+      const providerSubscribed = yield* Queue.unbounded<void>();
+      const providerDelivered = yield* Queue.unbounded<void>();
+      let themeSubscriptions = 0;
+      let settingsWrites = 0;
+
       const services = Layer.mergeAll(
         layerUnusedConfigRpcServices,
         Layer.mock(BackgroundBrowser)({}),
         Layer.mock(MausbotService)({}),
         Layer.mock(V2RoutingOwner)({}),
+        Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
         Layer.mock(ExternalLauncher.ExternalLauncher)({
-          resolveAvailableEditors: () =>
-            Effect.suspend(() => {
-              editorProbes++;
-              if (discovery === "editors-blocked") return block;
-              return Effect.succeed(
-                discovery === "not-offered" ? ["vscode"] as const : ["file-manager"] as const,
-              );
-            }),
-          resolveFileManagerRevealKind: () =>
-            Effect.suspend(() => {
-              revealProbes++;
-              if (discovery === "reveal-blocked") return block;
-              return Effect.succeed(discovery === "unavailable" ? undefined : "file-explorer");
-            }),
+          resolveAvailableEditors: () => Effect.succeed([]),
+          resolveFileManagerRevealKind: () => Effect.undefined,
         }),
-        Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
-        Layer.mock(UsageLimitSources.UsageLimitSources)({}),
-        Layer.mock(RemoteOpenTargets.RemoteOpenTargets)({ resolveTargets: () => Effect.succeed([]) }),
-        Layer.mock(DirectEndpoints.DirectEndpoints)({ resolve: () => Effect.succeed([]) }),
+        Layer.mock(RemoteOpenTargets.RemoteOpenTargets)({
+          resolveTargets: () => Effect.succeed([]),
+        }),
+        Layer.mock(DirectEndpoints.DirectEndpoints)({
+          resolve: () => Effect.succeed([]),
+          resolveAvailable: () => Effect.succeed([]),
+        }),
         Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
-          namedProjectsRoot: "/fixture",
+          namedProjectsRoot: process.cwd(),
           scratchRoot: Effect.succeedNone,
         }),
-        Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
         Layer.mock(ServerEnvironment.ServerEnvironment)({
-          getEnvironmentId: Effect.succeed(id),
+          getEnvironmentId: Effect.succeed(EnvironmentId.make("config-subscription-fixture")),
           getDescriptor: Effect.succeed({
-            environmentId: id,
-            label: "File-manager fixture",
-            platform: { os: "windows", arch: "x64" },
-            serverVersion: "0.0.0-test",
+            environmentId: EnvironmentId.make("config-subscription-fixture"),
+            label: "Config subscription fixture",
+            platform: { os: "linux", arch: "x64" },
+            serverVersion: "0.0.0",
             capabilities: { repositoryIdentity: false },
           }),
         }),
         Layer.mock(EnvironmentAuth.EnvironmentAuth)({
-          getDescriptor: () => Effect.succeed({
+          getDescriptor: () =>
+            Effect.succeed({
+              policy: "loopback-browser",
+              bootstrapMethods: [],
+              sessionMethods: ["browser-session-cookie"],
+              sessionCookieName: "config-test-session",
+            }),
+        }),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({
+          getProviders: Effect.succeed(providers),
+          streamChanges: Stream.unwrap(
+            PubSub.subscribe(providerChanges).pipe(
+              Effect.tap(() => Queue.offer(providerSubscribed, undefined)),
+              Effect.map((subscription) =>
+                Stream.fromSubscription(subscription).pipe(
+                  Stream.tap(() => Queue.offer(providerDelivered, undefined)),
+                ),
+              ),
+            ),
+          ),
+        }),
+        Layer.mock(UsageLimitSources.UsageLimitSources)({
+          current: SubscriptionRef.get(sourceState),
+          streamChanges: SubscriptionRef.changes(sourceState).pipe(
+            Stream.tap((value) => Queue.offer(sourceDelivered, value)),
+          ),
+        }),
+        Layer.succeed(ServerSettings.ServerSettingsService, {
+          ...settings,
+          updateSettings: (patch) =>
+            Effect.sync(() => {
+              settingsWrites++;
+            }).pipe(Effect.andThen(settings.updateSettings(patch))),
+        }),
+        Layer.mock(EnvironmentTheme.EnvironmentThemeService)({
+          current: SubscriptionRef.get(themeState),
+          streamChanges: Stream.unwrap(
+            Effect.sync(() => {
+              themeSubscriptions++;
+              return SubscriptionRef.changes(themeState);
+            }),
+          ),
+        }),
+        Layer.succeed(ProjectionStore.ProjectionStoreV2, projections),
+      ).pipe(Layer.provideMerge(Layer.succeed(SqlClient.SqlClient, sql)));
+      const scopes = [AuthOrchestrationReadScope] as const;
+      const subscribe = (id: string, input: typeof WsSubscribeServerConfigRpc.payloadSchema.Type) =>
+        Effect.gen(function* () {
+          const client = yield* RpcTest.makeClient(WsRpcGroup.middleware(RpcInstrumentation)).pipe(
+            Effect.provide(
+              layerWsRpc(
+                {
+                  sessionId: AuthSessionId.make(id),
+                  subject: "fixture",
+                  method: "browser-session-cookie",
+                  scopes,
+                },
+                {},
+                serverBrowser,
+                () => Effect.void,
+                { secretReferences: true },
+              ).pipe(
+                Layer.provide(services),
+                Layer.merge(RpcAuthorization.layer(scopes)),
+                Layer.merge(rpcInstrumentationLayer),
+              ),
+            ),
+          );
+          const responses = yield* Queue.unbounded<ServerConfigStreamEvent>();
+          yield* client[WS_METHODS.subscribeServerConfig](input).pipe(
+            Stream.runForEach((event) => Queue.offer(responses, event)),
+            Effect.forkScoped,
+          );
+          return { client, responses };
+        });
+      const { client: themeReader, responses: optedIn } = yield* subscribe("config-opt-in", {
+        environmentThemes: true,
+        usageLimitsCommand: true,
+      });
+      const { responses: ordinary } = yield* subscribe("config-ordinary", {});
+      for (const responses of [optedIn, ordinary]) {
+        const initial = yield* Queue.take(responses);
+        if (initial.type !== "snapshot") return yield* Effect.die("Expected initial configuration");
+        assert.deepEqual(initial.config.providers, providers);
+        assert.isUndefined(initial.config.environmentThemes);
+      }
+      yield* Queue.take(providerSubscribed);
+      yield* Queue.take(providerSubscribed);
+      assert.deepEqual(yield* Queue.take(sourceDelivered), []);
+      assert.deepEqual(yield* Queue.take(sourceDelivered), []);
+      assert.deepEqual(yield* Queue.take(optedIn), {
+        version: 1,
+        type: "environmentThemesUpdated",
+        payload: { themes: published },
+      });
+      assert.equal(themeSubscriptions, 1);
+
+      const denied = yield* themeReader[WS_METHODS.serverUpdateSettings]({
+        patch: { defaultProjectScripts: [] },
+      }).pipe(Effect.flip);
+      if (denied._tag !== "EnvironmentAuthorizationError") return yield* Effect.die(denied);
+      assert.equal(denied.requiredPermission, AuthSettingsWriteScope);
+      assert.equal(settingsWrites, 0);
+
+      const updatedTheme = [{ ...published[0]!, name: "Nightfall updated" }];
+      yield* SubscriptionRef.set(themeState, updatedTheme);
+      assert.deepEqual(yield* Queue.take(optedIn), {
+        version: 1,
+        type: "environmentThemesUpdated",
+        payload: { themes: updatedTheme },
+      });
+
+      yield* settings.updateSettings({ defaultTheme: "nightfall" });
+      for (const responses of [optedIn, ordinary]) {
+        const updated = yield* Queue.take(responses);
+        if (updated.type !== "settingsUpdated")
+          return yield* Effect.die("Expected a settings update");
+        assert.equal(updated.payload.settings.defaultTheme, "nightfall");
+      }
+
+      // The provider registry has emitted nothing. The source alone adds the command.
+      yield* SubscriptionRef.set(sourceState, [source]);
+      assert.deepEqual(yield* Queue.take(sourceDelivered), [source]);
+      assert.deepEqual(yield* Queue.take(sourceDelivered), [source]);
+      yield* TestClock.adjust("1 second");
+      assert.deepEqual(yield* Queue.take(optedIn), {
+        version: 1,
+        type: "providerStatuses",
+        payload: { providers: [{ ...codex, slashCommands: [USAGE_LIMITS_COMMAND] }, claude] },
+      });
+
+      const changedQuota = {
+        ...source,
+        accounts: source.accounts.map((account) => ({
+          ...account,
+          usageLimits: {
+            ...limits,
+            windows: [{ ...limits.windows[0]!, usedPercent: 40 }],
+          },
+        })),
+      };
+      yield* SubscriptionRef.set(sourceState, [changedQuota]);
+      assert.deepEqual(yield* Queue.take(sourceDelivered), [changedQuota]);
+      assert.deepEqual(yield* Queue.take(sourceDelivered), [changedQuota]);
+      yield* TestClock.adjust("1 second");
+      assert.isTrue(Option.isNone(yield* Queue.poll(optedIn)));
+      assert.isTrue(Option.isNone(yield* Queue.poll(ordinary)));
+
+      // The next ordinary event is a real provider change, with no injected commands.
+      const native = { ...claude, version: "1.0.1", usageLimits: limits };
+      yield* PubSub.publish(providerChanges, [codex, native]);
+      yield* Queue.take(providerDelivered);
+      yield* Queue.take(providerDelivered);
+      yield* TestClock.adjust("1 second");
+      assert.deepEqual(yield* Queue.take(ordinary), {
+        version: 1,
+        type: "providerStatuses",
+        payload: { providers: [codex, native] },
+      });
+      assert.deepEqual(yield* Queue.take(optedIn), {
+        version: 1,
+        type: "providerStatuses",
+        payload: {
+          providers: [
+            { ...codex, slashCommands: [USAGE_LIMITS_COMMAND] },
+            { ...native, slashCommands: [USAGE_LIMITS_COMMAND] },
+          ],
+        },
+      });
+
+      yield* SubscriptionRef.set(sourceState, []);
+      assert.deepEqual(yield* Queue.take(sourceDelivered), []);
+      assert.deepEqual(yield* Queue.take(sourceDelivered), []);
+      yield* TestClock.adjust("1 second");
+      assert.deepEqual(yield* Queue.take(optedIn), {
+        version: 1,
+        type: "providerStatuses",
+        payload: { providers: [codex, { ...native, slashCommands: [USAGE_LIMITS_COMMAND] }] },
+      });
+      assert.isTrue(Option.isNone(yield* Queue.poll(ordinary)));
+
+      // A provider status change still reaches both clients when it has no limits.
+      const withoutNativeLimits = { ...claude, version: "1.0.2" };
+      yield* PubSub.publish(providerChanges, [codex, withoutNativeLimits]);
+      yield* Queue.take(providerDelivered);
+      yield* Queue.take(providerDelivered);
+      yield* TestClock.adjust("1 second");
+      for (const responses of [optedIn, ordinary]) {
+        assert.deepEqual(yield* Queue.take(responses), {
+          version: 1,
+          type: "providerStatuses",
+          payload: { providers: [codex, withoutNativeLimits] },
+        });
+      }
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        ProjectionStore.layer.pipe(
+          Layer.provideMerge(
+            Layer.mergeAll(layerConfigSources, Layer.mock(ServerBrowser.ServerBrowser)({})),
+          ),
+        ),
+      ),
+    ),
+);
+
+it.effect.each([
+  "available",
+  "unavailable",
+  "editors-blocked",
+  "reveal-blocked",
+  "not-offered",
+] as const)("serves authorized configuration with %s file-manager discovery", (discovery) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const browser = yield* ServerBrowser.ServerBrowser;
+    const settings = yield* ServerSettings.ServerSettingsService;
+    const expectedSettings = ServerSettings.redactServerSettingsForClient(
+      yield* settings.getSettings,
+      { secretReferences: true },
+    );
+    const started = yield* Deferred.make<void>();
+    const interrupted = yield* Deferred.make<void>();
+    const block = Deferred.succeed(started, undefined).pipe(
+      Effect.andThen(Effect.never),
+      Effect.onInterrupt(() => Deferred.succeed(interrupted, undefined)),
+    );
+    let editorProbes = 0;
+    let revealProbes = 0;
+    const id = EnvironmentId.make("file-manager-config-fixture");
+    const services = Layer.mergeAll(
+      layerUnusedConfigRpcServices,
+      Layer.mock(BackgroundBrowser)({}),
+      Layer.mock(MausbotService)({}),
+      Layer.mock(V2RoutingOwner)({}),
+      Layer.mock(ExternalLauncher.ExternalLauncher)({
+        resolveAvailableEditors: () =>
+          Effect.suspend(() => {
+            editorProbes++;
+            if (discovery === "editors-blocked") return block;
+            return Effect.succeed(
+              discovery === "not-offered" ? (["vscode"] as const) : (["file-manager"] as const),
+            );
+          }),
+        resolveFileManagerRevealKind: () =>
+          Effect.suspend(() => {
+            revealProbes++;
+            if (discovery === "reveal-blocked") return block;
+            return Effect.succeed(discovery === "unavailable" ? undefined : "file-explorer");
+          }),
+      }),
+      Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+      Layer.mock(UsageLimitSources.UsageLimitSources)({}),
+      Layer.mock(RemoteOpenTargets.RemoteOpenTargets)({ resolveTargets: () => Effect.succeed([]) }),
+      Layer.mock(DirectEndpoints.DirectEndpoints)({ resolve: () => Effect.succeed([]) }),
+      Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+        namedProjectsRoot: "/fixture",
+        scratchRoot: Effect.succeedNone,
+      }),
+      Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
+      Layer.mock(ServerEnvironment.ServerEnvironment)({
+        getEnvironmentId: Effect.succeed(id),
+        getDescriptor: Effect.succeed({
+          environmentId: id,
+          label: "File-manager fixture",
+          platform: { os: "windows", arch: "x64" },
+          serverVersion: "0.0.0-test",
+          capabilities: { repositoryIdentity: false },
+        }),
+      }),
+      Layer.mock(EnvironmentAuth.EnvironmentAuth)({
+        getDescriptor: () =>
+          Effect.succeed({
             policy: "desktop-managed-local",
             bootstrapMethods: ["desktop-bootstrap"],
             sessionMethods: ["browser-session-cookie"],
             sessionCookieName: "file-manager-fixture",
           }),
-        }),
-        Layer.succeed(SqlClient.SqlClient, sql),
-      );
-      const makeClient = (
-        subject: string,
-        scopes: EnvironmentAuth.AuthenticatedSession["scopes"],
-      ) =>
-        RpcTest.makeClient(WsRpcGroup.middleware(RpcInstrumentation)).pipe(
-          Effect.provide(layerWsRpc(
-            { sessionId: AuthSessionId.make(subject), subject, method: "bearer-access-token", scopes },
+      }),
+    ).pipe(Layer.provideMerge(Layer.succeed(SqlClient.SqlClient, sql)));
+    const makeClient = (subject: string, scopes: EnvironmentAuth.AuthenticatedSession["scopes"]) =>
+      RpcTest.makeClient(WsRpcGroup.middleware(RpcInstrumentation)).pipe(
+        Effect.provide(
+          layerWsRpc(
+            {
+              sessionId: AuthSessionId.make(subject),
+              subject,
+              method: "bearer-access-token",
+              scopes,
+            },
             {},
             browser,
             () => Effect.void,
@@ -3290,47 +3940,52 @@ it.effect.each(["available", "unavailable", "editors-blocked", "reveal-blocked",
             Layer.provide(services),
             Layer.merge(RpcAuthorization.layer(scopes)),
             Layer.merge(rpcInstrumentationLayer),
-          )),
-        );
+          ),
+        ),
+      );
 
-      const manager = yield* makeClient("config-manager", [AuthAccessWriteScope]);
-      const denied = yield* manager[WS_METHODS.serverGetConfig]({}).pipe(Effect.flip);
-      if (denied._tag !== "EnvironmentAuthorizationError") return yield* Effect.die(denied);
-      assert.equal(denied.requiredScope, AuthOrchestrationReadScope);
-      assert.equal(editorProbes, 0);
-      assert.equal(revealProbes, 0);
+    const manager = yield* makeClient("config-manager", [AuthAccessWriteScope]);
+    const denied = yield* manager[WS_METHODS.serverGetConfig]({}).pipe(Effect.flip);
+    if (denied._tag !== "EnvironmentAuthorizationError") return yield* Effect.die(denied);
+    assert.equal(denied.requiredScope, AuthOrchestrationReadScope);
+    assert.equal(editorProbes, 0);
+    assert.equal(revealProbes, 0);
 
-      const reader = yield* makeClient("config-reader", [AuthOrchestrationReadScope]);
-      const configFiber = yield* reader[WS_METHODS.serverGetConfig]({}).pipe(
-        Effect.forkScoped({ startImmediately: true }),
-      );
-      const blocked = discovery === "editors-blocked" || discovery === "reveal-blocked";
-      if (blocked) {
-        yield* Deferred.await(started);
-        assert.deepEqual(yield* reader[WS_METHODS.serverGetSettings]({}), expectedSettings);
-        yield* TestClock.adjust("5 seconds");
-        yield* Deferred.await(interrupted);
-      }
-      const config = yield* Fiber.join(configFiber);
-      assert.equal(config.environment.environmentId, id);
-      assert.deepEqual(config.settings, expectedSettings);
-      assert.deepEqual(
-        config.availableEditors,
-        discovery === "editors-blocked" ? [] :
-          discovery === "not-offered" ? ["vscode"] : ["file-manager"],
-      );
-      assert.equal(config.shellRevealInFileManager, discovery === "available" ? true : undefined);
-      assert.equal(
-        config.shellRevealInFileManagerKind,
-        discovery === "available" ? "file-explorer" : undefined,
-      );
-      assert.equal(revealProbes, discovery === "editors-blocked" || discovery === "not-offered" ? 0 : 1);
-    }).pipe(
-      Effect.scoped,
-      Effect.provide(
-        Layer.mergeAll(layerConfigSources, Layer.mock(ServerBrowser.ServerBrowser)({})),
-      ),
-    ),
+    const reader = yield* makeClient("config-reader", [AuthOrchestrationReadScope]);
+    const configFiber = yield* reader[WS_METHODS.serverGetConfig]({}).pipe(
+      Effect.forkScoped({ startImmediately: true }),
+    );
+    const blocked = discovery === "editors-blocked" || discovery === "reveal-blocked";
+    if (blocked) {
+      yield* Deferred.await(started);
+      assert.deepEqual(yield* reader[WS_METHODS.serverGetSettings]({}), expectedSettings);
+      yield* TestClock.adjust("5 seconds");
+      yield* Deferred.await(interrupted);
+    }
+    const config = yield* Fiber.join(configFiber);
+    assert.equal(config.environment.environmentId, id);
+    assert.deepEqual(config.settings, expectedSettings);
+    assert.deepEqual(
+      config.availableEditors,
+      discovery === "editors-blocked"
+        ? []
+        : discovery === "not-offered"
+          ? ["vscode"]
+          : ["file-manager"],
+    );
+    assert.equal(config.shellRevealInFileManager, discovery === "available" ? true : undefined);
+    assert.equal(
+      config.shellRevealInFileManagerKind,
+      discovery === "available" ? "file-explorer" : undefined,
+    );
+    assert.equal(
+      revealProbes,
+      discovery === "editors-blocked" || discovery === "not-offered" ? 0 : 1,
+    );
+  }).pipe(
+    Effect.scoped,
+    Effect.provide(Layer.mergeAll(layerConfigSources, Layer.mock(ServerBrowser.ServerBrowser)({}))),
+  ),
 );
 
 it.effect.each([
@@ -3663,7 +4318,7 @@ it.effect("replays lifecycle snapshots and buffers live events published during 
         getEnvironmentId: Effect.succeed(environment.environmentId),
       }),
       Layer.succeed(ProjectionStore.ProjectionStoreV2, projections),
-      Layer.succeed(SqlClient.SqlClient, sql),
+
       Layer.succeed(ServerLifecycleEvents.ServerLifecycleEvents, {
         ...lifecycle,
         stream: lifecycle.stream.pipe(
@@ -3677,20 +4332,27 @@ it.effect("replays lifecycle snapshots and buffers live events published during 
           return captured;
         }),
       }),
-    );
-    const makeClient = (
-      id: string,
-      scopes: EnvironmentAuth.AuthenticatedSession["scopes"],
-    ) =>
+    ).pipe(Layer.provideMerge(Layer.succeed(SqlClient.SqlClient, sql)));
+    const makeClient = (id: string, scopes: EnvironmentAuth.AuthenticatedSession["scopes"]) =>
       RpcTest.makeClient(WsRpcGroup.middleware(RpcInstrumentation)).pipe(
-        Effect.provide(layerWsRpc(
-          { sessionId: AuthSessionId.make(id), subject: id, method: "bearer-access-token", scopes },
-          {}, browser, () => Effect.void, { secretReferences: true },
-        ).pipe(
-          Layer.provide(services),
-          Layer.merge(RpcAuthorization.layer(scopes)),
-          Layer.merge(rpcInstrumentationLayer),
-        )),
+        Effect.provide(
+          layerWsRpc(
+            {
+              sessionId: AuthSessionId.make(id),
+              subject: id,
+              method: "bearer-access-token",
+              scopes,
+            },
+            {},
+            browser,
+            () => Effect.void,
+            { secretReferences: true },
+          ).pipe(
+            Layer.provide(services),
+            Layer.merge(RpcAuthorization.layer(scopes)),
+            Layer.merge(rpcInstrumentationLayer),
+          ),
+        ),
       );
 
     const deniedClient = yield* makeClient("lifecycle-denied", []);
@@ -3730,9 +4392,13 @@ it.effect("replays lifecycle snapshots and buffers live events published during 
     assert.equal(snapshots, 2);
   }).pipe(
     Effect.scoped,
-    Effect.provide(ProjectionStore.layer.pipe(
-      Layer.provideMerge(Layer.mergeAll(layerConfigSources, Layer.mock(ServerBrowser.ServerBrowser)({}))),
-    )),
+    Effect.provide(
+      ProjectionStore.layer.pipe(
+        Layer.provideMerge(
+          Layer.mergeAll(layerConfigSources, Layer.mock(ServerBrowser.ServerBrowser)({})),
+        ),
+      ),
+    ),
   ),
 );
 
@@ -3747,21 +4413,21 @@ it.effect("streams cached resource telemetry and releases sampling after the las
     const unsubscribed = yield* Queue.unbounded<void>();
     let subscriptionCount = 0;
     const telemetry = yield* ResourceTelemetry.make().pipe(
-      Effect.provide(Layer.mergeAll(
-        NativeTelemetryClient.layerTest({
-          sampleNow: Effect.never,
-          snapshots: Stream.unwrap(
-            PubSub.subscribe(samples).pipe(
-              Effect.tap(() => Queue.offer(samplingStarted, undefined)),
-              Effect.map(Stream.fromSubscription),
-            ),
-          ).pipe(
-            Stream.ensuring(Queue.offer(samplingStopped, undefined).pipe(Effect.asVoid)),
-          ),
-        }),
-        DesktopTelemetryReceiver.layerTest(),
-        ResourceAttribution.layer,
-      )),
+      Effect.provide(
+        Layer.mergeAll(
+          NativeTelemetryClient.layerTest({
+            sampleNow: Effect.never,
+            snapshots: Stream.unwrap(
+              PubSub.subscribe(samples).pipe(
+                Effect.tap(() => Queue.offer(samplingStarted, undefined)),
+                Effect.map(Stream.fromSubscription),
+              ),
+            ).pipe(Stream.ensuring(Queue.offer(samplingStopped, undefined).pipe(Effect.asVoid))),
+          }),
+          DesktopTelemetryReceiver.layerTest(),
+          ResourceAttribution.layer,
+        ),
+      ),
     );
     const services = Layer.mergeAll(
       layerUnusedConfigRpcServices,
@@ -3780,31 +4446,41 @@ it.effect("streams cached resource telemetry and releases sampling after the las
         getEnvironmentId: Effect.succeed(EnvironmentId.make("resource-telemetry-fixture")),
       }),
       Layer.succeed(ProjectionStore.ProjectionStoreV2, projections),
-      Layer.succeed(SqlClient.SqlClient, sql),
-      Layer.succeed(ResourceTelemetry.ResourceTelemetry, ResourceTelemetry.ResourceTelemetry.of({
-        ...telemetry,
-        subscribe: Effect.gen(function* () {
-          subscriptionCount++;
-          yield* Effect.addFinalizer(() =>
-            Queue.offer(unsubscribed, undefined).pipe(Effect.asVoid),
-          );
-          return yield* telemetry.subscribe;
+
+      Layer.succeed(
+        ResourceTelemetry.ResourceTelemetry,
+        ResourceTelemetry.ResourceTelemetry.of({
+          ...telemetry,
+          subscribe: Effect.gen(function* () {
+            subscriptionCount++;
+            yield* Effect.addFinalizer(() =>
+              Queue.offer(unsubscribed, undefined).pipe(Effect.asVoid),
+            );
+            return yield* telemetry.subscribe;
+          }),
         }),
-      })),
-    );
-    const makeClient = (
-      id: string,
-      scopes: EnvironmentAuth.AuthenticatedSession["scopes"],
-    ) =>
+      ),
+    ).pipe(Layer.provideMerge(Layer.succeed(SqlClient.SqlClient, sql)));
+    const makeClient = (id: string, scopes: EnvironmentAuth.AuthenticatedSession["scopes"]) =>
       RpcTest.makeClient(WsRpcGroup.middleware(RpcInstrumentation)).pipe(
-        Effect.provide(layerWsRpc(
-          { sessionId: AuthSessionId.make(id), subject: id, method: "bearer-access-token", scopes },
-          {}, browser, () => Effect.void, { secretReferences: true },
-        ).pipe(
-          Layer.provide(services),
-          Layer.merge(RpcAuthorization.layer(scopes)),
-          Layer.merge(rpcInstrumentationLayer),
-        )),
+        Effect.provide(
+          layerWsRpc(
+            {
+              sessionId: AuthSessionId.make(id),
+              subject: id,
+              method: "bearer-access-token",
+              scopes,
+            },
+            {},
+            browser,
+            () => Effect.void,
+            { secretReferences: true },
+          ).pipe(
+            Layer.provide(services),
+            Layer.merge(RpcAuthorization.layer(scopes)),
+            Layer.merge(rpcInstrumentationLayer),
+          ),
+        ),
       );
 
     const reader = yield* makeClient("telemetry-unscoped", [AuthOrchestrationReadScope]);
@@ -3871,17 +4547,19 @@ it.effect("streams cached resource telemetry and releases sampling after the las
     yield* Queue.take(samplingStopped);
 
     const reconnect = yield* makeClient("telemetry-reconnect", [AuthDiagnosticsReadScope]);
-    const head = yield* reconnect[WS_METHODS.subscribeResourceTelemetry]({}).pipe(
-      Stream.runHead,
-    );
+    const head = yield* reconnect[WS_METHODS.subscribeResourceTelemetry]({}).pipe(Stream.runHead);
     assert.deepEqual(Option.getOrThrow(head), cached);
     yield* Queue.take(unsubscribed);
     assert.equal(subscriptionCount, 3);
   }).pipe(
     Effect.scoped,
-    Effect.provide(ProjectionStore.layer.pipe(
-      Layer.provideMerge(Layer.mergeAll(layerConfigSources, Layer.mock(ServerBrowser.ServerBrowser)({}))),
-    )),
+    Effect.provide(
+      ProjectionStore.layer.pipe(
+        Layer.provideMerge(
+          Layer.mergeAll(layerConfigSources, Layer.mock(ServerBrowser.ServerBrowser)({})),
+        ),
+      ),
+    ),
   ),
 );
 
@@ -3923,16 +4601,17 @@ it.effect("streams relay installation progress only for an authorized writer", (
             return installed;
           }),
       }),
-      Layer.succeed(SqlClient.SqlClient, sql),
-    );
-    const makeClient = (
-      id: string,
-      scopes: EnvironmentAuth.AuthenticatedSession["scopes"],
-    ) =>
+    ).pipe(Layer.provideMerge(Layer.succeed(SqlClient.SqlClient, sql)));
+    const makeClient = (id: string, scopes: EnvironmentAuth.AuthenticatedSession["scopes"]) =>
       RpcTest.makeClient(WsRpcGroup.middleware(RpcInstrumentation)).pipe(
         Effect.provide(
           layerWsRpc(
-            { sessionId: AuthSessionId.make(id), subject: id, method: "bearer-access-token", scopes },
+            {
+              sessionId: AuthSessionId.make(id),
+              subject: id,
+              method: "bearer-access-token",
+              scopes,
+            },
             {},
             browser,
             () => Effect.void,
@@ -3965,175 +4644,221 @@ it.effect("streams relay installation progress only for an authorized writer", (
     assert.equal(installCalls, 1);
   }).pipe(
     Effect.scoped,
-    Effect.provide(
-      Layer.mergeAll(layerConfigSources, Layer.mock(ServerBrowser.ServerBrowser)({})),
-    ),
+    Effect.provide(Layer.mergeAll(layerConfigSources, Layer.mock(ServerBrowser.ServerBrowser)({}))),
   ),
 );
 
-it.effect("serves signed host JPEG and video on their issuing environment without a local thread", () =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const sql = yield* SqlClient.SqlClient;
-    const browser = yield* ServerBrowser.ServerBrowser;
-    const signer = yield* AssetSigner.AssetSigner;
-    const config = yield* ServerConfigModule.ServerConfig;
-    const clock = yield* Clock.Clock;
-    const fixtures = yield* fs.makeTempDirectoryScoped({ prefix: "j1-host-media-" });
-    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xc0, 0, 17, 8, 0, 2, 0, 3]);
-    const video = new Uint8Array([1, 2, 3, 4]);
-    const html = "<p>draft</p>";
-    yield* fs.writeFile(path.join(fixtures, "photo.jpeg"), jpeg);
-    yield* fs.writeFile(path.join(fixtures, "recording.mp4"), video);
-    yield* fs.writeFileString(path.join(fixtures, "note.html"), html);
+it.effect(
+  "serves signed host JPEG and video on their issuing environment without a local thread",
+  () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const sql = yield* SqlClient.SqlClient;
+      const browser = yield* ServerBrowser.ServerBrowser;
+      const signer = yield* AssetSigner.AssetSigner;
+      const config = yield* ServerConfigModule.ServerConfig;
+      const clock = yield* Clock.Clock;
+      const fixtures = yield* fs.makeTempDirectoryScoped({ prefix: "j1-host-media-" });
+      const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xc0, 0, 17, 8, 0, 2, 0, 3]);
+      const video = new Uint8Array([1, 2, 3, 4]);
+      const html = "<p>draft</p>";
+      yield* fs.writeFile(path.join(fixtures, "photo.jpeg"), jpeg);
+      yield* fs.writeFile(path.join(fixtures, "recording.mp4"), video);
+      yield* fs.writeFileString(path.join(fixtures, "note.html"), html);
 
-    const threadId = ThreadId.make("thread-on-another-environment");
-    const deleted = ThreadId.make("deleted-host-media-thread");
-    const localThread = ThreadId.make("local-media-thread");
-    const projectId = ProjectId.make("local-media-project");
-    const at = "2026-08-31T12:00:00.000Z";
-    const lookups: ThreadId[] = [];
-    const services = Layer.mergeAll(
-      layerUnusedConfigRpcServices,
-      Layer.mock(BackgroundBrowser)({}),
-      Layer.mock(MausbotService)({}),
-      Layer.mock(V2RoutingOwner)({}),
-      Layer.mock(ExternalLauncher.ExternalLauncher)({}),
-      Layer.mock(ProviderRegistry.ProviderRegistry)({}),
-      Layer.mock(UsageLimitSources.UsageLimitSources)({}),
-      Layer.mock(RemoteOpenTargets.RemoteOpenTargets)({}),
-      Layer.mock(DirectEndpoints.DirectEndpoints)({}),
-      Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/fixture" }),
-      Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
-      Layer.mock(ServerEnvironment.ServerEnvironment)({
-        getEnvironmentId: Effect.succeed(EnvironmentId.make("ws-fixture")),
-      }),
-      Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
-      Layer.succeed(SqlClient.SqlClient, sql),
-      Layer.succeed(AssetSigner.AssetSigner, signer),
-      Layer.succeed(ServerConfigModule.ServerConfig, config),
-      Layer.succeed(ServerSettings.ServerSettingsService, yield* ServerSettings.ServerSettingsService),
-      WorkspacePaths.layer,
-      Layer.mock(ProjectService.ProjectService)({
-        getById: (id) => {
-          assert.equal(id, projectId);
-          return Effect.succeedSome({
-            id, title: "Media fixture", workspaceRoot: fixtures, defaultModelSelection: null,
-            scripts: [], createdAt: at, updatedAt: at, deletedAt: null,
-          });
-        },
-      }),
-      Layer.mock(ThreadManagement.ThreadManagementService)({
-        getThreadRecords: (id, fields) => Effect.suspend(() => {
-          lookups.push(id);
-          assert.isEmpty(fields);
-          if (id === localThread || id === deleted) {
-            return Effect.succeed({
-              thread: { id, projectId, worktreePath: null, deletedAt: id === deleted ? DateTime.makeUnsafe(at) : null },
-            } as never);
-          }
-          return Effect.fail(new Orchestrator.OrchestratorProjectionError({
-                threadId: id, cause: new ProjectionStore.ProjectionStoreThreadNotFoundError({ threadId: id }),
-              }));
+      const threadId = ThreadId.make("thread-on-another-environment");
+      const deleted = ThreadId.make("deleted-host-media-thread");
+      const localThread = ThreadId.make("local-media-thread");
+      const projectId = ProjectId.make("local-media-project");
+      const at = "2026-08-31T12:00:00.000Z";
+      const lookups: ThreadId[] = [];
+      const services = Layer.mergeAll(
+        layerUnusedConfigRpcServices,
+        Layer.mock(BackgroundBrowser)({}),
+        Layer.mock(MausbotService)({}),
+        Layer.mock(V2RoutingOwner)({}),
+        Layer.mock(ExternalLauncher.ExternalLauncher)({}),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({}),
+        Layer.mock(UsageLimitSources.UsageLimitSources)({}),
+        Layer.mock(RemoteOpenTargets.RemoteOpenTargets)({}),
+        Layer.mock(DirectEndpoints.DirectEndpoints)({}),
+        Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/fixture" }),
+        Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
+        Layer.mock(ServerEnvironment.ServerEnvironment)({
+          getEnvironmentId: Effect.succeed(EnvironmentId.make("ws-fixture")),
         }),
-      }),
-    ).pipe(Layer.provideMerge(NodeServices.layer));
-    const makeClient = (id: string, scopes: EnvironmentAuth.AuthenticatedSession["scopes"]) =>
-      RpcTest.makeClient(WsRpcGroup.middleware(RpcInstrumentation)).pipe(
-        Effect.provide(layerWsRpc(
-          { sessionId: AuthSessionId.make(id), subject: id, method: "bearer-access-token", scopes },
-          {}, browser, () => Effect.void, { secretReferences: true },
-        ).pipe(
-          Layer.provide(services),
-          Layer.merge(RpcAuthorization.layer(scopes)),
-          Layer.merge(rpcInstrumentationLayer),
-        )),
-      );
+        Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
 
-    const renderApp = (key: AssetSigner.AssetSigner["Service"]) =>
-      Effect.acquireRelease(
-        Effect.sync(() => HttpRouter.toWebHandler(
-          ServerHttp.layerAssetRoute.pipe(
-            Layer.provideMerge(Layer.mergeAll(
-              Layer.succeed(AssetSigner.AssetSigner, key),
-              Layer.succeed(Clock.Clock, clock),
-              Layer.succeed(ServerConfigModule.ServerConfig, config),
-              Layer.mock(Orchestrator.OrchestratorV2)({}),
-              Layer.mock(NativeAppIconResolver.NativeAppIconResolver)({}),
-              Layer.mock(RepositoryIdentityResolver.RepositoryIdentityResolver)({}),
-              Layer.succeed(BuiltInSourceControlDrivers.SourceControlDrivers, []),
-              FetchHttpClient.layer,
-              NodeHttpPlatform.layer,
-              NodeServices.layer,
-            )),
-          ), { disableLogger: true },
-        )),
-        (app) => Effect.promise(() => app.dispose()),
+        Layer.succeed(AssetSigner.AssetSigner, signer),
+        Layer.succeed(ServerConfigModule.ServerConfig, config),
+        Layer.succeed(
+          ServerSettings.ServerSettingsService,
+          yield* ServerSettings.ServerSettingsService,
+        ),
+        WorkspacePaths.layer,
+        Layer.mock(ProjectService.ProjectService)({
+          getById: (id) => {
+            assert.equal(id, projectId);
+            return Effect.succeedSome({
+              id,
+              title: "Media fixture",
+              workspaceRoot: fixtures,
+              defaultModelSelection: null,
+              scripts: [],
+              createdAt: at,
+              updatedAt: at,
+              deletedAt: null,
+            });
+          },
+        }),
+        Layer.mock(ThreadManagement.ThreadManagementService)({
+          getThreadRecords: (id, fields) =>
+            Effect.suspend(() => {
+              lookups.push(id);
+              assert.isEmpty(fields);
+              if (id === localThread || id === deleted) {
+                return Effect.succeed({
+                  thread: {
+                    id,
+                    projectId,
+                    worktreePath: null,
+                    deletedAt: id === deleted ? DateTime.makeUnsafe(at) : null,
+                  },
+                } as never);
+              }
+              return Effect.fail(
+                new Orchestrator.OrchestratorProjectionError({
+                  threadId: id,
+                  cause: new ProjectionStore.ProjectionStoreThreadNotFoundError({ threadId: id }),
+                }),
+              );
+            }),
+        }),
+      ).pipe(
+        Layer.provideMerge(Layer.succeed(SqlClient.SqlClient, sql)),
+        Layer.provideMerge(NodeServices.layer),
       );
-    const app = yield* renderApp(signer);
-    const other = yield* Layer.build(Layer.fresh(layerConfigSources));
-    const foreignApp = yield* renderApp(Context.get(other, AssetSigner.AssetSigner));
-    const request = (url: string) => new Request(new URL(url, "http://127.0.0.1"));
-    const workspaceContext = yield* Layer.build(WorkspacePaths.layer);
-    const send = (target: Effect.Success<ReturnType<typeof renderApp>>, url: string) =>
-      Effect.promise(() => target.handler(request(url), workspaceContext));
-    const unprivileged = yield* makeClient("media-denied", [AuthOrchestrationReadScope]);
-    const allowed = yield* makeClient("media-reader", [AuthFilesystemReadScope]);
-    const absolute = { _tag: "media-file" as const, threadId, path: path.join(fixtures, "photo.jpeg") };
-    const denied = yield* unprivileged[WS_METHODS.assetsCreateUrl]({ resource: absolute }).pipe(Effect.flip);
-    if (denied._tag !== "EnvironmentAuthorizationError") return yield* Effect.die(denied);
-    assert.equal(denied.requiredPermission, AuthFilesystemReadScope);
+      const makeClient = (id: string, scopes: EnvironmentAuth.AuthenticatedSession["scopes"]) =>
+        RpcTest.makeClient(WsRpcGroup.middleware(RpcInstrumentation)).pipe(
+          Effect.provide(
+            layerWsRpc(
+              {
+                sessionId: AuthSessionId.make(id),
+                subject: id,
+                method: "bearer-access-token",
+                scopes,
+              },
+              {},
+              browser,
+              () => Effect.void,
+              { secretReferences: true },
+            ).pipe(
+              Layer.provide(services),
+              Layer.merge(RpcAuthorization.layer(scopes)),
+              Layer.merge(rpcInstrumentationLayer),
+            ),
+          ),
+        );
 
-    for (const [name, mimeType, bytes] of [
-      ["photo.jpeg", "image/jpeg", jpeg],
-      ["recording.mp4", "video/mp4", video],
-    ] as const) {
-      const issued = yield* allowed[WS_METHODS.assetsCreateUrl]({
-        resource: { ...absolute, path: path.join(fixtures, name) },
+      const renderApp = (key: AssetSigner.AssetSigner["Service"]) =>
+        Effect.acquireRelease(
+          Effect.sync(() =>
+            HttpRouter.toWebHandler(
+              ServerHttp.layerAssetRoute.pipe(
+                Layer.provideMerge(
+                  Layer.mergeAll(
+                    Layer.succeed(AssetSigner.AssetSigner, key),
+                    Layer.succeed(Clock.Clock, clock),
+                    Layer.succeed(ServerConfigModule.ServerConfig, config),
+                    Layer.mock(Orchestrator.OrchestratorV2)({}),
+                    Layer.mock(NativeAppIconResolver.NativeAppIconResolver)({}),
+                    Layer.mock(RepositoryIdentityResolver.RepositoryIdentityResolver)({}),
+                    Layer.succeed(BuiltInSourceControlDrivers.SourceControlDrivers, []),
+                    FetchHttpClient.layer,
+                    NodeHttpPlatform.layer,
+                    NodeServices.layer,
+                  ),
+                ),
+              ),
+              { disableLogger: true },
+            ),
+          ),
+          (app) => Effect.promise(() => app.dispose()),
+        );
+      const app = yield* renderApp(signer);
+      const other = yield* Layer.build(Layer.fresh(layerConfigSources));
+      const foreignApp = yield* renderApp(Context.get(other, AssetSigner.AssetSigner));
+      const request = (url: string) => new Request(new URL(url, "http://127.0.0.1"));
+      const workspaceContext = yield* Layer.build(WorkspacePaths.layer);
+      const send = (target: Effect.Success<ReturnType<typeof renderApp>>, url: string) =>
+        Effect.promise(() => target.handler(request(url), workspaceContext));
+      const unprivileged = yield* makeClient("media-denied", [AuthOrchestrationReadScope]);
+      const allowed = yield* makeClient("media-reader", [AuthFilesystemReadScope]);
+      const absolute = {
+        _tag: "media-file" as const,
+        threadId,
+        path: path.join(fixtures, "photo.jpeg"),
+      };
+      const denied = yield* unprivileged[WS_METHODS.assetsCreateUrl]({ resource: absolute }).pipe(
+        Effect.flip,
+      );
+      if (denied._tag !== "EnvironmentAuthorizationError") return yield* Effect.die(denied);
+      assert.equal(denied.requiredPermission, AuthFilesystemReadScope);
+
+      for (const [name, mimeType, bytes] of [
+        ["photo.jpeg", "image/jpeg", jpeg],
+        ["recording.mp4", "video/mp4", video],
+      ] as const) {
+        const issued = yield* allowed[WS_METHODS.assetsCreateUrl]({
+          resource: { ...absolute, path: path.join(fixtures, name) },
+        });
+        if (mimeType === "image/jpeg")
+          assert.deepEqual(issued.imageDimensions, { width: 3, height: 2 });
+        const response = yield* send(app, issued.relativeUrl);
+        assert.equal(response.status, 200);
+        assert.equal(response.headers.get("content-type"), mimeType);
+        assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+        assert.deepEqual(
+          new Uint8Array(yield* Effect.promise(() => response.arrayBuffer())),
+          bytes,
+        );
+
+        const foreign = yield* send(foreignApp, issued.relativeUrl);
+        assert.equal(foreign.status, 404);
+        const sibling = issued.relativeUrl.replace(/[^/]+$/, "note.html");
+        const wrongPath = yield* send(app, sibling);
+        assert.equal(wrongPath.status, 404);
+      }
+
+      const draft = yield* allowed[WS_METHODS.assetsCreateUrl]({
+        resource: { _tag: "draft-workspace-file", cwd: fixtures, path: "note.html" },
       });
-      if (mimeType === "image/jpeg") assert.deepEqual(issued.imageDimensions, { width: 3, height: 2 });
-      const response = yield* send(app, issued.relativeUrl);
+      const response = yield* send(app, draft.relativeUrl);
       assert.equal(response.status, 200);
-      assert.equal(response.headers.get("content-type"), mimeType);
-      assert.equal(response.headers.get("x-content-type-options"), "nosniff");
-      assert.deepEqual(new Uint8Array(yield* Effect.promise(() => response.arrayBuffer())), bytes);
+      assert.equal(response.headers.get("content-type"), "text/html; charset=utf-8");
+      assert.equal(yield* Effect.promise(() => response.text()), html);
+      assert.isEmpty(lookups);
 
-      const foreign = yield* send(foreignApp, issued.relativeUrl);
-      assert.equal(foreign.status, 404);
-      const sibling = issued.relativeUrl.replace(/[^/]+$/, "note.html");
-      const wrongPath = yield* send(app, sibling);
-      assert.equal(wrongPath.status, 404);
-    }
-
-    const draft = yield* allowed[WS_METHODS.assetsCreateUrl]({
-      resource: { _tag: "draft-workspace-file", cwd: fixtures, path: "note.html" },
-    });
-    const response = yield* send(app, draft.relativeUrl);
-    assert.equal(response.status, 200);
-    assert.equal(response.headers.get("content-type"), "text/html; charset=utf-8");
-    assert.equal(yield* Effect.promise(() => response.text()), html);
-    assert.isEmpty(lookups);
-
-    for (const id of [threadId, deleted]) {
-      const refused = yield* allowed[WS_METHODS.assetsCreateUrl]({
-        resource: { ...absolute, threadId: id, path: "photo.jpeg" },
-      }).pipe(Effect.flip);
-      assert.equal(refused._tag, "AssetWorkspaceContextNotFoundError");
-    }
-    const relative = yield* allowed[WS_METHODS.assetsCreateUrl]({
-      resource: { ...absolute, threadId: localThread, path: "photo.jpeg" },
-    });
-    const local = yield* send(app, relative.relativeUrl);
-    assert.equal(local.status, 200);
-    assert.deepEqual(new Uint8Array(yield* Effect.promise(() => local.arrayBuffer())), jpeg);
-    assert.deepEqual(lookups, [threadId, deleted, localThread]);
-  }).pipe(
-    Effect.scoped,
-    Effect.provide(
-      Layer.mergeAll(layerConfigSources, Layer.mock(ServerBrowser.ServerBrowser)({})),
+      for (const id of [threadId, deleted]) {
+        const refused = yield* allowed[WS_METHODS.assetsCreateUrl]({
+          resource: { ...absolute, threadId: id, path: "photo.jpeg" },
+        }).pipe(Effect.flip);
+        assert.equal(refused._tag, "AssetWorkspaceContextNotFoundError");
+      }
+      const relative = yield* allowed[WS_METHODS.assetsCreateUrl]({
+        resource: { ...absolute, threadId: localThread, path: "photo.jpeg" },
+      });
+      const local = yield* send(app, relative.relativeUrl);
+      assert.equal(local.status, 200);
+      assert.deepEqual(new Uint8Array(yield* Effect.promise(() => local.arrayBuffer())), jpeg);
+      assert.deepEqual(lookups, [threadId, deleted, localThread]);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(layerConfigSources, Layer.mock(ServerBrowser.ServerBrowser)({})),
+      ),
     ),
-  ),
 );
 
 it.effect("uploads feedback only through the selected thread's live provider session", () =>
@@ -4160,7 +4885,9 @@ it.effect("uploads feedback only through the selected thread's live provider ses
       providerSessionId: ProviderSessionId.make("older-feedback-session"),
     };
     const thread = {
-      id: threadId, activeProviderThreadId: active.id as ProviderThreadId | null, deletedAt: null,
+      id: threadId,
+      activeProviderThreadId: active.id as ProviderThreadId | null,
+      deletedAt: null,
     };
     let projection = {
       thread: { ...thread, deletedAt: null as DateTime.Utc | null },
@@ -4172,12 +4899,18 @@ it.effect("uploads feedback only through the selected thread's live provider ses
     const uploads: unknown[] = [];
     const privateMarker = "private-fixture-workspace-and-account";
     const goodRuntime = {
-      instanceId, driver, providerSessionId: sessionId,
-      uploadFeedback: (input) => Effect.sync(() => {
-        uploads.push(input);
-        return { feedbackId: "codex-thread-feedback" };
-      }),
-    } satisfies Pick<ProviderAdapterV2SessionRuntime, "instanceId" | "driver" | "providerSessionId" | "uploadFeedback">;
+      instanceId,
+      driver,
+      providerSessionId: sessionId,
+      uploadFeedback: (input) =>
+        Effect.sync(() => {
+          uploads.push(input);
+          return { feedbackId: "codex-thread-feedback" };
+        }),
+    } satisfies Pick<
+      ProviderAdapterV2SessionRuntime,
+      "instanceId" | "driver" | "providerSessionId" | "uploadFeedback"
+    >;
     let runtime: Partial<ProviderAdapterV2SessionRuntime> | null = goodRuntime;
     const services = Layer.mergeAll(
       layerUnusedConfigRpcServices,
@@ -4196,34 +4929,48 @@ it.effect("uploads feedback only through the selected thread's live provider ses
       }),
       Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
       Layer.mock(ThreadManagement.ThreadManagementService)({
-        getThreadRecords: (id, fields) => Effect.suspend(() => {
-          lookups.push(id);
-          assert.deepEqual<readonly string[]>(fields, ["providerThreads"]);
-          return id === missingId
-            ? Effect.fail(new Orchestrator.OrchestratorProjectionError({
-                threadId: id, cause: new Error("Projection failure", { cause: privateMarker }),
-              }))
-            : Effect.succeed(projection as never);
-        }),
+        getThreadRecords: (id, fields) =>
+          Effect.suspend(() => {
+            lookups.push(id);
+            assert.deepEqual<readonly string[]>(fields, ["providerThreads"]);
+            return id === missingId
+              ? Effect.fail(
+                  new Orchestrator.OrchestratorProjectionError({
+                    threadId: id,
+                    cause: new Error("Projection failure", { cause: privateMarker }),
+                  }),
+                )
+              : Effect.succeed(projection as never);
+          }),
       }),
       Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({
-        get: (id) => Effect.sync(() => {
-          sessions.push(id);
-          return Option.fromNullishOr(runtime as ProviderAdapterV2SessionRuntime | null);
-        }),
+        get: (id) =>
+          Effect.sync(() => {
+            sessions.push(id);
+            return Option.fromNullishOr(runtime as ProviderAdapterV2SessionRuntime | null);
+          }),
       }),
-      Layer.succeed(SqlClient.SqlClient, sql),
-    );
+    ).pipe(Layer.provideMerge(Layer.succeed(SqlClient.SqlClient, sql)));
     const makeClient = (id: string, scopes: EnvironmentAuth.AuthenticatedSession["scopes"]) =>
       RpcTest.makeClient(WsRpcGroup.middleware(RpcInstrumentation)).pipe(
-        Effect.provide(layerWsRpc(
-          { sessionId: AuthSessionId.make(id), subject: id, method: "bearer-access-token", scopes },
-          {}, browser, () => Effect.void, { secretReferences: true },
-        ).pipe(
-          Layer.provide(services),
-          Layer.merge(RpcAuthorization.layer(scopes)),
-          Layer.merge(rpcInstrumentationLayer),
-        )),
+        Effect.provide(
+          layerWsRpc(
+            {
+              sessionId: AuthSessionId.make(id),
+              subject: id,
+              method: "bearer-access-token",
+              scopes,
+            },
+            {},
+            browser,
+            () => Effect.void,
+            { secretReferences: true },
+          ).pipe(
+            Layer.provide(services),
+            Layer.merge(RpcAuthorization.layer(scopes)),
+            Layer.merge(rpcInstrumentationLayer),
+          ),
+        ),
       );
     const reader = yield* makeClient("feedback-reader", [AuthOrchestrationReadScope]);
     const denied = yield* reader[WS_METHODS.providerUploadFeedback](payload).pipe(Effect.flip);
@@ -4232,7 +4979,8 @@ it.effect("uploads feedback only through the selected thread's live provider ses
     assert.isEmpty(lookups);
 
     const operator = yield* makeClient("feedback-operator", [
-      AuthOrchestrationReadScope, AuthOrchestrationOperateScope,
+      AuthOrchestrationReadScope,
+      AuthOrchestrationOperateScope,
     ]);
     const feedbackErrorJson = Schema.fromJsonString(ProviderUploadFeedbackError);
     const encodeFeedbackError = Schema.encodeEffect(feedbackErrorJson);
@@ -4263,7 +5011,10 @@ it.effect("uploads feedback only through the selected thread's live provider ses
 
     projection = { thread, providerThreads: [active, other] };
     runtime = null;
-    yield* expectFeedbackError(threadId, "The provider session is no longer running. Send a message first.");
+    yield* expectFeedbackError(
+      threadId,
+      "The provider session is no longer running. Send a message first.",
+    );
     runtime = { ...goodRuntime, instanceId: ProviderInstanceId.make("other-codex-account") };
     yield* expectFeedbackError(threadId, "The provider session does not match this thread.");
     const { uploadFeedback: _uploadFeedback, ...unavailable } = goodRuntime;
@@ -4273,9 +5024,14 @@ it.effect("uploads feedback only through the selected thread's live provider ses
 
     runtime = {
       ...goodRuntime,
-      uploadFeedback: () => Effect.fail(new ProviderAdapterProtocolError({
-        driver, detail: privateMarker, payload: { workspace: privateMarker },
-      })),
+      uploadFeedback: () =>
+        Effect.fail(
+          new ProviderAdapterProtocolError({
+            driver,
+            detail: privateMarker,
+            payload: { workspace: privateMarker },
+          }),
+        ),
     };
     yield* expectFeedbackError(threadId, "The provider could not upload thread feedback.");
 
@@ -4297,9 +5053,7 @@ it.effect("uploads feedback only through the selected thread's live provider ses
     assert.isTrue(sessions.every((id) => id === sessionId));
   }).pipe(
     Effect.scoped,
-    Effect.provide(
-      Layer.mergeAll(layerConfigSources, Layer.mock(ServerBrowser.ServerBrowser)({})),
-    ),
+    Effect.provide(Layer.mergeAll(layerConfigSources, Layer.mock(ServerBrowser.ServerBrowser)({}))),
   ),
 );
 
@@ -4312,14 +5066,27 @@ it.effect("preserves structured agent import refusals and scanner counts at the 
     const workspaceRoot = "/fixture/import-workspace";
     const at = "2026-08-31T12:00:00.000Z";
     const project = {
-      id: projectId, title: "Agent import", workspaceRoot, defaultModelSelection: null,
-      scripts: [], createdAt: at, updatedAt: at, deletedAt: null,
+      id: projectId,
+      title: "Agent import",
+      workspaceRoot,
+      defaultModelSelection: null,
+      scripts: [],
+      createdAt: at,
+      updatedAt: at,
+      deletedAt: null,
     } as const;
     const scanResult = {
-      candidates: [{
-        path: workspaceRoot, title: project.title, projectId, sources: ["codex"],
-        threadCount: 2, lastActiveAt: at, alreadyImported: true,
-      }],
+      candidates: [
+        {
+          path: workspaceRoot,
+          title: project.title,
+          projectId,
+          sources: ["codex"],
+          threadCount: 2,
+          lastActiveAt: at,
+          alreadyImported: true,
+        },
+      ],
       scannedAt: at,
       truncated: true,
     } as const;
@@ -4350,31 +5117,44 @@ it.effect("preserves structured agent import refusals and scanner counts at the 
         list: () => Effect.succeed([]),
       }),
       Layer.mock(ProjectService.ProjectService)({
-        getById: (id) => Effect.sync(() => {
-          lookedUp.push(id);
-          return id === projectId ? Option.some(project) : Option.none();
-        }),
+        getById: (id) =>
+          Effect.sync(() => {
+            lookedUp.push(id);
+            return id === projectId ? Option.some(project) : Option.none();
+          }),
       }),
       Layer.mock(AgentSessionScanner.AgentSessionScanner)({
         scan: Effect.succeed(scanResult),
-        recentThreads: (root) => Stream.unwrap(Effect.sync(() => {
-          scanned.push(root);
-          return Stream.succeed({ _tag: "Skipped" } as const);
-        })),
+        recentThreads: (root) =>
+          Stream.unwrap(
+            Effect.sync(() => {
+              scanned.push(root);
+              return Stream.succeed({ _tag: "Skipped" } as const);
+            }),
+          ),
       }),
-      Layer.succeed(SqlClient.SqlClient, sql),
-    );
+    ).pipe(Layer.provideMerge(Layer.succeed(SqlClient.SqlClient, sql)));
     const services = AgentSessionImporter.layer.pipe(Layer.provideMerge(deps));
     const makeClient = (id: string, scopes: EnvironmentAuth.AuthenticatedSession["scopes"]) =>
       RpcTest.makeClient(WsRpcGroup.middleware(RpcInstrumentation)).pipe(
-        Effect.provide(layerWsRpc(
-          { sessionId: AuthSessionId.make(id), subject: id, method: "bearer-access-token", scopes },
-          {}, browser, () => Effect.void, { secretReferences: true },
-        ).pipe(
-          Layer.provide(services),
-          Layer.merge(RpcAuthorization.layer(scopes)),
-          Layer.merge(rpcInstrumentationLayer),
-        )),
+        Effect.provide(
+          layerWsRpc(
+            {
+              sessionId: AuthSessionId.make(id),
+              subject: id,
+              method: "bearer-access-token",
+              scopes,
+            },
+            {},
+            browser,
+            () => Effect.void,
+            { secretReferences: true },
+          ).pipe(
+            Layer.provide(services),
+            Layer.merge(RpcAuthorization.layer(scopes)),
+            Layer.merge(rpcInstrumentationLayer),
+          ),
+        ),
       );
     const reader = yield* makeClient("agent-import-reader", [AuthOrchestrationReadScope]);
     assert.deepEqual(yield* reader[WS_METHODS.agentSessionsScan]({}), scanResult);
@@ -4384,146 +5164,167 @@ it.effect("preserves structured agent import refusals and scanner counts at the 
     assert.isEmpty(lookedUp);
 
     const operator = yield* makeClient("agent-import-operator", [
-      AuthOrchestrationReadScope, AuthOrchestrationOperateScope,
+      AuthOrchestrationReadScope,
+      AuthOrchestrationOperateScope,
     ]);
     const missing = yield* operator[WS_METHODS.agentSessionsImport]({
       projectId: missingId,
     }).pipe(Effect.flip);
-    if (missing._tag !== "AgentSessionImportProjectNotFoundError") return yield* Effect.die(missing);
+    if (missing._tag !== "AgentSessionImportProjectNotFoundError")
+      return yield* Effect.die(missing);
     assert.equal(missing.projectId, missingId);
     const stale = yield* operator[WS_METHODS.agentSessionsImport]({
-      projectId, expectedWorkspaceRoot: "/fixture/stale-workspace",
+      projectId,
+      expectedWorkspaceRoot: "/fixture/stale-workspace",
     }).pipe(Effect.flip);
     if (stale._tag !== "AgentSessionImportProjectChangedError") return yield* Effect.die(stale);
     assert.equal(stale.projectId, projectId);
     assert.deepEqual(lookedUp, [missingId, projectId]);
     assert.isEmpty(scanned);
     assert.deepEqual(
-      yield* operator[WS_METHODS.agentSessionsImport]({ projectId, expectedWorkspaceRoot: workspaceRoot }),
+      yield* operator[WS_METHODS.agentSessionsImport]({
+        projectId,
+        expectedWorkspaceRoot: workspaceRoot,
+      }),
       { importedCount: 0, skippedCount: 1 },
     );
     assert.deepEqual(scanned, [workspaceRoot]);
   }).pipe(
     Effect.scoped,
-    Effect.provide(
-      Layer.mergeAll(layerConfigSources, Layer.mock(ServerBrowser.ServerBrowser)({})),
-    ),
+    Effect.provide(Layer.mergeAll(layerConfigSources, Layer.mock(ServerBrowser.ServerBrowser)({}))),
   ),
 );
 
-it.effect("persists keybinding RPC edits only for settings writers in the connected environment", () =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const config = yield* ServerConfigModule.ServerConfig;
-    const keybindings = yield* Keybindings.Keybindings;
-    const localServices = yield* Effect.context<
-      | FileSystem.FileSystem
-      | ServerConfigModule.ServerConfig
-      | Keybindings.Keybindings
-      | ServerSettings.ServerSettingsService
-      | SqlClient.SqlClient
-    >();
-    const other = yield* Layer.build(Layer.fresh(layerConfigSources));
-    const otherConfig = Context.get(other, ServerConfigModule.ServerConfig);
-    const otherKeybindings = Context.get(other, Keybindings.Keybindings);
-    assert.notEqual(config.keybindingsConfigPath, otherConfig.keybindingsConfigPath);
+it.effect(
+  "persists keybinding RPC edits only for settings writers in the connected environment",
+  () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const config = yield* ServerConfigModule.ServerConfig;
+      const keybindings = yield* Keybindings.Keybindings;
+      const localServices = yield* Effect.context<
+        | FileSystem.FileSystem
+        | ServerConfigModule.ServerConfig
+        | Keybindings.Keybindings
+        | ServerSettings.ServerSettingsService
+        | SqlClient.SqlClient
+      >();
+      const other = yield* Layer.build(Layer.fresh(layerConfigSources));
+      const otherConfig = Context.get(other, ServerConfigModule.ServerConfig);
+      const otherKeybindings = Context.get(other, Keybindings.Keybindings);
+      assert.notEqual(config.keybindingsConfigPath, otherConfig.keybindingsConfigPath);
 
-    const rule = { key: "ctrl+k", command: "terminal.toggle" } as const;
-    const neighbor = { key: "mod+alt+z", command: "terminal.split" } as const;
-    const original = JSON.stringify([neighbor]);
-    yield* fs.writeFileString(config.keybindingsConfigPath, original);
-    yield* fs.writeFileString(otherConfig.keybindingsConfigPath, original);
-    const otherSnapshot = yield* otherKeybindings.getSnapshot;
-    const changes = yield* keybindings.subscribeChanges;
-    const services = Layer.mergeAll(
-      layerUnusedConfigRpcServices,
-      Layer.mock(BackgroundBrowser)({}),
-      Layer.mock(MausbotService)({}),
-      Layer.mock(V2RoutingOwner)({}),
-      Layer.mock(ExternalLauncher.ExternalLauncher)({}),
-      Layer.mock(ProviderRegistry.ProviderRegistry)({}),
-      Layer.mock(UsageLimitSources.UsageLimitSources)({}),
-      Layer.mock(RemoteOpenTargets.RemoteOpenTargets)({}),
-      Layer.mock(DirectEndpoints.DirectEndpoints)({}),
-      Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/fixture" }),
-      Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
-      Layer.mock(ServerEnvironment.ServerEnvironment)({
-        getEnvironmentId: Effect.succeed(EnvironmentId.make("keybinding-rpc-fixture")),
-      }),
-      Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
-      Layer.succeedContext(localServices),
-    );
-    const browser = yield* ServerBrowser.ServerBrowser;
-    const makeClient = (id: string, scopes: EnvironmentAuth.AuthenticatedSession["scopes"]) =>
-      RpcTest.makeClient(WsRpcGroup.middleware(RpcInstrumentation)).pipe(
-        Effect.provide(layerWsRpc(
-          { sessionId: AuthSessionId.make(id), subject: id, method: "bearer-access-token", scopes },
-          {}, browser, () => Effect.void, { secretReferences: true },
-        ).pipe(
-          Layer.provide(services),
-          Layer.merge(RpcAuthorization.layer(scopes)),
-          Layer.merge(rpcInstrumentationLayer),
-        )),
+      const rule = { key: "ctrl+k", command: "terminal.toggle" } as const;
+      const neighbor = { key: "mod+alt+z", command: "terminal.split" } as const;
+      const original = JSON.stringify([neighbor]);
+      yield* fs.writeFileString(config.keybindingsConfigPath, original);
+      yield* fs.writeFileString(otherConfig.keybindingsConfigPath, original);
+      const otherSnapshot = yield* otherKeybindings.getSnapshot;
+      const changes = yield* keybindings.subscribeChanges;
+      const services = Layer.mergeAll(
+        layerUnusedConfigRpcServices,
+        Layer.mock(BackgroundBrowser)({}),
+        Layer.mock(MausbotService)({}),
+        Layer.mock(V2RoutingOwner)({}),
+        Layer.mock(ExternalLauncher.ExternalLauncher)({}),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({}),
+        Layer.mock(UsageLimitSources.UsageLimitSources)({}),
+        Layer.mock(RemoteOpenTargets.RemoteOpenTargets)({}),
+        Layer.mock(DirectEndpoints.DirectEndpoints)({}),
+        Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/fixture" }),
+        Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
+        Layer.mock(ServerEnvironment.ServerEnvironment)({
+          getEnvironmentId: Effect.succeed(EnvironmentId.make("keybinding-rpc-fixture")),
+        }),
+        Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
+      ).pipe(Layer.provideMerge(Layer.succeedContext(localServices)));
+      const browser = yield* ServerBrowser.ServerBrowser;
+      const makeClient = (id: string, scopes: EnvironmentAuth.AuthenticatedSession["scopes"]) =>
+        RpcTest.makeClient(WsRpcGroup.middleware(RpcInstrumentation)).pipe(
+          Effect.provide(
+            layerWsRpc(
+              {
+                sessionId: AuthSessionId.make(id),
+                subject: id,
+                method: "bearer-access-token",
+                scopes,
+              },
+              {},
+              browser,
+              () => Effect.void,
+              { secretReferences: true },
+            ).pipe(
+              Layer.provide(services),
+              Layer.merge(RpcAuthorization.layer(scopes)),
+              Layer.merge(rpcInstrumentationLayer),
+            ),
+          ),
+        );
+
+      const reader = yield* makeClient("keybinding-reader", [AuthOrchestrationReadScope]);
+      const writer = yield* makeClient("keybinding-writer", [
+        AuthOrchestrationReadScope,
+        AuthOrchestrationOperateScope,
+        AuthSettingsWriteScope,
+      ]);
+      const readConfig = fs.readFileString(config.keybindingsConfigPath);
+      const decodeRules = Schema.decodeEffect(Schema.fromJsonString(Schema.Array(Schema.Unknown)));
+      for (const denied of yield* Effect.all([
+        reader[WS_METHODS.serverUpsertKeybinding](rule).pipe(Effect.flip),
+        reader[WS_METHODS.serverRemoveKeybinding](neighbor).pipe(Effect.flip),
+      ])) {
+        if (denied._tag !== "EnvironmentAuthorizationError") return yield* Effect.die(denied);
+        assert.equal(denied.requiredPermission, AuthSettingsWriteScope);
+      }
+      assert.equal(yield* readConfig, original);
+      assert.deepEqual(
+        yield* reader[WS_METHODS.serverGetSettings]({}),
+        yield* writer[WS_METHODS.serverGetSettings]({}),
       );
 
-    const reader = yield* makeClient("keybinding-reader", [AuthOrchestrationReadScope]);
-    const writer = yield* makeClient("keybinding-writer", [
-      AuthOrchestrationReadScope,
-      AuthOrchestrationOperateScope,
-      AuthSettingsWriteScope,
-    ]);
-    const readConfig = fs.readFileString(config.keybindingsConfigPath);
-    const decodeRules = Schema.decodeEffect(Schema.fromJsonString(Schema.Array(Schema.Unknown)));
-    for (const denied of yield* Effect.all([
-      reader[WS_METHODS.serverUpsertKeybinding](rule).pipe(Effect.flip),
-      reader[WS_METHODS.serverRemoveKeybinding](neighbor).pipe(Effect.flip),
-    ])) {
-      if (denied._tag !== "EnvironmentAuthorizationError") return yield* Effect.die(denied);
-      assert.equal(denied.requiredPermission, AuthSettingsWriteScope);
-    }
-    assert.equal(yield* readConfig, original);
-    assert.deepEqual(
-      yield* reader[WS_METHODS.serverGetSettings]({}),
-      yield* writer[WS_METHODS.serverGetSettings]({}),
-    );
+      const saved = yield* writer[WS_METHODS.serverUpsertKeybinding](rule);
+      assert.isEmpty(saved.issues);
+      assert.ok(
+        saved.keybindings.some(
+          ({ command, shortcut }) =>
+            command === rule.command && shortcut.key === "k" && shortcut.ctrlKey,
+        ),
+      );
+      assert.deepEqual(yield* decodeRules(yield* readConfig), [neighbor, rule]);
 
-    const saved = yield* writer[WS_METHODS.serverUpsertKeybinding](rule);
-    assert.isEmpty(saved.issues);
-    assert.ok(saved.keybindings.some(({ command, shortcut }) =>
-      command === rule.command && shortcut.key === "k" && shortcut.ctrlKey
-    ));
-    assert.deepEqual((yield* decodeRules(yield* readConfig)), [neighbor, rule]);
+      const removed = yield* writer[WS_METHODS.serverRemoveKeybinding](rule);
+      assert.isEmpty(removed.issues);
+      assert.isFalse(
+        removed.keybindings.some(
+          ({ command, shortcut }) =>
+            command === rule.command && shortcut.key === "k" && shortcut.ctrlKey,
+        ),
+      );
+      assert.deepEqual(yield* decodeRules(yield* readConfig), [neighbor]);
+      assert.deepEqual(Array.from(yield* changes.pipe(Stream.take(2), Stream.runCollect)), [
+        saved,
+        removed,
+      ]);
 
-    const removed = yield* writer[WS_METHODS.serverRemoveKeybinding](rule);
-    assert.isEmpty(removed.issues);
-    assert.isFalse(removed.keybindings.some(({ command, shortcut }) =>
-      command === rule.command && shortcut.key === "k" && shortcut.ctrlKey
-    ));
-    assert.deepEqual((yield* decodeRules(yield* readConfig)), [neighbor]);
-    assert.deepEqual(
-      Array.from(yield* changes.pipe(Stream.take(2), Stream.runCollect)),
-      [saved, removed],
-    );
-
-    const malformed = "{ not-json";
-    yield* fs.writeFileString(config.keybindingsConfigPath, malformed);
-    for (const invalid of yield* Effect.all([
-      writer[WS_METHODS.serverUpsertKeybinding](rule).pipe(Effect.flip),
-      writer[WS_METHODS.serverRemoveKeybinding](neighbor).pipe(Effect.flip),
-    ])) {
-      if (invalid._tag !== "KeybindingsConfigParseError") return yield* Effect.die(invalid);
-      assert.equal(invalid.configPath, config.keybindingsConfigPath);
-      assert.equal(invalid.detail, "expected JSON array");
-    }
-    assert.equal(yield* readConfig, malformed);
-    assert.equal(yield* fs.readFileString(otherConfig.keybindingsConfigPath), original);
-    assert.deepEqual(yield* otherKeybindings.getSnapshot, otherSnapshot);
-  }).pipe(
-    Effect.scoped,
-    Effect.provide(
-      Layer.mergeAll(layerConfigSources, Layer.mock(ServerBrowser.ServerBrowser)({})),
+      const malformed = "{ not-json";
+      yield* fs.writeFileString(config.keybindingsConfigPath, malformed);
+      for (const invalid of yield* Effect.all([
+        writer[WS_METHODS.serverUpsertKeybinding](rule).pipe(Effect.flip),
+        writer[WS_METHODS.serverRemoveKeybinding](neighbor).pipe(Effect.flip),
+      ])) {
+        if (invalid._tag !== "KeybindingsConfigParseError") return yield* Effect.die(invalid);
+        assert.equal(invalid.configPath, config.keybindingsConfigPath);
+        assert.equal(invalid.detail, "expected JSON array");
+      }
+      assert.equal(yield* readConfig, malformed);
+      assert.equal(yield* fs.readFileString(otherConfig.keybindingsConfigPath), original);
+      assert.deepEqual(yield* otherKeybindings.getSnapshot, otherSnapshot);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(layerConfigSources, Layer.mock(ServerBrowser.ServerBrowser)({})),
+      ),
     ),
-  ),
 );
 
 class AuthInventoryTestApi extends HttpApi.make("environment").add(
@@ -4546,9 +5347,7 @@ it.effect("preserves client and pairing inventory privacy across scoped sessions
         };
       }),
     ).pipe(
-      Layer.provide(
-        ServerConfigModule.layerTest(process.cwd(), { prefix: "j1-auth-inventory-" }),
-      ),
+      Layer.provide(ServerConfigModule.layerTest(process.cwd(), { prefix: "j1-auth-inventory-" })),
     );
     const layerAuth = EnvironmentAuth.layer.pipe(
       Layer.provideMerge(
@@ -4559,10 +5358,9 @@ it.effect("preserves client and pairing inventory privacy across scoped sessions
           ServerEnvironment.layerIdentity,
         ).pipe(Layer.provideMerge(layerConfig)),
       ),
-      Layer.provideMerge(AssetSigner.layer.pipe(
-        Layer.provide(ServerSecretStore.layer),
-        Layer.provide(layerConfig),
-      )),
+      Layer.provideMerge(
+        AssetSigner.layer.pipe(Layer.provide(ServerSecretStore.layer), Layer.provide(layerConfig)),
+      ),
       Layer.provideMerge(nodeServices),
     );
     const shared = yield* Layer.build(layerAuth);
@@ -4585,18 +5383,13 @@ it.effect("preserves client and pairing inventory privacy across scoped sessions
       Context.add(Clock.Clock, clock),
     );
     const origin = "http://127.0.0.1";
-    const jsonRequest = (
-      path: string,
-      body: unknown,
-      headers?: Readonly<Record<string, string>>,
-    ) =>
+    const jsonRequest = (path: string, body: unknown, headers?: Readonly<Record<string, string>>) =>
       new Request(origin + path, {
         method: "POST",
         headers: { host: "127.0.0.1", "content-type": "application/json", ...headers },
         body: JSON.stringify(body),
       });
-    const send = (request: Request) =>
-      Effect.promise(() => http.handler(request, requestContext));
+    const send = (request: Request) => Effect.promise(() => http.handler(request, requestContext));
 
     const pairedScopes = [
       AuthOrchestrationReadScope,
@@ -4654,7 +5447,9 @@ it.effect("preserves client and pairing inventory privacy across scoped sessions
 
     const upgradeRequest = (headers: Readonly<Record<string, string>>) =>
       HttpServerRequest.fromWeb(new Request(origin + "/ws", { headers }));
-    const missing = yield* auth.authenticateWebSocketUpgrade(upgradeRequest({}), "rpc").pipe(Effect.flip);
+    const missing = yield* auth
+      .authenticateWebSocketUpgrade(upgradeRequest({}), "rpc")
+      .pipe(Effect.flip);
     assert.equal(missing._tag, "ServerAuthMissingCredentialError");
     const owner = yield* auth.authenticateWebSocketUpgrade(upgradeRequest(ownerHeaders), "rpc");
     const paired = yield* auth.authenticateWebSocketUpgrade(upgradeRequest(mobileHeaders), "rpc");
@@ -4670,10 +5465,12 @@ it.effect("preserves client and pairing inventory privacy across scoped sessions
       subject: "other-environment",
       scopes: [AuthAccessReadScope],
     });
-    const rejected = yield* auth.authenticateWebSocketUpgrade(
-      upgradeRequest({ authorization: `Bearer ${foreignBearer.token}` }),
-      "rpc",
-    ).pipe(Effect.flip);
+    const rejected = yield* auth
+      .authenticateWebSocketUpgrade(
+        upgradeRequest({ authorization: `Bearer ${foreignBearer.token}` }),
+        "rpc",
+      )
+      .pipe(Effect.flip);
     assert.equal(rejected._tag, "ServerAuthInvalidCredentialError");
 
     const unrelated = Layer.mergeAll(
@@ -4689,7 +5486,8 @@ it.effect("preserves client and pairing inventory privacy across scoped sessions
       Layer.mock(RemoteOpenTargets.RemoteOpenTargets)({}),
       Layer.mock(DirectEndpoints.DirectEndpoints)({}),
       Layer.mock(ServerEnvironment.ServerEnvironment)({
-        getEnvironmentId: Context.get(shared, ServerEnvironment.ServerEnvironmentIdentity).getEnvironmentId,
+        getEnvironmentId: Context.get(shared, ServerEnvironment.ServerEnvironmentIdentity)
+          .getEnvironmentId,
       }),
       Keybindings.layer,
       ServerSettings.layerTest(),
@@ -4700,13 +5498,13 @@ it.effect("preserves client and pairing inventory privacy across scoped sessions
     );
     const makeClient = (session: EnvironmentAuth.AuthenticatedSession) =>
       RpcTest.makeClient(WsRpcGroup.middleware(RpcInstrumentation)).pipe(
-        Effect.provide(layerWsRpc(
-          session, {}, browser, () => Effect.void, { secretReferences: true },
-        ).pipe(
-          Layer.provide(rpcServices),
-          Layer.merge(RpcAuthorization.layer(session.scopes)),
-          Layer.merge(rpcInstrumentationLayer),
-        )),
+        Effect.provide(
+          layerWsRpc(session, {}, browser, () => Effect.void, { secretReferences: true }).pipe(
+            Layer.provide(rpcServices),
+            Layer.merge(RpcAuthorization.layer(session.scopes)),
+            Layer.merge(rpcInstrumentationLayer),
+          ),
+        ),
       );
 
     const pairedClient = yield* makeClient(paired);
@@ -4746,21 +5544,23 @@ it.effect("preserves client and pairing inventory privacy across scoped sessions
       jsonRequest("/api/auth/pairing-token", { scopes: [AuthAccessWriteScope] }, ownerHeaders),
     );
     assert.equal(managerPairing.status, 200);
-    const { credential: managerCredential } = (yield* Effect.promise(
-      () => managerPairing.json(),
+    const { credential: managerCredential } = (yield* Effect.promise(() =>
+      managerPairing.json(),
     )) as { credential: string };
     const exchangePairing = (credential: string, scope?: string) =>
-      send(new Request(origin + "/oauth/token", {
-        method: "POST",
-        headers: { host: "127.0.0.1" },
-        body: new URLSearchParams({
-          grant_type: AuthTokenExchangeGrantType,
-          subject_token: credential,
-          subject_token_type: AuthEnvironmentBootstrapTokenType,
-          requested_token_type: AuthAccessTokenType,
-          ...(scope ? { scope } : {}),
+      send(
+        new Request(origin + "/oauth/token", {
+          method: "POST",
+          headers: { host: "127.0.0.1" },
+          body: new URLSearchParams({
+            grant_type: AuthTokenExchangeGrantType,
+            subject_token: credential,
+            subject_token_type: AuthEnvironmentBootstrapTokenType,
+            requested_token_type: AuthAccessTokenType,
+            ...(scope ? { scope } : {}),
+          }),
         }),
-      }));
+      );
     const managerExchange = yield* exchangePairing(managerCredential, AuthAccessWriteScope);
     assert.equal(managerExchange.status, 200);
     const managerBearer = (yield* Effect.promise(() => managerExchange.json())) as {
@@ -4778,33 +5578,43 @@ it.effect("preserves client and pairing inventory privacy across scoped sessions
     };
     assert.equal(overbroadError.code, "insufficient_scope");
     assert.equal(overbroadError.requiredScope, AuthOrchestrationReadScope);
-    const delegated = yield* send(jsonRequest(
-      "/api/auth/pairing-token", { scopes: [AuthAccessWriteScope] }, managerHeaders,
-    ));
+    const delegated = yield* send(
+      jsonRequest("/api/auth/pairing-token", { scopes: [AuthAccessWriteScope] }, managerHeaders),
+    );
     assert.equal(delegated.status, 200);
 
     const issueTicket = (headers: Record<string, string>) =>
       Effect.gen(function* () {
-        const response = yield* send(new Request(origin + "/api/auth/websocket-ticket/rpc", {
-          method: "POST",
-          headers,
-        }));
+        const response = yield* send(
+          new Request(origin + "/api/auth/websocket-ticket/rpc", {
+            method: "POST",
+            headers,
+          }),
+        );
         assert.equal(response.status, 200);
         assert.equal(response.headers.get("cache-control"), "no-store");
         const { ticket } = (yield* Effect.promise(() => response.json())) as { ticket: string };
         const upgradeUrl = new URL("/ws", origin);
         upgradeUrl.searchParams.set("wsTicket", ticket);
-        upgradeUrl.searchParams.set(ORCHESTRATION_PROTOCOL_QUERY_PARAM, String(ORCHESTRATION_PROTOCOL_VERSION));
-        return HttpServerRequest.fromWeb(new Request(upgradeUrl, { headers: { host: "127.0.0.1" } }));
+        upgradeUrl.searchParams.set(
+          ORCHESTRATION_PROTOCOL_QUERY_PARAM,
+          String(ORCHESTRATION_PROTOCOL_VERSION),
+        );
+        return HttpServerRequest.fromWeb(
+          new Request(upgradeUrl, { headers: { host: "127.0.0.1" } }),
+        );
       });
     const managerUpgrade = yield* issueTicket(managerHeaders);
-    const wrongAudience = yield* auth.authenticateWebSocketUpgrade(managerUpgrade, "media").pipe(Effect.flip);
+    const wrongAudience = yield* auth
+      .authenticateWebSocketUpgrade(managerUpgrade, "media")
+      .pipe(Effect.flip);
     assert.equal(wrongAudience._tag, "ServerAuthInvalidCredentialError");
     const manager = yield* auth.authenticateWebSocketUpgrade(managerUpgrade, "rpc");
     assert.deepEqual(manager.scopes, [AuthAccessWriteScope]);
     const managerClient = yield* makeClient(manager);
     const forbiddenConfig = yield* managerClient[WS_METHODS.serverGetConfig]({}).pipe(Effect.flip);
-    if (forbiddenConfig._tag !== "EnvironmentAuthorizationError") return yield* Effect.die(forbiddenConfig);
+    if (forbiddenConfig._tag !== "EnvironmentAuthorizationError")
+      return yield* Effect.die(forbiddenConfig);
     assert.equal(forbiddenConfig.requiredScope, AuthOrchestrationReadScope);
     const forbiddenInventory = yield* managerClient[WS_METHODS.subscribeAuthAccess]({}).pipe(
       Stream.runHead,
@@ -4820,16 +5630,15 @@ it.effect("preserves client and pairing inventory privacy across scoped sessions
       ORCHESTRATION_PROTOCOL_QUERY_PARAM,
       String(ORCHESTRATION_PROTOCOL_VERSION),
     );
-    for (const token of [
-      ownerCookie.slice(ownerCookie.indexOf("=") + 1),
-      bearer.access_token,
-    ]) {
+    for (const token of [ownerCookie.slice(ownerCookie.indexOf("=") + 1), bearer.access_token]) {
       assert.isNotEmpty(token);
       queryOnlySession.searchParams.set("token", token);
-      const rejected = yield* auth.authenticateWebSocketUpgrade(
-        HttpServerRequest.fromWeb(new Request(queryOnlySession)),
-        "rpc",
-      ).pipe(Effect.flip);
+      const rejected = yield* auth
+        .authenticateWebSocketUpgrade(
+          HttpServerRequest.fromWeb(new Request(queryOnlySession)),
+          "rpc",
+        )
+        .pipe(Effect.flip);
       assert.equal(rejected._tag, "ServerAuthMissingCredentialError");
     }
 
@@ -4842,9 +5651,9 @@ it.effect("preserves client and pairing inventory privacy across scoped sessions
       yield* pairedClient[WS_METHODS.serverGetSettings]({}),
     );
 
-    const revoked = yield* send(jsonRequest(
-      "/api/auth/clients/revoke", { sessionId: manager.sessionId }, ownerHeaders,
-    ));
+    const revoked = yield* send(
+      jsonRequest("/api/auth/clients/revoke", { sessionId: manager.sessionId }, ownerHeaders),
+    );
     assert.equal(revoked.status, 200);
     assert.equal(
       (yield* auth.authenticateWebSocketUpgrade(managerUpgrade, "rpc").pipe(Effect.flip))._tag,
@@ -4857,9 +5666,16 @@ it.effect("preserves client and pairing inventory privacy across scoped sessions
 
     const issuePairing = (label: string, scopes?: string[]) =>
       Effect.gen(function* () {
-        const response = yield* send(jsonRequest("/api/auth/pairing-token", {
-          label, ...(scopes ? { scopes } : {}),
-        }, ownerHeaders));
+        const response = yield* send(
+          jsonRequest(
+            "/api/auth/pairing-token",
+            {
+              label,
+              ...(scopes ? { scopes } : {}),
+            },
+            ownerHeaders,
+          ),
+        );
         assert.equal(response.status, 200);
         return (yield* Effect.promise(() => response.json())) as {
           id: string;
@@ -4869,13 +5685,17 @@ it.effect("preserves client and pairing inventory privacy across scoped sessions
     const accessLink = yield* issuePairing("Inventory reader", [AuthAccessReadScope]);
     const accessToken = yield* exchangePairing(accessLink.credential);
     assert.equal(accessToken.status, 200);
-    const accessBearer = (yield* Effect.promise(() => accessToken.json())) as { access_token: string };
+    const accessBearer = (yield* Effect.promise(() => accessToken.json())) as {
+      access_token: string;
+    };
     const accessHeaders = { authorization: `Bearer ${accessBearer.access_token}` };
     const accessUpgrade = yield* issueTicket(accessHeaders);
     const accessSession = yield* auth.authenticateWebSocketUpgrade(accessUpgrade, "rpc");
     assert.deepEqual(accessSession.scopes, [AuthAccessReadScope]);
     const accessClient = yield* makeClient(accessSession);
-    const readerCannotIssue = yield* send(jsonRequest("/api/auth/pairing-token", {}, accessHeaders));
+    const readerCannotIssue = yield* send(
+      jsonRequest("/api/auth/pairing-token", {}, accessHeaders),
+    );
     assert.equal(readerCannotIssue.status, 403);
     const issueRefusal = (yield* Effect.promise(() => readerCannotIssue.json())) as {
       requiredScope: string;
@@ -4889,7 +5709,8 @@ it.effect("preserves client and pairing inventory privacy across scoped sessions
       Effect.forkScoped({ startImmediately: true }),
     );
     const initial = yield* Queue.take(events);
-    if (initial.type !== "snapshot") return yield* Effect.die("Expected pairing inventory snapshot");
+    if (initial.type !== "snapshot")
+      return yield* Effect.die("Expected pairing inventory snapshot");
     const listed = initial.payload.pairingLinks.find((link) => link.id === initialLink.id);
     if (!listed) return yield* Effect.die("Initial pairing link missing from inventory");
     assert.equal(listed.label, "Initial fixture link");
@@ -4900,7 +5721,8 @@ it.effect("preserves client and pairing inventory privacy across scoped sessions
 
     const liveLink = yield* issuePairing("Live fixture link");
     const live = yield* Queue.take(events);
-    if (live.type !== "pairingLinkUpserted") return yield* Effect.die("Expected pairing link update");
+    if (live.type !== "pairingLinkUpserted")
+      return yield* Effect.die("Expected pairing link update");
     assert.equal(live.payload.id, liveLink.id);
     assert.equal(live.payload.label, "Live fixture link");
     assert.deepEqual(live.payload.permissions, AuthStandardClientScopes);
@@ -4916,7 +5738,8 @@ it.effect("preserves client and pairing inventory privacy across scoped sessions
     assert.equal(ownerRevoked.status, 200);
     assert.deepEqual(yield* Effect.promise(() => ownerRevoked.json()), { revoked: true });
     const removed = yield* Queue.take(events);
-    if (removed.type !== "pairingLinkRemoved") return yield* Effect.die("Expected pairing link removal");
+    if (removed.type !== "pairingLinkRemoved")
+      return yield* Effect.die("Expected pairing link removal");
     assert.equal(removed.payload.id, initialLink.id);
     assert.equal((yield* exchangePairing(initialLink.credential)).status, 401);
 
@@ -4928,7 +5751,9 @@ it.effect("preserves client and pairing inventory privacy across scoped sessions
     assert.equal(liveBearer.scope, AuthStandardClientScopes.join(" "));
     assert.equal((yield* exchangePairing(liveLink.credential)).status, 401);
 
-    const revokeOthers = yield* send(jsonRequest("/api/auth/clients/revoke-others", {}, ownerHeaders));
+    const revokeOthers = yield* send(
+      jsonRequest("/api/auth/clients/revoke-others", {}, ownerHeaders),
+    );
     assert.equal(revokeOthers.status, 200);
     assert.deepEqual(yield* Effect.promise(() => revokeOthers.json()), { revokedCount: 3 });
     for (const upgrade of [accessUpgrade, pairedUpgrade]) {
@@ -4943,15 +5768,16 @@ it.effect("preserves client and pairing inventory privacy across scoped sessions
       Stream.runHead,
       Effect.map(Option.getOrThrow),
     );
-    if (final.type !== "snapshot") return yield* Effect.die("Expected inventory after peer revocation");
+    if (final.type !== "snapshot")
+      return yield* Effect.die("Expected inventory after peer revocation");
     assert.deepEqual(
-      final.payload.clientSessions.map((entry) => ({ id: entry.sessionId, current: entry.current })),
+      final.payload.clientSessions.map((entry) => ({
+        id: entry.sessionId,
+        current: entry.current,
+      })),
       [{ id: owner.sessionId, current: true }],
     );
-  }).pipe(
-    Effect.scoped,
-    Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
-  ),
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("access changes made while the snapshot loads reach the client after it", () =>
@@ -5130,17 +5956,20 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
         streamChanges: Stream.fromQueue(providerChanges).pipe(
           Stream.tap(() => Queue.offer(pulled, undefined)),
         ),
-        invalidateModelCaches: (input) => Effect.sync(() => {
-          refreshCalls.push(`invalidate:${input.instanceId ?? "all"}`);
-        }),
-        refresh: () => Effect.sync(() => {
-          refreshCalls.push("probe:all");
-          return registryProviders;
-        }),
-        refreshInstance: (id) => Effect.sync(() => {
-          refreshCalls.push(`probe:${id}`);
-          return registryProviders;
-        }),
+        invalidateModelCaches: (input) =>
+          Effect.sync(() => {
+            refreshCalls.push(`invalidate:${input.instanceId ?? "all"}`);
+          }),
+        refresh: () =>
+          Effect.sync(() => {
+            refreshCalls.push("probe:all");
+            return registryProviders;
+          }),
+        refreshInstance: (id) =>
+          Effect.sync(() => {
+            refreshCalls.push(`probe:${id}`);
+            return registryProviders;
+          }),
         refreshWorkspaceSnapshot: () => Effect.sync(() => registryProviders),
       }),
       Layer.mock(ProjectService.ProjectService)({
@@ -5235,7 +6064,8 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
       headers: Headers.empty,
     });
     const beforeReconnect = (yield* Queue.take(responses)) as ServerConfigStreamEvent;
-    if (beforeReconnect.type !== "snapshot") return yield* Effect.die("Missing pre-reconnect snapshot");
+    if (beforeReconnect.type !== "snapshot")
+      return yield* Effect.die("Missing pre-reconnect snapshot");
     assert.deepEqual(refreshCalls, []);
     yield* server.write(1, { _tag: "Interrupt", requestId: firstConnection, interruptors: [] });
 
@@ -5451,7 +6281,11 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
     assert.lengthOf(loaded.providers[0]?.workspaceSnapshots ?? [], 1);
     for (const [name, payload, expected] of [
       ["background", {}, ["probe:all"]],
-      ["targeted", { instanceId, refreshModels: true }, [`invalidate:${instanceId}`, `probe:${instanceId}`]],
+      [
+        "targeted",
+        { instanceId, refreshModels: true },
+        [`invalidate:${instanceId}`, `probe:${instanceId}`],
+      ],
       ["all", { refreshModels: true }, ["invalidate:all", "probe:all"]],
     ] as const) {
       refreshCalls.length = 0;
@@ -5655,7 +6489,11 @@ it.effect.each(["pull", "stacked action"] as const)(
   "a git %s replies before its local-first status refresh finishes",
   (operation) =>
     Effect.gen(function* () {
-      const failure = new GitManagerError({ operation: "test", cwd: "/repo", detail: "push failed" });
+      const failure = new GitManagerError({
+        operation: "test",
+        cwd: "/repo",
+        detail: "push failed",
+      });
       const pulled = { status: "pulled", refName: "main", upstreamRef: "origin/main" } as const;
       const refreshed = yield* Deferred.make<string>();
       const finishRefresh = yield* Deferred.make<void>();
@@ -5714,9 +6552,10 @@ it.effect.each(["pull", "stacked action"] as const)(
         _tag: "Request",
         id: RpcMessage.RequestId("git"),
         tag: operation === "pull" ? WS_METHODS.vcsPull : WS_METHODS.gitRunStackedAction,
-        payload: operation === "pull"
-          ? { cwd: "/repo" }
-          : { actionId: "action", cwd: "/repo", action: "commit_push" },
+        payload:
+          operation === "pull"
+            ? { cwd: "/repo" }
+            : { actionId: "action", cwd: "/repo", action: "commit_push" },
         headers: Headers.empty,
       });
       const exit = yield* Queue.take(exits);
@@ -5901,9 +6740,7 @@ it.live.each([
                 afterSequence: first!.sequence,
                 requestCompletionMarker: true,
                 ...(httpSnapshotFallback ? { httpSnapshotFallback: true as const } : {}),
-              }).pipe(
-                Effect.flatMap((stream) => stream.pipe(Stream.take(3), Stream.runCollect)),
-              );
+              }).pipe(Effect.flatMap((stream) => stream.pipe(Stream.take(3), Stream.runCollect)));
         return items;
       });
       const exit = yield* subscription.pipe(
@@ -5923,7 +6760,9 @@ it.live.each([
           {} as ProjectService.ProjectService["Service"],
         ),
         Effect.provideService(ProjectEnrichment.ProjectEnrichmentService, {
-          subscribeChanges: PubSub.subscribe(yield* PubSub.unbounded<ProjectEnrichment.ProjectEnrichmentChange>()),
+          subscribeChanges: PubSub.subscribe(
+            yield* PubSub.unbounded<ProjectEnrichment.ProjectEnrichmentChange>(),
+          ),
           getAvailable: () =>
             Effect.succeed({
               repositoryIdentity: null,
@@ -5934,7 +6773,8 @@ it.live.each([
           request: () => Effect.die("Unexpected project enrichment request in replay"),
           readRepositoryIdentity: () => Effect.die("Unexpected repository identity read in replay"),
           invalidate: () => Effect.die("Unexpected project enrichment invalidation in replay"),
-          refreshRepositoryIdentity: () => Effect.die("Unexpected repository identity refresh in replay"),
+          refreshRepositoryIdentity: () =>
+            Effect.die("Unexpected repository identity refresh in replay"),
         }),
         Effect.exit,
       );
@@ -5953,7 +6793,10 @@ it.live.each([
       assert.equal(snapshot?.kind, "snapshot");
       if (snapshot?.kind !== "snapshot") throw new Error("No fallback snapshot");
       assert.equal(snapshot.snapshot.snapshotSequence, snapshotRow!.sequence);
-      assert.deepEqual(snapshot.snapshot.projects.map((entry) => entry.id), [projectId]);
+      assert.deepEqual(
+        snapshot.snapshot.projects.map((entry) => entry.id),
+        [projectId],
+      );
       assert.deepEqual(synchronized, { kind: "synchronized" });
       assert.isDefined(deletedSequence);
       assert.deepEqual(removed, { kind: "project.removed", sequence: deletedSequence, projectId });
@@ -6344,7 +7187,6 @@ it.effect("ACP session RPCs list a thread missing its history and repair it on i
     } as unknown as ProviderInstance;
     const dependencies = Layer.mergeAll(
       layerUnusedConfigRpcServices,
-      Layer.fresh(layerConfigSources),
       Layer.mock(ExternalLauncher.ExternalLauncher)({}),
       Layer.mock(ProviderRegistry.ProviderRegistry)({}),
       Layer.mock(UsageLimitSources.UsageLimitSources)({}),
@@ -6391,11 +7233,16 @@ it.effect("ACP session RPCs list a thread missing its history and repair it on i
         importNativeHistory: ({ threadId }) =>
           Effect.sync(() => repaired.push(threadId)).pipe(Effect.as(1)),
       }),
-      Layer.succeed(SqlClient.SqlClient, sql),
+    ).pipe(
+      Layer.provideMerge(Layer.succeed(SqlClient.SqlClient, sql)),
+      Layer.provideMerge(Layer.fresh(layerConfigSources)),
     );
     const services = AcpRegistrySessions.layer.pipe(Layer.provideMerge(dependencies));
     const serverBrowser = yield* ServerBrowser.ServerBrowser;
-    const makeClient = (sessionId: string, scopes: EnvironmentAuth.AuthenticatedSession["scopes"]) =>
+    const makeClient = (
+      sessionId: string,
+      scopes: EnvironmentAuth.AuthenticatedSession["scopes"],
+    ) =>
       RpcTest.makeClient(acpSessionRpcs).pipe(
         Effect.provide(
           layerWsRpc(
@@ -6409,10 +7256,7 @@ it.effect("ACP session RPCs list a thread missing its history and repair it on i
             serverBrowser,
             () => Effect.void,
             { secretReferences: true },
-          ).pipe(
-            Layer.provide(services),
-            Layer.merge(RpcAuthorization.layer(scopes)),
-          ),
+          ).pipe(Layer.provide(services), Layer.merge(RpcAuthorization.layer(scopes))),
         ),
       );
 

@@ -503,6 +503,25 @@ const checkChanged = Effect.fn("checkChanged")(function* (input: {
   const typecheckWorkers = Math.min(concurrency, affected.length);
   const command = (name: string, args: ReadonlyArray<string>) => ({ name, run: vp(args) });
   const compilerFiles = compilerApps.reduce((count, app) => count + app.names.length, 0);
+  const vitestSuites = Map.groupBy(vitestTests, (file) => {
+    const workspace = /^(?:apps|packages|infra)\/[^/]+/.exec(file)?.[0] ?? "root";
+    return /\.browser\.test\.[cm]?tsx?$/.test(file) ? `${workspace} browser` : workspace;
+  });
+  const vitestSteps = [...vitestSuites].flatMap(([suite, tests]) => {
+    const batchSize = 32;
+    return Array.from({ length: Math.ceil(tests.length / batchSize) }, (_, index) => {
+      const batch = tests.slice(index * batchSize, (index + 1) * batchSize);
+      return {
+        ...command(`test ${suite} ${index + 1} (${batch.length} files)`, [
+          "test",
+          "run",
+          "--passWithNoTests",
+          ...batch,
+        ]),
+        serial: true,
+      };
+    });
+  });
 
   const steps: Array<Step<never>> = [
     ...(runPatchCheck ? [{ name: "unused patches", run: checkPatches }] : []),
@@ -537,19 +556,7 @@ const checkChanged = Effect.fn("checkChanged")(function* (input: {
         ]
       : []),
     // From the repo root, the root vite.config.ts hands each file to its package's config.
-    ...(vitestTests.length > 0
-      ? [
-          {
-            ...command(`test (${vitestTests.length} files)`, [
-              "test",
-              "run",
-              "--passWithNoTests",
-              ...vitestTests,
-            ]),
-            serial: true,
-          },
-        ]
-      : []),
+    ...vitestSteps,
     ...(nodeTests.length > 0
       ? [
           command(`node --test (${nodeTests.length} files)`, [

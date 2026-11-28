@@ -31,6 +31,7 @@ import { OtlpTracer, OtlpSerialization } from "effect/observability";
 
 import * as ServerConfig from "./config.ts";
 import { MAUSBOT_REQUEST_BODY_LIMIT } from "./mausbot/Runtime.ts";
+import { SAVED_APP_FILE_PREFIX, UPSTREAM_SAVED_APP_FILE_PREFIX } from "./mausbot/SavedAppFiles.ts";
 import { MausbotService } from "./mausbot/Service.ts";
 import { ASSET_ROUTE_PREFIX, readMcpAppHtml, resolveAsset } from "./assets/AssetAccess.ts";
 import { sourceControlMediaResponse } from "./assets/sourceControlMediaResponse.ts";
@@ -336,6 +337,13 @@ export const mausbotRouteLayer = Layer.unwrap(
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
         const url = new URL(request.url, "http://j1.invalid");
+        if (url.pathname.startsWith(SAVED_APP_FILE_PREFIX)) {
+          const path =
+            UPSTREAM_SAVED_APP_FILE_PREFIX + url.pathname.slice(SAVED_APP_FILE_PREFIX.length);
+          return HttpServerResponse.fromWeb(
+            yield* runtime.readSavedAppFile(path, request.method, request.headers.range),
+          );
+        }
         const view = /^\/api\/mausbot\/runtime\/([a-f0-9]{64})(\/.*)$/.exec(url.pathname);
         if (view) {
           if (!(yield* runtime.authorizeView(view[1]!)))
@@ -377,10 +385,12 @@ export const mausbotRouteLayer = Layer.unwrap(
           )
           .pipe(
             Effect.map(HttpServerResponse.fromWeb),
-            Effect.orElseSucceed(() => HttpServerResponse.jsonUnsafe(
+            Effect.orElseSucceed(() =>
+              HttpServerResponse.jsonUnsafe(
                 { error: "The assistant runtime could not complete the request." },
                 { status: 503 },
-              )),
+              ),
+            ),
           );
       }).pipe(
         HttpMiddleware.withLoggerDisabled,

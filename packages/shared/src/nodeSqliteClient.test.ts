@@ -246,6 +246,26 @@ it.effect("reuses a worker query after an iterator constraint failure", () =>
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
+it.effect.each([false, true])(
+  "commits after inserting a rowid above 2^53 (worker=%s)",
+  (writerWorker) =>
+    Effect.gen(function* () {
+      const { filename } = yield* makeTempDatabase;
+      yield* Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`CREATE TABLE big_rowid (id INTEGER PRIMARY KEY, name TEXT)`;
+        yield* sql`INSERT INTO big_rowid (id, name) VALUES (246166233861328896, 'first')`;
+        yield* sql.withTransaction(sql`INSERT INTO big_rowid (name) VALUES ('second')`);
+        yield* sql.withTransaction(sql`UPDATE big_rowid SET name = 'third' WHERE name = 'second'`);
+        const rows = yield* sql<{ name: string }>`SELECT name FROM big_rowid ORDER BY id`;
+        assert.deepStrictEqual(
+          rows.map((row) => row.name),
+          ["first", "third"],
+        );
+      }).pipe(Effect.provide(SqliteClient.layer({ filename, writerWorker })));
+    }).pipe(Effect.provide(NodeServices.layer)),
+);
+
 it.effect("commits on the worker writer after a returning write timed out on a lock", () =>
   Effect.gen(function* () {
     const { filename, other } = yield* makeTempDatabase;
@@ -860,7 +880,7 @@ it.effect("finishes masked database cleanup after its caller is interrupted", ()
   }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
 );
 
-// oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- a zero-delay macrotask boundary that lets the worker's queued messages land, not a wait for time
+// oxlint-disable-next-line j1code/no-real-time-wait-in-tests -- Yield a macrotask so the worker's queued messages can land.
 const eventLoopTurn = Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
 
 it.effect.each([

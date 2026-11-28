@@ -1,4 +1,8 @@
-import type { OrchestrationV2AppThread, OrchestrationV2CheckpointScope } from "@j1code/contracts";
+import type {
+  OrchestrationV2AppThread,
+  OrchestrationV2CheckpointScope,
+  TaskFolder,
+} from "@j1code/contracts";
 import { isStandaloneBotProject } from "@j1code/shared/bot-workspace";
 import * as Effect from "effect/Effect";
 import type * as FileSystem from "effect/FileSystem";
@@ -20,6 +24,7 @@ export const isCheckpointRestoreIsolated = Effect.fn("orchestrationV2.isCheckpoi
       readonly projections: ProjectionStoreV2["Service"];
       readonly projects: ProjectStore.ProjectStoreV2["Service"];
       readonly path: Path.Path;
+      readonly taskFolder?: Pick<TaskFolder, "repositories"> | null;
     },
   ) {
     if (isStandaloneBotProject(thread.projectId)) return false;
@@ -46,6 +51,12 @@ export const isCheckpointRestoreIsolated = Effect.fn("orchestrationV2.isCheckpoi
       const worktreeCwd = yield* resolve(worktreePath);
       shared = cwd !== worktreeCwd;
       if (!shared) {
+        const restored = [
+          cwd,
+          ...(yield* Effect.forEach(dependencies.taskFolder?.repositories ?? [], (repository) =>
+            resolve(repository.worktreePath),
+          )),
+        ];
         const shell = yield* projections.getShellSnapshot();
         const checkedPaths = new Set<string>();
         for (const otherThread of [...shell.threads, ...shell.archivedThreads]) {
@@ -94,7 +105,10 @@ export const isCheckpointRestoreIsolated = Effect.fn("orchestrationV2.isCheckpoi
                 (_error) => Effect.succeed(null),
               ),
             );
-            if (otherCwd !== null && (contains(cwd, otherCwd) || contains(otherCwd, cwd))) {
+            if (
+              otherCwd !== null &&
+              restored.some((folder) => contains(folder, otherCwd) || contains(otherCwd, folder))
+            ) {
               shared = true;
               break;
             }

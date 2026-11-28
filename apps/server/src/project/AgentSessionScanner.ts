@@ -1,23 +1,12 @@
 // @effect-diagnostics nodeBuiltinImport:off - FileSystem loses Windows bigint file indexes; retain them at this boundary.
 /**
- * AgentSessionScanner - discovery of projects a user already works on.
- *
- * Claude Code and Codex both keep a per-session transcript on disk, and each
- * transcript records the directory the session ran in. Reading those `cwd`
- * values gives us the set of directories worth offering as projects during
- * onboarding, without asking the user to browse the filesystem.
- *
- * The scan is read-only and best-effort: an unreadable home, a malformed
- * transcript, or a directory that has since been deleted is skipped rather
- * than failing the scan. Project creation stays with the client, which
- * dispatches `project.create` for whichever candidates the user picks.
- *
- * @module project/AgentSessionScanner
+ * Discover working directories from provider transcripts. The scan is read-only
+ * and skips unreadable records. Project creation stays with the client.
  */
 import * as NodeOS from "node:os";
 import * as NodeCrypto from "node:crypto";
+import type * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
-import type { BigIntStats } from "node:fs";
 import * as NodeSqlite from "node:sqlite";
 import * as NodeZlib from "node:zlib";
 
@@ -43,15 +32,13 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import type * as PlatformError from "effect/PlatformError";
 import * as Pull from "effect/Pull";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
-import {
-  isBareGitConfig,
-  parseOriginUrlFromGitConfig,
-} from "@j1code/shared/git";
+import { isBareGitConfig, parseOriginUrlFromGitConfig } from "@j1code/shared/git";
 import { normalizeProjectPathForComparison } from "@j1code/shared/path";
 import * as HostProcess from "@j1code/shared/HostProcess";
 import { repositoryPathFromRemoteUrl } from "@j1code/source-control-core/server/SourceControlProvider";
@@ -73,13 +60,13 @@ import {
 } from "./AgentSessionJson.ts";
 
 interface TranscriptHandle {
-  readonly stat: () => Promise<BigIntStats>;
+  readonly stat: () => Promise<NodeFS.BigIntStats>;
   readonly read: (size: number) => Promise<Uint8Array>;
   readonly close: () => Promise<void>;
 }
 
 export const TranscriptFiles = Context.Reference<{
-  readonly stat: (filePath: string) => Promise<BigIntStats>;
+  readonly stat: (filePath: string) => Promise<NodeFS.BigIntStats>;
   readonly open: (filePath: string) => Promise<TranscriptHandle>;
 }>("AgentSessionScanner/TranscriptFiles", {
   defaultValue: () => ({
@@ -118,6 +105,11 @@ class CodexStateReadError extends Schema.TaggedError<CodexStateReadError>()("Cod
     return `Could not read Codex projects from ${this.databasePath}.`;
   }
 }
+
+class TranscriptReadError extends Schema.TaggedError<TranscriptReadError>()("TranscriptReadError", {
+  filePath: Schema.String,
+  cause: Schema.Defect(),
+}) {}
 const METADATA_READ_BYTES = 8 * 1024;
 const MAX_TRANSCRIPT_SCAN_BYTES = 1024 * 1024;
 const MAX_CODEX_SESSION_INDEX_BYTES = 1024 * 1024;
@@ -210,6 +202,7 @@ const CodexSessionIndexEntry = Schema.Struct({
 });
 
 const decodeClaudeSettings = Schema.decodeUnknownOption(ClaudeSettings);
+const isAgentSessionScanError = Schema.is(AgentSessionScanError);
 const decodeCodexSettings = Schema.decodeUnknownOption(CodexSettings);
 const decodeTranscriptRecord = Schema.decodeUnknownOption(Schema.fromJsonString(TranscriptRecord));
 const decodeTranscriptValue = Schema.decodeUnknownOption(TranscriptRecord);
@@ -400,6 +393,32 @@ function isHiddenClaudeRecord(record: DecodedTranscriptRecord): boolean {
   return record.isSidechain === true || record.isMeta === true || record.isCompactSummary === true;
 }
 
+function claudeOutputEnd(text: string): number {
+  // Sticky matching walks adjacent blocks once. Quoted content stays in the message.
+  const block =
+    /<(local-command-stdout|local-command-stderr|local-command-caveat|bash-stdout|bash-stderr|task-notification|tools-used-before-summary)>[\s\S]*?<\/\1>\s*/y;
+  let end = 0;
+  while (block.test(text)) end = block.lastIndex;
+  return end;
+}
+
+function isClaudeOutput(text: string): boolean {
+  if (!text.startsWith("<")) return false;
+  // Shell output can itself contain closing tags. Use the entire outer envelope.
+  if (text.startsWith("<bash-stderr>") && text.endsWith("</bash-stderr>")) return true;
+  if (
+    text.startsWith("<bash-stdout>") &&
+    (text.endsWith("</bash-stdout>") ||
+      (text.endsWith("</bash-stderr>") && /<\/bash-stdout>\s*<bash-stderr>/.test(text)))
+  ) {
+    return true;
+  }
+  return claudeOutputEnd(text) === text.length;
+}
+
+const CLAUDE_COMMAND_TITLE_PREAMBLE =
+  /^(?:<command-(name|message|args)>[\s\S]*?<\/command-\1>\s*)+/;
+
 // Claude repeats session fields on records that need not be retained.
 interface ClaudeFields {
   readonly sessionId: string | undefined;
@@ -466,12 +485,20 @@ function codexHistoryBase(records: ReadonlyArray<DecodedTranscriptRecord>) {
 const WAKE_ENVELOPE = /^\s*<wake(?:\s[^>]*)?>([\s\S]*?)(?:<\/wake>|$)/;
 
 function deriveTitle(source: AgentSessionSource, text: string): string | undefined {
-  const request = (source === "codex" ? text.replace(CODEX_TITLE_PREAMBLE, "") : text).replace(
-    WAKE_ENVELOPE,
-    "$1",
-  );
+  const prompt =
+    source === "codex"
+      ? text.replace(CODEX_TITLE_PREAMBLE, "")
+      : source === "claudeAgent" && text.startsWith("<")
+        ? text.slice(claudeOutputEnd(text)).replace(CLAUDE_COMMAND_TITLE_PREAMBLE, "") || text
+        : text;
+  const request = prompt.replace(WAKE_ENVELOPE, "$1");
   const line = request.trim().split("\n")[0] ?? "";
-  return line.slice(0, 100).replace(/[\uD800-\uDBFF]$/u, "").trim() || undefined;
+  return (
+    line
+      .slice(0, 100)
+      .replace(/[\uD800-\uDBFF]$/u, "")
+      .trim() || undefined
+  );
 }
 
 // Pi keeps abandoned branches in the file; its active branch runs from the last entry to the root.
@@ -653,7 +680,7 @@ function parseAgentSessionRecords(
       if (isHiddenClaudeRecord(record)) continue;
       if (record.type !== "user" && record.type !== "assistant") continue;
       const text = extractText(record.message?.content);
-      if (text.length === 0) continue;
+      if (text.length === 0 || (record.type === "user" && isClaudeOutput(text))) continue;
       retainMessage({
         ...(input.fullHistory && record.uuid ? { sourceMessageId: record.uuid } : {}),
         role: record.type,
@@ -760,7 +787,8 @@ function parseAgentSessionRecords(
     model,
     createdAt: retainedMessages[0]?.createdAt ?? fallbackTimestamp,
     updatedAt: fallbackTimestamp,
-    messages: input.fullHistory ? retainedMessages
+    messages: input.fullHistory
+      ? retainedMessages
           .map((message) => {
             const fingerprint = NodeCrypto.createHash("sha256")
               .update(JSON.stringify([message.role, message.text, message.createdAt]))
@@ -798,6 +826,10 @@ function shouldRetainDecodedRecord(
       return false;
     }
     const content = record.message?.content;
+    if (record.type === "user") {
+      const text = extractText(content);
+      return text.length > 0 && !isClaudeOutput(text);
+    }
     return typeof content === "string"
       ? content.trim().length > 0
       : (content?.some(
@@ -841,14 +873,8 @@ function createClaudeHistoryWindow() {
 }
 
 /**
- * J1 Code runs its own agent sessions inside disposable worktrees. Their
- * transcripts look exactly like user sessions, but re-importing the app's own
- * sandboxes as projects is never right. Matches this server's configured
- * worktrees directory plus the conventional `.t3/worktrees` layout, which
- * also catches sandboxes from other J1 Code homes on the same machine. Separators
- * are normalized (and, on Windows, case folded) so the prefix match holds
- * there too. Callers check both the recorded spelling and its realpath so a
- * symlink into the worktrees directory cannot bypass the filter.
+ * Skip disposable worktrees under the configured root or any `.t3/worktrees`.
+ * Callers check the recorded path and real path so symlinks cannot evade the match.
  */
 function normalizeForWorktreeMatch(value: string, caseFold: boolean): string {
   const normalized = `${value.replaceAll("\\", "/")}/`;
@@ -925,7 +951,6 @@ function transcriptIdentity(
   };
 }
 
-
 const fileIdKey = (inode: TranscriptIdentity["inode"]) => (inode === null ? null : String(inode));
 
 function sameTranscriptIdentity(left: TranscriptIdentity, right: TranscriptIdentity): boolean {
@@ -959,18 +984,36 @@ export const make = Effect.gen(function* () {
     stats: { readonly size: bigint },
     handle?: TranscriptHandle,
   ) {
-    const native = yield* Effect.tryPromise(() => transcriptFiles.stat(filePath));
-    const opened = handle === undefined ? native : yield* Effect.tryPromise(() => handle.stat());
-    if (native.dev !== opened.dev || native.ino !== opened.ino ||
-        native.size !== opened.size || native.mtimeNs !== opened.mtimeNs ||
-        native.birthtimeNs !== opened.birthtimeNs ||
-        Number(opened.size) !== Number(stats.size)) {
-      return yield* Effect.fail(new Error("Transcript path no longer names the opened snapshot"));
+    const catchRead = (cause: unknown) => new TranscriptReadError({ filePath, cause });
+    const native = yield* Effect.tryPromise({
+      try: () => transcriptFiles.stat(filePath),
+      catch: catchRead,
+    });
+    const opened =
+      handle === undefined
+        ? native
+        : yield* Effect.tryPromise({ try: () => handle.stat(), catch: catchRead });
+    if (
+      native.dev !== opened.dev ||
+      native.ino !== opened.ino ||
+      native.size !== opened.size ||
+      native.mtimeNs !== opened.mtimeNs ||
+      native.birthtimeNs !== opened.birthtimeNs ||
+      Number(opened.size) !== Number(stats.size)
+    ) {
+      return yield* new TranscriptReadError({
+        filePath,
+        cause: "Transcript path no longer names the opened snapshot",
+      });
     }
     return {
-      filePath, fileId: `${opened.dev}:${opened.ino}`, inode: String(opened.ino),
-      size: Number(opened.size), mtimeMs: Number(opened.mtimeMs),
-      device: Number(opened.dev), birthtimeMs: Number(opened.birthtimeMs),
+      filePath,
+      fileId: `${opened.dev}:${opened.ino}`,
+      inode: String(opened.ino),
+      size: Number(opened.size),
+      mtimeMs: Number(opened.mtimeMs),
+      device: Number(opened.dev),
+      birthtimeMs: Number(opened.birthtimeMs),
     };
   });
   // Different project imports can arrive concurrently from multiple clients.
@@ -1019,7 +1062,14 @@ export const make = Effect.gen(function* () {
     fileSystem.stat(target).pipe(Effect.asSome, Effect.orElseSucceed(Option.none));
 
   const transcriptChunkReader = Effect.fn("AgentSessionScanner.transcriptChunkReader")(function* (
-    file: { readonly readAlloc: (size: number) => Effect.Effect<Option.Option<Uint8Array>, unknown> },
+    file: {
+      readonly readAlloc: (
+        size: number,
+      ) => Effect.Effect<
+        Option.Option<Uint8Array>,
+        PlatformError.PlatformError | TranscriptReadError
+      >;
+    },
     filePath: string,
   ) {
     if (!isCompressedTranscript(filePath)) return (size: number) => file.readAlloc(size);
@@ -1367,17 +1417,26 @@ export const make = Effect.gen(function* () {
       return null;
     }
 
+    const catchRead = (cause: unknown) => new TranscriptReadError({ filePath, cause });
     return yield* Effect.scoped(
       Effect.acquireRelease(
-        Effect.tryPromise(() => transcriptFiles.open(filePath)),
+        Effect.tryPromise({ try: () => transcriptFiles.open(filePath), catch: catchRead }),
         (handle) => Effect.promise(() => handle.close()),
       ).pipe(
         Effect.flatMap((handle) =>
           Effect.gen(function* () {
-            const readAlloc = (size: number) => Effect.tryPromise(() => handle.read(size)).pipe(
-              Effect.map((chunk) => chunk.length === 0 ? Option.none<Uint8Array>() : Option.some(chunk)),
-            );
-            if (!sameTranscriptIdentity(expected, yield* identityAt(filePath, { size: BigInt(expected.size) }, handle))) {
+            const readAlloc = (size: number) =>
+              Effect.tryPromise({ try: () => handle.read(size), catch: catchRead }).pipe(
+                Effect.map((chunk) =>
+                  chunk.length === 0 ? Option.none<Uint8Array>() : Option.some(chunk),
+                ),
+              );
+            if (
+              !sameTranscriptIdentity(
+                expected,
+                yield* identityAt(filePath, { size: BigInt(expected.size) }, handle),
+              )
+            ) {
               return null;
             }
             const readChunk = yield* transcriptChunkReader({ readAlloc }, filePath);
@@ -1410,7 +1469,8 @@ export const make = Effect.gen(function* () {
               }
               recordCount += 1;
               // Claude keeps a bounded window, so only the byte budgets limit its length.
-              if (recordCount > MAX_IMPORT_RECORDS && (fullHistory || source !== "claudeAgent")) return false;
+              if (recordCount > MAX_IMPORT_RECORDS && (fullHistory || source !== "claudeAgent"))
+                return false;
               const value = reader.finish();
               lastRecordComplete = value !== undefined;
               const decoded = decodeTranscriptValue(value);
@@ -1480,10 +1540,23 @@ export const make = Effect.gen(function* () {
             // Never mark that byte range completed; the next refresh retries it.
             let complete = true;
             if (recordStarted) {
-              if (!(yield* Effect.try(finishRecord))) return null;
+              if (
+                !(yield* Effect.try({
+                  try: finishRecord,
+                  catch: (cause) => new TranscriptParseError({ filePath, cause }),
+                }))
+              )
+                return null;
               complete = lastRecordComplete;
             }
-            const actual = yield* identityAt(filePath, { size: (yield* Effect.tryPromise(() => handle.stat())).size }, handle);
+            const actual = yield* identityAt(
+              filePath,
+              {
+                size: (yield* Effect.tryPromise({ try: () => handle.stat(), catch: catchRead }))
+                  .size,
+              },
+              handle,
+            );
             const appendOnlyGrowth =
               actual.size > expected.size &&
               actual.fileId === expected.fileId &&
@@ -1491,9 +1564,16 @@ export const make = Effect.gen(function* () {
               actual.inode === expected.inode &&
               actual.birthtimeMs === expected.birthtimeMs;
             return sameTranscriptIdentity(expected, actual) || appendOnlyGrowth
-              ? { records: source === "claudeAgent" && !fullHistory ? claudeHistory.records() : records,
-                  recordCount, complete, droppedMessageCount: claudeHistory.droppedMessageCount(),
-                  cwd, claudeFields, historyBytes }
+              ? {
+                  records:
+                    source === "claudeAgent" && !fullHistory ? claudeHistory.records() : records,
+                  recordCount,
+                  complete,
+                  droppedMessageCount: claudeHistory.droppedMessageCount(),
+                  cwd,
+                  claudeFields,
+                  historyBytes,
+                }
               : null;
           }),
         ),
@@ -1821,20 +1901,23 @@ export const make = Effect.gen(function* () {
       // Unchanged imported transcripts keep their import cwd, so they never spend the read budget.
       // Codex is excluded: its first record carries the cwd and the subagent marker, and
       // rollouts imported before subagents were skipped must still be excluded by it.
-      const completed = source === "codex"
-        ? undefined
-        : importedByFile.get(`${transcript.providerInstanceId}\0${transcript.filePath}`);
+      const completed =
+        source === "codex"
+          ? undefined
+          : importedByFile.get(`${transcript.providerInstanceId}\0${transcript.filePath}`);
       let importedCwd: string | undefined;
       if (completed !== undefined && budget.operationsRemaining > 0) {
         budget.operationsRemaining -= 1;
         // Discovery stats cannot reliably represent a Windows file index. Match cursors
         // from the same native stat API used to record them, before trusting their cwd.
-        const identity = yield* identityAt(transcript.filePath, { size: BigInt(transcript.identity.size) })
-          .pipe(Effect.orElseSucceed(() => null));
+        const identity = yield* identityAt(transcript.filePath, {
+          size: BigInt(transcript.identity.size),
+        }).pipe(Effect.orElseSucceed(() => null));
         if (identity !== null) {
           importedCwd = completed.find(
             (imported) =>
-              imported.source.provider === source && sameTranscriptIdentity(imported.source, identity),
+              imported.source.provider === source &&
+              sameTranscriptIdentity(imported.source, identity),
           )?.cwd;
         }
       }
@@ -2158,32 +2241,48 @@ export const make = Effect.gen(function* () {
     const cutoffMs = nowMs - RECENT_THREAD_WINDOW_MS;
 
     // Imports recorded since a budget-truncated collection can free budget for transcripts it cut off.
-    const collection = cachedCandidates === null || cachedCandidates.metadataTruncated
-      ? yield* collectCandidates()
-      : cachedCandidates;
+    const collection =
+      cachedCandidates === null || cachedCandidates.metadataTruncated
+        ? yield* collectCandidates()
+        : cachedCandidates;
     cachedCandidates = collection;
     const liveHomes = new Map<ProviderInstanceId, string>();
     if (sourcesOnly) {
       const settings = yield* serverSettings.getSettings.pipe(
-        Effect.mapError((cause) => new AgentSessionScanError({ operation: "read-settings", cause })),
+        Effect.mapError(
+          (cause) => new AgentSessionScanError({ operation: "read-settings", cause }),
+        ),
       );
       for (const source of completedSources) {
         if (source.provider !== "codex" || liveHomes.has(source.providerInstanceId)) continue;
         const instance = settings.providerInstances[source.providerInstanceId];
         const config = decodeCodexSettings(instance?.config ?? {});
         if (Option.isNone(config)) continue;
-        const configuredHome = instance?.environment?.findLast((entry) => entry.name === "CODEX_HOME")?.value;
-        const environmentHome = typeof configuredHome === "string" ? configuredHome : hostEnvironment.CODEX_HOME;
-        const configured = config.value.homePath.trim().length === 0 && config.value.shadowHomePath.trim().length === 0 && environmentHome?.trim()
-          ? { ...config.value, homePath: environmentHome } : config.value;
-        const layout = yield* resolveCodexHomeLayout(configured).pipe(Effect.provideService(Path.Path, path));
+        const configuredHome = instance?.environment?.findLast(
+          (entry) => entry.name === "CODEX_HOME",
+        )?.value;
+        const environmentHome =
+          typeof configuredHome === "string" ? configuredHome : hostEnvironment.CODEX_HOME;
+        const configured =
+          config.value.homePath.trim().length === 0 &&
+          config.value.shadowHomePath.trim().length === 0 &&
+          environmentHome?.trim()
+            ? { ...config.value, homePath: environmentHome }
+            : config.value;
+        const layout = yield* resolveCodexHomeLayout(configured).pipe(
+          Effect.provideService(Path.Path, path),
+        );
         liveHomes.set(source.providerInstanceId, layout.sharedHomePath);
       }
     }
     const candidates: ReadonlyArray<RawCandidate> = sourcesOnly
       ? completedSources.map((source) => ({
-          cwd: workspaceRoot, source: source.provider, providerInstanceId: source.providerInstanceId,
-          homePath: liveHomes.get(source.providerInstanceId) ?? path.dirname(source.filePath), threadCount: 1, lastActiveAtMs: source.mtimeMs,
+          cwd: workspaceRoot,
+          source: source.provider,
+          providerInstanceId: source.providerInstanceId,
+          homePath: liveHomes.get(source.providerInstanceId) ?? path.dirname(source.filePath),
+          threadCount: 1,
+          lastActiveAtMs: source.mtimeMs,
           transcripts: [{ filePath: source.filePath, mtimeMs: nowMs }],
         }))
       : collection.candidates;
@@ -2274,7 +2373,8 @@ export const make = Effect.gen(function* () {
       if (paths === undefined) {
         paths = new Map(
           (sourcesOnly ? collection.candidates : candidates).flatMap((candidate) =>
-            candidate.source === "codex" && (candidate.providerInstanceId === providerInstanceId ||
+            candidate.source === "codex" &&
+            (candidate.providerInstanceId === providerInstanceId ||
               (sourcesOnly && candidate.homePath === liveHomes.get(providerInstanceId)))
               ? candidate.transcripts.flatMap((transcript) => {
                   const match = CODEX_ROLLOUT_ID_PATTERN.exec(transcript.filePath);
@@ -2311,7 +2411,8 @@ export const make = Effect.gen(function* () {
           yield* identityAt(filePath, stats.value),
           "codex",
           { endByteOffset: base.end_byte_offset, historyBytes },
-          sourcesOnly, liveRecordBudget,
+          sourcesOnly,
+          liveRecordBudget,
         );
         if (inherited === null) return null;
         historyBytes = inherited.historyBytes;
@@ -2374,7 +2475,14 @@ export const make = Effect.gen(function* () {
           }
           transcriptsRemaining -= 1;
           bytesRemaining -= identity.size;
-          const snapshot = yield* readTranscript(transcript.filePath, identity, candidate.source, undefined, sourcesOnly, liveRecordBudget);
+          const snapshot = yield* readTranscript(
+            transcript.filePath,
+            identity,
+            candidate.source,
+            undefined,
+            sourcesOnly,
+            liveRecordBudget,
+          );
           if (snapshot === null || (verifyCompleteSource && !snapshot.complete)) {
             return Option.some<AgentSessionRecentThread>({ _tag: "Skipped" });
           }
@@ -2488,11 +2596,16 @@ export const make = Effect.gen(function* () {
     completedSources = [],
     sourcesOnly = false,
     verifyCompleteSource = false,
-  ) => Stream.unwrap(prepareRecentThreads(workspaceRoot, completedSources, sourcesOnly, verifyCompleteSource)).pipe(
-    Stream.mapError((cause) => cause instanceof AgentSessionScanError
-      ? cause
-      : new AgentSessionScanError({ operation: "read-projects", cause })),
-  );
+  ) =>
+    Stream.unwrap(
+      prepareRecentThreads(workspaceRoot, completedSources, sourcesOnly, verifyCompleteSource),
+    ).pipe(
+      Stream.mapError((cause) =>
+        isAgentSessionScanError(cause)
+          ? cause
+          : new AgentSessionScanError({ operation: "read-projects", cause }),
+      ),
+    );
 
   return AgentSessionScanner.of({ scan, recentThreads });
 });

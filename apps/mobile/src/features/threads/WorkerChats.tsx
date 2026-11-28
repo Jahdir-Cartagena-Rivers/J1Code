@@ -44,6 +44,7 @@ function useWorkerChats(parent: ScopedThreadRef) {
       ),
     [children, previous],
   );
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Reconcile persisted expansion with the current set of worker chats.
   useEffect(() => {
     if (!loaded || children.length === 0 || previous === expansion) return;
     save({
@@ -75,7 +76,7 @@ function WorkerLink({
   thread: EnvironmentThreadShell;
   onSelectThread: (thread: EnvironmentThreadShell) => void;
 }) {
-  const working = thread.session?.status === "running" || thread.session?.status === "starting";
+  const working = thread.latestRun?.status === "running" || thread.latestRun?.status === "starting";
   return (
     <Pressable
       accessibilityRole="button"
@@ -175,7 +176,6 @@ export function WorkerChatsInChat({
       thread.environmentId === parent.environmentId && thread.id === shell?.lineage.parentThreadId,
   );
   if (children.length === 0 && !lead) return null;
-  // oxlint-disable-next-line unicorn/no-array-reverse -- Hermes lacks toReversed; reverse a copy.
   const newestChildren = [...children].reverse();
   return (
     <View className="border-b border-stroke px-3 py-1">

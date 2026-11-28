@@ -1,6 +1,6 @@
 import { assert, describe, it } from "vite-plus/test";
 
-import { getProjectFilePickerMatches } from "./ProjectFilePicker.logic";
+import { getProjectFilePickerMatches, groupMatchRanges } from "./ProjectFilePicker.logic";
 
 function pathsForQuery(entries: Parameters<typeof getProjectFilePickerMatches>[0], query: string) {
   return getProjectFilePickerMatches(entries, query).map(({ name, path }) => ({ name, path }));
@@ -36,5 +36,16 @@ describe("getProjectFilePickerMatches", () => {
         ?.pathMatchIndices,
       [0, 1, 2],
     );
+  });
+
+  it("keeps highlights on source characters when Unicode case folding expands their length", () => {
+    const entries = [{ kind: "file", path: "İ/İ😀.ts" }] as const;
+    const [match] = getProjectFilePickerMatches(entries, "😀t");
+    assert.deepEqual(match?.nameMatchIndices, [1, 2, 4]);
+    assert.deepEqual(match?.pathMatchIndices, [3, 4, 6]);
+    assert.deepEqual(groupMatchRanges(match!.nameMatchIndices), [
+      [1, 3],
+      [4, 5],
+    ]);
   });
 });

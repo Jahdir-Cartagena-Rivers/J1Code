@@ -5,7 +5,11 @@ import { RowPressable } from "../../components/ui/RowPressable";
 import { WorkerChatTree } from "../threads/WorkerChats";
 import { BotRoster } from "../bots/BotRoster";
 import { MausbotWorkspace } from "../mausbot/MausbotWorkspace";
-import { groupHomeList, groupedHomeItemsAreEqual, type GroupedHomeListItem } from "./groupedHomeList";
+import {
+  groupHomeList,
+  groupedHomeItemsAreEqual,
+  type GroupedHomeListItem,
+} from "./groupedHomeList";
 import { useContentTopInset } from "../../components/ui/useBarInset";
 import { usePaneRole } from "../../components/ui/Pane";
 import { ScreenContent } from "../../components/ui/ScreenContent";
@@ -369,12 +373,12 @@ export function HomeScreen(props: HomeScreenProps) {
   const orderedProjectScopes = useMemo(() => {
     if (props.projectSortOrder !== "manual") return projectScopes;
     const position = new Map(props.projectOrder.map((key, index) => [key, index]));
-    return [...projectScopes].sort(
-      (left, right) =>
-        (position.get(left.key) ?? Number.MAX_SAFE_INTEGER) -
-          (position.get(right.key) ?? Number.MAX_SAFE_INTEGER) ||
-        left.title.localeCompare(right.title),
-    );
+    return [...projectScopes].sort((left, right) => {
+      const leftPosition = position.get(left.key) ?? Number.MAX_SAFE_INTEGER;
+      const rightPosition = position.get(right.key) ?? Number.MAX_SAFE_INTEGER;
+      const order = leftPosition - rightPosition;
+      return order === 0 ? left.title.localeCompare(right.title) : order;
+    });
   }, [projectScopes, props.projectOrder, props.projectSortOrder]);
   const v2ScopeProjects = useMemo(
     () =>
@@ -538,55 +542,55 @@ export function HomeScreen(props: HomeScreenProps) {
   }, [activateVisibleRows, swipeEnabled, groupedItems]);
 
   const renderV2Item = ({ item }: { readonly item: GroupedHomeListItem }) => {
-      if (item.type === "project-heading") {
-        const projectIndex = v2ScopeProjects.findIndex((scope) => scope.key === item.scopeKey);
-        return (
-          <RowPressable
-            accessibilityRole="button"
-            accessibilityLabel={`${item.title}, ${item.count} chats`}
-            accessibilityState={{ expanded: item.expanded }}
-            disabled={hasSearchQuery}
-            onPress={() => toggleProject(item.scopeKey)}
-            className="min-h-14 flex-row items-center gap-3 border-b border-border px-5 py-3"
-          >
-            <AppText className="text-foreground-muted">{item.expanded ? "⌄" : "›"}</AppText>
-            <AppText className="flex-1 text-base font-semibold text-foreground" numberOfLines={1}>
-              {item.title}
-            </AppText>
-            <AppText className="text-sm text-foreground-muted">{item.count}</AppText>
-            {props.projectSortOrder === "manual" ? (
-              <View className="flex-row gap-2">
-                <RowPressable
-                  disabled={projectIndex <= 0}
-                  accessibilityLabel={`Move ${item.title} up`}
-                  onPress={() =>
-                    props.onMoveProject(
-                      v2ScopeProjects.map((scope) => scope.key),
-                      projectIndex,
-                      projectIndex - 1,
-                    )
-                  }
-                >
-                  <AppText className="px-1 text-foreground-muted">{"\u2191"}</AppText>
-                </RowPressable>
-                <RowPressable
-                  disabled={projectIndex >= v2ScopeProjects.length - 1}
-                  accessibilityLabel={`Move ${item.title} down`}
-                  onPress={() =>
-                    props.onMoveProject(
-                      v2ScopeProjects.map((scope) => scope.key),
-                      projectIndex,
-                      projectIndex + 1,
-                    )
-                  }
-                >
-                  <AppText className="px-1 text-foreground-muted">{"\u2193"}</AppText>
-                </RowPressable>
-              </View>
-            ) : null}
-          </RowPressable>
-        );
-      }
+    if (item.type === "project-heading") {
+      const projectIndex = v2ScopeProjects.findIndex((scope) => scope.key === item.scopeKey);
+      return (
+        <RowPressable
+          accessibilityRole="button"
+          accessibilityLabel={`${item.title}, ${item.count} chats`}
+          accessibilityState={{ expanded: item.expanded }}
+          disabled={hasSearchQuery}
+          onPress={() => toggleProject(item.scopeKey)}
+          className="min-h-14 flex-row items-center gap-3 border-b border-border px-5 py-3"
+        >
+          <AppText className="text-foreground-muted">{item.expanded ? "⌄" : "›"}</AppText>
+          <AppText className="flex-1 text-base font-semibold text-foreground" numberOfLines={1}>
+            {item.title}
+          </AppText>
+          <AppText className="text-sm text-foreground-muted">{item.count}</AppText>
+          {props.projectSortOrder === "manual" ? (
+            <View className="flex-row gap-2">
+              <RowPressable
+                disabled={projectIndex <= 0}
+                accessibilityLabel={`Move ${item.title} up`}
+                onPress={() =>
+                  props.onMoveProject(
+                    v2ScopeProjects.map((scope) => scope.key),
+                    projectIndex,
+                    projectIndex - 1,
+                  )
+                }
+              >
+                <AppText className="px-1 text-foreground-muted">{"\u2191"}</AppText>
+              </RowPressable>
+              <RowPressable
+                disabled={projectIndex >= v2ScopeProjects.length - 1}
+                accessibilityLabel={`Move ${item.title} down`}
+                onPress={() =>
+                  props.onMoveProject(
+                    v2ScopeProjects.map((scope) => scope.key),
+                    projectIndex,
+                    projectIndex + 1,
+                  )
+                }
+              >
+                <AppText className="px-1 text-foreground-muted">{"\u2193"}</AppText>
+              </RowPressable>
+            </View>
+          ) : null}
+        </RowPressable>
+      );
+    }
 
     if (item.type === "v2-pending") {
       const pendingScopeKey = scopedProjectKey(
@@ -757,7 +761,8 @@ export function HomeScreen(props: HomeScreenProps) {
   const emptyState = deriveHomeEmptyState(props.catalogState, projectListProjects.length);
 
   const homeThread = selectHomeThread(props.threads, props.selectedEnvironmentId);
-  const homeControls = <>
+  const homeControls = (
+    <>
       <RowPressable
         accessibilityLabel="Home"
         onPress={() => {
@@ -780,8 +785,8 @@ export function HomeScreen(props: HomeScreenProps) {
       <MausbotWorkspace
         environmentId={props.selectedEnvironmentId ?? props.environments[0]?.environmentId ?? null}
       />
-
-  </>;
+    </>
+  );
 
   if (!hasAnyThreads && projectScopes.length === 0) {
     return (
@@ -841,9 +846,7 @@ export function HomeScreen(props: HomeScreenProps) {
         <ThreadListFilters
           gutter={sidebarSurface ? 8 : 0}
           environments={props.environments}
-          projects={pickableProjectGroups(
-            v2ScopeProjects,
-          ).map((scope) => ({
+          projects={pickableProjectGroups(v2ScopeProjects).map((scope) => ({
             key: scope.key,
             label: scope.title,
           }))}
@@ -888,7 +891,6 @@ export function HomeScreen(props: HomeScreenProps) {
         variant={Platform.OS === "android" ? "plain" : undefined}
       />
     );
-
 
   return (
     <View className={containerClassName}>

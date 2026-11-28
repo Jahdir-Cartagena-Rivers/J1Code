@@ -9,6 +9,7 @@ import {
   WorkLogPressable,
 } from "./work-log-layout";
 import { QuestionAnswerHistory } from "./QuestionAnswerHistory";
+import { McpSignInSheet, type McpSignInTarget } from "./McpSignInSheet";
 import { ThreadCommandOutput, useCommandOutputStreaming } from "./thread-command-output";
 import {
   getQuestionAnswerPreview,
@@ -50,6 +51,8 @@ import {
   type ToolActivityIcon,
 } from "@j1code/contracts";
 import { useAtomValue } from "@effect/atom-react";
+import { Atom } from "effect/reactivity";
+import * as DateTime from "effect/DateTime";
 import { scopeThreadRef } from "@j1code/client-runtime/environment";
 import { environmentThreadDetails, threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -172,7 +175,7 @@ export function ThreadDisclosureChevron(props: {
   const expandedAngle = props.collapsedDirection === "right" ? 90 : 180;
   const rotation = useSharedValue(props.expanded ? expandedAngle : 0);
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- drives the chevron's Reanimated rotation value when the expanded state changes
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- drives the chevron's Reanimated rotation value when the expanded state changes
   useLayoutEffect(() => {
     rotation.set(
       withTiming(props.expanded ? expandedAngle : 0, {
@@ -282,7 +285,7 @@ export function ShimmeringWorkContent(props: {
   // Uses a native Animated value instead of Reanimated, whose per-frame commits
   // starve React's while commit pausing is disabled (package.json). See
   // docs/internals/performance-regressions.md.
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- steps the native shimmer value on timers while visible and active, and stops them on cleanup
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- steps the native shimmer value on timers while visible and active, and stops them on cleanup
   useEffect(() => {
     progress.setValue(0);
     if (contentWidth <= 0 || reducedMotion || !appIsActive || !screenIsFocused) return;
@@ -626,7 +629,7 @@ function ThreadWorkGroupList(props: {
   const initialScrollIndex = resolveThreadWorkGroupInitialScroll(props.activities, initialPosition);
   const listRef = useRef<LegendListRef>(null);
   const previousTextSize = useRef(props.rowSizing.textSizeKey);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- clears the list's cached row sizes when the text size changes
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- clears the list's cached row sizes when the text size changes
   useLayoutEffect(() => {
     if (previousTextSize.current === props.rowSizing.textSizeKey) return;
     previousTextSize.current = props.rowSizing.textSizeKey;
@@ -669,7 +672,7 @@ function ThreadWorkGroupList(props: {
     loadedRef.current = true;
     handleMetricsChange();
   };
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to LegendList's totalSize state to report content height in the same commit
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- subscribes to LegendList's totalSize state to report content height in the same commit
   useLayoutEffect(() => {
     const state = listRef.current?.getState();
     if (!state) return;
@@ -695,7 +698,7 @@ function ThreadWorkGroupList(props: {
 
   return (
     <View style={{ height, overflow: "hidden" }}>
-      {/* oxlint-disable-next-line t3code/require-registered-list-scroll -- Nested in a fixed-height card inside the thread feed, which owns the header's scroll view. */}
+      {/* oxlint-disable-next-line j1code/require-registered-list-scroll -- Nested in a fixed-height card inside the thread feed, which owns the header's scroll view. */}
       <AnimatedLegendList
         ref={listRef}
         data={props.activities}
@@ -864,6 +867,9 @@ function HighlightedCodeText({
   );
 }
 
+// Rows that aren't sign-in notices read this, so every row reads an atom.
+const NOT_SIGNED_IN = Atom.make(false);
+
 const ThreadWorkLogRow = function ThreadWorkLogRow(
   props: Omit<
     ThreadWorkLogProps,
@@ -882,6 +888,20 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
 ) {
   const { row, expanded } = props;
   const openLinkedThread = useOpenLinkedThread();
+  const canSignInToMcp = useAtomValue(
+    threadEnvironment.mcpSignInStart.permissionAtom(props.environmentId),
+  );
+  const [mcpSignInOpen, setMcpSignInOpen] = useState(false);
+  const signInNotice = row.projectedItem.item;
+  const mcpSignedIn = useAtomValue(
+    signInNotice.type === "system_notice" && signInNotice.mcpSignIn !== undefined
+      ? threadEnvironment.mcpSignedInAtom(props.environmentId, {
+          threadId: signInNotice.threadId,
+          server: signInNotice.mcpSignIn.server,
+          noticeAt: DateTime.toEpochMillis(signInNotice.updatedAt),
+        })
+      : NOT_SIGNED_IN,
+  );
   const streamsOutput =
     useCommandOutputStreaming(props.environmentId) &&
     row.projectedItem.item.type === "command_execution";
@@ -969,7 +989,22 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
     row.projectedItem.item.type === "notification"
       ? notificationChildThreadId(row.projectedItem.item.source)
       : undefined;
-  const canExpand = row.canExpand && notifiedSubagentThreadId === undefined;
+  const notice = row.projectedItem.item;
+  const mcpSignInTarget: McpSignInTarget | null =
+    canSignInToMcp &&
+    notice.type === "system_notice" &&
+    notice.mcpSignIn !== undefined &&
+    notice.providerThreadId !== null
+      ? {
+          threadId: notice.threadId,
+          providerThreadId: notice.providerThreadId,
+          server: notice.mcpSignIn.server,
+        }
+      : null;
+  // Signed in, the notice is an ordinary row again.
+  const opensMcpSignIn = mcpSignInTarget !== null && !mcpSignedIn;
+  // A sign-in notice opens its sheet instead; a nested button would be out of VoiceOver's reach.
+  const canExpand = row.canExpand && notifiedSubagentThreadId === undefined && !opensMcpSignIn;
   const reasoning = row.projectedItem.item.type === "reasoning" ? row.projectedItem.item : null;
   const fetchedItem = fetchedDetail.data?.item ?? null;
   const isRead = toolGroupAction(row.workEntry) === "read";
@@ -1043,15 +1078,27 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
     >
       <WorkLogPressable
         accessibilityRole={
-          notifiedSubagentThreadId !== undefined ? "link" : canExpand ? "button" : undefined
+          notifiedSubagentThreadId !== undefined
+            ? "link"
+            : canExpand || opensMcpSignIn
+              ? "button"
+              : undefined
         }
-        accessibilityLabel={failed ? `${accessiblePreview}, tool call failed` : accessiblePreview}
+        accessibilityLabel={
+          failed
+            ? `${accessiblePreview}, tool call failed`
+            : mcpSignInTarget !== null && mcpSignedIn
+              ? `${accessiblePreview}, signed in`
+              : accessiblePreview
+        }
         accessibilityHint={
           notifiedSubagentThreadId !== undefined
             ? "Opens this agent's thread. Long press to copy."
-            : canExpand
-              ? `Double tap to ${expanded ? "hide" : "show"} full details. Long press to copy.`
-              : "Long press to copy."
+            : opensMcpSignIn
+              ? "Opens the sign-in. Long press to copy."
+              : canExpand
+                ? `Double tap to ${expanded ? "hide" : "show"} full details. Long press to copy.`
+                : "Long press to copy."
         }
         accessibilityState={canExpand ? { expanded } : undefined}
         onPress={() => {
@@ -1060,6 +1107,11 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
               environmentId: String(props.environmentId),
               threadId: String(notifiedSubagentThreadId),
             });
+            return;
+          }
+          if (opensMcpSignIn) {
+            void Haptics.selectionAsync();
+            setMcpSignInOpen(true);
             return;
           }
           if (canExpand) {
@@ -1130,6 +1182,15 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
             <Text className="pr-1 font-t3-medium text-3xs text-adaptive-emerald-600-400">
               Copied
             </Text>
+          ) : mcpSignInTarget !== null ? (
+            <Text
+              className={cn(
+                "pr-1 font-t3-medium text-sm",
+                mcpSignedIn ? "text-adaptive-emerald-600-400" : "text-primary",
+              )}
+            >
+              {mcpSignedIn ? "Signed in" : "Sign in"}
+            </Text>
           ) : null}
           {failed && toolIcon !== undefined ? (
             <View
@@ -1157,6 +1218,13 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
           </View>
         </View>
       </WorkLogPressable>
+      {mcpSignInOpen && mcpSignInTarget !== null ? (
+        <McpSignInSheet
+          environmentId={props.environmentId}
+          target={mcpSignInTarget}
+          onClose={() => setMcpSignInOpen(false)}
+        />
+      ) : null}
 
       {expanded &&
       (reasoning ||

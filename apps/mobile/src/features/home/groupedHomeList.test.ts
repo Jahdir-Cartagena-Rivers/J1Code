@@ -20,6 +20,8 @@ const scope = (id: string): HomeProjectScope => ({
   },
   projects: [],
   projectRefs: [],
+  pinned: false,
+  archived: false,
 });
 
 describe("groupHomeList", () => {
@@ -37,18 +39,73 @@ describe("groupHomeList", () => {
   });
   it("keeps working rows inside their shelf when projects are grouped or collapsed", () => {
     const project = scope("first");
-    const scopes = [{ ...project, projectRefs: [{ environmentId: EnvironmentId.make("environment"), projectId: ProjectId.make("first") }] }];
+    const scopes = [
+      {
+        ...project,
+        projectRefs: [
+          { environmentId: EnvironmentId.make("environment"), projectId: ProjectId.make("first") },
+        ],
+      },
+    ];
     const draft = (key: string): ThreadListV2ListItem => ({
-      type: "v2-pending", key, showPendingDivider: false, showTrailingDivider: false,
-      pendingTask: { kind: "draft", key, environmentId: EnvironmentId.make("environment"), projectId: ProjectId.make("first"), projectTitle: undefined, projectCwd: undefined, title: key, createdAt: "2026-01-01T00:00:00.000Z", draftKey: key, draft: { text: key, attachments: [] } },
+      type: "v2-pending",
+      key,
+      showPendingDivider: false,
+      showTrailingDivider: false,
+      pendingTask: {
+        kind: "draft",
+        key,
+        environmentId: EnvironmentId.make("environment"),
+        projectId: ProjectId.make("first"),
+        projectTitle: undefined,
+        projectCwd: undefined,
+        title: key,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        draftKey: key,
+        draft: { text: key, attachments: [] },
+      },
     });
-    const input: ThreadListV2ListItem[] = [draft("active"), { type: "v2-working-shelf", key: "v2-working-shelf", count: 1, expanded: true, disabled: false }, draft("working")];
-    const expanded = groupHomeList({ items: input, scopes, collapsedKeys: new Set(), searching: false });
-    expect(expanded.map((item) => item.key)).toEqual(["project:active:first", "active", "v2-working-shelf", "project:v2-working-shelf:first", "working"]);
-    const collapsed = groupHomeList({ items: input, scopes, collapsedKeys: new Set(["first"]), searching: false });
-    expect(collapsed.map((item) => item.key)).toEqual(["project:active:first", "v2-working-shelf", "project:v2-working-shelf:first"]);
-    const searched = groupHomeList({ items: input, scopes, collapsedKeys: new Set(["first"]), searching: true });
+    const input: ThreadListV2ListItem[] = [
+      draft("active"),
+      {
+        type: "v2-working-shelf",
+        key: "v2-working-shelf",
+        count: 1,
+        expanded: true,
+        disabled: false,
+      },
+      draft("working"),
+    ];
+    const expanded = groupHomeList({
+      items: input,
+      scopes,
+      collapsedKeys: new Set(),
+      searching: false,
+    });
+    expect(expanded.map((item) => item.key)).toEqual([
+      "project:active:first",
+      "active",
+      "v2-working-shelf",
+      "project:v2-working-shelf:first",
+      "working",
+    ]);
+    const collapsed = groupHomeList({
+      items: input,
+      scopes,
+      collapsedKeys: new Set(["first"]),
+      searching: false,
+    });
+    expect(collapsed.map((item) => item.key)).toEqual([
+      "project:active:first",
+      "v2-working-shelf",
+      "project:v2-working-shelf:first",
+    ]);
+    const searched = groupHomeList({
+      items: input,
+      scopes,
+      collapsedKeys: new Set(["first"]),
+      searching: true,
+    });
     expect(searched.map((item) => item.key)).toEqual(expanded.map((item) => item.key));
   });
-
 });

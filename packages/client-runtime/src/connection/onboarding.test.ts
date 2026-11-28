@@ -162,9 +162,10 @@ function layerPairingHttp(
 function layerPairingOnboarding(
   options?: Parameters<typeof layerPairingHttp>[1],
   calls: Array<{ readonly url: string; readonly init: RequestInit }> = [],
+  presentation = layerClientPresentation,
 ) {
   const dependencies = Layer.mergeAll(
-    layerClientPresentation,
+    presentation,
     layerPairingHttp(calls, options),
     Layer.mock(Persistence.ConnectionTargetStore)({
       list: Effect.succeed([]),
@@ -240,22 +241,16 @@ describe("connection onboarding", () => {
     () =>
       Effect.gen(function* () {
         const calls: Array<{ readonly url: string; readonly init: RequestInit }> = [];
+        const mobilePresentation = Layer.succeed(
+          ClientCapabilities.ClientPresentation,
+          ClientCapabilities.ClientPresentation.of({
+            metadata: { label: "J1 Code Mobile", deviceType: "mobile" },
+          }),
+        );
         yield* preparePairingRegistration({
           host: "remote.example.test",
           pairingCode: "pairing-token",
-        }).pipe(
-          Effect.provide(
-            Layer.mergeAll(
-              pairingHttpLayer(calls),
-              Layer.succeed(
-                ClientPresentation,
-                ClientPresentation.of({
-                  metadata: { label: "J1 Code Mobile", deviceType: "mobile" },
-                }),
-              ),
-            ),
-          ),
-        );
+        }).pipe(Effect.provide(layerPairingOnboarding(undefined, calls, mobilePresentation)));
         const request = calls.find((call) => call.url.endsWith("/oauth/token"));
         const body =
           request?.init.body instanceof Uint8Array

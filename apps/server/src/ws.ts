@@ -14,10 +14,7 @@ import { makeEngineRouteDrain } from "./routing/engineDrain.ts";
 import { makeRouteSourceNotifier } from "./routing/sourceActivity.ts";
 import { suggestWorkingChat } from "./routing/workingChatSuggestion.ts";
 import { ManualRouteActionError } from "@j1code/contracts";
-import {
-  sameUsageLimitCommandCoverage,
-  withUsageLimitsCommands,
-} from "@j1code/shared/usageLimits";
+import { sameUsageLimitCommandCoverage, withUsageLimitsCommands } from "@j1code/shared/usageLimits";
 import { OrchestrationDispatchCommandError } from "@j1code/contracts";
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- A synchronous digest inside the pure provider mapping.
 import * as NodeCrypto from "node:crypto";
@@ -145,6 +142,7 @@ import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as ThreadManagementService from "./orchestration-v2/ThreadManagementService.ts";
 import * as CommandOutputHub from "./orchestration-v2/CommandOutputHub.ts";
 import * as McpAppRequests from "./mcpApps/McpAppRequests.ts";
+import * as McpSignIn from "./mcpApps/McpSignIn.ts";
 import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManager.ts";
 import * as ThreadLaunchService from "./orchestration-v2/ThreadLaunchService.ts";
 import { DispatchModeLimit } from "./orchestration-v2/DispatchModeLimit.ts";
@@ -241,6 +239,10 @@ import * as PortScanner from "./preview/PortScanner.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as KnownWorkspaces from "./workspace/KnownWorkspaces.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
+import * as WorkspaceFolders from "./workspace/WorkspaceFolders.ts";
+import { WorkflowRequestError } from "@j1code/contracts";
+import * as Workflows from "./workflows/Workflows.ts";
+import * as WorkflowRuntime from "./workflows/WorkflowRuntime.ts";
 import { readWorkflowScript } from "./orchestration-v2/workflowScriptQuery.ts";
 import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
@@ -1510,6 +1512,7 @@ export const layerWsRpc = (
 
       const providerSessionsV2 = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const mcpAppRequests = yield* McpAppRequests.McpAppRequests;
+      const mcpSignIn = yield* McpSignIn.McpSignIn;
       const analytics = yield* AnalyticsService.AnalyticsService;
       const originProps = clientAnalyticsProps;
       const recordClientCommandAnalytics = (command: OrchestrationV2Command) => {
@@ -1535,6 +1538,10 @@ export const layerWsRpc = (
       const commandOutputHub = yield* CommandOutputHub.CommandOutputHub;
       const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
+      const workflows = yield* Workflows.Workflows;
+      const workflowDefinitions = yield* WorkflowRuntime.WorkflowDefinitions;
+      const workflowError = (error: Workflows.WorkflowError) =>
+        new WorkflowRequestError({ message: error.message });
       const secretRequests = yield* SecretRequests.SecretRequests;
       const guestShares = yield* GuestShareService.GuestShareService;
       const pullRequests = yield* PullRequestService.PullRequestService;
@@ -1622,7 +1629,8 @@ export const layerWsRpc = (
             if (
               result === null ||
               result.projectId !== endpoint.projectId ||
-              result.archivedAt !== null || result.deletedAt !== null
+              result.archivedAt !== null ||
+              result.deletedAt !== null
             )
               return null;
             const shell = result;
@@ -1695,7 +1703,8 @@ export const layerWsRpc = (
         orchestrationEngine.getThreadRecords(threadId, []).pipe(
           Effect.map(({ thread }) => thread),
           Effect.catchIf(
-            (error) => error._tag === "OrchestratorProjectionError" &&
+            (error) =>
+              error._tag === "OrchestratorProjectionError" &&
               isThreadProjectionNotFound(error.cause),
             () => Effect.succeed(null),
           ),
@@ -1729,22 +1738,26 @@ export const layerWsRpc = (
           const bot = thread.bot;
           const settings = yield* serverSettings.getSettings;
           const profile = Object.hasOwn(settings.bots, bot.id) ? settings.bots[bot.id] : undefined;
-          if (!profile || profile.id !== bot.id || profile.archived ||
-              (profile.projectId !== null && profile.projectId !== thread.projectId))
+          if (
+            !profile ||
+            profile.id !== bot.id ||
+            profile.archived ||
+            (profile.projectId !== null && profile.projectId !== thread.projectId)
+          )
             return yield* new BotBrowserError({ message: "Bot is unavailable or archived." });
           return yield* (
             action ? actOnBotBrowserPage(threadId, action) : readBotBrowserPage(threadId, revision)
           ).pipe(Effect.provideService(BackgroundBrowser, botBrowser));
         },
-          Effect.tapError((error) => Effect.logDebug("bot browser request failed", { error })),
-          Effect.mapError(
-            () =>
-              new BotBrowserError({
-                message:
-                  "Could not access this bot's browser. It must already be running; refresh and try again.",
-              }),
-          ),
-        );
+        Effect.tapError((error) => Effect.logDebug("bot browser request failed", { error })),
+        Effect.mapError(
+          () =>
+            new BotBrowserError({
+              message:
+                "Could not access this bot's browser. It must already be running; refresh and try again.",
+            }),
+        ),
+      );
       const secretResolver = yield* SecretResolver.SecretResolver;
       const peerLinks = yield* PeerLinks.PeerLinks;
       const peerLinkRequests = yield* PeerLinkRequests.PeerLinkRequests;
@@ -1752,6 +1765,7 @@ export const layerWsRpc = (
       const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
       const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+      const workspaceFolders = yield* WorkspaceFolders.WorkspaceFolders;
       const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
       const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
       const rpcClientIds = yield* Ref.make(new Set<RpcClientId>());
@@ -2068,7 +2082,6 @@ export const layerWsRpc = (
                   otlpTracesSource: config.otlpTracesSource,
                   otlpTracesVariable: config.otlpTracesVariable,
                 }
-
               : {}),
             otlpTracesEnabled: config.otlpTracesUrl !== undefined,
             ...(config.otlpMetricsUrl !== undefined
@@ -2141,7 +2154,6 @@ export const layerWsRpc = (
         Effect.flatMap((snapshot) =>
           enrichProjectShells(snapshot.projects).pipe(
             Effect.map(({ projects }) => ({ ...snapshot, projects })),
-
           ),
         ),
         Effect.mapError(
@@ -2208,15 +2220,16 @@ export const layerWsRpc = (
                   if (command.type === "thread.create") {
                     yield* rejectThreadDuringClone(command.projectId);
                   }
-                  return yield* (command.type === "prepared-run.retry"
-                    ? threadLaunch.retryPreparation(command)
-                    : ThreadMessageIntake.dispatchCommand(
-                        ThreadManagementService.withCreationProvenance(command, {
-                          createdBy: "user",
-                          creationSource:
-                            "creationSource" in command ? command.creationSource : "web",
-                        }),
-                      )
+                  return yield* (
+                    command.type === "prepared-run.retry"
+                      ? threadLaunch.retryPreparation(command)
+                      : ThreadMessageIntake.dispatchCommand(
+                          ThreadManagementService.withCreationProvenance(command, {
+                            createdBy: "user",
+                            creationSource:
+                              "creationSource" in command ? command.creationSource : "web",
+                          }),
+                        )
                   ).pipe(
                     Effect.provide(intakeContext),
                     Effect.provideService(
@@ -2392,14 +2405,18 @@ export const layerWsRpc = (
                   ),
                   Effect.flatMap((snapshot) =>
                     snapshot.projection.thread.deletedAt !== null
-                      ? Effect.fail(new OrchestrationV2GetThreadProjectionError({
-                          threadId: input.threadId,
-                          message: `Thread ${input.threadId} was not found`,
-                        }))
-                      : Effect.succeed(buildBoundedThreadProjection({
-                          projection: projectThreadProjectionForWire(snapshot.projection),
-                          snapshotSequence: snapshot.snapshotSequence,
-                        }).projection),
+                      ? Effect.fail(
+                          new OrchestrationV2GetThreadProjectionError({
+                            threadId: input.threadId,
+                            message: `Thread ${input.threadId} was not found`,
+                          }),
+                        )
+                      : Effect.succeed(
+                          buildBoundedThreadProjection({
+                            projection: projectThreadProjectionForWire(snapshot.projection),
+                            snapshotSequence: snapshot.snapshotSequence,
+                          }).projection,
+                        ),
                   ),
                 ),
             ),
@@ -2428,7 +2445,9 @@ export const layerWsRpc = (
                   Effect.andThen(
                     ThreadMessageIntake.launchThread({
                       commandId: input.commandId,
-                      ...(input.autoRouting === undefined ? {} : { autoRouting: input.autoRouting }),
+                      ...(input.autoRouting === undefined
+                        ? {}
+                        : { autoRouting: input.autoRouting }),
                       ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
                       ...(input.reuseExistingThread === undefined
                         ? {}
@@ -2477,13 +2496,13 @@ export const layerWsRpc = (
                             workspaceStrategy: input.workspaceStrategy.type,
                           })
                       ).pipe(
-                          Effect.andThen(
-                            input.initialMessage === undefined
-                              ? Effect.void
-                              : analytics.record("client.turn.requested", originProps),
-                          ),
-                          Effect.ignoreCause,
+                        Effect.andThen(
+                          input.initialMessage === undefined
+                            ? Effect.void
+                            : analytics.record("client.turn.requested", originProps),
                         ),
+                        Effect.ignoreCause,
+                      ),
                 ),
                 Effect.map((result) => ({
                   ...result,
@@ -2515,9 +2534,11 @@ export const layerWsRpc = (
                     new OrchestrationV2ThreadLaunchError({
                       commandId: input.commandId,
                       projectId: input.projectId,
-                      message: cause.bootstrapThreadDisposition === "not-created"
-                        ? userFacingDispatchErrorMessage(cause) ?? "Could not prepare the required worktree"
-                        : "Failed to launch thread",
+                      message:
+                        cause.bootstrapThreadDisposition === "not-created"
+                          ? (userFacingDispatchErrorMessage(cause) ??
+                            "Could not prepare the required worktree")
+                          : "Failed to launch thread",
                       ...(cause.bootstrapThreadDisposition === undefined
                         ? {}
                         : { bootstrapThreadDisposition: cause.bootstrapThreadDisposition }),
@@ -2558,6 +2579,13 @@ export const layerWsRpc = (
                       message: cause.message,
                       cause,
                     }),
+                  TaskFolderError: (cause) =>
+                    new OrchestrationV2ThreadLaunchError({
+                      commandId: input.commandId,
+                      projectId: input.projectId,
+                      message: cause.message,
+                      cause,
+                    }),
                 }),
               ),
             ),
@@ -2578,6 +2606,42 @@ export const layerWsRpc = (
           ),
         [ORCHESTRATION_V2_WS_METHODS.subscribePromptSuggestion]: (input) =>
           providerSessionManager.subscribePromptSuggestion(input.threadId),
+        [WS_METHODS.workflowsSubscribe]: (input) =>
+          input.changes === true ? workflows.watch : Workflows.wholeLists(workflows.watch),
+        [WS_METHODS.workflowsCounts]: () => workflows.counts,
+        [WS_METHODS.workflowsGet]: (input) =>
+          workflows.get(input.runId).pipe(Effect.mapError(workflowError)),
+        [WS_METHODS.workflowsAbout]: (input) =>
+          workflows.about(input).pipe(Effect.mapError(workflowError)),
+        [WS_METHODS.workflowsAnswer]: (input) =>
+          serverAuth.listClientSessions(currentSessionId).pipe(
+            Effect.map((sessions) =>
+              EnvironmentAuth.clientSessionLabel(
+                sessions.find((session) => session.current)?.client,
+              ),
+            ),
+            Effect.orElseSucceed(() => EnvironmentAuth.clientSessionLabel(undefined)),
+            Effect.flatMap((label) =>
+              workflows.answer(
+                input.runId,
+                input.name,
+                {
+                  choice: input.choice,
+                  ...(input.reason === undefined ? {} : { reason: input.reason }),
+                },
+                { label, sessionId: currentSessionId },
+              ),
+            ),
+            Effect.mapError(workflowError),
+          ),
+        [WS_METHODS.workflowsResume]: (input) =>
+          workflows.resume(input.runId).pipe(Effect.mapError(workflowError)),
+        [WS_METHODS.workflowsCancel]: (input) =>
+          workflows.cancel(input.runId, input.reason).pipe(Effect.mapError(workflowError)),
+        [WS_METHODS.workflowsGetDefinition]: () => workflowDefinitions.read,
+        [WS_METHODS.workflowsSaveDefinition]: (input) =>
+          workflowDefinitions.save(input.name, input.source),
+        [WS_METHODS.workflowsDeleteDefinition]: (input) => workflowDefinitions.remove(input.name),
         [WS_METHODS.scheduledTasksSubscribe]: (_input) =>
           scheduledTasks.subscribeList().pipe(Stream.map(withVisibleWebhookUrls)),
         [WS_METHODS.scheduledTasksUpsert]: (input) => scheduledTasks.upsert(input),
@@ -2659,19 +2723,17 @@ export const layerWsRpc = (
         [WS_METHODS.botCallTurn]: Effect.fn("ws.botCallTurn")(
           function* (input) {
             const thread = yield* orchestrationEngine.getThreadShell(input.threadId);
-            if (!thread?.bot || thread.id !== input.threadId || thread.deletedAt != null) return null;
+            if (!thread?.bot || thread.id !== input.threadId || thread.deletedAt != null)
+              return null;
             return yield* lookupBotCallTurn(input.threadId, input.messageId, thread.bot.id);
           },
-          Effect.mapError(
-            () => new BotCallTurnError({ message: "Could not read bot call turn." }),
-          ),
+          Effect.mapError(() => new BotCallTurnError({ message: "Could not read bot call turn." })),
         ),
         [WS_METHODS.botBrowserPage]: (input) =>
           browserForThread(input.threadId, undefined, input.revision).pipe(
             Effect.map((page) => (page.revision === input.revision ? null : page)),
           ),
-        [WS_METHODS.botBrowserAction]: (input) =>
-          browserForThread(input.threadId, input.action),
+        [WS_METHODS.botBrowserAction]: (input) => browserForThread(input.threadId, input.action),
         [WS_METHODS.serverUninstallAcpRegistryManagedBinary]: (input) =>
           Effect.annotateCurrentSpan({ "acp_registry.agent_id": input.agentId }).pipe(
             Effect.andThen(
@@ -2863,15 +2925,17 @@ export const layerWsRpc = (
         [WS_METHODS.mcpAppsToolInfo]: (input) => mcpAppRequests.toolInfo(input),
         [WS_METHODS.mcpAppsUpdateModelContext]: (input) => mcpAppRequests.updateModelContext(input),
         [WS_METHODS.mcpAppsReadResource]: (input) => mcpAppRequests.readResource(input),
+        [WS_METHODS.providerMcpSignInStart]: (input) => mcpSignIn.start(input),
+        [WS_METHODS.providerMcpSignInComplete]: (input) => mcpSignIn.complete(input),
         [WS_METHODS.providerUploadFeedback]:
           /* Request instrumentation already owns the span; keep this helper in that context. */
           Effect.fnUntraced(function* (input) {
             const feedbackError = (cause: string) =>
               new ProviderUploadFeedbackError({ threadId: input.threadId, cause });
             const unavailableThread = "The requested thread is unavailable.";
-            const projection = yield* threadManagement.getThreadRecords(input.threadId, [
-              "providerThreads",
-            ]).pipe(Effect.mapError(() => feedbackError(unavailableThread)));
+            const projection = yield* threadManagement
+              .getThreadRecords(input.threadId, ["providerThreads"])
+              .pipe(Effect.mapError(() => feedbackError(unavailableThread)));
             if (projection.thread.id !== input.threadId || projection.thread.deletedAt !== null) {
               return yield* feedbackError(unavailableThread);
             }
@@ -2883,14 +2947,19 @@ export const layerWsRpc = (
             if (providerThread === undefined || providerSessionId === null) {
               return yield* feedbackError("No provider session has run in this thread yet.");
             }
-            if (providerThread.appThreadId !== null && providerThread.appThreadId !== input.threadId) {
+            if (
+              providerThread.appThreadId !== null &&
+              providerThread.appThreadId !== input.threadId
+            ) {
               return yield* feedbackError(unavailableThread);
             }
             const unavailableSession =
               "The provider session is no longer running. Send a message first.";
-            const runtime = Option.getOrNull(yield* providerSessionsV2.get(providerSessionId).pipe(
-              Effect.mapError(() => feedbackError(unavailableSession)),
-            ));
+            const runtime = Option.getOrNull(
+              yield* providerSessionsV2
+                .get(providerSessionId)
+                .pipe(Effect.mapError(() => feedbackError(unavailableSession))),
+            );
             if (runtime === null) {
               return yield* feedbackError(unavailableSession);
             }
@@ -2904,15 +2973,21 @@ export const layerWsRpc = (
               return yield* feedbackError("The provider session does not match this thread.");
             }
             if (runtime.uploadFeedback === undefined) {
-              return yield* feedbackError(`Provider '${runtime.driver}' does not support feedback uploads.`);
+              return yield* feedbackError(
+                `Provider '${runtime.driver}' does not support feedback uploads.`,
+              );
             }
-            return yield* runtime.uploadFeedback({
-              providerThread,
-              ...(input.reason === undefined ? {} : { reason: input.reason }),
-            }).pipe(
-              // Provider errors can include local paths and response data.
-              Effect.mapError(() => feedbackError("The provider could not upload thread feedback.")),
-            );
+            return yield* runtime
+              .uploadFeedback({
+                providerThread,
+                ...(input.reason === undefined ? {} : { reason: input.reason }),
+              })
+              .pipe(
+                // Provider errors can include local paths and response data.
+                Effect.mapError(() =>
+                  feedbackError("The provider could not upload thread feedback."),
+                ),
+              );
           }),
         [WS_METHODS.serverUpdateProvider]: (input) =>
           providerMaintenanceRunner.updateProvider(input),
@@ -3361,6 +3436,8 @@ export const layerWsRpc = (
             ),
           ),
         [WS_METHODS.attachmentsCreateUploadUrl]: (input) => issueAttachmentUploadUrl(input),
+        [WS_METHODS.workspaceListFolders]: workspaceFolders.list,
+        [WS_METHODS.workspaceScanFolders]: workspaceFolders.scan,
         [WS_METHODS.attachmentsDelete]: (input) => deletePendingAttachment(input.attachmentId),
         [WS_METHODS.agentSessionsScan]: () => agentSessionScanner.scan,
         [WS_METHODS.agentSessionsImport]: (input) =>
@@ -3418,13 +3495,15 @@ export const layerWsRpc = (
               });
             }
             const threadId = input.resource.threadId;
-            const thread = yield* threadManagement.getThreadRecords(threadId, []).pipe(
-              Effect.mapError((cause) =>
-                isThreadProjectionNotFound(cause.cause)
-                  ? new AssetWorkspaceContextNotFoundError({ resource: input.resource })
-                  : new AssetWorkspaceContextResolutionError({ resource: input.resource, cause }),
-              ),
-            );
+            const thread = yield* threadManagement
+              .getThreadRecords(threadId, [])
+              .pipe(
+                Effect.mapError((cause) =>
+                  isThreadProjectionNotFound(cause.cause)
+                    ? new AssetWorkspaceContextNotFoundError({ resource: input.resource })
+                    : new AssetWorkspaceContextResolutionError({ resource: input.resource, cause }),
+                ),
+              );
             if (thread.thread.id !== threadId || thread.thread.deletedAt !== null) {
               return yield* new AssetWorkspaceContextNotFoundError({ resource: input.resource });
             }

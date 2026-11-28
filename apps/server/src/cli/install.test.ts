@@ -89,27 +89,36 @@ it.layer(NodeServices.layer)("t3 install", (it) => {
       const installed = yield* provide(installCli());
       assert.equal(yield* fs.readFileString(link), posixLauncherScript(executable));
       assert.isFalse(installed.onPath);
-      assert.include(installed.pathCommand, "$HOME/bin");
+      const nativeWindows = path.sep === "\\";
+      if (nativeWindows) {
+        assert.isUndefined(installed.pathCommand);
+      } else {
+        assert.include(installed.pathCommand, "$HOME/bin");
+      }
 
       // A link written through a symlinked T3 home is still ours.
       const alias = path.join(root, "alias");
       yield* fs.symlink(path.join(root, ".t3"), alias);
       yield* fs.remove(link);
       yield* fs.symlink(path.join(alias, "runtime/versions", VERSION, "t3"), link);
-      const onPath = yield* provide(installCli(), { PATH: `/usr/bin:${path.join(root, "bin")}/` });
-      assert.isTrue(onPath.onPath);
       // Another t3 earlier on PATH still runs first, so `t3` would not run this one.
       const otherBin = path.join(root, "other-bin");
       yield* fs.makeDirectory(otherBin);
-      yield* fs.writeFileString(path.join(otherBin, "t3"), "");
-      const shadowed = yield* provide(installCli(), {
-        PATH: `${otherBin}:${path.join(root, "bin")}`,
-      });
-      assert.isFalse(shadowed.onPath);
-      assert.equal(shadowed.shadowedBy, path.join(otherBin, "t3"));
-      assert.isUndefined(shadowed.pathCommand);
+      if (!nativeWindows) {
+        const onPath = yield* provide(installCli(), {
+          PATH: `/usr/bin:${path.join(root, "bin")}/`,
+        });
+        assert.isTrue(onPath.onPath);
+        yield* fs.writeFileString(path.join(otherBin, "t3"), "");
+        const shadowed = yield* provide(installCli(), {
+          PATH: `${otherBin}:${path.join(root, "bin")}`,
+        });
+        assert.isFalse(shadowed.onPath);
+        assert.equal(shadowed.shadowedBy, path.join(otherBin, "t3"));
+        assert.isUndefined(shadowed.pathCommand);
+      }
       const recorded = yield* fs.readFileString(path.join(runtimeDir, "launchers"));
-      assert.equal(recorded, `\n${yield* fs.realPath(path.join(root, "bin"))}/t3\n`);
+      assert.equal(recorded, `\n${path.join(yield* fs.realPath(path.join(root, "bin")), "t3")}\n`);
 
       yield* fs.remove(link);
       yield* fs.writeFileString(link, "#!/bin/sh\n");
@@ -150,8 +159,8 @@ it.layer(NodeServices.layer)("t3 install", (it) => {
 
       // Windows writes a t3.cmd: only over its own, and only for paths cmd can run.
       const shim = path.join(root, "bin", "t3.cmd");
-      const windows = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-        provide(effect.pipe(Effect.provideService(HostProcess.Platform, "win32")));
+      const windows = <A, E, R>(effect: Effect.Effect<A, E, R>, env?: NodeJS.ProcessEnv) =>
+        provide(effect.pipe(Effect.provideService(HostProcess.Platform, "win32")), env);
       const desktopShim =
         '@echo off\r\nrem Written by T3 Code\r\n"C:\\T3 Code\\T3 Code.exe" "x" %*\r\n';
       yield* fs.writeFileString(shim, desktopShim);
@@ -183,6 +192,16 @@ it.layer(NodeServices.layer)("t3 install", (it) => {
       assert.equal(yield* fs.readFileString(shim), `@echo off\r\n"${executable}" %*`);
       // A PowerShell command for this window; the saved PATH is left to the user.
       assert.equal(windowsInstalled.pathCommand, `$env:Path += ';${path.join(root, "bin")}'`);
+      const onWindowsPath = yield* windows(installCli(), { PATH: `${path.join(root, "bin")}/` });
+      assert.isTrue(onWindowsPath.onPath);
+      const otherShim = path.join(otherBin, "t3.cmd");
+      yield* fs.writeFileString(otherShim, "");
+      const shadowedOnWindows = yield* windows(installCli(), {
+        PATH: `${otherBin};${path.join(root, "bin")}`,
+      });
+      assert.isFalse(shadowedOnWindows.onPath);
+      assert.equal(shadowedOnWindows.shadowedBy, otherShim);
+      assert.isUndefined(shadowedOnWindows.pathCommand);
       const unrunnable = yield* windows(
         installCli().pipe(
           Effect.provideService(

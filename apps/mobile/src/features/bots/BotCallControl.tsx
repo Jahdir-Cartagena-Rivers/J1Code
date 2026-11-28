@@ -3,7 +3,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { createBotCallController } from "@j1code/shared/bot-call-controller";
 import { initialBotCallState } from "@j1code/shared/bot-voice-conversation";
 import { requestRecordingPermissionsAsync } from "expo-audio";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AppState, View } from "react-native";
 import { AppText } from "../../components/ui/AppText";
 import { Button as MaterialButton } from "../../components/ui/Button";
@@ -30,7 +30,10 @@ export function BotCallControl(props: {
   const configs = useAtomValue(environmentServerConfigsAtom);
   const voiceId = configs.get(props.environmentId)?.settings.bots[props.botId]?.voiceURI ?? null;
   const latest = useRef({ ...props, voiceId });
-  latest.current = { ...props, voiceId };
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Keep the native voice controller on the latest committed handlers and voice.
+  useLayoutEffect(() => {
+    latest.current = { ...props, voiceId };
+  }, [props, voiceId]);
   const [state, setState] = useState(initialBotCallState);
   const controller = useRef<ReturnType<typeof createBotCallController> | null>(null);
   const query = useEnvironmentQuery(

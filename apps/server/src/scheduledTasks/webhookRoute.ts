@@ -2,6 +2,7 @@ import { EnvironmentHttpApi } from "@j1code/contracts";
 import * as ByteSize from "effect/ByteSize";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Result from "effect/Result";
 import * as Tracer from "effect/Tracer";
 import * as HttpIncomingMessage from "effect/http/HttpIncomingMessage";
 import type * as HttpServerRequest from "effect/http/HttpServerRequest";
@@ -11,6 +12,8 @@ import { withRelayClientTracing } from "@j1code/shared/relayTracing";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 
 import * as Metrics from "../observability/Metrics.ts";
+import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
+import * as Workflows from "../workflows/Workflows.ts";
 import * as RelayDeliveryProof from "./RelayDeliveryProof.ts";
 import * as ScheduledTaskService from "./ScheduledTaskService.ts";
 
@@ -37,6 +40,8 @@ export const layer = HttpApiBuilder.group(
   Effect.fnUntraced(function* (handlers) {
     const scheduledTasks = yield* ScheduledTaskService.ScheduledTaskService;
     const relayDeliveryProof = yield* RelayDeliveryProof.RelayDeliveryProof;
+    const workflows = yield* Workflows.Workflows;
+    const policy = yield* ManagedPolicy.ManagedPolicy;
     /**
      * The endpoint is raw so the signature is checked over the exact body
      * bytes; the service checks the token and signature.
@@ -95,6 +100,50 @@ export const layer = HttpApiBuilder.group(
       const relayParent = Option.isSome(relay)
         ? HttpTraceContext.fromHeaders(request.headers)
         : Option.none<Tracer.ExternalSpan>();
+      if (params.hookId.startsWith(Workflows.HOOK_PREFIX)) {
+        if (ManagedPolicy.deniedBy(policy, "webhookTasks") !== undefined) {
+          return json(403, { error: "blocked_by_policy" }, "blocked_by_policy");
+        }
+        const workflowHeaders = Object.fromEntries(
+          Object.entries(headers).filter(
+            ([name]) =>
+              name !== "authorization" &&
+              name !== "proxy-authorization" &&
+              name !== "cookie" &&
+              !name.startsWith("x-t3-relay-"),
+          ),
+        );
+        const started = yield* workflows
+          .deliver({
+            hookId: params.hookId,
+            token: params.token,
+            request: {
+              method: request.method,
+              headers: workflowHeaders,
+              query: queryIndex === -1 ? "" : request.url.slice(queryIndex + 1),
+              body: new TextDecoder().decode(body.value),
+            },
+            ...(relayDeliveryId ? { deliveryId: `relay:${relayDeliveryId}` } : {}),
+          })
+          .pipe(Effect.result);
+        if (Result.isFailure(started)) {
+          if (started.failure._tag === "WorkflowInputError") {
+            return json(
+              400,
+              { error: "invalid_request", problem: started.failure.problem },
+              "invalid",
+            );
+          }
+          if (started.failure._tag === "WorkflowHookBusyError") {
+            return json(429, { error: "rate_limited" }, "rate_limited", { "retry-after": "60" });
+          }
+          yield* Effect.logWarning("Workflow hook delivery failed", { hookId: params.hookId });
+          return json(500, { error: "internal_error" }, "error");
+        }
+        return Option.isNone(started.success)
+          ? json(404, { error: "hook_not_found" }, "not_found")
+          : json(202, { runId: started.success.value.runId }, "accepted");
+      }
       const result = yield* scheduledTasks
         .triggerWebhook({
           hookId: params.hookId,

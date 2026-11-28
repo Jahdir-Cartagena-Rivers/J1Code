@@ -424,16 +424,17 @@ const boxToolkitLayer = (thread: BoxThread) => {
                   type: "assistant_message",
                 },
               ]),
-        ].map((entry, position) => ({ ...entry, position }));
+        ].map((entry, index) => ({ ...entry, position: index + 1 }));
         const visible =
           options.itemId === undefined
             ? replies.filter(
                 (entry) => options.view === "activity" || entry.type === "assistant_message",
               )
             : replies.filter((entry) => entry.id === options.itemId);
-        const matching = visible
-          .filter((entry) => entry.position > (options.afterPosition ?? -1))
-          .slice(0, 1);
+        const matching =
+          options.itemId === undefined && options.afterPosition === undefined
+            ? visible.slice(-1)
+            : visible.filter((entry) => entry.position > (options.afterPosition ?? 0)).slice(0, 1);
         return {
           items: matching.map(({ id, runId: itemRunId, text, position, type }) => ({
             position,
@@ -465,7 +466,7 @@ const boxToolkitLayer = (thread: BoxThread) => {
                   }),
             } as never,
           })),
-          totalItems: replies.length,
+          totalItems: replies.length + 1,
           hasMore:
             options.itemId === undefined &&
             matching.length > 0 &&

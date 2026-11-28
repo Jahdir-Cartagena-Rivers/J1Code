@@ -1091,13 +1091,14 @@ describe("waitForRevertedMessage", () => {
     },
   );
 
-  it("waits for the requested target when another client finishes a shallower rewind", async () => {
+  it("reports unrestored repositories only after the requested rewind finishes", async () => {
     vi.useFakeTimers();
     const { state, projection } = projectionAtom();
     let outcome = "pending";
     const waiting = waitForRevertedMessage(threadRef, 1, requestId, async () => {}).then(
-      () => {
+      (repositories) => {
         outcome = "reverted";
+        return repositories;
       },
       (error: Error) => {
         outcome = error.message;
@@ -1127,6 +1128,10 @@ describe("waitForRevertedMessage", () => {
       appAtomRegistry.set(state, {
         data: Option.some({
           ...shallowerRewind,
+          thread: {
+            ...shallowerRewind.thread,
+            rollbackUnrestored: { requestId, repositories: ["api"] },
+          },
           providerThreads: shallowerRewind.providerThreads.map((thread) => ({
             ...thread,
             lastRunOrdinal: 1,
@@ -1138,7 +1143,7 @@ describe("waitForRevertedMessage", () => {
       });
       await vi.advanceTimersByTimeAsync(0);
       expect(outcome).toBe("reverted");
-      await waiting;
+      expect(await waiting).toEqual(["api"]);
     } finally {
       vi.clearAllTimers();
       vi.useRealTimers();
@@ -1642,19 +1647,26 @@ describe("prepareRevertedMessageAttachments", () => {
   });
 });
 
-
 describe("started thread provider handoff", () => {
   it.each([
     { started: false, handoff: false, next: "other", blocked: false },
     { started: true, handoff: false, next: "current", blocked: false },
     { started: true, handoff: true, next: "other", blocked: false },
     { started: true, handoff: false, next: "other", blocked: true },
-  ])("requires handoff support for a started cross-instance switch: %j", ({ started, handoff, next, blocked }) => {
-    expect(getStartedThreadModelChangeBlockReason({
-      hasStartedSession: started,
-      supportsProviderSwitchingViaHandoff: handoff,
-      currentModelSelection: { instanceId: ProviderInstanceId.make("current"), model: "old-model" },
-      nextModelSelection: { instanceId: ProviderInstanceId.make(next), model: "next-model" },
-    }) !== null).toBe(blocked);
-  });
+  ])(
+    "requires handoff support for a started cross-instance switch: %j",
+    ({ started, handoff, next, blocked }) => {
+      expect(
+        getStartedThreadModelChangeBlockReason({
+          hasStartedSession: started,
+          supportsProviderSwitchingViaHandoff: handoff,
+          currentModelSelection: {
+            instanceId: ProviderInstanceId.make("current"),
+            model: "old-model",
+          },
+          nextModelSelection: { instanceId: ProviderInstanceId.make(next), model: "next-model" },
+        }) !== null,
+      ).toBe(blocked);
+    },
+  );
 });

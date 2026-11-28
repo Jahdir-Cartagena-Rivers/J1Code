@@ -908,67 +908,69 @@ it.live("navigate fails when the page never commits within its timeout", () =>
   ).pipe(Effect.provide(layer)),
 );
 
-it.live("navigation shares its shorter caller budget across recovery and commit after queueing", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const { broker, tabId } = yield* ready;
-      const { page, sessions } = contexts[0]!;
-      const originalGoto = page.goto.getMockImplementation()!;
-      const started = Promise.withResolvers<void>();
-      const finish = Promise.withResolvers<{ result: { value: string } }>();
-      const session = sessions[0]!;
-      session.send.mockImplementationOnce(() => {
-        started.resolve();
-        return finish.promise;
-      });
-      const running = yield* broker
-        .invoke({ scope, tabId, operation: "evaluate", input: { expression: "held()" } })
-        .pipe(Effect.forkScoped);
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => finish.resolve({ result: { value: "done" } })),
-      );
-      yield* Effect.promise(() => started.promise);
+it.live(
+  "navigation shares its shorter caller budget across recovery and commit after queueing",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { broker, tabId } = yield* ready;
+        const { page, sessions } = contexts[0]!;
+        const originalGoto = page.goto.getMockImplementation()!;
+        const started = Promise.withResolvers<void>();
+        const finish = Promise.withResolvers<{ result: { value: string } }>();
+        const session = sessions[0]!;
+        session.send.mockImplementationOnce(() => {
+          started.resolve();
+          return finish.promise;
+        });
+        const running = yield* broker
+          .invoke({ scope, tabId, operation: "evaluate", input: { expression: "held()" } })
+          .pipe(Effect.forkScoped);
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => finish.resolve({ result: { value: "done" } })),
+        );
+        yield* Effect.promise(() => started.promise);
 
-      let now = performance.now();
-      using clock = vi.spyOn(performance, "now").mockImplementation(() => now);
-      using queued = vi.spyOn(SessionControl.prototype, "agent");
-      session.send.mockImplementationOnce(async () => {
-        now += 1_000;
-        return { result: { value: 0 } };
-      });
-      page.goto.mockImplementationOnce(async (url, options) => {
-        expect(options).toMatchObject({ timeout: 3_000, waitUntil: "commit" });
-        now += 2_000;
-        await originalGoto(url, options);
-      });
-      page.waitForLoadState.mockClear();
+        let now = 0;
+        using _clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+        using queued = vi.spyOn(SessionControl.prototype, "agent");
+        session.send.mockImplementationOnce(async () => {
+          now += 1_000;
+          return { result: { value: 0 } };
+        });
+        page.goto.mockImplementationOnce(async (url, options) => {
+          expect(options).toMatchObject({ timeout: 3_000, waitUntil: "commit" });
+          now += 2_000;
+          await originalGoto(url, options);
+        });
+        page.waitForLoadState.mockClear();
 
-      const url = "https://example.com/budget";
-      const navigation = yield* broker
-        .invoke<PreviewAutomationStatus>({
+        const url = "https://example.com/budget";
+        const navigation = yield* broker
+          .invoke<PreviewAutomationStatus>({
+            scope,
+            tabId,
+            operation: "navigate",
+            timeoutMs: 9_000,
+            input: { url, timeoutMs: 4_000 },
+          })
+          .pipe(Effect.forkScoped);
+        yield* Effect.promise(() => vi.waitFor(() => expect(queued).toHaveBeenCalledTimes(1)));
+        now += 500;
+        finish.resolve({ result: { value: "done" } });
+        yield* Fiber.join(running);
+
+        expect((yield* Fiber.join(navigation)).url).toBe(url);
+        expect(page.waitForLoadState).toHaveBeenCalledWith("load", { timeout: 1_000 });
+        const next = yield* broker.invoke<PreviewAutomationStatus>({
           scope,
           tabId,
-          operation: "navigate",
-          timeoutMs: 9_000,
-          input: { url, timeoutMs: 4_000 },
-        })
-        .pipe(Effect.forkScoped);
-      yield* Effect.promise(() => vi.waitFor(() => expect(queued).toHaveBeenCalledTimes(1)));
-      now += 500;
-      finish.resolve({ result: { value: "done" } });
-      yield* Fiber.join(running);
-
-      expect((yield* Fiber.join(navigation)).url).toBe(url);
-      expect(page.waitForLoadState).toHaveBeenCalledWith("load", { timeout: 1_000 });
-      const next = yield* broker.invoke<PreviewAutomationStatus>({
-        scope,
-        tabId,
-        operation: "open",
-        input: { url: "https://example.com/reused", show: false },
-      });
-      expect(next).toMatchObject({ tabId, url: "https://example.com/reused" });
-    }),
-  ).pipe(Effect.provide(layer)),
+          operation: "open",
+          input: { url: "https://example.com/reused", show: false },
+        });
+        expect(next).toMatchObject({ tabId, url: "https://example.com/reused" });
+      }),
+    ).pipe(Effect.provide(layer)),
 );
 
 it.live("expires queued navigation behind a busy tab without navigating later", () =>
@@ -998,10 +1000,14 @@ it.live("expires queued navigation behind a busy tab without navigating later", 
           scope,
           tabId,
           operation: "navigate",
+          timeoutMs: 50,
           input: { url, timeoutMs: 50 },
         })
-        .pipe(Effect.flip);
-      expect(expired._tag).toBe("PreviewAutomationTimeoutError");
+        .pipe(Effect.result);
+      expect(expired).toMatchObject({
+        _tag: "Failure",
+        failure: { _tag: "PreviewAutomationTimeoutError" },
+      });
       expect(page.goto).not.toHaveBeenCalled();
 
       finish.resolve({ result: { value: "done" } });
@@ -1019,9 +1025,18 @@ it.live("expires queued navigation behind a busy tab without navigating later", 
       using waitFor = vi.spyOn(ServerBrowserPage, "waitFor");
       page.locator.mockReturnValueOnce({ count: () => new Promise<number>(() => {}) });
       const wait = yield* broker
-        .invoke({ scope, tabId, operation: "waitFor", timeoutMs: 100, input: { selector: "button" } })
-        .pipe(Effect.flip);
-      expect(wait._tag).toBe("PreviewAutomationTimeoutError");
+        .invoke({
+          scope,
+          tabId,
+          operation: "waitFor",
+          timeoutMs: 100,
+          input: { selector: "button" },
+        })
+        .pipe(Effect.result);
+      expect(wait).toMatchObject({
+        _tag: "Failure",
+        failure: { _tag: "PreviewAutomationTimeoutError" },
+      });
       const waitBudget = waitFor.mock.calls[0]?.[1].timeoutMs;
       expect(waitBudget).toBeGreaterThan(0);
       expect(waitBudget).toBeLessThanOrEqual(100);
@@ -1056,9 +1071,15 @@ it.live("a timed-out server resize drains its native command without applying la
           operation: "resize",
           input: { mode: "freeform", width: 900, height: 600, timeoutMs: 150 },
         })
-        .pipe(Effect.flip, Effect.forkScoped);
-      yield* Effect.raceFirst(Effect.promise(() => started.promise), Fiber.await(result));
-      expect((yield* Fiber.join(result))._tag).toBe("PreviewAutomationTimeoutError");
+        .pipe(Effect.result, Effect.forkScoped);
+      yield* Effect.raceFirst(
+        Effect.promise(() => started.promise),
+        Fiber.await(result),
+      );
+      expect(yield* Fiber.join(result)).toMatchObject({
+        _tag: "Failure",
+        failure: { _tag: "PreviewAutomationTimeoutError" },
+      });
       expect(page.setViewportSize).toHaveBeenCalledTimes(1);
 
       finish.resolve();

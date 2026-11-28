@@ -404,6 +404,27 @@ describe("isRelayTracingEnabled", () => {
     );
   });
 
+  it("honors DO_NOT_TRACK even with product telemetry enabled explicitly", () => {
+    assert.isFalse(
+      OtelEnvironment.isRelayTracingEnabled({
+        DO_NOT_TRACK: " YES ",
+        T3CODE_TELEMETRY_ENABLED: "true",
+      }),
+    );
+    assert.isTrue(OtelEnvironment.isRelayTracingEnabled({ DO_NOT_TRACK: "0" }));
+  });
+
+  it("defaults off on CI and respects an explicit opt-in", () => {
+    assert.isFalse(OtelEnvironment.isRelayTracingEnabled({ GITHUB_ACTIONS: "true" }));
+    assert.isTrue(OtelEnvironment.isRelayTracingEnabled({ CI: "false" }));
+    assert.isTrue(
+      OtelEnvironment.isRelayTracingEnabled({
+        CI: "true",
+        T3CODE_TELEMETRY_ENABLED: "true",
+      }),
+    );
+  });
+
   it.effect("product opt-out beats SDK enable without disabling user-configured tracing", () =>
     Effect.gen(function* () {
       const env = {

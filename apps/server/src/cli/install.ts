@@ -31,6 +31,8 @@ export class CliInstallError extends Schema.TaggedError<CliInstallError>()("CliI
   }
 }
 
+const isCliInstallError = Schema.is(CliInstallError);
+
 /** The versioned J1 runtime keeps the legacy t3 executable names. */
 const standaloneRuntime = Effect.gen(function* () {
   const path = yield* Path.Path;
@@ -90,10 +92,9 @@ export const installCli = Effect.fn("cli.install.install")(function* () {
     if (Option.isNone(info) || info.value.type !== "File" || info.value.size > 4096n) {
       return Option.none<string>();
     }
-    return yield* fs.readFileString(link).pipe(
-      Effect.map(generatedWindowsShimTarget),
-      Effect.option,
-    );
+    return yield* fs
+      .readFileString(link)
+      .pipe(Effect.map(generatedWindowsShimTarget), Effect.option);
   });
   const current = windows
     ? yield* readWindowsShim
@@ -149,7 +150,7 @@ export const installCli = Effect.fn("cli.install.install")(function* () {
       }),
     ).pipe(
       Effect.mapError((cause) =>
-        cause instanceof CliInstallError ? cause : failed(`Could not write ${link}.`)(cause),
+        isCliInstallError(cause) ? cause : failed(`Could not write ${link}.`)(cause),
       ),
     );
   } else {
@@ -392,7 +393,10 @@ export const offerCliInstall = Effect.fn("cli.install.offer")(function* <E, R, E
   yield* installCli().pipe(
     Effect.flatMap(reportInstalled),
     Effect.catch((error) =>
-      Effect.andThen(saveDecline, Console.error(`Could not install the J1 Code command: ${error.message}`)),
+      Effect.andThen(
+        saveDecline,
+        Console.error(`Could not install the J1 Code command: ${error.message}`),
+      ),
     ),
   );
   yield* Console.log("");

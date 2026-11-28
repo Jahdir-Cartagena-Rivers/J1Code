@@ -7,6 +7,7 @@ import { useJ1ConnectAuthPrompt } from "../clerk/useJ1ConnectAuthPrompt";
 import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
 import { ScopedSwitch } from "./ScopedSwitch";
+import { WorkflowRunsSettings } from "./WorkflowRunsSettings";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
@@ -15,6 +16,8 @@ import { firstManagedDenial, usePrimaryManagedPolicy } from "~/state/managedPoli
 
 /** Features still settling in. */
 export function LabsSettingsPanel() {
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
   return (
     <SettingsPageContainer>
       <SettingsSection id="beta" title="Beta">
@@ -22,10 +25,25 @@ export function LabsSettingsPanel() {
         {/* Clerk is only mounted when this build has T3 Connect. */}
         {hasCloudPublicConfig() ? <GuestLinksRowWithSignIn /> : <GuestLinksRow />}
         <LinkedEnvironmentsRow />
+        <SettingsRow
+          serverScoped
+          title="Workflows"
+          settingKeys={["workflowsEnabled"]}
+          description="Run workflow definitions from the J1 home on the selected environment. Enable this for code you trust."
+          control={
+            <ScopedSwitch
+              settingKeys={["workflowsEnabled"]}
+              checked={settings.workflowsEnabled}
+              onCheckedChange={(checked) => updateSettings({ workflowsEnabled: Boolean(checked) })}
+              aria-label="Workflows"
+            />
+          }
+        />
         <PromptSuggestionsRow />
         <SimlockHostsRow />
         <FastWorktreeCheckoutRow />
       </SettingsSection>
+      {settings.workflowsEnabled && <WorkflowRunsSettings />}
     </SettingsPageContainer>
   );
 }

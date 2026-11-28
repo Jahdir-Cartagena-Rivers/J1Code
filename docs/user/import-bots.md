@@ -1,6 +1,6 @@
 # Import your bots
 
-The welcome popup offers **Import from OpenMaus** and **Import from Grok**. You can skip it and return to **Settings → Import** later.
+During J1 setup, choose **Continue to bot import** to open Assistants on the selected server. Any selected coding projects and threads import first. The bot welcome popup offers **Import from OpenMaus** and **Import from Grok**. You can also open **Settings → Import** from Assistants.
 
 For OpenMaus, export a workspace backup from **Settings → Backups** in OpenMaus. In J1 Code, choose **Import from OpenMaus**, select the `.ombbackup` file, and enter its backup password. Review the preview, warnings, and exclusions before confirming. Restart J1 Code to finish the restore.
 

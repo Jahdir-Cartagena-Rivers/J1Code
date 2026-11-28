@@ -46,6 +46,7 @@ const Config = Schema.Struct({
 );
 const Account = Schema.fromJsonString(Schema.Struct({ apiKey: Schema.NonEmptyString }));
 const decodeAccount = Schema.decodeUnknownSync(Account);
+const isDeepAIRequestError = Schema.is(DeepAIRequestError);
 export type DeepAIDriverEnv =
   | ServerConfig
   | ServerSecretStore
@@ -61,38 +62,45 @@ export const DeepAIDriver: ProviderDriver<typeof Config.Type, DeepAIDriverEnv> =
   metadata: { displayName: "DeepAI", supportsMultipleInstances: true },
   configSchema: Config,
   defaultConfig: () => ({}),
-  create: ({ instanceId, enabled, displayName, accentColor, config: providerConfig }) =>
-    Effect.gen(function* () {
-      const config = yield* ServerConfig;
-      const fs = yield* FileSystem.FileSystem;
-      const paths = yield* Path.Path;
-      const clock = yield* Clock.Clock;
-      const store = yield* ProviderCredentialStore.make("deepai", instanceId);
-      const context = yield* Effect.context<DeepAIDriverEnv>();
-      const run = Effect.runPromiseWith(context);
-      const platform = yield* HostProcessPlatform;
-      const machineDigest = yield* Effect.promise(() => deepAIMachineDigest(platform));
-      const client = makeDeepAIClient({ ...(machineDigest ? { machineDigest } : {}) });
-      const credentials = async () => {
-        const stored = await run(store.get);
-        if (Option.isNone(stored)) throw new Error("Sign in to DeepAI first.");
-        return new TextDecoder().decode(stored.value);
-      };
-      const catalog = () => client.models(AbortSignal.timeout(15000));
-      const runtimeBindings = yield* ProviderSessionRuntime.ProviderSessionRuntimeRepository.pipe(
-        Effect.provide(ProviderSessionRuntime.layer),
-      );
-      const orchestrationAdapter = yield* makeDeepAIAdapter({
-        client,
-        instanceId,
-        credentials,
-        catalog,
-        attachmentsDir: config.attachmentsDir,
-        legacyHistory: (threadId) => runtimeBindings.getByThreadId({ threadId }).pipe(
+  create: Effect.fn("DeepAIDriver.create")(function* ({
+    instanceId,
+    enabled,
+    displayName,
+    accentColor,
+    config: providerConfig,
+  }) {
+    const config = yield* ServerConfig;
+    const fs = yield* FileSystem.FileSystem;
+    const paths = yield* Path.Path;
+    const clock = yield* Clock.Clock;
+    const store = yield* ProviderCredentialStore.make("deepai", instanceId);
+    const context = yield* Effect.context<DeepAIDriverEnv>();
+    const run = Effect.runPromiseWith(context);
+    const platform = yield* HostProcessPlatform;
+    const machineDigest = yield* Effect.promise(() => deepAIMachineDigest(platform));
+    const client = makeDeepAIClient(machineDigest ? { machineDigest } : {});
+    const credentials = async () => {
+      const stored = await run(store.get);
+      if (Option.isNone(stored)) throw new Error("Sign in to DeepAI first.");
+      return new TextDecoder().decode(stored.value);
+    };
+    const catalog = () => client.models(AbortSignal.timeout(15000));
+    const runtimeBindings = yield* ProviderSessionRuntime.ProviderSessionRuntimeRepository.pipe(
+      Effect.provide(ProviderSessionRuntime.layer),
+    );
+    const orchestrationAdapter = yield* makeDeepAIAdapter({
+      client,
+      instanceId,
+      credentials,
+      catalog,
+      attachmentsDir: config.attachmentsDir,
+      legacyHistory: (threadId) =>
+        runtimeBindings.getByThreadId({ threadId }).pipe(
           Effect.map((binding) => {
             if (Option.isNone(binding)) return undefined;
             const cursor = binding.value.resumeCursor;
-            if (cursor === null || typeof cursor !== "object" || !("sessionFile" in cursor)) return undefined;
+            if (cursor === null || typeof cursor !== "object" || !("sessionFile" in cursor))
+              return undefined;
             if (typeof cursor.sessionFile !== "string") return undefined;
             return {
               threadId: binding.value.threadId,
@@ -102,161 +110,159 @@ export const DeepAIDriver: ProviderDriver<typeof Config.Type, DeepAIDriverEnv> =
             };
           }),
         ),
-        ...(providerConfig.codexVisionFallback
-          ? {
-              visionLabel: "Codex vision (uses Codex subscription allowance)",
-              describeImages: (
-                question: string,
-                images: ReadonlyArray<{ data: string; mimeType: string }>,
-                signal?: AbortSignal,
-              ) => Effect.runPromiseWith(context)(describeWithCodex(question, images), { signal }),
-            }
-          : providerConfig.visionEndpoint && providerConfig.visionModel
-            ? {
-                describeImages: makeDeepAIVision({
-                  endpoint: providerConfig.visionEndpoint,
-                  model: providerConfig.visionModel,
-                }),
-              }
-            : {}),
-        directory: paths.join(config.stateDir, "providers", "deepai", instanceId),
-      });
-      const setupError = (cause?: unknown) =>
-        new ProviderSetupError({
-          instanceId,
-          operation: "authenticate",
-          detail:
-            cause instanceof DeepAIRequestError
-              ? cause.message
-              : "Sign in to DeepAI Code on this server first, then import the account again.",
-        });
-      let refreshAfterAuth: Effect.Effect<void> = Effect.void;
-      const auth = yield* ProviderAuthFlow.make({
-        instanceId,
-        credentialBinding: store.binding,
-        methods: Effect.succeed([
-          {
-            id: "import",
-            name: "Import DeepAI Code account",
-            description: "Use the DeepAI Code account signed in on this server.",
-            type: "agent",
-          },
-        ]),
-        defaultMethodId: "import",
-        authenticate: () =>
-          Effect.gen(function* () {
-            const accountFile = paths.join(
-              NodeOS.homedir(),
-              ".deepai-code",
-              "userdata",
-              "secrets",
-              "deepai-account.bin",
-            );
-            const text = yield* fs.readFileString(accountFile).pipe(Effect.mapError(setupError));
-            const account = yield* Effect.try({
-              try: () => decodeAccount(text),
-              catch: setupError,
-            });
-            const allowance = yield* Effect.tryPromise({
-              try: (signal) => client.allowance(account.apiKey, signal),
-              catch: setupError,
-            });
-            if (!allowance.enabled) return yield* setupError();
-            yield* store
-              .set(new TextEncoder().encode(account.apiKey))
-              .pipe(Effect.mapError(setupError));
-            yield* refreshAfterAuth;
-          }),
-        logout: store.remove.pipe(
-          Effect.mapError(setupError),
-          Effect.tap(() => refreshAfterAuth),
-        ),
-      });
-      const continuationIdentity = defaultProviderContinuationIdentity({
-        driverKind: DRIVER,
-        instanceId,
-      });
-      const stamp = withInstanceIdentity({
-        instanceId,
-        driverKind: DRIVER,
-        displayName,
-        accentColor,
-        continuationGroupKey: continuationIdentity.continuationKey,
-      });
-      const snapshot = Effect.promise(async () => {
-        let authenticated = false;
-        let models: Awaited<ReturnType<typeof catalog>> | undefined;
-        try {
-          const apiKey = await credentials();
-          authenticated =
-            !enabled || (await client.allowance(apiKey, AbortSignal.timeout(15000))).enabled;
-        } catch {
-          /* Missing credentials is an ordinary state. */
-        }
-        if (enabled) {
-          try {
-            models = await catalog();
-          } catch {
-            /* Refresh can recover availability. */
+      ...(providerConfig.codexVisionFallback
+        ? {
+            visionLabel: "Codex vision (uses Codex subscription allowance)",
+            describeImages: (
+              question: string,
+              images: ReadonlyArray<{ data: string; mimeType: string }>,
+              signal?: AbortSignal,
+            ) => Effect.runPromiseWith(context)(describeWithCodex(question, images), { signal }),
           }
-        }
-        return stamp(
-          buildServerProvider({
-            driver: DRIVER,
-            presentation: {
-              displayName: "DeepAI",
-              supportsConversationRollback: false,
-              showInteractionModeToggle: false,
-              requiresNewThreadForModelChange: true,
-            },
-            enabled,
-            checkedAt: DateTime.formatIso(DateTime.makeUnsafe(clock.currentTimeMillisUnsafe())),
-            models:
-              models?.models.map((model) => ({
-                slug: model.id,
-                name: model.name,
-                isDefault: models?.default === model.id,
-                isCustom: false,
-                capabilities: deepAIModelCapabilities(model),
-              })) ?? [],
-            probe: {
-              installed: true,
-              version: "1.5.1",
-              status: authenticated && models ? "ready" : "warning",
-              auth: { status: authenticated ? "authenticated" : "unauthenticated", type: "deepai" },
-              ...(!authenticated
-                ? { message: "Import your signed-in DeepAI Code account to connect." }
-                : {}),
-            },
-          }),
-        );
-      });
-      const snapshots = yield* SubscriptionRef.make(yield* snapshot);
-      const refresh = snapshot.pipe(Effect.tap((value) => SubscriptionRef.set(snapshots, value)));
-      refreshAfterAuth = refresh.pipe(Effect.asVoid);
-      return {
-        instanceId,
-        driverKind: DRIVER,
-        continuationIdentity,
-        displayName,
-        enabled,
-        ...(accentColor ? { accentColor } : {}),
-        orchestrationAdapter,
-        auth,
-        snapshot: {
-          resolveMaintenance: () =>
-            Effect.succeed(
-              makeManualOnlyProviderMaintenanceCapabilities({
-                provider: DRIVER,
-                packageName: null,
+        : providerConfig.visionEndpoint && providerConfig.visionModel
+          ? {
+              describeImages: makeDeepAIVision({
+                endpoint: providerConfig.visionEndpoint,
+                model: providerConfig.visionModel,
               }),
-            ),
-          getSnapshot: SubscriptionRef.get(snapshots),
-          refresh,
-          streamChanges: SubscriptionRef.changes(snapshots),
-          applyUsageLimits: () => Effect.void,
+            }
+          : {}),
+      directory: paths.join(config.stateDir, "providers", "deepai", instanceId),
+    });
+    const setupError = (cause?: unknown) =>
+      new ProviderSetupError({
+        instanceId,
+        operation: "authenticate",
+        detail: isDeepAIRequestError(cause)
+          ? cause.message
+          : "Sign in to DeepAI Code on this server first, then import the account again.",
+      });
+    let refreshAfterAuth: Effect.Effect<void> = Effect.void;
+    const auth = yield* ProviderAuthFlow.make({
+      instanceId,
+      credentialBinding: store.binding,
+      methods: Effect.succeed([
+        {
+          id: "import",
+          name: "Import DeepAI Code account",
+          description: "Use the DeepAI Code account signed in on this server.",
+          type: "agent",
         },
-        textGeneration: makeDeepAITextGeneration({ credentials, catalog, client }),
-      };
-    }),
+      ]),
+      defaultMethodId: "import",
+      authenticate: Effect.fn("DeepAIDriver.authenticate")(function* () {
+        const accountFile = paths.join(
+          NodeOS.homedir(),
+          ".deepai-code",
+          "userdata",
+          "secrets",
+          "deepai-account.bin",
+        );
+        const text = yield* fs.readFileString(accountFile).pipe(Effect.mapError(setupError));
+        const account = yield* Effect.try({
+          try: () => decodeAccount(text),
+          catch: setupError,
+        });
+        const allowance = yield* Effect.tryPromise({
+          try: (signal) => client.allowance(account.apiKey, signal),
+          catch: setupError,
+        });
+        if (!allowance.enabled) return yield* setupError();
+        yield* store
+          .set(new TextEncoder().encode(account.apiKey))
+          .pipe(Effect.mapError(setupError));
+        yield* refreshAfterAuth;
+      }),
+      logout: store.remove.pipe(
+        Effect.mapError(setupError),
+        Effect.tap(() => refreshAfterAuth),
+      ),
+    });
+    const continuationIdentity = defaultProviderContinuationIdentity({
+      driverKind: DRIVER,
+      instanceId,
+    });
+    const stamp = withInstanceIdentity({
+      instanceId,
+      driverKind: DRIVER,
+      displayName,
+      accentColor,
+      continuationGroupKey: continuationIdentity.continuationKey,
+    });
+    const snapshot = Effect.promise(async () => {
+      let authenticated = false;
+      let models: Awaited<ReturnType<typeof catalog>> | undefined;
+      try {
+        const apiKey = await credentials();
+        authenticated =
+          !enabled || (await client.allowance(apiKey, AbortSignal.timeout(15000))).enabled;
+      } catch {
+        /* Missing credentials is an ordinary state. */
+      }
+      if (enabled) {
+        try {
+          models = await catalog();
+        } catch {
+          /* Refresh can recover availability. */
+        }
+      }
+      return stamp(
+        buildServerProvider({
+          driver: DRIVER,
+          presentation: {
+            displayName: "DeepAI",
+            supportsConversationRollback: false,
+            showInteractionModeToggle: false,
+            requiresNewThreadForModelChange: true,
+          },
+          enabled,
+          checkedAt: DateTime.formatIso(DateTime.makeUnsafe(clock.currentTimeMillisUnsafe())),
+          models:
+            models?.models.map((model) => ({
+              slug: model.id,
+              name: model.name,
+              isDefault: models?.default === model.id,
+              isCustom: false,
+              capabilities: deepAIModelCapabilities(model),
+            })) ?? [],
+          probe: {
+            installed: true,
+            version: "1.5.1",
+            status: authenticated && models ? "ready" : "warning",
+            auth: { status: authenticated ? "authenticated" : "unauthenticated", type: "deepai" },
+            ...(!authenticated
+              ? { message: "Import your signed-in DeepAI Code account to connect." }
+              : {}),
+          },
+        }),
+      );
+    });
+    const snapshots = yield* SubscriptionRef.make(yield* snapshot);
+    const refresh = snapshot.pipe(Effect.tap((value) => SubscriptionRef.set(snapshots, value)));
+    refreshAfterAuth = refresh.pipe(Effect.asVoid);
+    return {
+      instanceId,
+      driverKind: DRIVER,
+      continuationIdentity,
+      displayName,
+      enabled,
+      ...(accentColor ? { accentColor } : {}),
+      orchestrationAdapter,
+      auth,
+      snapshot: {
+        resolveMaintenance: () =>
+          Effect.succeed(
+            makeManualOnlyProviderMaintenanceCapabilities({
+              provider: DRIVER,
+              packageName: null,
+            }),
+          ),
+        getSnapshot: SubscriptionRef.get(snapshots),
+        refresh,
+        streamChanges: SubscriptionRef.changes(snapshots),
+        applyUsageLimits: () => Effect.void,
+      },
+      textGeneration: makeDeepAITextGeneration({ credentials, catalog, client }),
+    };
+  }),
 };

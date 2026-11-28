@@ -85,14 +85,20 @@ export class CodexUpdateRecovery extends Context.Service<
         yield* runLegacyTransaction(() => store.recover(prefixes)).pipe(
           Effect.flatMap(({ recovered, invalid, deferred }) => {
             if (invalid || deferred)
-              return Effect.logWarning("Some legacy Codex npm journals were preserved", { recovered, invalid, deferred });
-            return recovered ? Effect.logInfo("Recovered legacy Codex npm journals", { recovered }) : Effect.void;
+              return Effect.logWarning("Some legacy Codex npm journals were preserved", {
+                recovered,
+                invalid,
+                deferred,
+              });
+            return recovered
+              ? Effect.logInfo("Recovered legacy Codex npm journals", { recovered })
+              : Effect.void;
           }),
           Effect.catch(() => Effect.logWarning("Could not recover saved Codex npm journals")),
         );
       }
       return CodexUpdateRecovery.of({
-        prepare: (command) =>
+        prepare: Effect.fn("CodexUpdateRecovery.prepare")((command) =>
           runLegacyTransaction(async () => {
             const index = command.args.indexOf("--prefix");
             const prefix = index < 0 ? undefined : command.args[index + 1];
@@ -109,6 +115,7 @@ export class CodexUpdateRecovery extends Context.Service<
               close: runLegacyTransaction(() => transaction.close()),
             };
           }),
+        ),
       });
     }),
   );

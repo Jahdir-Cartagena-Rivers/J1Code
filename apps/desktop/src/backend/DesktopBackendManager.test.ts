@@ -263,11 +263,13 @@ describe("DesktopBackendManager", () => {
       }),
     ),
   );
-  it.effect.each(["request failure", "host changed", "server changed"])(
+  it.effect.each(["exit before readiness", "request failure", "host changed", "server changed"])(
     "ends only the observer when background status reports %s",
     (failure) =>
       Effect.gen(function* () {
         const ready = yield* Deferred.make<number>();
+        const firstReadinessProbe = yield* Deferred.make<void>();
+        const exitsBeforeReadiness = failure === "exit before readiness";
         let observedExits = 0;
         const ensure = vi.spyOn(Background, "ensureBackgroundServer").mockResolvedValue({
           protocol: 1,
@@ -280,7 +282,9 @@ describe("DesktopBackendManager", () => {
           secret: "a".repeat(64),
         });
         const status = vi.spyOn(Background, "backgroundRequest").mockImplementation(async () => {
-          if (failure === "request failure") throw new Error("Host unavailable");
+          if (failure === "request failure" || exitsBeforeReadiness) {
+            throw new Error("Host unavailable");
+          }
           return {
             hostPid: failure === "host changed" ? 222 : 122,
             serverPid: failure === "server changed" ? 223 : 123,
@@ -305,7 +309,13 @@ describe("DesktopBackendManager", () => {
           }).pipe(
             Effect.provide(
               Layer.mergeAll(
-                layerHealthyHttpClient,
+                exitsBeforeReadiness
+                  ? layerHttpClient(() =>
+                      Deferred.succeed(firstReadinessProbe, undefined).pipe(
+                        Effect.andThen(Effect.never),
+                      ),
+                    )
+                  : layerHealthyHttpClient,
                 Layer.succeed(
                   ChildProcessSpawner.ChildProcessSpawner,
                   ChildProcessSpawner.make(() =>
@@ -316,15 +326,17 @@ describe("DesktopBackendManager", () => {
             ),
             Effect.forkChild,
           );
-          assert.equal(yield* Deferred.await(ready), 123);
+          if (exitsBeforeReadiness) yield* Deferred.await(firstReadinessProbe);
+          else assert.equal(yield* Deferred.await(ready), 123);
           yield* TestClock.adjust("1 second");
           const exit = yield* Fiber.join(fiber);
           assert.equal(
             exit.reason,
-            failure === "request failure"
+            failure === "request failure" || exitsBeforeReadiness
               ? "background host exited"
               : "background host identity changed",
           );
+          if (exitsBeforeReadiness) assert.isFalse(yield* Deferred.isDone(ready));
           assert.equal(observedExits, 1);
           assert.equal(stop.mock.calls.length, 0);
           assert.deepEqual(status.mock.calls[0], ["/test", "a".repeat(64), "status"]);

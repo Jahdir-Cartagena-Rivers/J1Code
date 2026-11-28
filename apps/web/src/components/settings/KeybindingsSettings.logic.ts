@@ -176,7 +176,9 @@ function keybindingRowId(command: KeybindingCommand, key: string, when: string):
 }
 
 function conflictsWithWhen(leftWhen: string, rightWhen: string): boolean {
-  return leftWhen.length === 0 || rightWhen.length === 0 || leftWhen === rightWhen;
+  if (leftWhen === "false" || rightWhen === "false") return false;
+  const always = (when: string) => when.length === 0 || when === "true";
+  return always(leftWhen) || always(rightWhen) || leftWhen === rightWhen;
 }
 
 export function keybindingConflictLabels(

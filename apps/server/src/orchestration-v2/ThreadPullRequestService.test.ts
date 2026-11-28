@@ -337,10 +337,11 @@ describe("ThreadPullRequestServiceV2 reads", () => {
             }),
         }),
         Layer.mock(ProjectStore.ProjectStoreV2)({
-          listShells: (options) => Effect.sync(() => {
-            projectReads.push(options?.projectIds);
-            return [project];
-          }),
+          listShells: (options) =>
+            Effect.sync(() => {
+              projectReads.push(options?.projectIds);
+              return [project];
+            }),
           getShell: () => Effect.succeedSome(project),
         }),
         Layer.mock(GitManager.GitManager)({
@@ -829,12 +830,13 @@ describe("ThreadPullRequestServiceV2 reads", () => {
             getPullRequestSnapshot: (options) =>
               Effect.gen(function* () {
                 const store = yield* ProjectionStore.ProjectionStoreV2;
+                const { bot: _bot, ...payload } = thread;
                 yield* store.apply({
                   id: EventId.make(`event:${thread.id}:created`),
                   type: "thread.created",
                   threadId: thread.id,
                   occurredAt: NOW,
-                  payload: { ...thread, lastVisitedAt: thread.lastVisitedAt ?? null },
+                  payload: { ...payload, lastVisitedAt: thread.lastVisitedAt ?? null },
                 });
                 const sql = yield* SqlClient.SqlClient;
                 yield* sql`INSERT INTO orchestration_events (
@@ -1074,116 +1076,133 @@ describe("ThreadPullRequestServiceV2 reads", () => {
   };
 
   it.effect.each([
-    { name: "reopened", fresh: { ...mergedPullRequest43, state: "open" as const }, moved: false, writes: false },
-    { name: "a changed project repository", fresh: mergedPullRequest43, moved: true, writes: false },
-    { name: "the same merged PR in the same repository", fresh: mergedPullRequest43, moved: false, writes: true },
-  ])("revalidates a remembered merged PR against fresh git state ($name)", ({ fresh, moved, writes }) =>
-    Effect.gen(function* () {
-      const savedReference = {
-        projectId: ProjectId.make("project-1"),
-        repository: "acme/project",
-        number: 42,
-        url: "https://github.com/acme/project/pull/42",
-      };
-      const thread = {
-        ...threadShell("replaced-branch-thread"),
-        createdAt: DateTime.makeUnsafe("2026-09-01T00:00:00.000Z"),
-        branch: mergedPullRequest43.headRef,
-        branchPullRequest: savedReference,
-      };
-      const project: OrchestrationProjectShell = {
-        id: thread.projectId,
-        title: "Project",
-        workspaceRoot: "/workspace/project",
-        defaultModelSelection: null,
-        scripts: [],
-        createdAt: "2026-08-01T00:00:00.000Z",
-        updatedAt: "2026-08-01T00:00:00.000Z",
-      };
-      const activation = yield* Deferred.make<void>();
-      const sweeps = yield* Queue.unbounded<void>();
-      const commands: Array<OrchestrationV2ServerCommand> = [];
-      const dependencies = Layer.mergeAll(
-        Layer.mock(Orchestrator.OrchestratorV2)({
-          streamDomainEvents: Stream.never,
-          getPullRequestSnapshot: () =>
-            Queue.offer(sweeps, undefined).pipe(
-              Effect.as({
-                schemaVersion: 2,
-                snapshotSequence: 1,
-                threads: [thread],
-                archivedThreads: [],
+    {
+      name: "reopened",
+      fresh: { ...mergedPullRequest43, state: "open" as const },
+      moved: false,
+      writes: false,
+    },
+    {
+      name: "a changed project repository",
+      fresh: mergedPullRequest43,
+      moved: true,
+      writes: false,
+    },
+    {
+      name: "the same merged PR in the same repository",
+      fresh: mergedPullRequest43,
+      moved: false,
+      writes: true,
+    },
+  ])(
+    "revalidates a remembered merged PR against fresh git state ($name)",
+    ({ fresh, moved, writes }) =>
+      Effect.gen(function* () {
+        const savedReference = {
+          projectId: ProjectId.make("project-1"),
+          repository: "acme/project",
+          number: 42,
+          url: "https://github.com/acme/project/pull/42",
+        };
+        const thread = {
+          ...threadShell("replaced-branch-thread"),
+          createdAt: DateTime.makeUnsafe("2026-09-01T00:00:00.000Z"),
+          branch: mergedPullRequest43.headRef,
+          branchPullRequest: savedReference,
+        };
+        const project: OrchestrationProjectShell = {
+          id: thread.projectId,
+          title: "Project",
+          workspaceRoot: "/workspace/project",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: "2026-08-01T00:00:00.000Z",
+          updatedAt: "2026-08-01T00:00:00.000Z",
+        };
+        const activation = yield* Deferred.make<void>();
+        const sweeps = yield* Queue.unbounded<void>();
+        const commands: Array<OrchestrationV2ServerCommand> = [];
+        const dependencies = Layer.mergeAll(
+          Layer.mock(Orchestrator.OrchestratorV2)({
+            streamDomainEvents: Stream.never,
+            getPullRequestSnapshot: () =>
+              Queue.offer(sweeps, undefined).pipe(
+                Effect.as({
+                  schemaVersion: 2,
+                  snapshotSequence: 1,
+                  threads: [thread],
+                  archivedThreads: [],
+                }),
+              ),
+            dispatch: (command) =>
+              Effect.sync(() => {
+                commands.push(command);
+                return { sequence: 2, storedEvents: [] };
               }),
-            ),
-          dispatch: (command) =>
-            Effect.sync(() => {
-              commands.push(command);
-              return { sequence: 2, storedEvents: [] };
-            }),
-        }),
-        Layer.mock(ProjectStore.ProjectStoreV2)({
-          listShells: () => Effect.succeed([project]),
-          getShell: () => Effect.succeedSome(project),
-        }),
-        // Only the fresh read disagrees with the remembered detection.
-        Layer.mock(GitManager.GitManager)({
-          branchPullRequest: (_input, options) =>
-            Effect.succeed(options?.freshGitState === true ? fresh : mergedPullRequest43),
-        }),
-        Layer.mock(PullRequestService.PullRequestService)({
-          notifyLinkedThreadsChanged: Effect.void,
-        }),
-        Layer.mock(RepositoryIdentityResolver.RepositoryIdentityResolver)({
-          resolve: (_root, options) => {
-            const name = moved && options?.refresh === true ? "replacement" : "project";
-            return Effect.succeed({
-              canonicalKey: `github.com/acme/${name}`,
-              locator: {
-                source: "git-remote" as const,
-                remoteName: "origin",
-                remoteUrl: `git@github.com:acme/${name}.git`,
-              },
-              provider: SourceControlProviderKind.make("github"),
-              owner: "acme",
-              name,
-            });
-          },
-        }),
-        Layer.mock(BackgroundPolicy.BackgroundPolicy)({
-          shouldRunOpportunisticWork: Effect.succeed(true),
-        }),
-        Layer.succeed(ServerActivation.ServerActivation, Deferred.await(activation)),
-        Layer.succeed(
-          SecureRandom.SecureRandom,
-          SecureRandom.make((size) => new Uint8Array(size).fill(1)),
-        ),
-        FileSystem.layerNoop({}),
-        Path.layer,
-      );
-      yield* Effect.gen(function* () {
-        const service = yield* ThreadPullRequestService.make;
-        yield* service.start();
-        yield* Deferred.succeed(activation, undefined);
-        yield* Queue.take(sweeps);
-        yield* service.drain;
-      }).pipe(Effect.provide(dependencies));
+          }),
+          Layer.mock(ProjectStore.ProjectStoreV2)({
+            listShells: () => Effect.succeed([project]),
+            getShell: () => Effect.succeedSome(project),
+          }),
+          // Only the fresh read disagrees with the remembered detection.
+          Layer.mock(GitManager.GitManager)({
+            branchPullRequest: (_input, options) =>
+              Effect.succeed(options?.freshGitState === true ? fresh : mergedPullRequest43),
+          }),
+          Layer.mock(PullRequestService.PullRequestService)({
+            notifyLinkedThreadsChanged: Effect.void,
+          }),
+          Layer.mock(RepositoryIdentityResolver.RepositoryIdentityResolver)({
+            resolve: (_root, options) => {
+              const name = moved && options?.refresh === true ? "replacement" : "project";
+              return Effect.succeed({
+                canonicalKey: `github.com/acme/${name}`,
+                locator: {
+                  source: "git-remote" as const,
+                  remoteName: "origin",
+                  remoteUrl: `git@github.com:acme/${name}.git`,
+                },
+                provider: SourceControlProviderKind.make("github"),
+                owner: "acme",
+                name,
+              });
+            },
+          }),
+          Layer.mock(BackgroundPolicy.BackgroundPolicy)({
+            shouldRunOpportunisticWork: Effect.succeed(true),
+          }),
+          Layer.succeed(ServerActivation.ServerActivation, Deferred.await(activation)),
+          Layer.succeed(
+            SecureRandom.SecureRandom,
+            SecureRandom.make((size) => new Uint8Array(size).fill(1)),
+          ),
+          FileSystem.layerNoop({}),
+          Path.layer,
+        );
+        yield* Effect.gen(function* () {
+          const service = yield* ThreadPullRequestService.make;
+          yield* service.start();
+          yield* Deferred.succeed(activation, undefined);
+          yield* Queue.take(sweeps);
+          yield* service.drain;
+        }).pipe(Effect.provide(dependencies));
 
-      expect(
-        commands.map((command) =>
-          command.type === "thread.pull-request.sync" ? command.branchPullRequest : command.type,
-        ),
-      ).toEqual(
-        writes
-          ? [
-              {
-                projectId: project.id,
-                repository: "acme/project",
-                number: 43,
-                url: mergedPullRequest43.url,
-              },
-            ]
-          : [],
-      );
-    }),
+        expect(
+          commands.map((command) =>
+            command.type === "thread.pull-request.sync" ? command.branchPullRequest : command.type,
+          ),
+        ).toEqual(
+          writes
+            ? [
+                {
+                  projectId: project.id,
+                  repository: "acme/project",
+                  number: 43,
+                  url: mergedPullRequest43.url,
+                },
+              ]
+            : [],
+        );
+      }),
   );
 });

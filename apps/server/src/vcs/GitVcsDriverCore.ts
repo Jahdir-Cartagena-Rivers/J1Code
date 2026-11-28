@@ -5172,14 +5172,22 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     head: string,
   ) {
     const owner = worktreeOwnerRef(reason);
-    const absent = yield* executeGit("GitVcsDriver.worktree.verifyOwnerAbsent", cwd,
-      ["update-ref", "--no-deref", "--stdin"], {
+    const absent = yield* executeGit(
+      "GitVcsDriver.worktree.verifyOwnerAbsent",
+      cwd,
+      ["update-ref", "--no-deref", "--stdin"],
+      {
         stdin: "verify " + owner + "\n",
         allowNonZeroExit: true,
-      });
+      },
+    );
     if (absent.exitCode === 0) return;
     yield* runGit("GitVcsDriver.worktree.releaseOwner", cwd, [
-      "update-ref", "--no-deref", "-d", owner, head,
+      "update-ref",
+      "--no-deref",
+      "-d",
+      owner,
+      head,
     ]);
   });
 
@@ -5190,25 +5198,38 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     head: string,
     reason: string,
   ) {
-    const [tip, marker] = yield* Effect.all(
-      [ref, owner].map((name) =>
-        executeGit("GitVcsDriver.recoverWorktree.ref", cwd,
-          ["for-each-ref", "--count=1", "--format=%(refname) %(objectname) %(symref)", name]),
-      ),
+    const [tip, marker] = yield* Effect.forEach([ref, owner], (name) =>
+      executeGit("GitVcsDriver.recoverWorktree.ref", cwd, [
+        "for-each-ref",
+        "--count=1",
+        "--format=%(refname) %(objectname) %(symref)",
+        name,
+      ]),
     );
-    if (tip?.stdout.trimEnd() !== ref + " " + head ||
-        marker?.stdout.trimEnd() !== owner + " " + head) return false;
+    if (
+      tip?.stdout.trimEnd() !== ref + " " + head ||
+      marker?.stdout.trimEnd() !== owner + " " + head
+    )
+      return false;
     const reflog = yield* runGitStdout("GitVcsDriver.recoverWorktree.reflog", cwd, [
-      "reflog", "show", "-1", "--format=%gs", ref,
+      "reflog",
+      "show",
+      "-1",
+      "--format=%gs",
+      ref,
     ]);
     return reflog.trim() === reason;
   });
 
   const deleteOwnedWorktreeBranch = (cwd: string, ref: string, owner: string, head: string) =>
-    runGit("GitVcsDriver.recoverWorktree.deleteOwnedBranch", cwd,
-      ["update-ref", "--no-deref", "--stdin"], {
+    runGit(
+      "GitVcsDriver.recoverWorktree.deleteOwnedBranch",
+      cwd,
+      ["update-ref", "--no-deref", "--stdin"],
+      {
         stdin: "delete " + ref + " " + head + "\ndelete " + owner + " " + head + "\n",
-      });
+      },
+    );
 
   const recoverWorktreeRegistration: GitVcsDriver.GitVcsDriver["Service"]["recoverWorktreeRegistration"] =
     Effect.fn("recoverWorktreeRegistration")(function* (input) {
@@ -5227,27 +5248,31 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       const owner = worktreeOwnerRef(input.reason);
       for (const entry of entries) {
         const admin = path.join(registrations, entry);
-        const metadata = yield* Effect.all(
-          ["locked", "gitdir", "HEAD"].map((name) =>
-            fileSystem.readFileString(path.join(admin, name)).pipe(
-              Effect.map((value) => value.replace(/\r?\n$/, "")),
-              Effect.catchIf(
-                (error) => error.reason._tag === "NotFound",
-                () => Effect.succeed(null),
-              ),
+        const metadata = yield* Effect.forEach(["locked", "gitdir", "HEAD"], (name) =>
+          fileSystem.readFileString(path.join(admin, name)).pipe(
+            Effect.map((value) => value.replace(/\r?\n$/, "")),
+            Effect.catchIf(
+              (error) => error.reason._tag === "NotFound",
+              () => Effect.succeed(null),
             ),
           ),
         ).pipe(Effect.orElseSucceed(() => null));
         if (metadata === null) return false;
         const [locked, gitdir, head] = metadata;
-        if (gitdir == null || path.dirname(path.resolve(admin, gitdir)) !== path.resolve(input.path)) {
+        if (
+          gitdir == null ||
+          path.dirname(path.resolve(admin, gitdir)) !== path.resolve(input.path)
+        ) {
           continue;
         }
         if (input.mode === "release") {
           if (locked !== null && locked !== input.reason) return false;
           if (locked === input.reason) {
             yield* runGit("GitVcsDriver.recoverWorktree.unlock", input.cwd, [
-              "worktree", "unlock", "--", input.path,
+              "worktree",
+              "unlock",
+              "--",
+              input.path,
             ]);
           } else if (head !== "ref: " + ref) {
             return false;
@@ -5270,23 +5295,40 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           return false;
         }
         if (input.mode === "verify") return true;
-        if (locked !== input.reason ||
-            !(yield* hasWorktreeBranchOwnership(input.cwd, ref, owner, input.head, input.reason))) {
+        if (
+          locked !== input.reason ||
+          !(yield* hasWorktreeBranchOwnership(input.cwd, ref, owner, input.head, input.reason))
+        ) {
           return false;
         }
         const status = yield* executeGit("GitVcsDriver.recoverWorktree.status", input.path, [
-          "status", "--porcelain", "--untracked-files=all", "--ignored", "--ignore-submodules=none",
+          "status",
+          "--porcelain",
+          "--untracked-files=all",
+          "--ignored",
+          "--ignore-submodules=none",
         ]);
         if (status.stdoutTruncated || status.stdout.trim().length > 0) return false;
         yield* runGit("GitVcsDriver.recoverWorktree.unlock", input.cwd, [
-          "worktree", "unlock", "--", input.path,
+          "worktree",
+          "unlock",
+          "--",
+          input.path,
         ]);
         yield* runGit("GitVcsDriver.recoverWorktree.remove", input.cwd, [
-          "worktree", "remove", "--", input.path,
+          "worktree",
+          "remove",
+          "--",
+          input.path,
         ]).pipe(
           Effect.tapError(() =>
             runGit("GitVcsDriver.recoverWorktree.relock", input.cwd, [
-              "worktree", "lock", "--reason", input.reason, "--", input.path,
+              "worktree",
+              "lock",
+              "--reason",
+              input.reason,
+              "--",
+              input.path,
             ]).pipe(Effect.ignore),
           ),
         );
@@ -5296,19 +5338,33 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         yield* deleteOwnedWorktreeBranch(input.cwd, ref, owner, input.head);
         return true;
       }
-      if (input.mode !== "cleanup" ||
-          (yield* fileSystem.exists(input.path).pipe(Effect.orElseSucceed(() => true)))) return false;
+      if (
+        input.mode !== "cleanup" ||
+        (yield* fileSystem.exists(input.path).pipe(Effect.orElseSucceed(() => true)))
+      )
+        return false;
 
       const listed = yield* executeWorktreeList("GitVcsDriver.recoverWorktree.list", input.cwd, []);
-      if (listed.stdoutTruncated || listed.stdout.split("\0").some((field) =>
-        field === "branch " + ref ||
-        (field.startsWith("worktree ") && path.resolve(field.slice(9)) === path.resolve(input.path))
-      )) return false;
+      if (
+        listed.stdoutTruncated ||
+        listed.stdout
+          .split("\0")
+          .some(
+            (field) =>
+              field === "branch " + ref ||
+              (field.startsWith("worktree ") &&
+                path.resolve(field.slice(9)) === path.resolve(input.path)),
+          )
+      )
+        return false;
 
       // The process may have exited after persisting the plan but before Git changed either ref.
-      const absent = yield* executeGit("GitVcsDriver.recoverWorktree.verifyAbsent", input.cwd, [
-        "update-ref", "--no-deref", "--stdin",
-      ], { stdin: "verify " + ref + "\nverify " + owner + "\n", allowNonZeroExit: true });
+      const absent = yield* executeGit(
+        "GitVcsDriver.recoverWorktree.verifyAbsent",
+        input.cwd,
+        ["update-ref", "--no-deref", "--stdin"],
+        { stdin: "verify " + ref + "\nverify " + owner + "\n", allowNonZeroExit: true },
+      );
       if (absent.exitCode === 0) return true;
       if (!(yield* hasWorktreeBranchOwnership(input.cwd, ref, owner, input.head, input.reason))) {
         return false;
@@ -5391,7 +5447,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     if (options?.progress?.onWorktreePlanned !== undefined && lockReason !== undefined) {
       const startPoint = input.refName === "-" ? "@{-1}" : input.refName;
       const head = yield* runGitStdout("GitVcsDriver.createWorktree.resolveHead", input.cwd, [
-        "rev-parse", "--verify", "--end-of-options",
+        "rev-parse",
+        "--verify",
+        "--end-of-options",
         startPoint.startsWith(":/") ? startPoint : startPoint + "^{commit}",
       ]);
       ownership = { reason: lockReason, head: head.trim() };

@@ -196,6 +196,30 @@ export const writesWithCapability = <P, A, E, R>(handle: (params: P) => Effect.E
     () => writingCaller,
   );
 
+export const writesOwnerWork = <P, A, E, R>(
+  operation: string,
+  handle: (params: P) => Effect.Effect<A, E, R>,
+) => {
+  const check = orchestratingCaller.pipe(
+    Effect.tap((caller) => assertNotLinked(caller, operation)),
+    Effect.tap((caller) => {
+      const mode = caller.scope.runtimeModeCeiling ?? "full-access";
+      return caller.limits.runtimeMode === mode && caller.limits.interactionMode === "default"
+        ? Effect.void
+        : Effect.fail(
+            new OrchestratorMcpFailure({
+              code: "capability_denied",
+              message: `Only a caller with ${mode}/default access can ${operation}.`,
+            }),
+          );
+    }),
+  );
+  return declare(
+    (params: P) => check.pipe(Effect.flatMap(() => handle(params))),
+    () => check,
+  );
+};
+
 export const writesThreads = <P, A, E, R>(
   threads: (params: P) => ReadonlyArray<ThreadId | undefined>,
   handle: (params: P) => Effect.Effect<A, E, R>,

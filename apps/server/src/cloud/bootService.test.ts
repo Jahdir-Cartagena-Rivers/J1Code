@@ -354,11 +354,15 @@ const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
                   : (control.task?.xml ?? "")
                 : input.command === "loginctl" && input.args[0] === "show-user"
                   ? `${control.linger ?? ""}\n`
-                  : input.args[1] === "is-enabled"
+                  : input.command === "launchctl" && input.args[0] === "print-disabled"
                     ? control.enabled
-                      ? "enabled\n"
-                      : "disabled\n"
-                    : "",
+                      ? ""
+                      : '"com.t3tools.t3code.service" => disabled\n'
+                    : input.args[1] === "is-enabled"
+                      ? control.enabled
+                        ? "enabled\n"
+                        : "disabled\n"
+                      : "",
         stderr: "",
         code: ChildProcessSpawner.ExitCode(
           taskMissing && input.args.includes("/HRESULT")
@@ -373,6 +377,7 @@ const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
                   input.args[0] === "show-user" &&
                   control.linger === undefined) ||
                 (input.args[1] === "is-active" && !control.active) ||
+                (input.command === "launchctl" && input.args[0] === "print" && !control.active) ||
                 (input.args[1] === "is-enabled" && !control.enabled)
               ? 1
               : 0,
@@ -1458,7 +1463,8 @@ process.disconnect();
 
   it.effect("installs, reports current state, and uninstalls on macOS", () =>
     Effect.gen(function* () {
-      const { service, fs, statePath, commands, timeouts, runtime } = yield* makeHarness("darwin");
+      const { service, fs, statePath, commands, timeouts, runtime, control } =
+        yield* makeHarness("darwin");
       const path = yield* Path.Path;
       const plan = yield* service.install();
 
@@ -1480,6 +1486,13 @@ process.disconnect();
       expect(yield* service.status).toMatchObject({
         current: true,
         installedVersion: "1.2.3",
+      });
+      control.active = false;
+      control.enabled = false;
+      expect(yield* service.status).toMatchObject({
+        installed: true,
+        current: false,
+        problems: ["service-disabled", "service-stopped"],
       });
       expect(yield* service.uninstall).toBe(true);
       expect((yield* service.status).installed).toBe(false);

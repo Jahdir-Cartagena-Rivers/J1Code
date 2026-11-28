@@ -2,6 +2,7 @@ import * as Exit from "effect/Exit";
 import * as EffectOutbox from "./EffectOutbox.ts";
 import * as EffectWorker from "./EffectWorker.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
+import { ProviderRegistry } from "../provider/ProviderRegistry.ts";
 import * as McpProviderSessions from "@j1code/provider-core/server/McpProviderSessions";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -161,6 +162,7 @@ const layerTest = Layer.mergeAll(
   Layer.provide(layerServerConfig),
   Layer.provide(ServerSettings.layerTest()),
   Layer.provide(layerTestProviderInstanceRegistry),
+  Layer.provide(Layer.mock(ProviderRegistry)({ getProviders: Effect.succeed([]) })),
   Layer.provide(layerPlatformTest),
 );
 

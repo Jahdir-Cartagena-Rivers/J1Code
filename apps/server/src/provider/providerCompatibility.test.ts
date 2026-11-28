@@ -81,9 +81,11 @@ describe("provider compatibility", () => {
       if (builtIn.driverKind === ProviderDriverKind.make("acpRegistry")) {
         // Registry snapshots report the selected agent version, or null for a local command.
         // Separate agents can share version numbers without sharing compatibility.
-        assert.isFalse(ModelManifest.BUNDLED_MODEL_MANIFEST.compatibility.some(
-          (policy) => policy.driver === builtIn.driverKind,
-        ));
+        assert.isFalse(
+          (ModelManifest.BUNDLED_MODEL_MANIFEST.compatibility ?? []).some(
+            (policy) => policy.driver === builtIn.driverKind,
+          ),
+        );
         continue;
       }
       for (const version of [null, "0.149.0", "0.156.1", "0.159.0", "2.1.280"]) {
@@ -384,7 +386,9 @@ it.effect("a remote policy refresh preserves a newer health result on the regist
       ),
       Effect.provideService(HostProcess.Platform, "win32"),
       Effect.provideService(HostProcess.Environment, env),
-      Effect.provideService(WindowsShellEnvironment, () => Effect.succeed({ PATH: "C:\\new-path" })),
+      Effect.provideService(WindowsShellEnvironment, () =>
+        Effect.succeed({ PATH: "C:\\new-path" }),
+      ),
     );
   }),
 );

@@ -55,8 +55,12 @@ function WelcomeRouteView() {
     <WelcomePage
       key={environmentId}
       environmentId={environmentId}
-      onDone={async (projectRef) => {
+      onDone={async (projectRef, destination) => {
         setDismissed(true);
+        if (destination === "assistants") {
+          await navigate({ to: "/assistants", search: { environmentId }, replace: true });
+          return;
+        }
         if (projectRef !== undefined) {
           await openNewThread(projectRef, { replace: true }).catch(() =>
             navigate({ to: "/", replace: true }),

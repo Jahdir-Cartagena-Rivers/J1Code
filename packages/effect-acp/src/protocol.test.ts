@@ -92,30 +92,44 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
   it.effect("refuses a stale outgoing request at dequeue and keeps the next request usable", () =>
     Effect.gen(function* () {
       const { stdio, input, output } = yield* makeInMemoryStdio();
-      const transport = yield* AcpProtocol.makeAcpPatchedProtocol({ stdio, serverRequestMethods: new Set() });
+      const transport = yield* AcpProtocol.makeAcpPatchedProtocol({
+        stdio,
+        serverRequestMethods: new Set(),
+      });
       const entered = yield* Deferred.make<void>();
       const release = yield* Deferred.make<void>();
       const allowed = yield* Ref.make(true);
       const send = (hello: string, authorize?: Effect.Effect<boolean>) =>
-        transport.request("x/test", { hello }).pipe(
-          Effect.provideService(AcpProtocol.AcpOutgoingWriteAuthorization, authorize),
-        );
-      const refused = yield* send("expired", Deferred.succeed(entered, undefined).pipe(
-        Effect.andThen(Deferred.await(release)),
-        Effect.andThen(Ref.get(allowed)),
-      )).pipe(Effect.flip, Effect.forkScoped);
+        transport
+          .request("x/test", { hello })
+          .pipe(Effect.provideService(AcpProtocol.AcpOutgoingWriteAuthorization, authorize));
+      const refused = yield* send(
+        "expired",
+        Deferred.succeed(entered, undefined).pipe(
+          Effect.andThen(Deferred.await(release)),
+          Effect.andThen(Ref.get(allowed)),
+        ),
+      ).pipe(Effect.result, Effect.forkScoped);
       yield* Deferred.await(entered);
       yield* Ref.set(allowed, false);
       yield* Deferred.succeed(release, undefined);
-      assert.include((yield* Fiber.join(refused)).message, "authorization changed before write");
-      const defect = yield* send("throwing", Effect.die("test authorization defect")).pipe(Effect.flip);
-      assert.include(defect.message, "authorization changed before write");
+      const rejection = yield* Fiber.join(refused);
+      assert(rejection._tag === "Failure");
+      assert.include(rejection.failure.message, "authorization changed before write");
+      const defect = yield* send("throwing", Effect.die("test authorization defect")).pipe(
+        Effect.result,
+      );
+      assert(defect._tag === "Failure");
+      assert.include(defect.failure.message, "authorization changed before write");
       const abandonedAtDequeue = yield* Deferred.make<void>();
       const resumeWriter = yield* Deferred.make<void>();
-      const abandoned = yield* send("abandoned", Deferred.succeed(abandonedAtDequeue, undefined).pipe(
-        Effect.andThen(Deferred.await(resumeWriter)),
-        Effect.as(true),
-      )).pipe(Effect.forkScoped);
+      const abandoned = yield* send(
+        "abandoned",
+        Deferred.succeed(abandonedAtDequeue, undefined).pipe(
+          Effect.andThen(Deferred.await(resumeWriter)),
+          Effect.as(true),
+        ),
+      ).pipe(Effect.forkScoped);
       yield* Deferred.await(abandonedAtDequeue);
       yield* Fiber.interrupt(abandoned);
       yield* Deferred.succeed(resumeWriter, undefined);
@@ -124,7 +138,10 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
         const frame = yield* Queue.take(output);
         const decoded = yield* decodeExtRequest(frame);
         assert.equal(decoded.params.hello, "allowed");
-        yield* Queue.offer(input, encodeJsonl({ jsonrpc: "2.0", id: decoded.id, result: { ok: true } }));
+        yield* Queue.offer(
+          input,
+          yield* encodeJsonl(ExtResponse, { jsonrpc: "2.0", id: decoded.id, result: { ok: true } }),
+        );
         assert.deepEqual(yield* Fiber.join(pending), { ok: true });
       }
     }),

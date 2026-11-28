@@ -82,10 +82,7 @@ import {
   managedRuntimeModeCeilingMessage,
 } from "@j1code/contracts";
 import * as KeyedLock from "@j1code/shared/KeyedLock";
-import {
-  MausbotProjectOverride,
-  matchesMausbotProjectOverride,
-} from "./MausbotProjectOverride.ts";
+import { MausbotProjectOverride, matchesMausbotProjectOverride } from "./MausbotProjectOverride.ts";
 import {
   MAUSBOT_HISTORY_COMMAND_PREFIX,
   MausbotHistoryImport,
@@ -95,16 +92,52 @@ import {
   matchesMausbotHistoryRows,
   type MausbotHistoryImportCommand,
 } from "./MausbotHistoryImport.ts";
-import { MausbotResume, MAUSBOT_RESUME_PREFIX, mausbotResumeCommandId,
-  canAdmitMausbotResume, matchesMausbotResumeReceipt } from "./MausbotResume.ts";
-import { COMPATIBILITY_START_PREFIX, CompatibilityApprovalOwner, compatibilityMessageId, compatibilityStartCommandId, compatibilityThreadId, matchesCompatibilityApprovalCommand, ownsCompatibilityApproval } from "../mausbot/CompatibilityApproval.ts";
-import { MausbotOrigin, MAUSBOT_ORIGIN_PREFIX, MAUSBOT_ORIGIN_INPUT_PREFIX,
-  mausbotOriginCommandId, mausbotOriginInputId, matchesMausbotOriginReceipt,
-  MAUSBOT_ROOM_THREAD_PREFIX, MausbotRoomCreation, mausbotRoomThreadId, roomProviderHistory, roomMatchesCurrentInput, roomPredecessor, reconcileRoomHistory,
-  coordinatorPredecessor, incidentPredecessor, privateAnswerHistory, privateStatusHistory, privateRestartInput, privateResultWakeInput, privateHandoffInput, privateHandoffPredecessor, matchesCoordinatorContinuation, matchesCoordinatorHistoryPrefix, reconcileCoordinatorHistory, reconcileIncidentHistory,
+import {
+  MausbotResume,
+  MAUSBOT_RESUME_PREFIX,
+  mausbotResumeCommandId,
+  canAdmitMausbotResume,
+  matchesMausbotResumeReceipt,
+} from "./MausbotResume.ts";
+import {
+  COMPATIBILITY_START_PREFIX,
+  CompatibilityApprovalOwner,
+  compatibilityMessageId,
+  compatibilityStartCommandId,
+  compatibilityThreadId,
+  matchesCompatibilityApprovalCommand,
+  ownsCompatibilityApproval,
+} from "../mausbot/CompatibilityApproval.ts";
+import {
+  MausbotOrigin,
+  MAUSBOT_ORIGIN_PREFIX,
+  MAUSBOT_ORIGIN_INPUT_PREFIX,
+  mausbotOriginCommandId,
+  mausbotOriginInputId,
+  matchesMausbotOriginReceipt,
+  MAUSBOT_ROOM_THREAD_PREFIX,
+  MausbotRoomCreation,
+  mausbotRoomThreadId,
+  roomProviderHistory,
+  roomMatchesCurrentInput,
+  roomPredecessor,
+  reconcileRoomHistory,
+  coordinatorPredecessor,
+  incidentPredecessor,
+  privateAnswerHistory,
+  privateStatusHistory,
+  privateRestartInput,
+  privateResultWakeInput,
+  privateHandoffInput,
+  privateHandoffPredecessor,
+  matchesCoordinatorContinuation,
+  matchesCoordinatorHistoryPrefix,
+  reconcileCoordinatorHistory,
+  reconcileIncidentHistory,
 } from "./MausbotOrigin.ts";
 import { modelSelectionsEqual } from "@j1code/shared/model";
 import { modelSwitchSince } from "./modelSwitch.ts";
+import { outputRequestProblem } from "./runOutput.ts";
 import { isPlaceholderThreadTitle } from "./placeholderThreadTitle.ts";
 import { combinePullRequestWatchWakes, type PullRequestWatchWake } from "./pullRequestWatch.ts";
 import { recordThreadOpen } from "@j1code/shared/paletteSearch";
@@ -176,7 +209,10 @@ import {
   type GuestShareCommand,
 } from "./GuestShareDecider.ts";
 import * as EffectOutbox from "./EffectOutbox.ts";
-import { recordThreadCommandAcknowledgement, withCommandMetrics } from "../observability/Metrics.ts";
+import {
+  recordThreadCommandAcknowledgement,
+  withCommandMetrics,
+} from "../observability/Metrics.ts";
 import type { OrchestrationEffectRequestV2, PendingOrchestrationEffectV2 } from "./EffectOutbox.ts";
 import * as IdAllocator from "@j1code/provider-core/server/IdAllocator";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
@@ -251,24 +287,36 @@ const isMessageQuestionAnswer = Schema.is(
 );
 
 export const AuthenticatedRouteIntake = Context.Reference<
-  { readonly threadId: ThreadId; readonly messageId: MessageId; readonly subject: string; readonly environmentId: string } | undefined
+  | {
+      readonly threadId: ThreadId;
+      readonly messageId: MessageId;
+      readonly subject: string;
+      readonly environmentId: string;
+    }
+  | undefined
 >("j1/orchestration-v2/AuthenticatedRouteIntake", { defaultValue: () => undefined });
 
 /** Only ThreadLaunchService supplies this when sending the first message of a saved draft. */
-export const DraftLaunch = Context.Reference<{
-  readonly commandId: CommandId;
-  readonly threadId: ThreadId;
-  readonly projectId: ProjectId;
-  readonly fingerprint: string;
-  readonly allowLegacyReplay?: true;
-} | undefined>("j1/DraftLaunch", { defaultValue: () => undefined });
+export const DraftLaunch = Context.Reference<
+  | {
+      readonly commandId: CommandId;
+      readonly threadId: ThreadId;
+      readonly projectId: ProjectId;
+      readonly fingerprint: string;
+      readonly allowLegacyReplay?: true;
+    }
+  | undefined
+>("j1/DraftLaunch", { defaultValue: () => undefined });
 
 export const RefreshImportedFirstPrompt = Context.Reference<
-  ((command: Extract<OrchestrationV2ServerCommand, { type: "message.dispatch" }>) =>
-    Effect.Effect<void, OrchestratorV2Error>) | undefined
+  | ((
+      command: Extract<OrchestrationV2ServerCommand, { type: "message.dispatch" }>,
+    ) => Effect.Effect<void, OrchestratorV2Error>)
+  | undefined
 >("t3/orchestration-v2/RefreshImportedFirstPrompt", { defaultValue: () => undefined });
 
-export const RESERVED_IMPORTED_MESSAGE_ID = "Message ID uses the reserved imported-session namespace.";
+export const RESERVED_IMPORTED_MESSAGE_ID =
+  "Message ID uses the reserved imported-session namespace.";
 
 export function isReservedImportedMessageId(messageId: MessageId | undefined): boolean {
   return messageId?.startsWith("import:") === true;
@@ -280,11 +328,13 @@ export function validateLiveMessageId(
   messageId: MessageId | undefined,
 ) {
   return isReservedImportedMessageId(messageId)
-    ? Effect.fail(new OrchestratorDispatchError({
-        commandId,
-        commandType,
-        cause: RESERVED_IMPORTED_MESSAGE_ID,
-      }))
+    ? Effect.fail(
+        new OrchestratorDispatchError({
+          commandId,
+          commandType,
+          cause: RESERVED_IMPORTED_MESSAGE_ID,
+        }),
+      )
     : Effect.void;
 }
 
@@ -292,12 +342,20 @@ export function validateLiveMessageCommand(command: OrchestrationV2ServerCommand
   switch (command.type) {
     case "thread.create":
     case "thread.bot.create":
-      return validateLiveMessageId(command.commandId, command.type, command.initialMessage?.messageId);
+      return validateLiveMessageId(
+        command.commandId,
+        command.type,
+        command.initialMessage?.messageId,
+      );
     case "message.dispatch":
     case "message.steer-strict":
       return validateLiveMessageId(command.commandId, command.type, command.messageId);
     case "thread.metadata.update":
-      return validateLiveMessageId(command.commandId, command.type, command.continuation?.messageId);
+      return validateLiveMessageId(
+        command.commandId,
+        command.type,
+        command.continuation?.messageId,
+      );
     default:
       return Effect.void;
   }
@@ -309,12 +367,18 @@ const sameNativeJson = (left: unknown, right: unknown) => {
   const expected = encodeNativeJson(right);
   return Option.isSome(encoded) && Option.isSome(expected) && encoded.value === expected.value;
 };
-const decodeRoomRowAuthority = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Struct({
-  rows: Schema.Array(Schema.Struct({
-    id: Schema.String,
-    provenance: Schema.Struct({ authority: Schema.String }),
-  })),
-})));
+const decodeRoomRowAuthority = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(
+    Schema.Struct({
+      rows: Schema.Array(
+        Schema.Struct({
+          id: Schema.String,
+          provenance: Schema.Struct({ authority: Schema.String }),
+        }),
+      ),
+    }),
+  ),
+);
 
 export class OrchestratorDispatchError extends Schema.TaggedError<OrchestratorDispatchError>()(
   "OrchestratorDispatchError",
@@ -810,6 +874,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "prepared-run.retry":
     case "subagent.stop":
     case "run.interrupt":
+    case "run.output.submit":
     case "queued-message.promote-to-steer":
     case "queued-run.start":
     case "queue.resume":
@@ -965,7 +1030,10 @@ function metadataUpdateContinuation(
 // A later command for the first message would leave the new thread committed with no run,
 // and every client would show it idle until that command landed.
 function threadCreateInitialMessage(
-  command: Extract<OrchestrationV2ServerCommand, { readonly type: "thread.create" | "thread.bot.create" }>,
+  command: Extract<
+    OrchestrationV2ServerCommand,
+    { readonly type: "thread.create" | "thread.bot.create" }
+  >,
 ): Extract<OrchestrationV2Command, { readonly type: "message.dispatch" }> | undefined {
   if (command.initialMessage === undefined) return undefined;
   const { workspaceStrategy, ...message } = command.initialMessage;
@@ -2597,7 +2665,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       if (
         storedQueuedRun !== undefined &&
         !(yield* delegatedTaskStartAllowed(threadId, storedQueuedRun.id))
-      ) return;
+      )
+        return;
       // A wake that outlived some of its pull requests tells only the current ones.
       const currentWake =
         storedQueuedRun === undefined
@@ -3913,14 +3982,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     commandId: CommandId,
     threadId: ThreadId,
   ) {
-    const occupied = yield* projectionStore.hasUndeletedListedProjectThread(HOME_PROJECT_ID).pipe(
-      Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause })),
-    );
+    const occupied = yield* projectionStore
+      .hasUndeletedListedProjectThread(HOME_PROJECT_ID)
+      .pipe(Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause })));
     if (occupied) return yield* new OrchestratorHomeThreadAlreadyExistsError({ commandId });
   });
 
   const dispatchThreadCreate = Effect.fn("orchestrationV2.dispatch.threadCreate")(function* (
-    command: Extract<OrchestrationV2ServerCommand, { readonly type: "thread.create" | "thread.bot.create" }>,
+    command: Extract<
+      OrchestrationV2ServerCommand,
+      { readonly type: "thread.create" | "thread.bot.create" }
+    >,
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
   ) {
     yield* Effect.annotateCurrentSpan({
@@ -3951,11 +4023,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       if (command.type !== "thread.bot.create") return undefined;
       const readSettings = serverSettings.getSettings.pipe(mapDispatchError(command));
       const initial = yield* readSettings;
-      const denied = () => new OrchestratorDispatchError({
-        commandId: command.commandId,
-        commandType: command.type,
-        cause: new Error("Bot profile is unavailable for this project."),
-      });
+      const denied = () =>
+        new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: new Error("Bot profile is unavailable for this project."),
+        });
       const readProfile = (bots: typeof initial.bots) =>
         Object.hasOwn(bots, command.botId) ? bots[command.botId] : undefined;
       let profile = readProfile(initial.bots);
@@ -3974,18 +4047,28 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         const current = yield* readSettings;
         profile = readProfile(current.bots);
         if (
-          !profile || !matchesMausbotProjectOverride(proof, command, profile, saved) ||
-          !source || source.id !== proof.defaultProjectId || source.archivedAt != null ||
-          !destination || destination.id !== command.projectId || destination.archivedAt != null ||
+          !profile ||
+          !matchesMausbotProjectOverride(proof, command, profile, saved) ||
+          !source ||
+          source.id !== proof.defaultProjectId ||
+          source.archivedAt != null ||
+          !destination ||
+          destination.id !== command.projectId ||
+          destination.archivedAt != null ||
           destination.workspaceRoot !== proof.workspaceRoot ||
           !resolveProjectProviderInstanceEnabled(
-            current, proof.defaultProjectId, profile.modelSelection.instanceId,
+            current,
+            proof.defaultProjectId,
+            profile.modelSelection.instanceId,
           ) ||
           !resolveProjectProviderInstanceEnabled(
-            current, command.projectId, command.modelSelection.instanceId,
+            current,
+            command.projectId,
+            command.modelSelection.instanceId,
           ) ||
           isRuntimeModeAbove(command.runtimeMode, runtimeModeCeiling?.maxRuntimeMode)
-        ) return yield* denied();
+        )
+          return yield* denied();
       }
       return { id: profile.id, name: profile.name, instructions: profile.instructions };
     });
@@ -4011,6 +4094,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ...(command.linkOrigin === undefined || command.delegatedFrom === undefined
         ? {}
         : { delegatedFrom: command.delegatedFrom }),
+      ...(command.createdBy === "system" &&
+      command.creationSource === "server" &&
+      command.workflowRun !== undefined
+        ? { workflowRun: command.workflowRun }
+        : {}),
       lineage: {
         parentThreadId: null,
         relationshipToParent: null,
@@ -5879,7 +5967,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     // Check planned creation/mode changes as well as committed source modes. The
     // caller reference travels with the queued effect; it is not a captured layer.
     if (callerLimit !== undefined) {
-      const callerRefusal = runtimeModeCeilingRefusal(callerLimit.runtimeMode, events, runtimeModes);
+      const callerRefusal = runtimeModeCeilingRefusal(
+        callerLimit.runtimeMode,
+        events,
+        runtimeModes,
+      );
       if (callerRefusal !== undefined) {
         yield* refuseAboveDispatchModeLimit(command, callerRefusal.threadId, {
           runtimeMode: callerRefusal.runtimeMode,
@@ -5944,12 +6036,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     }
     if (
       command.sideChat === true &&
-      (orchestrationV2WorktreePending(sourceProjection.thread.worktreePath, sourceProjection.runs) ||
+      (orchestrationV2WorktreePending(
+        sourceProjection.thread.worktreePath,
+        sourceProjection.runs,
+      ) ||
         (yield* worktreeSetupTracker.workspaceIsHeld(command.sourceThreadId)))
     ) {
-      const workspaceStatus = sourceProjection.thread.worktreePath === null
-        ? "has no worktree yet"
-        : "is still preparing its worktree";
+      const workspaceStatus =
+        sourceProjection.thread.worktreePath === null
+          ? "has no worktree yet"
+          : "is still preparing its worktree";
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
         commandType: command.type,
@@ -6206,7 +6302,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
 
   type SteeringCommand = Extract<
     OrchestrationV2ServerCommand,
-    { readonly type: "message.dispatch" | "queued-message.promote-to-steer" | "message.steer-strict" }
+    {
+      readonly type:
+        | "message.dispatch"
+        | "queued-message.promote-to-steer"
+        | "message.steer-strict";
+    }
   >;
 
   const ensureSteeringMessage = Effect.fn("Orchestrator.ensureSteeringMessage")(function* (
@@ -6384,9 +6485,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         }) ||
         input.projection.messages.some((candidate) => candidate.id === strict.messageId)
       ) {
-        return yield* strictFailure("The strict steering target is stale, unavailable, or unsupported.");
+        return yield* strictFailure(
+          "The strict steering target is stale, unavailable, or unsupported.",
+        );
       }
-      const policy = yield* runtimePolicy.resolve({ thread, modelSelection: targetRun.modelSelection })
+      const policy = yield* runtimePolicy
+        .resolve({ thread, modelSelection: targetRun.modelSelection })
         .pipe(mapDispatchError(strict));
       if (
         strictSteerFingerprint(policy) !== strict.target.policyFingerprint ||
@@ -6552,7 +6656,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         input.projection.thread.providerInstanceId !== input.modelSelection.instanceId;
       // Only a user's steer carries the picker's selection; the adapter applies it to the live turn.
       const steerCarriesSelection =
-        strict === undefined && input.delegatedCompletion === undefined && input.notification === undefined;
+        strict === undefined &&
+        input.delegatedCompletion === undefined &&
+        input.notification === undefined;
       if (
         steerCarriesSelection &&
         (instanceChanged ||
@@ -6581,9 +6687,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       yield* Ref.update(input.effects, (existing) => [
         ...existing,
         {
-          id: strictSteer === undefined
-            ? `effect:${input.command.commandId}:provider-turn.steer:${providerTurn.id}`
-            : `${STRICT_STEER_EFFECT_PREFIX}${strictSteer.commandFingerprint}`,
+          id:
+            strictSteer === undefined
+              ? `effect:${input.command.commandId}:provider-turn.steer:${providerTurn.id}`
+              : `${STRICT_STEER_EFFECT_PREFIX}${strictSteer.commandFingerprint}`,
           commandId: input.command.commandId,
           threadId: input.command.threadId,
           request: {
@@ -6594,7 +6701,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             messageId: input.messageId,
             ...(steerCarriesSelection ? { modelSelection: input.modelSelection } : {}),
             ...(strict === undefined
-              ? { steerFollowUpAfterRunOrdinal: Math.max(0, ...input.projection.runs.map((run) => run.ordinal)) }
+              ? {
+                  steerFollowUpAfterRunOrdinal: Math.max(
+                    0,
+                    ...input.projection.runs.map((run) => run.ordinal),
+                  ),
+                }
               : {}),
           },
         } satisfies PendingOrchestrationEffectV2,
@@ -7047,7 +7159,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     command: Extract<OrchestrationV2Command, { readonly type: "message.dispatch" }>,
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
     effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
-    idleRoute?: Extract<OrchestrationV2ServerCommand, { readonly type: "thread.route.deliver-idle" }>,
+    idleRoute?: Extract<
+      OrchestrationV2ServerCommand,
+      { readonly type: "thread.route.deliver-idle" }
+    >,
   ) {
     // A compacted thread reads every run and turn item, but attempts, nodes, messages and provider
     // turns only for its recent runs and the runs this command names. An idle compaction reads
@@ -7072,65 +7187,128 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         : undefined,
     );
     const resumeProof = yield* MausbotResume;
-    const mausResume = command.commandId.startsWith(MAUSBOT_RESUME_PREFIX) && resumeProof?.command === command
-      ? resumeProof : undefined;
+    const mausResume =
+      command.commandId.startsWith(MAUSBOT_RESUME_PREFIX) && resumeProof?.command === command
+        ? resumeProof
+        : undefined;
     const originProof = yield* MausbotOrigin;
-    const mausOrigin = command.commandId.startsWith(MAUSBOT_ORIGIN_PREFIX) && originProof?.command === command
-      ? originProof : undefined;
+    const mausOrigin =
+      command.commandId.startsWith(MAUSBOT_ORIGIN_PREFIX) && originProof?.command === command
+        ? originProof
+        : undefined;
     let coordinatorDelta: ReadonlyArray<MausbotHistoryImportCommand["messages"][number]> = [];
     const room = mausOrigin?.input.room;
     if (mausOrigin) {
       const continuation = mausOrigin.input.continuation;
       const incident = mausOrigin.input.incidentBatch;
       const privateHandoff = mausOrigin.input.privateHandoffHash;
-      const privateContinuation = privateHandoff || mausOrigin.input.parentResultWake ||
-        mausOrigin.input.privateAnswers || mausOrigin.input.parkedStatus || mausOrigin.input.childRestart;
-      const authoredRoot = mausOrigin.input.rootSource !== undefined && mausOrigin.input.dispatch === "first";
-      if (continuation) projection = yield* getProjectionWithPendingEvents(command.threadId, events);
-      const shell = yield* projectionStore.getThreadShell(command.threadId).pipe(mapDispatchError(command));
-      if (!mausOrigin.current() || !shell || shell.bot?.id !== mausOrigin.botId ||
-          shell.archivedAt != null || shell.deletedAt != null || shell.activeRunId !== null ||
-          shell.pendingRuntimeRequest !== null || (shell.pendingBackgroundTasks?.length ?? 0) ||
-          (!authoredRoot && !continuation && (projection.runs.length || projection.providerThreads.length || projection.providerSessions.length)) ||
-          projection.runtimeRequests.some(row => row.status === "pending") ||
-          (authoredRoot
-            ? projection.messages.some(row => row.id === command.messageId)
-            : !room && !((incident || privateHandoff) && continuation) && !projection.messages.some(row => row.id === mausOrigin.input.sourceMessageId &&
-                row.role === (mausOrigin.input.rootSource || mausOrigin.input.incidentBatch ? "user" : "assistant")))) {
+      const privateContinuation =
+        privateHandoff ||
+        mausOrigin.input.parentResultWake ||
+        mausOrigin.input.privateAnswers ||
+        mausOrigin.input.parkedStatus ||
+        mausOrigin.input.childRestart;
+      const authoredRoot =
+        mausOrigin.input.rootSource !== undefined && mausOrigin.input.dispatch === "first";
+      if (continuation)
+        projection = yield* getProjectionWithPendingEvents(command.threadId, events);
+      const shell = yield* projectionStore
+        .getThreadShell(command.threadId)
+        .pipe(mapDispatchError(command));
+      if (
+        !mausOrigin.current() ||
+        !shell ||
+        shell.bot?.id !== mausOrigin.botId ||
+        shell.archivedAt != null ||
+        shell.deletedAt != null ||
+        shell.activeRunId !== null ||
+        shell.pendingRuntimeRequest !== null ||
+        (shell.pendingBackgroundTasks?.length ?? 0) ||
+        (!authoredRoot &&
+          !continuation &&
+          (projection.runs.length ||
+            projection.providerThreads.length ||
+            projection.providerSessions.length)) ||
+        projection.runtimeRequests.some((row) => row.status === "pending") ||
+        (authoredRoot
+          ? projection.messages.some((row) => row.id === command.messageId)
+          : !room &&
+            !((incident || privateHandoff) && continuation) &&
+            !projection.messages.some(
+              (row) =>
+                row.id === mausOrigin.input.sourceMessageId &&
+                row.role ===
+                  (mausOrigin.input.rootSource || mausOrigin.input.incidentBatch
+                    ? "user"
+                    : "assistant"),
+            ))
+      ) {
         return yield* new OrchestratorDispatchError({
-          commandId: command.commandId, commandType: command.type,
+          commandId: command.commandId,
+          commandType: command.type,
           cause: "The saved coordinator request does not own an idle bot start.",
         });
       }
       if (continuation) {
-        const target = command.modelSelection && (room
-          ? roomPredecessor(projection, room, command.modelSelection)
-          : incident ? incidentPredecessor(projection, mausOrigin.input, command.modelSelection)
-          : privateContinuation ? privateHandoffPredecessor(projection, mausOrigin.input, command.modelSelection)
-          : coordinatorPredecessor(projection, mausOrigin.input, command.modelSelection));
-        const previous = projection.runs.find(row => row.id === continuation.predecessorRunId)?.mausbotOriginStart;
-        const delta = room ? reconcileRoomHistory(projection, mausOrigin.input, mausOrigin.history, mausOrigin.roomGoalSources)
-          : incident ? reconcileIncidentHistory(projection, mausOrigin.history, incident)
-          : reconcileCoordinatorHistory(projection, mausOrigin.history);
-        if (!matchesCoordinatorContinuation(continuation, target) || !delta ||
-            (!room && privateContinuation && (mausOrigin.input.parkedStatus
+        const target =
+          command.modelSelection &&
+          (room
+            ? roomPredecessor(projection, room, command.modelSelection)
+            : incident
+              ? incidentPredecessor(projection, mausOrigin.input, command.modelSelection)
+              : privateContinuation
+                ? privateHandoffPredecessor(projection, mausOrigin.input, command.modelSelection)
+                : coordinatorPredecessor(projection, mausOrigin.input, command.modelSelection));
+        const previous = projection.runs.find(
+          (row) => row.id === continuation.predecessorRunId,
+        )?.mausbotOriginStart;
+        const delta = room
+          ? reconcileRoomHistory(
+              projection,
+              mausOrigin.input,
+              mausOrigin.history,
+              mausOrigin.roomGoalSources,
+            )
+          : incident
+            ? reconcileIncidentHistory(projection, mausOrigin.history, incident)
+            : reconcileCoordinatorHistory(projection, mausOrigin.history);
+        if (
+          !matchesCoordinatorContinuation(continuation, target) ||
+          !delta ||
+          (!room &&
+            privateContinuation &&
+            (mausOrigin.input.parkedStatus
               ? !privateStatusHistory(mausOrigin.input, mausOrigin.history, delta)
               : mausOrigin.input.privateAnswers
-              ? !privateAnswerHistory(mausOrigin.input, mausOrigin.history, delta)
-              : mausOrigin.input.parentResultWake ? !privateResultWakeInput(mausOrigin.input, mausOrigin.history, command.threadId)
-              : mausOrigin.input.childRestart ? !privateRestartInput(mausOrigin.input, mausOrigin.history, command.threadId)
-              : !privateHandoffInput(mausOrigin.input, delta, command.threadId))) ||
-            !previous || !matchesCoordinatorHistoryPrefix(mausOrigin.history, previous.historyPrefix) ||
-            latestExecutedRun(projection.runs)?.id !== continuation.predecessorRunId ||
-            shell.activeProviderThreadId !== continuation.providerThreadId ||
-            projection.contextHandoffs.some(handoff => handoff.delivery?.status === "pending" &&
-              handoff.delivery.nativeThreadId === continuation.nativeThreadId) ||
-            projection.runs.some(row =>
-              (!room && !incident && !privateHandoff && !mausOrigin.input.rootSource && row.mausbotOriginStart?.nodeId !== mausOrigin.input.nodeId) ||
-              ["queued", "preparing", "starting", "running", "waiting"].includes(row.status)) ||
-            (yield* stopReachedRun(command, command.threadId, continuation.predecessorRunId))) {
+                ? !privateAnswerHistory(mausOrigin.input, mausOrigin.history, delta)
+                : mausOrigin.input.parentResultWake
+                  ? !privateResultWakeInput(mausOrigin.input, mausOrigin.history, command.threadId)
+                  : mausOrigin.input.childRestart
+                    ? !privateRestartInput(mausOrigin.input, mausOrigin.history, command.threadId)
+                    : !privateHandoffInput(mausOrigin.input, delta, command.threadId))) ||
+          !previous ||
+          !matchesCoordinatorHistoryPrefix(mausOrigin.history, previous.historyPrefix) ||
+          latestExecutedRun(projection.runs)?.id !== continuation.predecessorRunId ||
+          shell.activeProviderThreadId !== continuation.providerThreadId ||
+          projection.contextHandoffs.some(
+            (handoff) =>
+              handoff.delivery?.status === "pending" &&
+              handoff.delivery.nativeThreadId === continuation.nativeThreadId,
+          ) ||
+          projection.runs.some(
+            (row) =>
+              (!room &&
+                !incident &&
+                !privateHandoff &&
+                !mausOrigin.input.rootSource &&
+                row.mausbotOriginStart?.nodeId !== mausOrigin.input.nodeId) ||
+              ["queued", "preparing", "starting", "running", "waiting"].includes(row.status),
+          ) ||
+          (yield* stopReachedRun(command, command.threadId, continuation.predecessorRunId))
+        ) {
           return yield* new OrchestratorDispatchError({
-            commandId: command.commandId, commandType: command.type,
+            commandId: command.commandId,
+            commandType: command.type,
             cause: "The coordinator predecessor, provider ownership, or saved history changed.",
           });
         }
@@ -7138,27 +7316,54 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
     }
     if (room && mausOrigin && !mausOrigin.input.continuation) {
-      if (projection.messages.length || projection.turnItems.length || projection.runs.length ||
-          projection.providerThreads.length || projection.providerSessions.length || projection.runtimeRequests.length ||
-          new Set(mausOrigin.history.map(row => row.nativeMessageId)).size !== mausOrigin.history.length ||
-          !roomMatchesCurrentInput(mausOrigin.input, mausOrigin.history))
+      if (
+        projection.messages.length ||
+        projection.turnItems.length ||
+        projection.runs.length ||
+        projection.providerThreads.length ||
+        projection.providerSessions.length ||
+        projection.runtimeRequests.length ||
+        new Set(mausOrigin.history.map((row) => row.nativeMessageId)).size !==
+          mausOrigin.history.length ||
+        !roomMatchesCurrentInput(mausOrigin.input, mausOrigin.history)
+      )
         return yield* new OrchestratorDispatchError({
-          commandId: command.commandId, commandType: command.type, cause: "The room member no longer owns an empty thread.",
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "The room member no longer owns an empty thread.",
         });
       coordinatorDelta = mausOrigin.history;
     }
     if (mausResume) {
-      const source = canAdmitMausbotResume(projection, mausResume.target.sourceRunId, mausResume.target.incidentFailure);
-      const shell = yield* projectionStore.getThreadShell(command.threadId).pipe(mapDispatchError(command));
-      if (!mausResume.current() || !source || !shell || shell.activeRunId !== null ||
-          shell.pendingRuntimeRequest !== null || (shell.pendingBackgroundTasks?.length ?? 0) !== 0 ||
-          !sameNativeJson(source.target, { ...mausResume.target, incidentFailure: undefined, incidentNote: undefined }) ||
-          source.run.userMessageId !== command.messageId ||
-          !projection.messages.some(row => row.id === command.messageId && row.role === "user") ||
-          !command.modelSelection || !modelSelectionsEqual(source.run.modelSelection, command.modelSelection) ||
-          (yield* stopReachedRun(command, command.threadId, source.run.id))) {
+      const source = canAdmitMausbotResume(
+        projection,
+        mausResume.target.sourceRunId,
+        mausResume.target.incidentFailure,
+      );
+      const shell = yield* projectionStore
+        .getThreadShell(command.threadId)
+        .pipe(mapDispatchError(command));
+      if (
+        !mausResume.current() ||
+        !source ||
+        !shell ||
+        shell.activeRunId !== null ||
+        shell.pendingRuntimeRequest !== null ||
+        (shell.pendingBackgroundTasks?.length ?? 0) !== 0 ||
+        !sameNativeJson(source.target, {
+          ...mausResume.target,
+          incidentFailure: undefined,
+          incidentNote: undefined,
+        }) ||
+        source.run.userMessageId !== command.messageId ||
+        !projection.messages.some((row) => row.id === command.messageId && row.role === "user") ||
+        !command.modelSelection ||
+        !modelSelectionsEqual(source.run.modelSelection, command.modelSelection) ||
+        (yield* stopReachedRun(command, command.threadId, source.run.id))
+      ) {
         return yield* new OrchestratorDispatchError({
-          commandId: command.commandId, commandType: command.type,
+          commandId: command.commandId,
+          commandType: command.type,
           cause: "The saved bot run no longer owns an idle native continuation.",
         });
       }
@@ -7212,9 +7417,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       projection = yield* getProjectionWithPendingEvents(command.threadId, events);
     }
     if (command.manualContinuationOfRunId !== undefined) {
-      if (!(yield* readDelegationStartPermission(
-        projectionStore, command.threadId, command.manualContinuationOfRunId,
-      ).pipe(mapDispatchError(command)))) {
+      if (
+        !(yield* readDelegationStartPermission(
+          projectionStore,
+          command.threadId,
+          command.manualContinuationOfRunId,
+        ).pipe(mapDispatchError(command)))
+      ) {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
@@ -7227,7 +7436,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         command.dispatchMode.type !== "start_immediately" ||
         source === undefined ||
         (source.status !== "interrupted" &&
-          !(source.status === "failed" && (limited?.class === "usage_limit" || mausResume?.target.incidentFailure))) ||
+          !(
+            source.status === "failed" &&
+            (limited?.class === "usage_limit" || mausResume?.target.incidentFailure)
+          )) ||
         latestExecutedRun(projection.runs)?.id !== source.id ||
         projection.thread.archivedAt !== null ||
         projection.thread.deletedAt !== null ||
@@ -7241,20 +7453,39 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
     }
     if (command.usageLimitContinuationOfRunId !== undefined) {
-      if (!(yield* readDelegationStartPermission(
-        projectionStore, command.threadId, command.usageLimitContinuationOfRunId,
-      ).pipe(mapDispatchError(command)))) return;
+      if (
+        !(yield* readDelegationStartPermission(
+          projectionStore,
+          command.threadId,
+          command.usageLimitContinuationOfRunId,
+        ).pipe(mapDispatchError(command)))
+      )
+        return;
       const run = usageLimitBlockedRun(projection.runs, projection.turnItems, null);
-      if (run !== null && run !== undefined && (
-        run.mausbotPromptless !== undefined || run.mausbotOriginStart !== undefined || isReservedIdleRouteRun({
-          id: run.id,
-          userMessageId: run.userMessageId,
-          ...(run.restartContinuationOfRunId === undefined ? {} : { restartContinuationOfRunId: run.restartContinuationOfRunId }),
-          ...(run.usageLimitContinuationOfRunId === undefined ? {} : { usageLimitContinuationOfRunId: run.usageLimitContinuationOfRunId }),
-          ...(run.manualContinuationOfRunId === undefined ? {} : { manualContinuationOfRunId: run.manualContinuationOfRunId }),
-        }) ||
-        projection.messages.some((message) => message.id === run.userMessageId && message.idleRouteFingerprint !== undefined)
-      )) return;
+      if (
+        run !== null &&
+        run !== undefined &&
+        (run.mausbotPromptless !== undefined ||
+          run.mausbotOriginStart !== undefined ||
+          isReservedIdleRouteRun({
+            id: run.id,
+            userMessageId: run.userMessageId,
+            ...(run.restartContinuationOfRunId === undefined
+              ? {}
+              : { restartContinuationOfRunId: run.restartContinuationOfRunId }),
+            ...(run.usageLimitContinuationOfRunId === undefined
+              ? {}
+              : { usageLimitContinuationOfRunId: run.usageLimitContinuationOfRunId }),
+            ...(run.manualContinuationOfRunId === undefined
+              ? {}
+              : { manualContinuationOfRunId: run.manualContinuationOfRunId }),
+          }) ||
+          projection.messages.some(
+            (message) =>
+              message.id === run.userMessageId && message.idleRouteFingerprint !== undefined,
+          ))
+      )
+        return;
       const failure = latestRootProviderFailure(run, projection.turnItems);
       const recovery = projection.thread.limitRecovery;
       const now = yield* DateTime.now;
@@ -7543,8 +7774,31 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       dispatchMode = { type: "start_immediately" };
     }
     const freshContext = command.freshContext === true;
+    // A result is asked of one whole turn, so a send that declares one never joins a running turn.
+    // A run that continues one cut short still owes that run's result.
+    const continuedRunId =
+      command.restartContinuationOfRunId ??
+      command.usageLimitContinuationOfRunId ??
+      command.manualContinuationOfRunId;
+    const outputSchema =
+      command.outputSchema ??
+      (continuedRunId === undefined
+        ? undefined
+        : projection.runs.find((run) => run.id === continuedRunId)?.outputSchema);
+    const schemaProblem =
+      command.outputSchema === undefined
+        ? null
+        : outputRequestProblem(command.outputSchema, command);
+    if (schemaProblem !== null) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: schemaProblem,
+      });
+    }
+    const output = outputSchema === undefined ? {} : { outputSchema };
     if (
-      freshContext &&
+      (freshContext || command.outputSchema !== undefined) &&
       (dispatchMode.type === "steer_active" || dispatchMode.type === "restart_active")
     ) {
       dispatchMode = { type: "queue_after_active" };
@@ -7871,7 +8125,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const shouldQueue = queueBehindRun !== undefined && startsOrQueuesRun;
     if (idleRoute !== undefined && (dispatchMode.type !== "start_immediately" || shouldQueue)) {
       return yield* new OrchestratorDispatchError({
-        commandId: idleRoute.commandId, commandType: idleRoute.type,
+        commandId: idleRoute.commandId,
+        commandType: idleRoute.type,
         cause: "The routed destination can no longer start immediately.",
       });
     }
@@ -8101,6 +8356,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           : { usageLimitContinuationOfRunId: command.usageLimitContinuationOfRunId }),
         ...(continuedTaskId === undefined ? {} : { delegatedTaskId: continuedTaskId }),
         ...(freshContext ? { freshContext: true } : {}),
+        ...output,
       };
       const attempt: OrchestrationV2RunAttempt = {
         id: attemptId,
@@ -8322,15 +8578,21 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       });
     }
     const ordinal = nextRunOrdinal(projection);
-    const runId = idleRoute?.runId ?? idAllocator.derive.run({ threadId: command.threadId, ordinal });
+    const runId =
+      idleRoute?.runId ?? idAllocator.derive.run({ threadId: command.threadId, ordinal });
     const contextBoundary = freshContext ? ordinal : contextBoundaryOrdinal(projection);
     const latestCompletedRun = projection.runs.findLast((run) => run.status === "completed");
     const latestHandoffRun = projection.runs.findLast(isHandoffSourceRun);
     const legacyImportItems =
       projection.thread.historyOrigin === "v1_import" && contextBoundary === 0
-        ? (yield* readHandoffItems(command.threadId, [null])).filter(item =>
-            !mausOrigin?.input.incidentBatch?.reports.some(report =>
-              item.id === mausbotHistoryMessageId(command.threadId, report.nativeMessageId) + ":item"))
+        ? (yield* readHandoffItems(command.threadId, [null])).filter(
+            (item) =>
+              !mausOrigin?.input.incidentBatch?.reports.some(
+                (report) =>
+                  item.id ===
+                  mausbotHistoryMessageId(command.threadId, report.nativeMessageId) + ":item",
+              ),
+          )
         : [];
     const isProviderSwitch =
       activeProviderThread !== undefined &&
@@ -8415,29 +8677,44 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           driver: adapter.driver,
           nativeThreadId: `pending:${runId}`,
         });
-      const coordinatorOrdinal = coordinatorDelta.length ? yield* nextTurnItemOrdinal(projection) : 0;
+      const coordinatorOrdinal = coordinatorDelta.length
+        ? yield* nextTurnItemOrdinal(projection)
+        : 0;
       if (coordinatorDelta.length) {
         yield* emitSavedMausRows(command, events, coordinatorDelta, now, coordinatorOrdinal, room);
       }
-      const privateHandoff = mausOrigin?.input.privateHandoffHash || mausOrigin?.input.parentResultWake ||
-        mausOrigin?.input.privateAnswers || mausOrigin?.input.parkedStatus || mausOrigin?.input.childRestart;
+      const privateHandoff =
+        mausOrigin?.input.privateHandoffHash ||
+        mausOrigin?.input.parentResultWake ||
+        mausOrigin?.input.privateAnswers ||
+        mausOrigin?.input.parkedStatus ||
+        mausOrigin?.input.childRestart;
       const providerHistory = room
         ? roomProviderHistory(room, coordinatorDelta, Boolean(mausOrigin?.input.continuation))
-        : privateHandoff ? [] : coordinatorDelta;
+        : privateHandoff
+          ? []
+          : coordinatorDelta;
       const coordinatorItems = providerHistory.flatMap((row, index) =>
         (row.text || row.attachments.length) &&
-        !mausOrigin?.input.incidentBatch?.reports.some(report => report.nativeMessageId === row.nativeMessageId)
-          ? [savedMausHistoryRow(command.threadId, row, coordinatorOrdinal + index).item] : []);
-      const legacyImportHandoff = (mausOrigin?.input.continuation || room || privateHandoff
-        ? coordinatorItems.length > 0 : shouldPrepareLegacyImportHandoff({
-        hasNativeHistory:
-          (activeProviderThread?.driver === "acpRegistry" &&
-            activeProviderThread.nativeThreadRef !== null) ||
-          ownsSourceImportedNativeHistory(projection.thread, reusableProviderThread),
-        historyOrigin: projection.thread.historyOrigin,
-        hasCompletedRun: latestCompletedRun !== undefined,
-        legacyImportItemCount: legacyImportItems.length,
-      }))
+        !mausOrigin?.input.incidentBatch?.reports.some(
+          (report) => report.nativeMessageId === row.nativeMessageId,
+        )
+          ? [savedMausHistoryRow(command.threadId, row, coordinatorOrdinal + index).item]
+          : [],
+      );
+      const legacyImportHandoff = (
+        mausOrigin?.input.continuation || room || privateHandoff
+          ? coordinatorItems.length > 0
+          : shouldPrepareLegacyImportHandoff({
+              hasNativeHistory:
+                (activeProviderThread?.driver === "acpRegistry" &&
+                  activeProviderThread.nativeThreadRef !== null) ||
+                ownsSourceImportedNativeHistory(projection.thread, reusableProviderThread),
+              historyOrigin: projection.thread.historyOrigin,
+              hasCompletedRun: latestCompletedRun !== undefined,
+              legacyImportItemCount: legacyImportItems.length,
+            })
+      )
         ? yield* contextHandoffService
             .prepareLegacyImport({
               threadId: command.threadId,
@@ -8449,10 +8726,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             })
             .pipe(mapDispatchError(command))
         : null;
-      if ((mausOrigin?.input.continuation || room) &&
-          coordinatorItems.some(item => !legacyImportHandoff?.history?.messages.some(row => row.itemId === item.id))) {
+      if (
+        (mausOrigin?.input.continuation || room) &&
+        coordinatorItems.some(
+          (item) => !legacyImportHandoff?.history?.messages.some((row) => row.itemId === item.id),
+        )
+      ) {
         return yield* new OrchestratorDispatchError({
-          commandId: command.commandId, commandType: command.type,
+          commandId: command.commandId,
+          commandType: command.type,
           cause: "The provider history budget cannot retain the saved coordinator updates.",
         });
       }
@@ -8528,8 +8810,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         checkpointId: null,
         contextHandoffId: legacyImportHandoff?.id ?? null,
         ...(mausResume ? { mausbotPromptless: mausResume.target } : {}),
-        ...(mausOrigin ? { mausbotOriginStart: mausOrigin.input,
-          mausbotOriginProviderSessionId: providerSessionId } : {}),
+        ...(mausOrigin
+          ? {
+              mausbotOriginStart: mausOrigin.input,
+              mausbotOriginProviderSessionId: providerSessionId,
+            }
+          : {}),
         ...(command.sourcePlanRef === undefined ? {} : { sourcePlanRef: command.sourcePlanRef }),
         ...(command.restartContinuationOfRunId === undefined
           ? {}
@@ -8546,6 +8832,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ...(continuedTaskId === undefined ? {} : { delegatedTaskId: continuedTaskId }),
         ...wakeWorkStartedAt(projection, command),
         ...(freshContext ? { freshContext: true } : {}),
+        ...output,
       };
       const attempt: OrchestrationV2RunAttempt = {
         id: attemptId,
@@ -8717,7 +9004,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           payload: checkpointScope,
         });
       }
-      if (!mausResume && (!mausOrigin || (mausOrigin.input.rootSource && mausOrigin.input.dispatch === "first"))) {
+      if (
+        !mausResume &&
+        (!mausOrigin || (mausOrigin.input.rootSource && mausOrigin.input.dispatch === "first"))
+      ) {
         yield* emitEvent({
           type: "message.updated",
           threadId: command.threadId,
@@ -9340,15 +9630,20 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ? {}
         : { manualContinuationOfRunId: command.manualContinuationOfRunId }),
       ...(mausResume ? { mausbotPromptless: mausResume.target } : {}),
-      ...(mausOrigin?.input.rootSource && mausOrigin.input.dispatch === "first" ? {
-        mausbotOriginStart: mausOrigin.input,
-        ...(providerThread.providerSessionId === null ? {} : { mausbotOriginProviderSessionId: providerThread.providerSessionId }),
-      } : {}),
+      ...(mausOrigin?.input.rootSource && mausOrigin.input.dispatch === "first"
+        ? {
+            mausbotOriginStart: mausOrigin.input,
+            ...(providerThread.providerSessionId === null
+              ? {}
+              : { mausbotOriginProviderSessionId: providerThread.providerSessionId }),
+          }
+        : {}),
       ...(command.usageLimitContinuationOfRunId === undefined
         ? {}
         : { usageLimitContinuationOfRunId: command.usageLimitContinuationOfRunId }),
       ...(continuedTaskId === undefined ? {} : { delegatedTaskId: continuedTaskId }),
       ...wakeWorkStartedAt(projection, command),
+      ...output,
     };
     const attempt: OrchestrationV2RunAttempt = {
       id: attemptId,
@@ -9886,9 +10181,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ),
       );
 
-      const inherited = yield* delegatedTaskOwner(projectionStore, parentProjection.thread, parentRun.id).pipe(
-        mapDispatchError(command),
-      );
+      const inherited = yield* delegatedTaskOwner(
+        projectionStore,
+        parentProjection.thread,
+        parentRun.id,
+      ).pipe(mapDispatchError(command));
       const serverNow = yield* DateTime.now;
       const parentDeadline = inherited?.deadlineAt;
       if (
@@ -9901,9 +10198,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           cause: "The original parent task has settled, is stopping, or reached its deadline.",
         });
       }
-      const requestedDeadline = command.timeoutSeconds === undefined
-        ? undefined
-        : DateTime.add(serverNow, { seconds: command.timeoutSeconds });
+      const requestedDeadline =
+        command.timeoutSeconds === undefined
+          ? undefined
+          : DateTime.add(serverNow, { seconds: command.timeoutSeconds });
       const deadlineAt =
         parentDeadline !== undefined &&
         (requestedDeadline === undefined ||
@@ -9965,7 +10263,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ...(command.completionWake === undefined ? {} : { completionWake: command.completionWake }),
         ...(deadlineAt === undefined ? {} : { deadlineAt }),
         delegationRequestFingerprint: delegationRequestFingerprint(command),
-        ...(command.timeoutSeconds === undefined ? {} : { deadlineTimeoutSeconds: command.timeoutSeconds }),
+        ...(command.timeoutSeconds === undefined
+          ? {}
+          : { deadlineTimeoutSeconds: command.timeoutSeconds }),
         status: "running",
         result: null,
         startedAt: now,
@@ -11273,10 +11573,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     ) {
       if (command.commandId.startsWith("mausbot:compat:approval:")) {
         const owner = yield* CompatibilityApprovalOwner;
-        const projection = owner === undefined ? undefined : yield* projectionStore
-          .getThreadProjection(command.threadId).pipe(mapDispatchError(command));
-        if (owner === undefined || projection === undefined ||
-            !ownsCompatibilityApproval(owner, command, projection)) {
+        const projection =
+          owner === undefined
+            ? undefined
+            : yield* projectionStore
+                .getThreadProjection(command.threadId)
+                .pipe(mapDispatchError(command));
+        if (
+          owner === undefined ||
+          projection === undefined ||
+          !ownsCompatibilityApproval(owner, command, projection)
+        ) {
           return yield* new OrchestratorDispatchError({
             commandId: command.commandId,
             commandType: command.type,
@@ -11878,6 +12185,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         cause: "A message that starts a fresh session can't steer the current turn.",
       });
     }
+    // Steering joins a turn that was not asked for this message's result, so it would be lost.
+    if (queuedRun.outputSchema !== undefined) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: "A message that asks for a result can't steer the current turn.",
+      });
+    }
     if (goalCommand !== null) {
       yield* ensureGoalCommandSupported(command, queuedMessage, modelSelection.instanceId);
       const goal = projection.providerThreads.find(
@@ -12158,6 +12473,57 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     }
   });
 
+  const dispatchRunOutputSubmit = Effect.fn("Orchestrator.dispatchRunOutputSubmit")(function* (
+    command: Extract<OrchestrationV2InternalCommand, { readonly type: "run.output.submit" }>,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) {
+    const projection = yield* projectionStore
+      .getThreadRecords(command.threadId, ["runs"])
+      .pipe(mapDispatchError(command));
+    const run = projection.runs.find((candidate) => candidate.id === command.runId);
+    if (run?.outputSchema === undefined) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: `Run ${command.runId} was not asked for a result.`,
+      });
+    }
+    // The service picks the active run, but the run can end before this command is its turn. A
+    // turn that completed without its result still owes it, and a later turn may give it.
+    const owes = run.status === "completed" && run.output === undefined;
+    if (!isActiveRun(run) && !owes) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: `Run ${command.runId} is ${run.status} and takes no result.`,
+      });
+    }
+    // A stopped run stays active until its provider settles; what it submits then is not kept.
+    if (yield* stopReachedRun(command, command.threadId, run.id)) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: `Run ${command.runId} was stopped and takes no result.`,
+      });
+    }
+    const now = yield* DateTime.now;
+    yield* emit(
+      events,
+      command,
+    )({
+      type: "run.output-submitted",
+      threadId: command.threadId,
+      runId: run.id,
+      ...(run.rootNodeId === null ? {} : { nodeId: run.rootNodeId }),
+      providerInstanceId: run.providerInstanceId,
+      occurredAt: now,
+      payload: {
+        runId: run.id,
+        output: { value: command.value, submittedAt: DateTime.formatIso(now) },
+      },
+    });
+  });
+
   const dispatchQueuedRunEdit = Effect.fn("Orchestrator.dispatchQueuedRunEdit")(function* (
     command: Extract<OrchestrationV2Command, { readonly type: "queued-run.edit" }>,
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
@@ -12215,6 +12581,20 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       { text: command.text, attachments: command.attachments ?? queuedMessage.attachments },
       queuedRunModelSelection(projection, queuedRun).instanceId,
     );
+    const editProblem =
+      queuedRun.outputSchema === undefined
+        ? null
+        : outputRequestProblem(queuedRun.outputSchema, {
+            text: command.text,
+            attachments: command.attachments ?? queuedMessage.attachments,
+          });
+    if (editProblem !== null) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: editProblem,
+      });
+    }
     const queuedTurnItem = projection.turnItems.find(
       (candidate) => candidate.type === "user_message" && candidate.messageId === queuedMessage.id,
     );
@@ -12410,9 +12790,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           createdAt: now,
         })
         .pipe(mapDispatchError(command));
-      if (!(yield* delegatedTaskStartAllowed(command.threadId, state.run.id).pipe(
-        mapDispatchError(command),
-      ))) return;
+      if (
+        !(yield* delegatedTaskStartAllowed(command.threadId, state.run.id).pipe(
+          mapDispatchError(command),
+        ))
+      )
+        return;
       const emitEvent = emit(events, command);
       yield* emitEvent({
         type: "checkpoint-scope.created",
@@ -12899,7 +13282,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     readonly effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>;
     readonly now: DateTime.Utc;
   }) {
-    const attemptId = input.providerTurn?.runAttemptId ?? input.waitingRunWithoutNativeTurn?.activeAttemptId;
+    const attemptId =
+      input.providerTurn?.runAttemptId ?? input.waitingRunWithoutNativeTurn?.activeAttemptId;
     const attempt = input.projection.attempts.find((candidate) => candidate.id === attemptId);
     const run = input.projection.runs.find((candidate) => candidate.id === attempt?.runId);
     const expectedStatus = input.waitingRunWithoutNativeTurn === undefined ? "running" : "waiting";
@@ -12910,7 +13294,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       rootNode === undefined ||
       run.activeAttemptId !== attempt.id ||
       run.status !== expectedStatus ||
-      (input.waitingRunWithoutNativeTurn !== undefined && run.id !== input.waitingRunWithoutNativeTurn.id) ||
+      (input.waitingRunWithoutNativeTurn !== undefined &&
+        run.id !== input.waitingRunWithoutNativeTurn.id) ||
       attempt.status === "pending"
     )
       return;
@@ -12946,7 +13331,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       });
     }
     const providerThread = input.projection.providerThreads.find(
-      (candidate) => candidate.id === (input.providerTurn?.providerThreadId ?? run.providerThreadId),
+      (candidate) =>
+        candidate.id === (input.providerTurn?.providerThreadId ?? run.providerThreadId),
     );
     if (providerThread?.status === "active" && providerThread.lastRunOrdinal === run.ordinal) {
       yield* emitEvent({
@@ -14857,7 +15243,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       let outcome = runOutcome(childRun);
       let terminalStatus = delegatedTaskTerminalStatus(outcome);
       if (terminalStatus === null) {
-        if (expired || childRun.delegatedTaskId === undefined || childRun.id !== options.syncRunId) return;
+        if (expired || childRun.delegatedTaskId === undefined || childRun.id !== options.syncRunId)
+          return;
         const task = options.task;
         const status: OrchestrationV2Subagent["status"] =
           childRun.status === "queued"
@@ -14914,10 +15301,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
       if (expired) {
         const owned = new Set(taskRuns.map((run) => run.id));
-        if (childControls.subagents.some((child) =>
-          child.origin === "app_owned" && child.runId !== null &&
-          owned.has(child.runId) && (isOrchestrationV2WorkActive(child.status) || child.status === "idle")
-        )) return;
+        if (
+          childControls.subagents.some(
+            (child) =>
+              child.origin === "app_owned" &&
+              child.runId !== null &&
+              owned.has(child.runId) &&
+              (isOrchestrationV2WorkActive(child.status) || child.status === "idle"),
+          )
+        )
+          return;
       }
       // A follow-up ends with the work it awaits, as the original task does. A cancelled task
       // does not wait for the background work its cancel is stopping.
@@ -14931,7 +15324,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       )
         return;
       if (
-        !expired && (yield* childAwaitsRestartContinuation(
+        !expired &&
+        (yield* childAwaitsRestartContinuation(
           taskRuns.length === 0 ? childControls.runs : taskRuns,
           childRun,
           options?.settledContinuationOf,
@@ -14978,7 +15372,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
       // A cancelled task's completed run ends it interrupted.
       const cancelled = task.cancelledRunId === childRun.id;
-      if (cancelled && (expired || terminalStatus === "completed")) outcome = terminalStatus = "interrupted";
+      if (cancelled && (expired || terminalStatus === "completed"))
+        outcome = terminalStatus = "interrupted";
       // Every result the child sent is among its own transfers, far fewer than the parent's.
       const childTransfers = yield* projectionStore.getThreadRecords(childThreadId, [
         "contextTransfers",
@@ -15181,9 +15576,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ...options,
         task,
         ...(progress.resultRun === undefined ? {} : { resultRun: progress.resultRun }),
-        ...(task.deadlineCancellationAt === undefined ? {} : {
-          expiredTaskRuns: deadlineTaskRuns({ ...childControls, contextTransfers }, task),
-        }),
+        ...(task.deadlineCancellationAt === undefined
+          ? {}
+          : {
+              expiredTaskRuns: deadlineTaskRuns({ ...childControls, contextTransfers }, task),
+            }),
       });
     }
 
@@ -15436,7 +15833,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     );
 
   function savedMausHistoryRow(
-    threadId: ThreadId, row: MausbotHistoryImportCommand["messages"][number], ordinal: number,
+    threadId: ThreadId,
+    row: MausbotHistoryImportCommand["messages"][number],
+    ordinal: number,
     attributedToPerson = row.role === "user",
   ) {
     const messageId = mausbotHistoryMessageId(threadId, row.nativeMessageId);
@@ -15445,25 +15844,54 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const updatedAt = completedAt ?? createdAt;
     const user = row.role === "user";
     const message: OrchestrationV2ConversationMessage = {
-      id: messageId, threadId: threadId, role: row.role, text: row.text, attachments: row.attachments,
-      runId: null, nodeId: null, createdBy: attributedToPerson ? "user" : "agent",
-      creationSource: "server", streaming: false, createdAt, updatedAt,
+      id: messageId,
+      threadId: threadId,
+      role: row.role,
+      text: row.text,
+      attachments: row.attachments,
+      runId: null,
+      nodeId: null,
+      createdBy: attributedToPerson ? "user" : "agent",
+      creationSource: "server",
+      streaming: false,
+      createdAt,
+      updatedAt,
     };
     const itemBase = {
-      id: TurnItemId.make(messageId + ":item"), threadId: threadId, ordinal: ordinal,
-      runId: null, nodeId: null, providerThreadId: null, providerTurnId: null, nativeItemRef: null,
-      parentItemId: null, status: "completed" as const, title: null,
-      startedAt: createdAt, updatedAt, completedAt, messageId, text: row.text,
+      id: TurnItemId.make(messageId + ":item"),
+      threadId: threadId,
+      ordinal: ordinal,
+      runId: null,
+      nodeId: null,
+      providerThreadId: null,
+      providerTurnId: null,
+      nativeItemRef: null,
+      parentItemId: null,
+      status: "completed" as const,
+      title: null,
+      startedAt: createdAt,
+      updatedAt,
+      completedAt,
+      messageId,
+      text: row.text,
     };
     const item: OrchestrationV2TurnItem = user
-      ? { ...itemBase, type: "user_message", createdBy: attributedToPerson ? "user" : "agent", creationSource: "server",
-          inputIntent: "turn_start", attachments: row.attachments }
+      ? {
+          ...itemBase,
+          type: "user_message",
+          createdBy: attributedToPerson ? "user" : "agent",
+          creationSource: "server",
+          inputIntent: "turn_start",
+          attachments: row.attachments,
+        }
       : { ...itemBase, type: "assistant_message", attachments: row.attachments, streaming: false };
     return { message, item };
   }
 
   const emitSavedMausRows = Effect.fn("orchestrationV2.mausbot.writeHistoryRows")(function* (
-    command: MausbotHistoryImportCommand | Extract<OrchestrationV2Command, { type: "message.dispatch" }>,
+    command:
+      | MausbotHistoryImportCommand
+      | Extract<OrchestrationV2Command, { type: "message.dispatch" }>,
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
     rows: ReadonlyArray<MausbotHistoryImportCommand["messages"][number]>,
     now: DateTime.Utc,
@@ -15474,12 +15902,27 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const snapshot = room
       ? yield* decodeRoomRowAuthority(room.snapshot).pipe(mapDispatchError(command))
       : undefined;
-    const authority = snapshot && new Map(snapshot.rows.map(row => [row.id, row.provenance.authority]));
+    const authority =
+      snapshot && new Map(snapshot.rows.map((row) => [row.id, row.provenance.authority]));
     for (const [ordinal, row] of rows.entries()) {
-      const { message, item } = savedMausHistoryRow(command.threadId, row, firstOrdinal + ordinal,
-        authority ? authority.get(row.nativeMessageId) === "own" : undefined);
-      yield* emitEvent({ type: "message.updated", threadId: command.threadId, occurredAt: now, payload: message });
-      yield* emitEvent({ type: "turn-item.updated", threadId: command.threadId, occurredAt: now, payload: item });
+      const { message, item } = savedMausHistoryRow(
+        command.threadId,
+        row,
+        firstOrdinal + ordinal,
+        authority ? authority.get(row.nativeMessageId) === "own" : undefined,
+      );
+      yield* emitEvent({
+        type: "message.updated",
+        threadId: command.threadId,
+        occurredAt: now,
+        payload: message,
+      });
+      yield* emitEvent({
+        type: "turn-item.updated",
+        threadId: command.threadId,
+        occurredAt: now,
+        payload: item,
+      });
     }
   });
 
@@ -15487,19 +15930,38 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     command: MausbotHistoryImportCommand,
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
   ) {
-    const shell = yield* projectionStore.getThreadShell(command.threadId).pipe(mapDispatchError(command));
-    const records = yield* projectionStore.getThreadRecords(command.threadId, [
-      "messages", "turnItems", "runs", "providerThreads", "providerSessions", "runtimeRequests",
-    ]).pipe(mapDispatchError(command));
+    const shell = yield* projectionStore
+      .getThreadShell(command.threadId)
+      .pipe(mapDispatchError(command));
+    const records = yield* projectionStore
+      .getThreadRecords(command.threadId, [
+        "messages",
+        "turnItems",
+        "runs",
+        "providerThreads",
+        "providerSessions",
+        "runtimeRequests",
+      ])
+      .pipe(mapDispatchError(command));
     if (
-      !shell || shell.bot?.id !== command.botId || shell.archivedAt != null || shell.deletedAt != null ||
-      shell.activeRunId !== null || shell.latestRunId !== null || shell.pendingRuntimeRequest !== null ||
-      shell.activeProviderThreadId !== null || (shell.pendingBackgroundTasks?.length ?? 0) !== 0 ||
-      shell.itemCount !== 0 || records.messages.length !== 0 || records.turnItems.length !== 0 ||
-      records.runs.length !== 0 || records.providerThreads.length !== 0 ||
-      records.providerSessions.length !== 0 || records.runtimeRequests.length !== 0 ||
+      !shell ||
+      shell.bot?.id !== command.botId ||
+      shell.archivedAt != null ||
+      shell.deletedAt != null ||
+      shell.activeRunId !== null ||
+      shell.latestRunId !== null ||
+      shell.pendingRuntimeRequest !== null ||
+      shell.activeProviderThreadId !== null ||
+      (shell.pendingBackgroundTasks?.length ?? 0) !== 0 ||
+      shell.itemCount !== 0 ||
+      records.messages.length !== 0 ||
+      records.turnItems.length !== 0 ||
+      records.runs.length !== 0 ||
+      records.providerThreads.length !== 0 ||
+      records.providerSessions.length !== 0 ||
+      records.runtimeRequests.length !== 0 ||
       command.messages.length === 0 ||
-      new Set(command.messages.map(row => row.nativeMessageId)).size !== command.messages.length
+      new Set(command.messages.map((row) => row.nativeMessageId)).size !== command.messages.length
     ) {
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
@@ -15511,7 +15973,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const emitEvent = emit(events, command);
     // Use the legacy history handoff for these runless messages.
     yield* emitEvent({
-      type: "thread.metadata-updated", threadId: command.threadId, occurredAt: now,
+      type: "thread.metadata-updated",
+      threadId: command.threadId,
+      occurredAt: now,
       payload: { ...records.thread, historyOrigin: "v1_import", updatedAt: now },
     });
     yield* emitSavedMausRows(command, events, command.messages, now, 1);
@@ -15521,23 +15985,38 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     command: Extract<OrchestrationV2Command, { readonly type: "message.dispatch" }>,
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
     effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
-    launch?: { readonly selection: ModelSelection; readonly type: "thread.create" | "message.dispatch" },
+    launch?: {
+      readonly selection: ModelSelection;
+      readonly type: "thread.create" | "message.dispatch";
+    },
   ) {
-    const reject = (cause: unknown) => new OrchestratorCommandRejectedError({
-      commandId: command.commandId,
-      commandType: launch?.type ?? command.type,
-      cause,
-    });
+    const reject = (cause: unknown) =>
+      new OrchestratorCommandRejectedError({
+        commandId: command.commandId,
+        commandType: launch?.type ?? command.type,
+        cause,
+      });
     if (Option.isNone(autoModelRouting)) return yield* reject("Auto model routing is unavailable.");
-    if (command.guestMessageId !== undefined || command.createdBy !== "user" ||
-        command.scheduledTaskId !== undefined || command.senderThreadId !== undefined ||
-        command.linkedSender !== undefined || command.notification !== undefined ||
-        command.manualContinuationOfRunId !== undefined || command.restartContinuationOfRunId !== undefined ||
-        command.usageLimitContinuationOfRunId !== undefined || command.steerFollowUpOfRunId !== undefined ||
-        command.delegatedCompletion !== undefined || command.idleCompaction !== undefined ||
-        command.freshContext === true || parseGoalCommand(command) !== null ||
-        command.deliveryIntent === "steer" || command.deliveryIntent === "restart" ||
-        command.dispatchMode.type === "steer_active" || command.dispatchMode.type === "restart_active") {
+    if (
+      command.guestMessageId !== undefined ||
+      command.createdBy !== "user" ||
+      command.scheduledTaskId !== undefined ||
+      command.senderThreadId !== undefined ||
+      command.linkedSender !== undefined ||
+      command.notification !== undefined ||
+      command.manualContinuationOfRunId !== undefined ||
+      command.restartContinuationOfRunId !== undefined ||
+      command.usageLimitContinuationOfRunId !== undefined ||
+      command.steerFollowUpOfRunId !== undefined ||
+      command.delegatedCompletion !== undefined ||
+      command.idleCompaction !== undefined ||
+      command.freshContext === true ||
+      parseGoalCommand(command) !== null ||
+      command.deliveryIntent === "steer" ||
+      command.deliveryIntent === "restart" ||
+      command.dispatchMode.type === "steer_active" ||
+      command.dispatchMode.type === "restart_active"
+    ) {
       return yield* reject("Auto requires a new user run.");
     }
     if (command.autoRouting === undefined) return yield* reject("Auto model intent is missing.");
@@ -15547,10 +16026,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const projection = yield* getProjectionWithPendingEvents(command.threadId, events);
     const active = projection.runs.some(isActiveRun);
     const safeBoundary = !active && !projection.runs.some((run) => run.status === "queued");
-    const selection = yield* autoModelRouting.value.prepare(
-      { ...command, autoRouting: command.autoRouting }, projection, safeBoundary,
-      originalFingerprint ?? strictSteerFingerprint(command),
-    ).pipe(Effect.mapError(reject));
+    const selection = yield* autoModelRouting.value
+      .prepare(
+        { ...command, autoRouting: command.autoRouting },
+        projection,
+        safeBoundary,
+        originalFingerprint ?? strictSteerFingerprint(command),
+      )
+      .pipe(Effect.mapError(reject));
     if (launch !== undefined && !modelSelectionsEqual(launch.selection, selection.modelSelection))
       return yield* reject("The configured Auto model changed during launch.");
     const selectedMessage = {
@@ -15562,15 +16045,23 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     };
     const cancel = yield* dispatchMessage(selectedMessage, events, effects);
     const planned = yield* Ref.get(events);
-    const run = planned.find((event) =>
-      event.type === "run.created" && event.payload.userMessageId === command.messageId);
-    if (run?.type !== "run.created" ||
-        !modelSelectionsEqual(run.payload.modelSelection, selection.modelSelection)) {
+    const run = planned.find(
+      (event) => event.type === "run.created" && event.payload.userMessageId === command.messageId,
+    );
+    if (
+      run?.type !== "run.created" ||
+      !modelSelectionsEqual(run.payload.modelSelection, selection.modelSelection)
+    ) {
       return yield* reject("Auto could not create a run with the selected model.");
     }
-    yield* Ref.set(events, planned.map((event) => event === run
-      ? { ...run, payload: { ...run.payload, autoSelection: selection.proof } }
-      : event));
+    yield* Ref.set(
+      events,
+      planned.map((event) =>
+        event === run
+          ? { ...run, payload: { ...run.payload, autoSelection: selection.proof } }
+          : event,
+      ),
+    );
     return { cancel, persist: selection.persist };
   });
 
@@ -15619,7 +16110,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           if (message.autoRouting === undefined) {
             cancelUnsettledEffects = yield* dispatchMessage(message, events, effects);
           } else {
-            const auto = yield* dispatchAutoMessage(message, events, effects, { selection: command.modelSelection, type: "thread.create" });
+            const auto = yield* dispatchAutoMessage(message, events, effects, {
+              selection: command.modelSelection,
+              type: "thread.create",
+            });
             cancelUnsettledEffects = auto.cancel;
             persistAutoSelection = auto.persist;
           }
@@ -15727,19 +16221,22 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.unarchive": {
         const now = yield* DateTime.now;
         yield* dispatchThreadMutation(command, events, effects, now);
-        const cohort = command.type === "thread.unarchive" && workerIds.length > 0
-          ? new Set(yield* projectionStore.listThreadArchiveCohort(command.threadId).pipe(
-              mapDispatchError(command),
-            ))
-          : undefined;
+        const cohort =
+          command.type === "thread.unarchive" && workerIds.length > 0
+            ? new Set(
+                yield* projectionStore
+                  .listThreadArchiveCohort(command.threadId)
+                  .pipe(mapDispatchError(command)),
+              )
+            : undefined;
         for (const childId of workerIds) {
           const child = yield* findThread(childId);
           if (child === null || child.deletedAt !== null) continue;
           if (command.type === "thread.archive") {
             if (child.archivedAt !== null) continue;
-            const savedWork = yield* projectionStore.getThreadRecords(
-              childId, ["runs", "runtimeRequests"], { turnItemTypes: [] },
-            ).pipe(mapDispatchError(command));
+            const savedWork = yield* projectionStore
+              .getThreadRecords(childId, ["runs", "runtimeRequests"], { turnItemTypes: [] })
+              .pipe(mapDispatchError(command));
             if (threadHasUnfinishedWork(savedWork)) {
               return yield* new OrchestratorDispatchError({
                 commandId: command.commandId,
@@ -15750,11 +16247,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           } else if (child.archivedAt === null || !cohort?.has(childId)) {
             continue;
           }
-          yield* dispatchThreadMutation({
-            ...command,
-            commandId: CommandId.make(`${command.commandId}:worker:${childId}`),
-            threadId: childId,
-          }, events, effects, now);
+          yield* dispatchThreadMutation(
+            {
+              ...command,
+              commandId: CommandId.make(`${command.commandId}:worker:${childId}`),
+              threadId: childId,
+            },
+            events,
+            effects,
+            now,
+          );
         }
         break;
       }
@@ -15782,47 +16284,83 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         yield* dispatchThreadMutation(command, events, effects);
         break;
       case "thread.route.deliver-idle": {
-        if (Option.isNone(routeAdmission) ||
-            isNativeMaintenanceCommand({ text: command.text, attachments: [] }) ||
-            parseGoalCommand({ text: command.text, attachments: [] }) !== null ||
-            (yield* routeAdmission.value.authorizeIdle(command, "intake")) === null) {
+        if (
+          Option.isNone(routeAdmission) ||
+          isNativeMaintenanceCommand({ text: command.text, attachments: [] }) ||
+          parseGoalCommand({ text: command.text, attachments: [] }) !== null ||
+          (yield* routeAdmission.value.authorizeIdle(command, "intake")) === null
+        ) {
           return yield* new OrchestratorDispatchError({
-            commandId: command.commandId, commandType: command.type,
+            commandId: command.commandId,
+            commandType: command.type,
             cause: "The claimed idle route is no longer eligible.",
           });
         }
 
         // Reuse the private run planner under this command's writer lock.
-        yield* dispatchMessage({
-          type: "message.dispatch", commandId: command.commandId, threadId: command.threadId,
-          messageId: command.messageId, senderThreadId: command.senderThreadId,
-          text: command.text, attachments: [], createdBy: "agent", creationSource: "server",
-          dispatchMode: { type: "start_immediately" },
-        }, events, effects, command);
+        yield* dispatchMessage(
+          {
+            type: "message.dispatch",
+            commandId: command.commandId,
+            threadId: command.threadId,
+            messageId: command.messageId,
+            senderThreadId: command.senderThreadId,
+            text: command.text,
+            attachments: [],
+            createdBy: "agent",
+            creationSource: "server",
+            dispatchMode: { type: "start_immediately" },
+          },
+          events,
+          effects,
+          command,
+        );
 
-        yield* Ref.update(events, (planned) => planned.map((event) =>
-          event.type === "message.updated" && event.payload.id === command.messageId
-            ? { ...event, payload: { ...event.payload, idleRouteFingerprint: strictSteerFingerprint(command) } }
-            : event,
-        ));
+        yield* Ref.update(events, (planned) =>
+          planned.map((event) =>
+            event.type === "message.updated" && event.payload.id === command.messageId
+              ? {
+                  ...event,
+                  payload: {
+                    ...event.payload,
+                    idleRouteFingerprint: strictSteerFingerprint(command),
+                  },
+                }
+              : event,
+          ),
+        );
         const planned = yield* Ref.get(events);
         const pending = yield* Ref.get(effects);
         const [effect] = pending;
-        const matches = planned.some((event) => event.type === "run.created" &&
-          event.payload.id === command.runId && event.payload.status === "starting" &&
-          event.payload.userMessageId === command.messageId &&
-          event.payload.providerInstanceId === command.modelSelection.instanceId &&
-          modelSelectionsEqual(event.payload.modelSelection, command.modelSelection) &&
-          (command.activeProviderThreadId === null ||
-            command.activeProviderThreadId === event.payload.providerThreadId)) &&
-          planned.some((event) => event.type === "message.updated" &&
-            event.payload.id === command.messageId && event.payload.text === command.text &&
-            event.payload.idleRouteFingerprint === strictSteerFingerprint(command));
-        if (!matches || pending.length !== 1 || effect?.request.type !== "provider-turn.start" ||
-            effect.request.runId !== command.runId ||
-            (yield* routeAdmission.value.authorizeIdle(command, "intake")) === null) {
+        const matches =
+          planned.some(
+            (event) =>
+              event.type === "run.created" &&
+              event.payload.id === command.runId &&
+              event.payload.status === "starting" &&
+              event.payload.userMessageId === command.messageId &&
+              event.payload.providerInstanceId === command.modelSelection.instanceId &&
+              modelSelectionsEqual(event.payload.modelSelection, command.modelSelection) &&
+              (command.activeProviderThreadId === null ||
+                command.activeProviderThreadId === event.payload.providerThreadId),
+          ) &&
+          planned.some(
+            (event) =>
+              event.type === "message.updated" &&
+              event.payload.id === command.messageId &&
+              event.payload.text === command.text &&
+              event.payload.idleRouteFingerprint === strictSteerFingerprint(command),
+          );
+        if (
+          !matches ||
+          pending.length !== 1 ||
+          effect?.request.type !== "provider-turn.start" ||
+          effect.request.runId !== command.runId ||
+          (yield* routeAdmission.value.authorizeIdle(command, "intake")) === null
+        ) {
           return yield* new OrchestratorDispatchError({
-            commandId: command.commandId, commandType: command.type,
+            commandId: command.commandId,
+            commandType: command.type,
             cause: "The route did not plan one exact immediate start.",
           });
         }
@@ -15832,22 +16370,36 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         const projection = yield* getProjectionWithPendingEvents(command.threadId, events);
         const { thread } = projection;
         const { notice } = command;
-        if (thread.deletedAt !== null || notice.source.threadId !== thread.id ||
-            notice.source.projectId !== thread.projectId ||
-            notice.id !== `routing-notice:${notice.requestId}:${notice.revision}`) {
+        if (
+          thread.deletedAt !== null ||
+          notice.source.threadId !== thread.id ||
+          notice.source.projectId !== thread.projectId ||
+          notice.id !== `routing-notice:${notice.requestId}:${notice.revision}`
+        ) {
           return yield* new OrchestratorDispatchError({
-            commandId: command.commandId, commandType: command.type,
+            commandId: command.commandId,
+            commandType: command.type,
             cause: "The route notice does not belong to this source thread.",
           });
         }
-        const previous = (thread.routeNotices ?? []).find((item) => item.requestId === notice.requestId);
+        const previous = (thread.routeNotices ?? []).find(
+          (item) => item.requestId === notice.requestId,
+        );
         if (previous !== undefined && previous.revision >= notice.revision) break;
         const now = yield* DateTime.now;
-        yield* emit(events, command)({
-          type: "thread.metadata-updated", threadId: thread.id, occurredAt: now,
+        yield* emit(
+          events,
+          command,
+        )({
+          type: "thread.metadata-updated",
+          threadId: thread.id,
+          occurredAt: now,
           payload: {
             ...thread,
-            routeNotices: [...(thread.routeNotices ?? []).filter((item) => item.requestId !== notice.requestId), notice],
+            routeNotices: [
+              ...(thread.routeNotices ?? []).filter((item) => item.requestId !== notice.requestId),
+              notice,
+            ],
             updatedAt: now,
           },
         });
@@ -15917,17 +16469,28 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "message.dispatch": {
         const thread = yield* refuseNativeSubagentMessage(command);
         const draft = yield* DraftLaunch;
-        const rejectDraft = () => new OrchestratorCommandRejectedError({
-          commandId: command.commandId, commandType: command.type,
-          cause: "The saved draft is no longer empty and active in the requested project.",
-        });
+        const rejectDraft = () =>
+          new OrchestratorCommandRejectedError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: "The saved draft is no longer empty and active in the requested project.",
+          });
         if (draft !== undefined) {
-          if (draft.commandId !== command.commandId || draft.threadId !== command.threadId ||
-              draft.projectId !== thread.projectId || thread.archivedAt !== null || thread.deletedAt !== null) {
+          if (
+            draft.commandId !== command.commandId ||
+            draft.threadId !== command.threadId ||
+            draft.projectId !== thread.projectId ||
+            thread.archivedAt !== null ||
+            thread.deletedAt !== null
+          ) {
             return yield* rejectDraft();
           }
-          const records = yield* projectionStore.getThreadRecords(thread.id, ["runs"]).pipe(mapDispatchError(command));
-          const messageCount = yield* projectionStore.getMessageCount(thread.id).pipe(mapDispatchError(command));
+          const records = yield* projectionStore
+            .getThreadRecords(thread.id, ["runs"])
+            .pipe(mapDispatchError(command));
+          const messageCount = yield* projectionStore
+            .getMessageCount(thread.id)
+            .pipe(mapDispatchError(command));
           if (records.runs.length !== 0 || messageCount !== 0) return yield* rejectDraft();
         }
         const guestSend =
@@ -15945,20 +16508,35 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         if (command.autoRouting === undefined) {
           cancelUnsettledEffects = yield* dispatchMessage(dispatched, events, effects);
         } else {
-          if (draft !== undefined && command.modelSelection === undefined) return yield* rejectDraft();
-          const auto = yield* dispatchAutoMessage(dispatched, events, effects,
-            draft && command.modelSelection ? { selection: command.modelSelection, type: command.type } : undefined);
+          if (draft !== undefined && command.modelSelection === undefined)
+            return yield* rejectDraft();
+          const auto = yield* dispatchAutoMessage(
+            dispatched,
+            events,
+            effects,
+            draft && command.modelSelection
+              ? { selection: command.modelSelection, type: command.type }
+              : undefined,
+          );
           cancelUnsettledEffects = auto.cancel;
           persistAutoSelection = auto.persist;
         }
         if (draft !== undefined) {
           const planned = yield* Ref.get(events);
-          const run = planned.find((event) =>
-            event.type === "run.created" && event.payload.userMessageId === command.messageId);
-          if (run?.type !== "run.created" || run.payload.status !== "preparing") return yield* rejectDraft();
-          yield* Ref.set(events, planned.map((event) => event === run
-            ? { ...run, payload: { ...run.payload, draftLaunchFingerprint: draft.fingerprint } }
-            : event));
+          const run = planned.find(
+            (event) =>
+              event.type === "run.created" && event.payload.userMessageId === command.messageId,
+          );
+          if (run?.type !== "run.created" || run.payload.status !== "preparing")
+            return yield* rejectDraft();
+          yield* Ref.set(
+            events,
+            planned.map((event) =>
+              event === run
+                ? { ...run, payload: { ...run.payload, draftLaunchFingerprint: draft.fingerprint } }
+                : event,
+            ),
+          );
         }
         yield* recordSubagentFollowup(dispatched, events).pipe(mapDispatchError(command));
         break;
@@ -16121,6 +16699,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "queued-run.edit":
         yield* dispatchQueuedRunEdit(command, events, effects);
         break;
+      case "run.output.submit":
+        yield* dispatchRunOutputSubmit(command, events);
+        break;
       case "checkpoint.rollback":
         yield* dispatchCheckpointRollback(command, events, effects);
         break;
@@ -16188,7 +16769,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     };
   });
 
-  const findReceiptConflict = (command: OrchestrationV2ServerCommand, receipt: CommandReceiptV2) => {
+  const findReceiptConflict = (
+    command: OrchestrationV2ServerCommand,
+    receipt: CommandReceiptV2,
+  ) => {
     const commandThread = commandThreadId(command);
     if (receipt.threadId === commandThread && receipt.commandType === command.type) return;
     return new OrchestratorCommandIdConflictError({
@@ -16229,25 +16813,38 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ),
     );
     if (command.type === "runtime-request.respond") {
-      if (command.commandId.startsWith("mausbot:compat:approval:") &&
-          !storedEvents.some(({ event }) => event.type === "runtime-request.updated" &&
-            event.payload.id === command.requestId && event.payload.status === "resolved" &&
-            event.payload.decision === command.decision)) {
+      if (
+        command.commandId.startsWith("mausbot:compat:approval:") &&
+        !storedEvents.some(
+          ({ event }) =>
+            event.type === "runtime-request.updated" &&
+            event.payload.id === command.requestId &&
+            event.payload.status === "resolved" &&
+            event.payload.decision === command.decision,
+        )
+      ) {
         return yield* new OrchestratorCommandRejectedError({
-          commandId: command.commandId, commandType: command.type,
+          commandId: command.commandId,
+          commandType: command.type,
           cause: "This approval already received a different decision.",
         });
       }
-      const answer = storedEvents.find(({ event }) =>
-        event.type === "runtime-request.updated" && event.payload.kind === "user_input" &&
-        event.payload.status === "resolved")?.event;
+      const answer = storedEvents.find(
+        ({ event }) =>
+          event.type === "runtime-request.updated" &&
+          event.payload.kind === "user_input" &&
+          event.payload.status === "resolved",
+      )?.event;
       if (answer?.type === "runtime-request.updated") {
         const fingerprint = (yield* AuthoredRequestFingerprint) ?? strictSteerFingerprint(command);
-        if (answer.payload.id !== command.requestId ||
-            (answer.payload.answerRequestFingerprint !== undefined &&
-              answer.payload.answerRequestFingerprint !== fingerprint)) {
+        if (
+          answer.payload.id !== command.requestId ||
+          (answer.payload.answerRequestFingerprint !== undefined &&
+            answer.payload.answerRequestFingerprint !== fingerprint)
+        ) {
           return yield* new OrchestratorCommandRejectedError({
-            commandId: command.commandId, commandType: command.type,
+            commandId: command.commandId,
+            commandType: command.type,
             cause: "This command ID already belongs to a different answer.",
           });
         }
@@ -16258,58 +16855,94 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const saved = storedEvents.flatMap(({ event }) =>
         event.type === "run.created" && event.payload.draftLaunchFingerprint !== undefined
           ? [event.payload.draftLaunchFingerprint]
-          : []);
-      const matches = draft === undefined
-        ? saved.length === 0
-        : draft.commandId === command.commandId && draft.threadId === command.threadId &&
-          ((saved.length === 1 && saved[0] === draft.fingerprint) ||
-            (saved.length === 0 && draft.allowLegacyReplay === true));
+          : [],
+      );
+      const matches =
+        draft === undefined
+          ? saved.length === 0
+          : draft.commandId === command.commandId &&
+            draft.threadId === command.threadId &&
+            ((saved.length === 1 && saved[0] === draft.fingerprint) ||
+              (saved.length === 0 && draft.allowLegacyReplay === true));
       if (!matches) {
         return yield* new OrchestratorDispatchError({
-          commandId: command.commandId, commandType: command.type,
+          commandId: command.commandId,
+          commandType: command.type,
           cause: "This command ID already belongs to a different draft launch.",
         });
       }
     }
     if (command.type === "message.dispatch" || command.type === "thread.create") {
-      const intent = command.type === "thread.create" ? command.initialMessage?.autoRouting : command.autoRouting;
+      const intent =
+        command.type === "thread.create"
+          ? command.initialMessage?.autoRouting
+          : command.autoRouting;
       const savedAuto = storedEvents.flatMap(({ event }) =>
-        event.type === "run.created" && event.payload.autoSelection ? [event.payload.autoSelection] : []);
+        event.type === "run.created" && event.payload.autoSelection
+          ? [event.payload.autoSelection]
+          : [],
+      );
       const originalFingerprint = yield* AuthoredRequestFingerprint;
-      const fingerprint = originalFingerprint ??
-        (command.type === "message.dispatch" && intent !== undefined ? strictSteerFingerprint(command) : undefined);
-      if (intent === undefined ? savedAuto.length !== 0 :
-        fingerprint === undefined || savedAuto.length !== 1 || savedAuto[0]?.requestFingerprint !== fingerprint) {
+      const fingerprint =
+        originalFingerprint ??
+        (command.type === "message.dispatch" && intent !== undefined
+          ? strictSteerFingerprint(command)
+          : undefined);
+      if (
+        intent === undefined
+          ? savedAuto.length !== 0
+          : fingerprint === undefined ||
+            savedAuto.length !== 1 ||
+            savedAuto[0]?.requestFingerprint !== fingerprint
+      ) {
         return yield* new OrchestratorDispatchError({
-          commandId: command.commandId, commandType: command.type,
+          commandId: command.commandId,
+          commandType: command.type,
           cause: "This command ID already belongs to a different Auto model request.",
         });
       }
     }
     if (command.commandId.startsWith(MAUSBOT_ORIGIN_PREFIX)) {
       const proof = yield* MausbotOrigin;
-      if (command.type !== "message.dispatch" || receipt.commandType !== command.type ||
-          !proof || proof.command !== command || !matchesMausbotOriginReceipt(command, proof.input, storedEvents)) {
+      if (
+        command.type !== "message.dispatch" ||
+        receipt.commandType !== command.type ||
+        !proof ||
+        proof.command !== command ||
+        !matchesMausbotOriginReceipt(command, proof.input, storedEvents)
+      ) {
         return yield* new OrchestratorDispatchError({
-          commandId: command.commandId, commandType: command.type,
+          commandId: command.commandId,
+          commandType: command.type,
           cause: "This receipt belongs to a different native assignment or input.",
         });
       }
     }
     if (command.commandId.startsWith(MAUSBOT_RESUME_PREFIX)) {
       const proof = yield* MausbotResume;
-      if (command.type !== "message.dispatch" || receipt.commandType !== command.type ||
-          !proof || proof.command !== command ||
-          !matchesMausbotResumeReceipt(command, proof.target, storedEvents)) {
+      if (
+        command.type !== "message.dispatch" ||
+        receipt.commandType !== command.type ||
+        !proof ||
+        proof.command !== command ||
+        !matchesMausbotResumeReceipt(command, proof.target, storedEvents)
+      ) {
         return yield* new OrchestratorDispatchError({
-          commandId: command.commandId, commandType: command.type,
+          commandId: command.commandId,
+          commandType: command.type,
           cause: "This receipt belongs to a different native bot continuation.",
         });
       }
     }
-    if (command.type === "thread.bot.history.import" || receipt.commandType === "thread.bot.history.import") {
-      if (command.type !== "thread.bot.history.import" || receipt.commandType !== command.type ||
-          !matchesMausbotHistoryReceipt(command, storedEvents)) {
+    if (
+      command.type === "thread.bot.history.import" ||
+      receipt.commandType === "thread.bot.history.import"
+    ) {
+      if (
+        command.type !== "thread.bot.history.import" ||
+        receipt.commandType !== command.type ||
+        !matchesMausbotHistoryReceipt(command, storedEvents)
+      ) {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
@@ -16317,17 +16950,24 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         });
       }
     }
-    if (command.type === "delegated_task.request" || receipt.commandType === "delegated_task.request") {
-      const saved = storedEvents.find(({ event }) =>
-        event.type === "subagent.updated" &&
-        event.payload.origin === "app_owned" &&
-        event.payload.childThreadId !== null
+    if (
+      command.type === "delegated_task.request" ||
+      receipt.commandType === "delegated_task.request"
+    ) {
+      const saved = storedEvents.find(
+        ({ event }) =>
+          event.type === "subagent.updated" &&
+          event.payload.origin === "app_owned" &&
+          event.payload.childThreadId !== null,
       )?.event;
-      if (command.type !== "delegated_task.request" || receipt.commandType !== command.type ||
-          saved?.type !== "subagent.updated" ||
-          saved.payload.deadlineTimeoutSeconds !== command.timeoutSeconds ||
-          (saved.payload.delegationRequestFingerprint !== undefined &&
-            saved.payload.delegationRequestFingerprint !== delegationRequestFingerprint(command))) {
+      if (
+        command.type !== "delegated_task.request" ||
+        receipt.commandType !== command.type ||
+        saved?.type !== "subagent.updated" ||
+        saved.payload.deadlineTimeoutSeconds !== command.timeoutSeconds ||
+        (saved.payload.delegationRequestFingerprint !== undefined &&
+          saved.payload.delegationRequestFingerprint !== delegationRequestFingerprint(command))
+      ) {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
@@ -16335,24 +16975,37 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         });
       }
     }
-    if (command.type === "thread.route.deliver-idle" || receipt.commandType === "thread.route.deliver-idle") {
-      if (command.type !== "thread.route.deliver-idle" || receipt.commandType !== command.type ||
-          !storedEvents.some(({ event }) => event.type === "message.updated" &&
-            event.payload.id === command.messageId && event.payload.runId === command.runId &&
-            event.payload.idleRouteFingerprint === strictSteerFingerprint(command))) {
+    if (
+      command.type === "thread.route.deliver-idle" ||
+      receipt.commandType === "thread.route.deliver-idle"
+    ) {
+      if (
+        command.type !== "thread.route.deliver-idle" ||
+        receipt.commandType !== command.type ||
+        !storedEvents.some(
+          ({ event }) =>
+            event.type === "message.updated" &&
+            event.payload.id === command.messageId &&
+            event.payload.runId === command.runId &&
+            event.payload.idleRouteFingerprint === strictSteerFingerprint(command),
+        )
+      ) {
         return yield* new OrchestratorDispatchError({
-          commandId: command.commandId, commandType: command.type,
+          commandId: command.commandId,
+          commandType: command.type,
           cause: "This command ID already belongs to a different idle route.",
         });
       }
     }
     if (command.type === "message.steer-strict" || receipt.commandType === "message.steer-strict") {
-      const matches = command.type === "message.steer-strict" &&
+      const matches =
+        command.type === "message.steer-strict" &&
         receipt.commandType === command.type &&
-        storedEvents.some(({ event }) =>
-          event.type === "message.updated" &&
-          event.payload.id === command.messageId &&
-          event.payload.strictSteer?.commandFingerprint === strictSteerFingerprint(command)
+        storedEvents.some(
+          ({ event }) =>
+            event.type === "message.updated" &&
+            event.payload.id === command.messageId &&
+            event.payload.strictSteer?.commandFingerprint === strictSteerFingerprint(command),
         );
       if (!matches) {
         return yield* new OrchestratorDispatchError({
@@ -16392,157 +17045,279 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       "orchestration_v2.thread_id": commandThreadId(command),
     });
 
-    if (command.type !== "thread.route.deliver-idle" &&
-        (command.commandId.startsWith("command:route-idle:") ||
-          ("messageId" in command && typeof command.messageId === "string" &&
-            command.messageId.startsWith("message:route-idle:")))) {
+    if (
+      command.type !== "thread.route.deliver-idle" &&
+      (command.commandId.startsWith("command:route-idle:") ||
+        ("messageId" in command &&
+          typeof command.messageId === "string" &&
+          command.messageId.startsWith("message:route-idle:")))
+    ) {
       return yield* new OrchestratorDispatchError({
-        commandId: command.commandId, commandType: command.type, cause: "Reserved idle-route command identity.",
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: "Reserved idle-route command identity.",
       });
     }
 
     if (command.type === "thread.bot.history.import") {
       const proof = yield* MausbotHistoryImport;
-      const denied = () => new OrchestratorDispatchError({
-        commandId: command.commandId, commandType: command.type,
-        cause: "The current saved native task does not own this bot history import.",
-      });
-      if (!proof || proof.command !== command || !proof.current() ||
-          command.commandId !== mausbotHistoryCommandId(command.threadId) ||
-          command.botId !== "mausbot:" + proof.botId ||
-          command.threadId !== "j1-mausbot:" + proof.botId + ":" + proof.threadId) return yield* denied();
+      const denied = () =>
+        new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "The current saved native task does not own this bot history import.",
+        });
+      if (
+        !proof ||
+        proof.command !== command ||
+        !proof.current() ||
+        command.commandId !== mausbotHistoryCommandId(command.threadId) ||
+        command.botId !== "mausbot:" + proof.botId ||
+        command.threadId !== "j1-mausbot:" + proof.botId + ":" + proof.threadId
+      )
+        return yield* denied();
       const native = yield* proof.read.pipe(mapDispatchError(command));
-      const thread = yield* projectionStore.getThreadShell(command.threadId).pipe(mapDispatchError(command));
+      const thread = yield* projectionStore
+        .getThreadShell(command.threadId)
+        .pipe(mapDispatchError(command));
       const { bots } = yield* serverSettings.getSettings.pipe(mapDispatchError(command));
       const profile = Object.hasOwn(bots, command.botId) ? bots[command.botId] : undefined;
-      if ((profile && (profile.id !== command.botId || profile.archived)) || !proof.current() || !native || native.botId !== proof.botId || native.threadId !== proof.threadId ||
-          !thread || thread.id !== command.threadId || thread.bot?.id !== command.botId ||
-          thread.archivedAt != null || thread.deletedAt != null ||
-          (native.threadProjectId !== null && native.threadProjectId !== thread.projectId) ||
-          !native.coldHistory || native.coldHistory.turnId !== proof.turnId ||
-          native.coldHistory.anchorMessageId !== proof.anchorMessageId ||
-          native.coldHistory.promptText !== proof.promptText ||
-          !sameNativeJson(native.coldHistory.promptAttachments, proof.promptAttachments) ||
-          !matchesMausbotHistoryRows(command, native.coldHistory.messages)) return yield* denied();
+      if (
+        (profile && (profile.id !== command.botId || profile.archived)) ||
+        !proof.current() ||
+        !native ||
+        native.botId !== proof.botId ||
+        native.threadId !== proof.threadId ||
+        !thread ||
+        thread.id !== command.threadId ||
+        thread.bot?.id !== command.botId ||
+        thread.archivedAt != null ||
+        thread.deletedAt != null ||
+        (native.threadProjectId !== null && native.threadProjectId !== thread.projectId) ||
+        !native.coldHistory ||
+        native.coldHistory.turnId !== proof.turnId ||
+        native.coldHistory.anchorMessageId !== proof.anchorMessageId ||
+        native.coldHistory.promptText !== proof.promptText ||
+        !sameNativeJson(native.coldHistory.promptAttachments, proof.promptAttachments) ||
+        !matchesMausbotHistoryRows(command, native.coldHistory.messages)
+      )
+        return yield* denied();
     } else if (command.commandId.startsWith(MAUSBOT_HISTORY_COMMAND_PREFIX)) {
       return yield* new OrchestratorDispatchError({
-        commandId: command.commandId, commandType: command.type, cause: "Reserved bot history command identity.",
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: "Reserved bot history command identity.",
       });
     }
 
     const originProof = yield* MausbotOrigin;
     const resumeProof = yield* MausbotResume;
     const isMausResume = command.commandId.startsWith(MAUSBOT_RESUME_PREFIX);
-    if (isMausResume && (command.type !== "message.dispatch" ||
-        !resumeProof || resumeProof.command !== command || !resumeProof.current() ||
+    if (
+      isMausResume &&
+      (command.type !== "message.dispatch" ||
+        !resumeProof ||
+        resumeProof.command !== command ||
+        !resumeProof.current() ||
         command.commandId !== mausbotResumeCommandId(resumeProof.target.sourceRunId) ||
         command.manualContinuationOfRunId !== resumeProof.target.sourceRunId ||
-        command.text !== (resumeProof.target.incidentNote?.text ?? "") || command.attachments.length !== 0 ||
+        command.text !== (resumeProof.target.incidentNote?.text ?? "") ||
+        command.attachments.length !== 0 ||
         (resumeProof.target.incidentNote !== undefined &&
-          (!resumeProof.target.incidentFailure || !command.text.trim() || command.createdBy !== "agent")) ||
+          (!resumeProof.target.incidentFailure ||
+            !command.text.trim() ||
+            command.createdBy !== "agent")) ||
         command.dispatchMode.type !== "start_immediately" ||
-        !(yield* resumeProof.refresh.pipe(mapDispatchError(command))) || !resumeProof.current())) {
+        !(yield* resumeProof.refresh.pipe(mapDispatchError(command))) ||
+        !resumeProof.current())
+    ) {
       return yield* new OrchestratorDispatchError({
-        commandId: command.commandId, commandType: command.type,
+        commandId: command.commandId,
+        commandType: command.type,
         cause: "This bot resume request is not owned by the current native turn.",
       });
     }
     const compatibilityResponse = command.commandId.startsWith("mausbot:compat:approval:");
     // An owned native resume must reuse its original committed message. The resume admission
     // below verifies that identity against the saved source before planning another native write.
-    const compatibilityInput = command.commandId.startsWith(COMPATIBILITY_START_PREFIX) ||
-      (!isMausResume && command.type === "message.dispatch" &&
+    const compatibilityInput =
+      command.commandId.startsWith(COMPATIBILITY_START_PREFIX) ||
+      (!isMausResume &&
+        command.type === "message.dispatch" &&
         command.messageId.startsWith("message:mausbot:compat:"));
     if (compatibilityResponse || compatibilityInput) {
       const owner = yield* CompatibilityApprovalOwner;
-      if (!owner?.current() || (compatibilityResponse
-          ? command.type !== "runtime-request.respond" || !matchesCompatibilityApprovalCommand(owner, command)
-          : command.type !== "message.dispatch" || command.threadId !== compatibilityThreadId(owner) ||
+      if (
+        !owner?.current() ||
+        (compatibilityResponse
+          ? command.type !== "runtime-request.respond" ||
+            !matchesCompatibilityApprovalCommand(owner, command)
+          : command.type !== "message.dispatch" ||
+            command.threadId !== compatibilityThreadId(owner) ||
             command.messageId !== compatibilityMessageId(owner) ||
-            command.commandId !== compatibilityStartCommandId(owner))) {
+            command.commandId !== compatibilityStartCommandId(owner))
+      ) {
         return yield* new OrchestratorDispatchError({
-          commandId: command.commandId, commandType: command.type,
+          commandId: command.commandId,
+          commandType: command.type,
           cause: "Reserved bot compatibility command identity.",
         });
       }
     }
     const isMausOrigin = command.commandId.startsWith(MAUSBOT_ORIGIN_PREFIX);
-    const authoredRoot = isMausOrigin && originProof?.input.rootSource !== undefined &&
+    const authoredRoot =
+      isMausOrigin &&
+      originProof?.input.rootSource !== undefined &&
       originProof.input.dispatch === "first";
     const computerSelection = originProof?.input.computerSelection;
     const incidentBatch = originProof?.input.incidentBatch;
     const privateHandoff = originProof?.input.privateHandoffHash;
     const room = originProof?.input.room;
-    const createdThreadId = command.type === "thread.fork" ? command.targetThreadId
-      : command.type === "thread.create" || command.type === "thread.bot.create" ? command.threadId
-      : undefined;
+    const createdThreadId =
+      command.type === "thread.fork"
+        ? command.targetThreadId
+        : command.type === "thread.create" || command.type === "thread.bot.create"
+          ? command.threadId
+          : undefined;
     if (createdThreadId?.startsWith(MAUSBOT_ROOM_THREAD_PREFIX)) {
       const proof = yield* MausbotRoomCreation;
-      if (command.type !== "thread.bot.create" || !proof || proof.command !== command ||
-          !proof.current() || !(yield* proof.refresh.pipe(mapDispatchError(command))) || !proof.current())
+      if (
+        command.type !== "thread.bot.create" ||
+        !proof ||
+        proof.command !== command ||
+        !proof.current() ||
+        !(yield* proof.refresh.pipe(mapDispatchError(command))) ||
+        !proof.current()
+      )
         return yield* new OrchestratorDispatchError({
-          commandId: command.commandId, commandType: command.type, cause: "Reserved native room thread identity.",
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "Reserved native room thread identity.",
         });
     }
-    if (command.type === "message.dispatch" && command.threadId.startsWith(MAUSBOT_ROOM_THREAD_PREFIX) &&
-        (!room || command.threadId !== mausbotRoomThreadId(room)))
+    if (
+      command.type === "message.dispatch" &&
+      command.threadId.startsWith(MAUSBOT_ROOM_THREAD_PREFIX) &&
+      (!room || command.threadId !== mausbotRoomThreadId(room))
+    )
       return yield* new OrchestratorDispatchError({
-        commandId: command.commandId, commandType: command.type, cause: "A native room requires its own authenticated origin.",
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: "A native room requires its own authenticated origin.",
       });
-    const usesOriginInput = "messageId" in command && typeof command.messageId === "string" &&
+    const usesOriginInput =
+      "messageId" in command &&
+      typeof command.messageId === "string" &&
       command.messageId.startsWith(MAUSBOT_ORIGIN_INPUT_PREFIX);
-    if ((isMausOrigin || usesOriginInput) &&
-        (!isMausOrigin || !usesOriginInput || command.type !== "message.dispatch" ||
-          !originProof || originProof.command !== command || !originProof.current() ||
-          command.commandId !== mausbotOriginCommandId(command.threadId, originProof.input) ||
-          command.messageId !== mausbotOriginInputId(command.threadId, originProof.input) ||
-          ((command.messageId === originProof.input.sourceMessageId) !== authoredRoot) ||
-          originProof.history.length !== originProof.input.historyPrefix.length ||
-          !matchesCoordinatorHistoryPrefix(originProof.history, originProof.input.historyPrefix) ||
-          ((originProof.input.dispatch === "first") !==
-            (originProof.input.execution === 1 && (!originProof.input.continuation || Boolean(incidentBatch || room || privateHandoff)))) ||
-          (originProof.input.dispatch !== "first" && (!originProof.input.continuation || originProof.input.execution < 2)) ||
-          (room && (command.threadId !== mausbotRoomThreadId(room) || authoredRoot ||
-            computerSelection || incidentBatch ||
-            originProof.input.dispatch !== "first" || originProof.input.restarts !== 0 ||
-            originProof.input.nodeId !== room.operationId || originProof.input.requestId !== room.operationId ||
+    if (
+      (isMausOrigin || usesOriginInput) &&
+      (!isMausOrigin ||
+        !usesOriginInput ||
+        command.type !== "message.dispatch" ||
+        !originProof ||
+        originProof.command !== command ||
+        !originProof.current() ||
+        command.commandId !== mausbotOriginCommandId(command.threadId, originProof.input) ||
+        command.messageId !== mausbotOriginInputId(command.threadId, originProof.input) ||
+        (command.messageId === originProof.input.sourceMessageId) !== authoredRoot ||
+        originProof.history.length !== originProof.input.historyPrefix.length ||
+        !matchesCoordinatorHistoryPrefix(originProof.history, originProof.input.historyPrefix) ||
+        (originProof.input.dispatch === "first") !==
+          (originProof.input.execution === 1 &&
+            (!originProof.input.continuation ||
+              Boolean(incidentBatch || room || privateHandoff))) ||
+        (originProof.input.dispatch !== "first" &&
+          (!originProof.input.continuation || originProof.input.execution < 2)) ||
+        (room &&
+          (command.threadId !== mausbotRoomThreadId(room) ||
+            authoredRoot ||
+            computerSelection ||
+            incidentBatch ||
+            originProof.input.dispatch !== "first" ||
+            originProof.input.restarts !== 0 ||
+            originProof.input.nodeId !== room.operationId ||
+            originProof.input.requestId !== room.operationId ||
             !roomMatchesCurrentInput(originProof.input, originProof.history) ||
             new Set(room.currentRowIds).size !== room.currentRowIds.length ||
-            !room.currentRowIds.every(id => originProof.history.some(row => row.nativeMessageId === id)))) ||
-          (incidentBatch && (authoredRoot || originProof.input.rootSource || computerSelection ||
-            originProof.input.dispatch !== "first" || originProof.input.restarts !== 0 ||
+            !room.currentRowIds.every((id) =>
+              originProof.history.some((row) => row.nativeMessageId === id),
+            ))) ||
+        (incidentBatch &&
+          (authoredRoot ||
+            originProof.input.rootSource ||
+            computerSelection ||
+            originProof.input.dispatch !== "first" ||
+            originProof.input.restarts !== 0 ||
             originProof.input.attachments.length !== 0 ||
-            new Set(incidentBatch.reports.map(row => row.nativeMessageId)).size !== incidentBatch.reports.length ||
+            new Set(incidentBatch.reports.map((row) => row.nativeMessageId)).size !==
+              incidentBatch.reports.length ||
             incidentBatch.reports.at(-1)?.nativeMessageId !==
-              originProof.history.findLast(row => row.role === "user")?.nativeMessageId ||
-            !incidentBatch.reports.every((report, index) =>
-              originProof.history.filter(row => row.role === "user").slice(-incidentBatch.reports.length)[index]?.nativeMessageId === report.nativeMessageId) ||
-            originProof.input.sourceMessageId !== mausbotHistoryMessageId(command.threadId, incidentBatch.reports.at(-1)!.nativeMessageId))) ||
-          (originProof.input.privateAnswers && !privateAnswerHistory(originProof.input, originProof.history)) ||
-          (originProof.input.parkedStatus && !privateStatusHistory(originProof.input, originProof.history)) ||
-          (!room && originProof.input.parentResultWake && !privateResultWakeInput(originProof.input, originProof.history, command.threadId)) ||
-          (!room && originProof.input.childRestart && !privateRestartInput(originProof.input, originProof.history, command.threadId)) ||
-          (privateHandoff && !originProof.input.privateAnswers && !originProof.input.parkedStatus && !originProof.input.parentResultWake && !originProof.input.childRestart && !privateHandoffInput(originProof.input,
+              originProof.history.findLast((row) => row.role === "user")?.nativeMessageId ||
+            !incidentBatch.reports.every(
+              (report, index) =>
+                originProof.history
+                  .filter((row) => row.role === "user")
+                  .slice(-incidentBatch.reports.length)[index]?.nativeMessageId ===
+                report.nativeMessageId,
+            ) ||
+            originProof.input.sourceMessageId !==
+              mausbotHistoryMessageId(
+                command.threadId,
+                incidentBatch.reports.at(-1)!.nativeMessageId,
+              ))) ||
+        (originProof.input.privateAnswers &&
+          !privateAnswerHistory(originProof.input, originProof.history)) ||
+        (originProof.input.parkedStatus &&
+          !privateStatusHistory(originProof.input, originProof.history)) ||
+        (!room &&
+          originProof.input.parentResultWake &&
+          !privateResultWakeInput(originProof.input, originProof.history, command.threadId)) ||
+        (!room &&
+          originProof.input.childRestart &&
+          !privateRestartInput(originProof.input, originProof.history, command.threadId)) ||
+        (privateHandoff &&
+          !originProof.input.privateAnswers &&
+          !originProof.input.parkedStatus &&
+          !originProof.input.parentResultWake &&
+          !originProof.input.childRestart &&
+          !privateHandoffInput(
+            originProof.input,
             originProof.input.continuation
-              ? originProof.history.filter(row => mausbotHistoryMessageId(command.threadId, row.nativeMessageId) ===
-                originProof.input.sourceMessageId)
-              : originProof.history, command.threadId)) ||
-          ((originProof.input.dispatch === "computer") !== Boolean(computerSelection)) ||
-          (computerSelection && (!originProof.input.rootSource || originProof.input.execution < 2 ||
-            originProof.input.restarts !== 0 || computerSelection.selected === computerSelection.sourceSurface ||
+              ? originProof.history.filter(
+                  (row) =>
+                    mausbotHistoryMessageId(command.threadId, row.nativeMessageId) ===
+                    originProof.input.sourceMessageId,
+                )
+              : originProof.history,
+            command.threadId,
+          )) ||
+        (originProof.input.dispatch === "computer") !== Boolean(computerSelection) ||
+        (computerSelection &&
+          (!originProof.input.rootSource ||
+            originProof.input.execution < 2 ||
+            originProof.input.restarts !== 0 ||
+            computerSelection.selected === computerSelection.sourceSurface ||
             computerSelection.dispatchGeneration === originProof.input.nodeId ||
             computerSelection.dispatchGeneration === computerSelection.sourceGeneration ||
             (computerSelection.previousChoiceId === undefined
-              ? originProof.input.execution !== 2 || computerSelection.sourceGeneration !== originProof.input.nodeId
-              : originProof.input.execution === 2 || computerSelection.sourceGeneration === originProof.input.nodeId ||
-                computerSelection.sourceSurface === null || computerSelection.previousChoiceId === computerSelection.id))) ||
-          command.text !== originProof.input.text || (!command.text.trim() && (!authoredRoot || !command.attachments.length)) ||
-          !sameNativeJson(command.attachments, originProof.input.attachments) ||
-          command.manualContinuationOfRunId !== undefined ||
-          command.dispatchMode.type !== "start_immediately" || command.createdBy !== (authoredRoot ? "user" : "agent") ||
-          !(yield* originProof.refresh.pipe(mapDispatchError(command))) || !originProof.current())) {
+              ? originProof.input.execution !== 2 ||
+                computerSelection.sourceGeneration !== originProof.input.nodeId
+              : originProof.input.execution === 2 ||
+                computerSelection.sourceGeneration === originProof.input.nodeId ||
+                computerSelection.sourceSurface === null ||
+                computerSelection.previousChoiceId === computerSelection.id))) ||
+        command.text !== originProof.input.text ||
+        (!command.text.trim() && (!authoredRoot || !command.attachments.length)) ||
+        !sameNativeJson(command.attachments, originProof.input.attachments) ||
+        command.manualContinuationOfRunId !== undefined ||
+        command.dispatchMode.type !== "start_immediately" ||
+        command.createdBy !== (authoredRoot ? "user" : "agent") ||
+        !(yield* originProof.refresh.pipe(mapDispatchError(command))) ||
+        !originProof.current())
+    ) {
       return yield* new OrchestratorDispatchError({
-        commandId: command.commandId, commandType: command.type,
+        commandId: command.commandId,
+        commandType: command.type,
         cause: "This coordinator start is not owned by the current native execution.",
       });
     }
@@ -16581,8 +17356,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     // The run-end release can lag behind a new send; start the queue first so the send waits behind it.
     // A restart continuation resumes the ended run, so it must not be overtaken by the queue.
     if (
-      command.type === "message.dispatch" && draft === undefined &&
-      !isMausResume && (!isMausOrigin || authoredRoot) &&
+      command.type === "message.dispatch" &&
+      draft === undefined &&
+      !isMausResume &&
+      (!isMausOrigin || authoredRoot) &&
       command.restartContinuationOfRunId === undefined &&
       (command.dispatchMode.type === "start_immediately" ||
         command.dispatchMode.type === "queue_after_active" ||
@@ -16595,84 +17372,167 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
 
     const plan = yield* dispatchOnce(command, sideChatIds, workerIds).pipe(
       Effect.tap((planned) => refuseAboveRuntimeModeCeiling(command, planned.events)),
-      Effect.tap(planned => Effect.gen(function* () {
-        if (!isMausOrigin) return;
-        const created = planned.events.find(event => event.type === "run.created");
-        const start = planned.effects.find(effect => effect.request.type === "provider-turn.start")?.request;
-        const history = planned.events.find(event => event.type === "context-handoff.updated");
-        const continuation = originProof?.input.continuation;
-        const isHistoryRow = (id: MessageId) => originProof?.history.some(row =>
-          mausbotHistoryMessageId(commandThreadId(command), row.nativeMessageId) === id);
-        if (authoredRoot && originProof?.current() && created?.type === "run.created" &&
-            created.payload.mausbotOriginStart === originProof.input && created.payload.status === "starting" &&
+      Effect.tap((planned) =>
+        Effect.gen(function* () {
+          if (!isMausOrigin) return;
+          const created = planned.events.find((event) => event.type === "run.created");
+          const start = planned.effects.find(
+            (effect) => effect.request.type === "provider-turn.start",
+          )?.request;
+          const history = planned.events.find((event) => event.type === "context-handoff.updated");
+          const continuation = originProof?.input.continuation;
+          const isHistoryRow = (id: MessageId) =>
+            originProof?.history.some(
+              (row) =>
+                mausbotHistoryMessageId(commandThreadId(command), row.nativeMessageId) === id,
+            );
+          if (
+            authoredRoot &&
+            originProof?.current() &&
+            created?.type === "run.created" &&
+            created.payload.mausbotOriginStart === originProof.input &&
+            created.payload.status === "starting" &&
             created.payload.mausbotOriginProviderSessionId !== undefined &&
-            start?.type === "provider-turn.start" && start.runId === created.payload.id &&
-            planned.effects.filter(effect => effect.request.type === "provider-turn.start").length === 1 &&
-            planned.events.filter(event => event.type === "message.updated").length === 1 &&
-            planned.events.some(event => event.type === "message.updated" && event.payload.role === "user" &&
-              event.payload.id === originProof.input.sourceMessageId && event.payload.runId === created.payload.id &&
-              event.payload.text === originProof.input.text &&
-              sameNativeJson(event.payload.attachments, originProof.input.attachments)) &&
-            (yield* originProof.refresh.pipe(mapDispatchError(command))) && originProof.current()) return;
-        if (!authoredRoot && originProof?.current() && created?.type === "run.created" &&
-            created.payload.mausbotOriginStart === originProof.input && created.payload.status === "starting" &&
+            start?.type === "provider-turn.start" &&
+            start.runId === created.payload.id &&
+            planned.effects.filter((effect) => effect.request.type === "provider-turn.start")
+              .length === 1 &&
+            planned.events.filter((event) => event.type === "message.updated").length === 1 &&
+            planned.events.some(
+              (event) =>
+                event.type === "message.updated" &&
+                event.payload.role === "user" &&
+                event.payload.id === originProof.input.sourceMessageId &&
+                event.payload.runId === created.payload.id &&
+                event.payload.text === originProof.input.text &&
+                sameNativeJson(event.payload.attachments, originProof.input.attachments),
+            ) &&
+            (yield* originProof.refresh.pipe(mapDispatchError(command))) &&
+            originProof.current()
+          )
+            return;
+          if (
+            !authoredRoot &&
+            originProof?.current() &&
+            created?.type === "run.created" &&
+            created.payload.mausbotOriginStart === originProof.input &&
+            created.payload.status === "starting" &&
             created.payload.mausbotOriginProviderSessionId !== undefined &&
             (continuation
               ? created.payload.providerThreadId === continuation.providerThreadId &&
                 created.payload.mausbotOriginProviderSessionId === continuation.providerSessionId
               : incidentBatch || room
-                ? (!history || (history.type === "context-handoff.updated" && history.payload.targetRunId === created.payload.id &&
-                    !history.payload.history?.messages.some(row =>
-                      (room?.currentRowIds ?? incidentBatch?.reports.map(report => report.nativeMessageId) ?? []).some(id =>
-                        row.itemId === mausbotHistoryMessageId(commandThreadId(command), id) + ":item"))))
-                : history?.type === "context-handoff.updated" && history.payload.targetRunId === created.payload.id &&
-                  history.payload.history?.messages.some(row =>
-                    row.itemId === originProof.input.sourceMessageId + ":item" && row.role === "assistant")) &&
-            (!incidentBatch || !continuation || (!history && incidentBatch.reports.every(report =>
-              planned.events.some(event => event.type === "message.updated" && event.payload.runId === null &&
-                event.payload.id === mausbotHistoryMessageId(commandThreadId(command), report.nativeMessageId))))) &&
-            (!room || (continuation
-              ? room.currentRowIds.every(id => planned.events.some(event => event.type === "message.updated" &&
-                event.payload.runId === null && event.payload.id === mausbotHistoryMessageId(commandThreadId(command), id)))
-              : planned.events.filter(event => event.type === "message.updated").length === originProof.history.length)) &&
-            start?.type === "provider-turn.start" && start.runId === created.payload.id && planned.effects.length === 1 &&
-            !planned.events.some(event =>
-              (event.type === "message.updated" &&
-                ((!continuation && !room) || event.payload.runId !== null || !isHistoryRow(event.payload.id))) ||
-              event.type === "provider-session.detached" ||
-              (event.type === "turn-item.updated" && event.payload.type === "user_message" &&
-                ((!continuation && !room) || event.payload.runId !== null || !event.payload.messageId ||
-                  !isHistoryRow(event.payload.messageId))) ||
-              (event.type === "provider-thread.updated" && (continuation
-                ? event.payload.id !== continuation.providerThreadId ||
-                  event.payload.providerSessionId !== continuation.providerSessionId ||
-                  event.payload.nativeThreadRef?.nativeId !== continuation.nativeThreadId
-                : event.payload.nativeThreadRef !== null))) &&
-            (yield* originProof.refresh.pipe(mapDispatchError(command))) && originProof.current()) return;
-        return yield* new OrchestratorDispatchError({
-          commandId: command.commandId, commandType: command.type,
-          cause: "The native assignment would create unrelated work.",
-        });
-      })),
-      Effect.tap(planned => {
-        if (!isMausResume) return Effect.void;
-        const created = planned.events.find(event => event.type === "run.created");
-        const start = planned.effects[0]?.request;
-        if (resumeProof && resumeProof.current() && created?.type === "run.created" &&
-            created.payload.mausbotPromptless !== undefined &&
-            created.payload.providerThreadId === resumeProof.target.providerThreadId &&
-            start?.type === "provider-turn.start" && start.runId === created.payload.id &&
+                ? !history ||
+                  (history.type === "context-handoff.updated" &&
+                    history.payload.targetRunId === created.payload.id &&
+                    !history.payload.history?.messages.some((row) =>
+                      (
+                        room?.currentRowIds ??
+                        incidentBatch?.reports.map((report) => report.nativeMessageId) ??
+                        []
+                      ).some(
+                        (id) =>
+                          row.itemId ===
+                          mausbotHistoryMessageId(commandThreadId(command), id) + ":item",
+                      ),
+                    ))
+                : history?.type === "context-handoff.updated" &&
+                  history.payload.targetRunId === created.payload.id &&
+                  history.payload.history?.messages.some(
+                    (row) =>
+                      row.itemId === originProof.input.sourceMessageId + ":item" &&
+                      row.role === "assistant",
+                  )) &&
+            (!incidentBatch ||
+              !continuation ||
+              (!history &&
+                incidentBatch.reports.every((report) =>
+                  planned.events.some(
+                    (event) =>
+                      event.type === "message.updated" &&
+                      event.payload.runId === null &&
+                      event.payload.id ===
+                        mausbotHistoryMessageId(commandThreadId(command), report.nativeMessageId),
+                  ),
+                ))) &&
+            (!room ||
+              (continuation
+                ? room.currentRowIds.every((id) =>
+                    planned.events.some(
+                      (event) =>
+                        event.type === "message.updated" &&
+                        event.payload.runId === null &&
+                        event.payload.id === mausbotHistoryMessageId(commandThreadId(command), id),
+                    ),
+                  )
+                : planned.events.filter((event) => event.type === "message.updated").length ===
+                  originProof.history.length)) &&
+            start?.type === "provider-turn.start" &&
+            start.runId === created.payload.id &&
             planned.effects.length === 1 &&
-            !planned.events.some(event => event.type === "message.updated" ||
-              event.type === "context-handoff.updated" || event.type === "context-transfer.updated" ||
+            !planned.events.some(
+              (event) =>
+                (event.type === "message.updated" &&
+                  ((!continuation && !room) ||
+                    event.payload.runId !== null ||
+                    !isHistoryRow(event.payload.id))) ||
+                event.type === "provider-session.detached" ||
+                (event.type === "turn-item.updated" &&
+                  event.payload.type === "user_message" &&
+                  ((!continuation && !room) ||
+                    event.payload.runId !== null ||
+                    !event.payload.messageId ||
+                    !isHistoryRow(event.payload.messageId))) ||
+                (event.type === "provider-thread.updated" &&
+                  (continuation
+                    ? event.payload.id !== continuation.providerThreadId ||
+                      event.payload.providerSessionId !== continuation.providerSessionId ||
+                      event.payload.nativeThreadRef?.nativeId !== continuation.nativeThreadId
+                    : event.payload.nativeThreadRef !== null)),
+            ) &&
+            (yield* originProof.refresh.pipe(mapDispatchError(command))) &&
+            originProof.current()
+          )
+            return;
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: "The native assignment would create unrelated work.",
+          });
+        }),
+      ),
+      Effect.tap((planned) => {
+        if (!isMausResume) return Effect.void;
+        const created = planned.events.find((event) => event.type === "run.created");
+        const start = planned.effects[0]?.request;
+        if (
+          resumeProof &&
+          resumeProof.current() &&
+          created?.type === "run.created" &&
+          created.payload.mausbotPromptless !== undefined &&
+          created.payload.providerThreadId === resumeProof.target.providerThreadId &&
+          start?.type === "provider-turn.start" &&
+          start.runId === created.payload.id &&
+          planned.effects.length === 1 &&
+          !planned.events.some(
+            (event) =>
+              event.type === "message.updated" ||
+              event.type === "context-handoff.updated" ||
+              event.type === "context-transfer.updated" ||
               event.type === "provider-session.detached" ||
               (event.type === "provider-thread.updated" &&
                 (event.payload.nativeThreadRef?.nativeId !== resumeProof.target.nativeThreadId ||
-                  event.payload.providerSessionId !== resumeProof.target.providerSessionId)))) return Effect.void;
-        return Effect.fail(new OrchestratorDispatchError({
-          commandId: command.commandId, commandType: command.type,
-          cause: "The native bot continuation would create unrelated work.",
-        }));
+                  event.payload.providerSessionId !== resumeProof.target.providerSessionId)),
+          )
+        )
+          return Effect.void;
+        return Effect.fail(
+          new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: "The native bot continuation would create unrelated work.",
+          }),
+        );
       }),
       Effect.filterOrFail(
         (planned) =>
@@ -16702,7 +17562,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         Effect.gen(function* () {
           // A mode refusal or an unavailable history target can change before a retry.
           if (
-            isMausResume || command.type === "thread.bot.history.import" ||
+            isMausResume ||
+            command.type === "thread.bot.history.import" ||
             cause._tag === "OrchestratorThreadAboveModeLimitError" ||
             cause._tag === "OrchestratorRuntimeModeAboveCeilingError"
           ) {
@@ -16803,15 +17664,18 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     }
     const acceptedAt = plan.events.at(-1)?.occurredAt ?? (yield* DateTime.now);
     const intake = yield* AuthenticatedRouteIntake;
-    const routeIntake = command.type === "message.dispatch" &&
-      intake?.threadId === command.threadId && intake.messageId === command.messageId
-      ? intake
-      : undefined;
+    const routeIntake =
+      command.type === "message.dispatch" &&
+      intake?.threadId === command.threadId &&
+      intake.messageId === command.messageId
+        ? intake
+        : undefined;
     if (compatibilityInput || compatibilityResponse) {
       const owner = yield* CompatibilityApprovalOwner;
       if (!owner?.current()) {
         return yield* new OrchestratorDispatchError({
-          commandId: command.commandId, commandType: command.type,
+          commandId: command.commandId,
+          commandType: command.type,
           cause: "The bot runtime disconnected before the compatibility command committed.",
         });
       }
@@ -16823,7 +17687,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         commandType: command.type,
         acceptedAt,
         ...(routeIntake === undefined ? {} : { routeIntake }),
-        ...(plan.persistAutoSelection === undefined ? {} : { persistAutoSelection: plan.persistAutoSelection }),
+        ...(plan.persistAutoSelection === undefined
+          ? {}
+          : { persistAutoSelection: plan.persistAutoSelection }),
         events:
           cancelledTask === undefined
             ? plan.events
@@ -16962,27 +17828,32 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       );
     if (command.type === "thread.archive" || command.type === "thread.unarchive") {
       return yield* threadDispatch.withDeletionLock(
-        threadDispatch.withLock(command.threadId, Effect.gen(function* () {
-          const workerIds = yield* projectionStore.listSavedWorkerDescendants(command.threadId)
-            .pipe(mapDispatchError(command));
-          if (workerIds.length === 0) return yield* dispatchWithReceiptEffect(command);
-          return yield* workerIds.reduceRight(
-            (locked, childId) => threadDispatch.withLock(childId, locked),
-            Effect.gen(function* () {
-              const current = yield* projectionStore.listSavedWorkerDescendants(command.threadId)
-                .pipe(mapDispatchError(command));
-              const lockedIds = new Set(workerIds);
-              if (current.some((threadId) => !lockedIds.has(threadId))) {
-                return yield* new OrchestratorDispatchError({
-                  commandId: command.commandId,
-                  commandType: command.type,
-                  cause: "The saved worker tree changed before the archive operation. Try again.",
-                });
-              }
-              return yield* dispatchWithReceiptEffect(command, [], undefined, current);
-            }),
-          );
-        })),
+        threadDispatch.withLock(
+          command.threadId,
+          Effect.gen(function* () {
+            const workerIds = yield* projectionStore
+              .listSavedWorkerDescendants(command.threadId)
+              .pipe(mapDispatchError(command));
+            if (workerIds.length === 0) return yield* dispatchWithReceiptEffect(command);
+            return yield* workerIds.reduceRight(
+              (locked, childId) => threadDispatch.withLock(childId, locked),
+              Effect.gen(function* () {
+                const current = yield* projectionStore
+                  .listSavedWorkerDescendants(command.threadId)
+                  .pipe(mapDispatchError(command));
+                const lockedIds = new Set(workerIds);
+                if (current.some((threadId) => !lockedIds.has(threadId))) {
+                  return yield* new OrchestratorDispatchError({
+                    commandId: command.commandId,
+                    commandType: command.type,
+                    cause: "The saved worker tree changed before the archive operation. Try again.",
+                  });
+                }
+                return yield* dispatchWithReceiptEffect(command, [], undefined, current);
+              }),
+            );
+          }),
+        ),
       );
     }
     // Taken before the lineage read, so a message whose read yields keeps its
@@ -17404,55 +18275,95 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       task.result !== null ||
       task.cancelledRunId !== undefined ||
       task.deadlineCancellationAt !== undefined
-    ) return false;
+    )
+      return false;
 
-    const child = yield* projectionStore.getThreadRecords(
-      command.threadId, [
-        "runs", "contextTransfers", "turnItems", "attempts", "providerTurns", "providerThreads",
-        "subagents", "nodes", "runtimeRequests", "messages",
-      ], {
-        messageRoles: ["user", "assistant"],
-        turnItemStatuses: ["pending", "running", "waiting"],
-      },
-    ).pipe(mapDispatchError(command));
+    const child = yield* projectionStore
+      .getThreadRecords(
+        command.threadId,
+        [
+          "runs",
+          "contextTransfers",
+          "turnItems",
+          "attempts",
+          "providerTurns",
+          "providerThreads",
+          "subagents",
+          "nodes",
+          "runtimeRequests",
+          "messages",
+        ],
+        {
+          messageRoles: ["user", "assistant"],
+          turnItemStatuses: ["pending", "running", "waiting"],
+        },
+      )
+      .pipe(mapDispatchError(command));
     if (
       child.thread.deletedAt !== null ||
       child.thread.lineage.relationshipToParent !== "subagent" ||
       child.thread.lineage.parentThreadId !== task.threadId ||
       child.thread.forkedFrom?.type !== "node" ||
       child.thread.forkedFrom.nodeId !== task.id
-    ) return false;
+    )
+      return false;
 
     const taskRuns = deadlineTaskRuns(child, task);
     const live = taskRuns.filter((run) => isLiveRun(run) || run.status === "waiting");
     const queued = taskRuns.filter((run) => run.status === "queued");
     const owned = new Set(taskRuns.map((run) => run.id));
-    const ownedNodes = new Set(child.nodes.filter((node) => node.runId !== null && owned.has(node.runId))
-      .map(({ id }) => id));
-    const pendingInput = child.runtimeRequests.filter((request) =>
-      request.status === "pending" && ownedNodes.has(request.nodeId));
+    const ownedNodes = new Set(
+      child.nodes
+        .filter((node) => node.runId !== null && owned.has(node.runId))
+        .map(({ id }) => id),
+    );
+    const pendingInput = child.runtimeRequests.filter(
+      (request) => request.status === "pending" && ownedNodes.has(request.nodeId),
+    );
     const recovery = child.thread.limitRecovery;
     const pendingRecovery = recovery?.autoResume === true && owned.has(recovery.runId);
-    const recoveringRunIds = new Set(yield* Effect.forEach(taskRuns, (run) =>
-      awaitsRestartContinuation(run).pipe(Effect.map((pending) => pending ? [run.id] : [])),
-    ).pipe(Effect.map((ids) => ids.flat()), mapDispatchError(command)));
-    const awaitedChild = child.subagents.some((candidate) =>
-      candidate.origin === "app_owned" && candidate.runId !== null && owned.has(candidate.runId) &&
-      (isOrchestrationV2WorkActive(candidate.status) || candidate.status === "idle"),
+    const recoveringRunIds = new Set(
+      yield* Effect.forEach(taskRuns, (run) =>
+        awaitsRestartContinuation(run).pipe(Effect.map((pending) => (pending ? [run.id] : []))),
+      ).pipe(
+        Effect.map((ids) => ids.flat()),
+        mapDispatchError(command),
+      ),
     );
-    const pendingTerminal = pendingInput.length > 0 || pendingRecovery || recoveringRunIds.size > 0 || awaitedChild
-      ? delegatedTaskResultRun(taskRuns) : undefined;
+    const awaitedChild = child.subagents.some(
+      (candidate) =>
+        candidate.origin === "app_owned" &&
+        candidate.runId !== null &&
+        owned.has(candidate.runId) &&
+        (isOrchestrationV2WorkActive(candidate.status) || candidate.status === "idle"),
+    );
+    const pendingTerminal =
+      pendingInput.length > 0 || pendingRecovery || recoveringRunIds.size > 0 || awaitedChild
+        ? delegatedTaskResultRun(taskRuns)
+        : undefined;
     const target = live.at(-1) ?? queued.at(-1) ?? pendingTerminal;
     if (target === undefined || live.length > 1) return false;
-    const draftAttempts = new Set(child.attempts.filter(({ runId }) => runId === target.id).map(({ id }) => id));
-    const turnStillLive = child.providerTurns.some((turn) =>
-      turn.runAttemptId !== null && draftAttempts.has(turn.runAttemptId) &&
-      (turn.status === "running" || turn.status === "pending"));
-    const threadHasBackgroundWork = child.providerThreads.some((thread) =>
-      thread.id === target.providerThreadId && (thread.pendingBackgroundTasks?.length ?? 0) > 0);
-    const waitingWithoutNative = target.status === "waiting" &&
-      !turnStillLive && !threadHasBackgroundWork && target.activeAttemptId !== null &&
-      child.attempts.some((attempt) => attempt.id === target.activeAttemptId && attempt.status !== "pending") &&
+    const draftAttempts = new Set(
+      child.attempts.filter(({ runId }) => runId === target.id).map(({ id }) => id),
+    );
+    const turnStillLive = child.providerTurns.some(
+      (turn) =>
+        turn.runAttemptId !== null &&
+        draftAttempts.has(turn.runAttemptId) &&
+        (turn.status === "running" || turn.status === "pending"),
+    );
+    const threadHasBackgroundWork = child.providerThreads.some(
+      (thread) =>
+        thread.id === target.providerThreadId && (thread.pendingBackgroundTasks?.length ?? 0) > 0,
+    );
+    const waitingWithoutNative =
+      target.status === "waiting" &&
+      !turnStillLive &&
+      !threadHasBackgroundWork &&
+      target.activeAttemptId !== null &&
+      child.attempts.some(
+        (attempt) => attempt.id === target.activeAttemptId && attempt.status !== "pending",
+      ) &&
       child.nodes.some((node) => node.id === target.rootNodeId && node.runId === target.id);
     const terminal = delegatedTaskTerminalStatus(runOutcome(target)) !== null;
     if (terminal && (turnStillLive || threadHasBackgroundWork)) return false;
@@ -17460,7 +18371,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       if (
         child.runs.some((run) => isLiveRun(run) && !owned.has(run.id)) ||
         child.turnItems.some((item) => item.runId !== null && !owned.has(item.runId))
-      ) return false;
+      )
+        return false;
     }
     for (const run of queued) {
       if (run.id === target.id) continue;
@@ -17476,7 +18388,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       threadId: command.threadId,
       runId: target.id,
     };
-    const expired = { ...task, cancelledRunId: target.id, deadlineCancellationAt: now, updatedAt: now };
+    const expired = {
+      ...task,
+      cancelledRunId: target.id,
+      deadlineCancellationAt: now,
+      updatedAt: now,
+    };
     if (!terminal && !waitingWithoutNative) {
       yield* dispatchWithReceiptEffect(
         target.status === "queued"
@@ -17489,11 +18406,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     }
 
     // The native turn already ended. Stop only the work attributable to the saved task.
-    const scopedCommand = { ...expiryCommand, type: "run.interrupt", reason: command.reason } as const;
+    const scopedCommand = {
+      ...expiryCommand,
+      type: "run.interrupt",
+      reason: command.reason,
+    } as const;
     const events = yield* Ref.make<Array<OrchestrationV2DomainEvent>>([]);
     const effects = yield* Ref.make<Array<PendingOrchestrationEffectV2>>([]);
     for (const run of taskRuns) {
-      if (run.id !== target.id && !recoveringRunIds.has(run.id) && recovery?.runId !== run.id) continue;
+      if (run.id !== target.id && !recoveringRunIds.has(run.id) && recovery?.runId !== run.id)
+        continue;
       yield* markStoppedRun({ command: scopedCommand, events, thread: child.thread, run, now });
     }
     if (waitingWithoutNative) {
@@ -17508,7 +18430,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     }
     const emitEvent = emit(events, scopedCommand);
     const pendingById = new Set(pendingInput.map(({ id }) => id));
-    const targetNodes = new Set(child.nodes.filter(({ runId }) => runId === target.id).map(({ id }) => id));
+    const targetNodes = new Set(
+      child.nodes.filter(({ runId }) => runId === target.id).map(({ id }) => id),
+    );
     for (const request of pendingInput) {
       if (waitingWithoutNative && targetNodes.has(request.nodeId)) continue;
       yield* emitEvent({
@@ -17525,10 +18449,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       });
     }
     for (const item of child.turnItems) {
-      if (item.runId === null || !owned.has(item.runId) ||
-          (waitingWithoutNative && item.runId === target.id) ||
-          (item.type !== "approval_request" && item.type !== "user_input_request") ||
-          !pendingById.has(item.requestId)) continue;
+      if (
+        item.runId === null ||
+        !owned.has(item.runId) ||
+        (waitingWithoutNative && item.runId === target.id) ||
+        (item.type !== "approval_request" && item.type !== "user_input_request") ||
+        !pendingById.has(item.requestId)
+      )
+        continue;
       yield* emitEvent({
         type: "turn-item.updated",
         threadId: child.thread.id,
@@ -17542,7 +18470,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         type: "thread.metadata-updated",
         threadId: child.thread.id,
         occurredAt: now,
-        payload: { ...child.thread, limitRecovery: { ...recovery, autoResume: false }, updatedAt: now },
+        payload: {
+          ...child.thread,
+          limitRecovery: { ...recovery, autoResume: false },
+          updatedAt: now,
+        },
       });
     }
     yield* emitEvent({
@@ -17552,14 +18484,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       occurredAt: now,
       payload: expired,
     });
-    const result = yield* eventSink.commitCommand({
-      commandId: scopedCommand.commandId,
-      threadId: child.thread.id,
-      commandType: scopedCommand.type,
-      acceptedAt: now,
-      events: yield* Ref.get(events),
-      effects: yield* Ref.get(effects),
-    }).pipe(mapDispatchError(command));
+    const result = yield* eventSink
+      .commitCommand({
+        commandId: scopedCommand.commandId,
+        threadId: child.thread.id,
+        commandType: scopedCommand.type,
+        acceptedAt: now,
+        events: yield* Ref.get(events),
+        effects: yield* Ref.get(effects),
+      })
+      .pipe(mapDispatchError(command));
     return result.committed;
   });
 

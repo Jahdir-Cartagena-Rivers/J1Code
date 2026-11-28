@@ -28,6 +28,8 @@ import {
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { CLOUD_MINT_PUBLIC_KEY, RELAY_ISSUER_SECRET } from "../cloud/config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
+import * as Workflows from "../workflows/Workflows.ts";
 import * as RelayDeliveryProof from "./RelayDeliveryProof.ts";
 import { WEBHOOK_MAX_BODY_BYTES } from "./webhookRoute.ts";
 import * as WebhookRoute from "./webhookRoute.ts";
@@ -75,10 +77,13 @@ const handlerFor = (
     request: WebhookTriggerRequest,
   ) => Effect.Effect<WebhookTriggerResult, ScheduledTaskError>,
   secrets: ReadonlyMap<string, string> = linkedSecrets,
+  workflowDelivery: Workflows.Workflows["Service"]["deliver"] = Workflows.disabled.deliver,
 ) =>
   HttpRouter.toWebHandler(
     HttpApiBuilder.layer(WebhookTestApi).pipe(
       Layer.provide(WebhookRoute.layer),
+      Layer.provide(ManagedPolicy.layerTest()),
+      Layer.provide(Layer.mock(Workflows.Workflows)({ deliver: workflowDelivery })),
       Layer.provide(RelayDeliveryProof.layer),
       Layer.provide(Layer.mock(ScheduledTaskService)({ triggerWebhook: trigger })),
       Layer.provide(
@@ -114,6 +119,51 @@ const post = (
 ) => new Request(`http://env.local${path}`, { method: "POST", body, headers });
 
 describe("webhook route", () => {
+  it.live(
+    "delivers workflow hooks without exposing ambient credentials or using the scheduled task route",
+    () =>
+      Effect.gen(function* () {
+        const received: Array<Parameters<Workflows.Workflows["Service"]["deliver"]>[0]> = [];
+        const { handler, dispose } = handlerFor(
+          () => Effect.die("Workflow hooks must not dispatch scheduled tasks"),
+          new Map(),
+          (delivery) =>
+            Effect.sync(() => {
+              received.push(delivery);
+              return delivery.token === "good" ? Option.some({ runId: "test-run" }) : Option.none();
+            }),
+        );
+        const responses = yield* Effect.promise(async () => {
+          try {
+            return await Promise.all([
+              handler(post("/api/hooks/wf-example.in/wrong", "{}")),
+              handler(
+                post("/api/hooks/wf-example.in/good?event=ready", '{"value":1}', {
+                  authorization: "synthetic-header",
+                  cookie: "synthetic-cookie",
+                  "x-github-delivery": "event-1",
+                  "x-t3-relay-delivery-id": "unverified",
+                }),
+              ),
+            ]);
+          } finally {
+            await dispose();
+          }
+        });
+        expect(responses.map((response) => response.status)).toEqual([404, 202]);
+        const delivery = received.find((entry) => entry.token === "good");
+        expect(delivery?.deliveryId).toBeUndefined();
+        expect(delivery?.request).toMatchObject({
+          method: "POST",
+          query: "event=ready",
+          body: '{"value":1}',
+          headers: { "x-github-delivery": "event-1" },
+        });
+        expect(delivery?.request.headers.authorization).toBeUndefined();
+        expect(delivery?.request.headers.cookie).toBeUndefined();
+      }),
+  );
+
   it.live("trusts the relay's delivery id and receive time only with its signed proof", () =>
     Effect.gen(function* () {
       const received: Array<WebhookTriggerRequest> = [];

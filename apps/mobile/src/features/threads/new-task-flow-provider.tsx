@@ -224,6 +224,105 @@ type NewTaskFlowContextValue = {
 
 const NewTaskFlowContext = React.createContext<NewTaskFlowContextValue | null>(null);
 
+function useNewTaskModelOptions(
+  config: Parameters<typeof buildModelOptions>[0],
+  draft: Parameters<typeof resolveSelectableModelSelection>[1],
+  projectDefault: Parameters<typeof resolveDefaultableModelSelection>[1],
+  projectId: Parameters<typeof buildModelOptions>[3],
+) {
+  const storedStickySelection = useStickyComposerModelSelection();
+  const draftModelSelection = resolveSelectableModelSelection(config, draft, projectId ?? null);
+  const projectDefaultModelSelection = resolveDefaultableModelSelection(
+    config,
+    projectDefault,
+    projectId ?? null,
+  );
+  const stickyModelSelection = resolveDefaultableModelSelection(
+    config,
+    storedStickySelection,
+    projectId ?? null,
+  );
+  const modelOptions = buildModelOptions(
+    config,
+    draftModelSelection ?? projectDefaultModelSelection ?? stickyModelSelection,
+    undefined,
+    projectId,
+  );
+  return { draftModelSelection, projectDefaultModelSelection, stickyModelSelection, modelOptions };
+}
+
+function useNewTaskEnvironments(
+  projects: readonly EnvironmentProject[],
+  selectedProject: EnvironmentProject | null,
+  isScratchDraft: boolean,
+) {
+  const { savedConnectionsById } = useSavedRemoteConnections();
+  const serverConfigs = useServerConfigs();
+  const { connectedEnvironments } = useRemoteConnectionStatus();
+  const scratchEnvironments = connectedEnvironments.filter(
+    (environment) =>
+      availableScratchWorkspaceRoot(
+        environment.connectionState,
+        serverConfigs.get(environment.environmentId),
+      ) !== null,
+  );
+
+  const selectedRepositoryKey = selectedProject?.repositoryIdentity
+    ? repositoryGroupingKeyOf(selectedProject.repositoryIdentity)
+    : null;
+  // Use || null: placeholder workspaceRoot can be empty, and an empty basename rejects real hosts.
+  const selectedWorkspaceBasename = selectedProject?.workspaceRoot.split("/").at(-1) || null;
+  const selectedProjectTitle = selectedProject?.title ?? null;
+  const environments = (() => {
+    if (isScratchDraft) {
+      return scratchEnvironments.map((environment) => ({
+        environmentId: environment.environmentId,
+        environmentLabel: environment.environmentLabel,
+      }));
+    }
+    const seen = new Set<EnvironmentId>();
+    const result: Array<{
+      readonly environmentId: EnvironmentId;
+      readonly environmentLabel: string;
+    }> = [];
+    const hostsSelectedRepository = (project: EnvironmentProject) => {
+      if (selectedRepositoryKey === null && selectedWorkspaceBasename === null) {
+        return true;
+      }
+      const projectKey = project.repositoryIdentity
+        ? repositoryGroupingKeyOf(project.repositoryIdentity)
+        : null;
+      if (selectedRepositoryKey !== null && projectKey !== null) {
+        return projectKey === selectedRepositoryKey;
+      }
+      return (
+        project.workspaceRoot.split("/").at(-1) === selectedWorkspaceBasename ||
+        (selectedProjectTitle !== null && project.title === selectedProjectTitle)
+      );
+    };
+    for (const project of projects) {
+      if (!hostsSelectedRepository(project)) {
+        continue;
+      }
+      if (seen.has(project.environmentId)) {
+        continue;
+      }
+      const environment = savedConnectionsById[project.environmentId];
+      if (!environment) {
+        continue;
+      }
+      seen.add(project.environmentId);
+      result.push({
+        environmentId: project.environmentId,
+        environmentLabel: environment.environmentLabel,
+      });
+    }
+    return result;
+  })();
+
+  return environments;
+}
+
 export function NewTaskFlowProvider(
   props: React.PropsWithChildren<{
     active?: boolean;
@@ -238,10 +337,9 @@ export function NewTaskFlowProvider(
   const threads = useThreadShells();
   const environmentIds = new Set(projects.map((project) => project.environmentId));
   const { options: homeListOptions } = useHomeListOptions(environmentIds);
-  const { savedConnectionsById } = useSavedRemoteConnections();
   const groupingSettings = useMobileProjectGroupingSettings();
 
-  const projectScopes = sortHomeProjectScopes({
+  const unorderedProjectScopes = sortHomeProjectScopes({
     scopes: buildHomeProjectScopes({
       projects,
       environmentId: null,
@@ -252,10 +350,13 @@ export function NewTaskFlowProvider(
     projectSortOrder: "manual",
   });
   const projectPositions = new Map(homeListOptions.projectOrder.map((key, index) => [key, index]));
-  projectScopes.sort((left, right) =>
-    (projectPositions.get(left.key) ?? Number.MAX_SAFE_INTEGER) -
-      (projectPositions.get(right.key) ?? Number.MAX_SAFE_INTEGER) || left.title.localeCompare(right.title),
-  );
+  const projectScopes = [...unorderedProjectScopes].sort((left, right) => {
+    const leftPosition = projectPositions.get(left.key) ?? Number.MAX_SAFE_INTEGER;
+    const rightPosition = projectPositions.get(right.key) ?? Number.MAX_SAFE_INTEGER;
+    return leftPosition === rightPosition
+      ? left.title.localeCompare(right.title)
+      : leftPosition - rightPosition;
+  });
 
   const flowKey = props.flowKey ?? INACTIVE_FLOW_KEY;
   const storedFlowState = useAtomValue(newTaskFlowStateAtom(flowKey));
@@ -342,14 +443,11 @@ export function NewTaskFlowProvider(
         null);
 
   const linkedEnvironments = useLinkedEnvironments(selectedProject?.environmentId ?? null);
-  const storedStickyModelSelection = useStickyComposerModelSelection();
   const modelSelectionNow = useNowMinuteMs();
   const projectDefaults = useNewTaskProjectDefaults(selectedProject);
   const isScratchDraft = projectDefaults.isScratch;
-  const serverConfigs = useServerConfigs();
-  const { connectedEnvironments } = useRemoteConnectionStatus();
   const selectedProjectDraftKey = selectedProject ? activeDraftKey : null;
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- creates the persistent draft in the new-task flow store once a project is selected, before the composer mounts
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Persist the draft when its selected project is ready.
   useEffect(() => {
     // A route that names a draft binds that draft, or returns to the picker.
     if (
@@ -378,6 +476,12 @@ export function NewTaskFlowProvider(
           : null;
   const activeNewTask = props.active === false ? null : { pendingKey: activePendingKey };
   const selectedProjectDraft = useComposerDraft(selectedProjectDraftKey);
+  const openScratch = useAtomCommand(projectEnvironment.openScratch, { reportFailure: false });
+  const prepareTriage = usePrepareTriage();
+  const [switchingToEnvironmentId, setSwitchingToEnvironmentId] = useState<EnvironmentId | null>(
+    null,
+  );
+  const latestSwitchRef = useRef<object | null>(null);
   const prompt = selectedProjectDraft.text;
   const attachments = selectedProjectDraft.attachments;
   const projectGitStatus = useEnvironmentQuery(
@@ -450,27 +554,13 @@ export function NewTaskFlowProvider(
 
   // Antigravity keeps unavailable selections so sign-out or a catalog change
   // cannot switch the user's model.
-  const draftModelSelection = resolveSelectableModelSelection(
-    selectedEnvironmentServerConfig,
-    selectedProjectDraft.modelSelection ?? null,
-    selectedProject?.id ?? null,
-  );
-  const projectDefaultModelSelection = resolveDefaultableModelSelection(
-    selectedEnvironmentServerConfig,
-    projectSettings.settings.defaultModelSelection,
-    selectedProject?.id ?? null,
-  );
-  const stickyModelSelection = resolveDefaultableModelSelection(
-    selectedEnvironmentServerConfig,
-    storedStickyModelSelection,
-    selectedProject?.id ?? null,
-  );
-  const modelOptions = buildModelOptions(
-    selectedEnvironmentServerConfig,
-    draftModelSelection ?? projectDefaultModelSelection ?? stickyModelSelection,
-    undefined,
-    selectedProject?.id ?? null,
-  );
+  const { draftModelSelection, projectDefaultModelSelection, stickyModelSelection, modelOptions } =
+    useNewTaskModelOptions(
+      selectedEnvironmentServerConfig,
+      selectedProjectDraft.modelSelection ?? null,
+      projectSettings.settings.defaultModelSelection,
+      selectedProject?.id ?? null,
+    );
 
   const selectedDefaultModel = resolveNewTaskModelSelection({
     draftSelection: draftModelSelection,
@@ -532,7 +622,9 @@ export function NewTaskFlowProvider(
     );
     updateComposerDraftSettings(selectedProjectDraftKey, {
       modelSelection: selection,
-      ...(provider?.showInteractionModeToggle === false ? { interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE } : {}),
+      ...(provider?.showInteractionModeToggle === false
+        ? { interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE }
+        : {}),
     });
     setStickyComposerModelSelection(selection);
   };
@@ -629,12 +721,6 @@ export function NewTaskFlowProvider(
     });
   };
 
-  const openScratch = useAtomCommand(projectEnvironment.openScratch, { reportFailure: false });
-  const prepareTriage = usePrepareTriage();
-  const [switchingToEnvironmentId, setSwitchingToEnvironmentId] = useState<EnvironmentId | null>(
-    null,
-  );
-  const latestSwitchRef = useRef<object | null>(null);
   const switchEnvironment = async (environmentId: EnvironmentId): Promise<boolean> => {
     if (environmentId === selectedEnvironmentId) {
       latestSwitchRef.current = null;
@@ -835,66 +921,7 @@ export function NewTaskFlowProvider(
     };
   };
 
-  const scratchEnvironments = connectedEnvironments.filter(
-    (environment) =>
-      availableScratchWorkspaceRoot(
-        environment.connectionState,
-        serverConfigs.get(environment.environmentId),
-      ) !== null,
-  );
-
-  const selectedRepositoryKey = selectedProject?.repositoryIdentity
-    ? repositoryGroupingKeyOf(selectedProject.repositoryIdentity)
-    : null;
-  // Use || null: placeholder workspaceRoot can be empty, and an empty basename rejects real hosts.
-  const selectedWorkspaceBasename = selectedProject?.workspaceRoot.split("/").at(-1) || null;
-  const selectedProjectTitle = selectedProject?.title ?? null;
-  const environments = (() => {
-    if (isScratchDraft) {
-      return scratchEnvironments.map((environment) => ({
-        environmentId: environment.environmentId,
-        environmentLabel: environment.environmentLabel,
-      }));
-    }
-    const seen = new Set<EnvironmentId>();
-    const result: Array<{
-      readonly environmentId: EnvironmentId;
-      readonly environmentLabel: string;
-    }> = [];
-    const hostsSelectedRepository = (project: EnvironmentProject) => {
-      if (selectedRepositoryKey === null && selectedWorkspaceBasename === null) {
-        return true;
-      }
-      const projectKey = project.repositoryIdentity
-        ? repositoryGroupingKeyOf(project.repositoryIdentity)
-        : null;
-      if (selectedRepositoryKey !== null && projectKey !== null) {
-        return projectKey === selectedRepositoryKey;
-      }
-      return (
-        project.workspaceRoot.split("/").at(-1) === selectedWorkspaceBasename ||
-        (selectedProjectTitle !== null && project.title === selectedProjectTitle)
-      );
-    };
-    for (const project of projects) {
-      if (!hostsSelectedRepository(project)) {
-        continue;
-      }
-      if (seen.has(project.environmentId)) {
-        continue;
-      }
-      const environment = savedConnectionsById[project.environmentId];
-      if (!environment) {
-        continue;
-      }
-      seen.add(project.environmentId);
-      result.push({
-        environmentId: project.environmentId,
-        environmentLabel: environment.environmentLabel,
-      });
-    }
-    return result;
-  })();
+  const environments = useNewTaskEnvironments(projects, selectedProject, isScratchDraft);
 
   const value = {
     activeNewTask,

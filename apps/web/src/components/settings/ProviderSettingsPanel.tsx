@@ -38,7 +38,7 @@ import * as Arr from "effect/Array";
 import * as Duration from "effect/Duration";
 import * as Result from "effect/Result";
 import { PlusIcon } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 
 import { isDesktopLocalConnectionTarget } from "../../connection/desktopLocal";
 import {
@@ -105,6 +105,7 @@ import { ProviderAuthenticationSection } from "./ProviderAuthenticationSection";
 import { CodexSetupSection, CodexManagedRuntimeFields } from "./CodexSetupSection";
 import { readCodexSetupMode } from "./CodexSetupSection.logic";
 import { providerClients } from "./providerDriverMeta";
+import { resolveProviderInstanceDisplayName } from "@j1code/client-runtime/state/provider-instance-display";
 import { searchableSetting } from "./settingsSearch";
 import { CompactIdleThreadsRow } from "./SettingsPanels";
 import {
@@ -789,35 +790,45 @@ export function EnvironmentProviderSettings({
   const mergedCatalog = JSON.stringify(
     rows.map((row) => ({
       id: String(row.instanceId),
-      label: row.instance.displayName ?? row.driver,
+      label: resolveProviderInstanceDisplayName({
+        instanceId: row.instanceId,
+        driver: row.driver,
+        displayName: row.explicitInstance?.displayName,
+      }),
       selected: row.instanceId === selectedRow?.instanceId,
     })),
   );
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- publishes settings data to the embedded assistant frame through the host event bridge
   useEffect(() => {
     if (!mergedProviders) return;
     window.dispatchEvent(
       new CustomEvent("j1-provider-catalog", { detail: JSON.parse(mergedCatalog) }),
     );
   }, [mergedProviders, mergedCatalog]);
+  const receiveProviderSelection = useEffectEvent((event: Event) => {
+    const detail: unknown = (event as CustomEvent).detail;
+    if (typeof detail === "string") {
+      const row = rows.find((candidate) => candidate.instanceId === detail);
+      if (row) setSelectedInstanceId(row.instanceId);
+    } else if (detail === null && canAddProvider && canWriteSettings) {
+      setIsAddInstanceDialogOpen(true);
+    } else if (
+      detail &&
+      typeof detail === "object" &&
+      "action" in detail &&
+      detail.action === "refresh" &&
+      canRefreshProviders
+    ) {
+      void refreshProviders();
+    }
+  });
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- listens for requests from the embedded assistant frame through the host event bridge
   useEffect(() => {
     if (!mergedProviders) return;
-    const receive = (event: Event) => {
-      const detail: unknown = (event as CustomEvent).detail;
-      if (typeof detail === "string" && rows.some((row) => String(row.instanceId) === detail)) {
-        setSelectedInstanceId(rows.find((row) => String(row.instanceId) === detail)!.instanceId);
-      } else if (detail === null && canAddProvider && canWriteSettings) setIsAddInstanceDialogOpen(true);
-      else if (
-        detail &&
-        typeof detail === "object" &&
-        "action" in detail &&
-        detail.action === "refresh" &&
-        canRefreshProviders
-      )
-        void refreshProviders();
-    };
+    const receive = (event: Event) => receiveProviderSelection(event);
     window.addEventListener("j1-provider-select", receive);
     return () => window.removeEventListener("j1-provider-select", receive);
-  }, [mergedProviders, rows, canAddProvider, canWriteSettings, canRefreshProviders, refreshProviders]);
+  }, [mergedProviders]);
 
   const persistInstance = async (
     instanceId: ProviderInstanceId,
@@ -1038,30 +1049,30 @@ export function EnvironmentProviderSettings({
           <div className="-me-2 flex min-w-0 items-center gap-2">
             <ProviderUpdatesAction />
             <span style={mergedProviders ? { display: "none" } : undefined}>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    size="xs"
-                    variant="ghost-muted"
-                    disabled={isRefreshingProviders || !canRefreshProviders}
-                    aria-busy={isRefreshingProviders}
-                    onClick={() => void refreshProviders()}
-                  >
-                    <RefreshIcon refreshing={isRefreshingProviders} />
-                    <span className="sr-only">Refresh provider status</span>
-                    <span className="hidden min-w-0 truncate sm:inline">
-                      {isRefreshingProviders ? (
-                        "Refreshing providers"
-                      ) : (
-                        <ProviderLastChecked environmentId={environmentId} />
-                      )}
-                    </span>
-                  </Button>
-                }
-              />
-              <TooltipPopup side="top">Refresh provider status</TooltipPopup>
-            </Tooltip>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      size="xs"
+                      variant="ghost-muted"
+                      disabled={isRefreshingProviders || !canRefreshProviders}
+                      aria-busy={isRefreshingProviders}
+                      onClick={() => void refreshProviders()}
+                    >
+                      <RefreshIcon refreshing={isRefreshingProviders} />
+                      <span className="sr-only">Refresh provider status</span>
+                      <span className="hidden min-w-0 truncate sm:inline">
+                        {isRefreshingProviders ? (
+                          "Refreshing providers"
+                        ) : (
+                          <ProviderLastChecked environmentId={environmentId} />
+                        )}
+                      </span>
+                    </Button>
+                  }
+                />
+                <TooltipPopup side="top">Refresh provider status</TooltipPopup>
+              </Tooltip>
             </span>
           </div>
         }

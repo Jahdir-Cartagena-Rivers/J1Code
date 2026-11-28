@@ -1,6 +1,7 @@
 import { BotBrowserPage, type BotBrowserAction } from "@j1code/contracts";
 import { Effect, Schema } from "effect";
-import * as NodeCrypto from "node:crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
+import * as Hex from "effect/encoding/Hex";
 import { BackgroundBrowser } from "./runtime.ts";
 import { ServerSettingsService } from "../../../serverSettings.ts";
 
@@ -109,9 +110,9 @@ export const readBotBrowserPage = Effect.fn("BotBrowserPage.read")(function* (
   threadId: string,
   revision?: string,
 ) {
-  const result = yield* call(threadId, "evaluate", {
-    script: browserPageScript(NodeCrypto.randomBytes(16).toString("hex"), revision),
-  });
+  const random = yield* SecureRandom.SecureRandom;
+  const nonce = Hex.encode(yield* random.randomBytes(16));
+  const result = yield* call(threadId, "evaluate", { script: browserPageScript(nonce, revision) });
   return yield* Effect.try({
     try: () => decodePage(result.content.find((item) => item.type === "text")?.text ?? ""),
     catch: () => "The browser could not produce a page view.",

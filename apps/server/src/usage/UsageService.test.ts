@@ -1906,56 +1906,59 @@ describe("UsageService", () => {
     }),
   );
 
-  it.effect("reads the Cursor account of an API key or T3 sign-in instead of a CLI login", () =>
-    Effect.gen(function* () {
-      const { settings, home } = yield* setup;
-      const signIn = new TextEncoder().encode(
-        encodeUnknownJsonString({
-          version: 1,
-          backendUrl: "https://api2.cursor.sh",
-          apiKey: "signed-in-key",
-          createdAtMs: 0,
-        }),
-      );
-      yield* Effect.promise(async () => {
-        await NodeFSP.mkdir(NodePath.join(home, ".cursor"), { recursive: true });
-        await NodeFSP.writeFile(
-          NodePath.join(home, ".cursor", "auth.json"),
-          '{"accessToken":"stale-cli-token"}',
+  it.effect(
+    "prefers a Cursor API key or J1 sign-in and reports when Keychain access is needed",
+    () =>
+      Effect.gen(function* () {
+        const { settings, home } = yield* setup;
+        const signIn = new TextEncoder().encode(
+          encodeUnknownJsonString({
+            version: 1,
+            backendUrl: "https://api2.cursor.sh",
+            apiKey: "signed-in-key",
+            createdAtMs: 0,
+          }),
         );
-      });
-      for (const [index, testCase] of [
-        { environment: { CURSOR_API_KEY: "environment-key" }, stored: Option.none() },
-        { environment: {}, stored: Option.some(signIn) },
-        { environment: {}, stored: Option.none() },
-      ].entries()) {
-        const cursor = makeFakeCursor();
-        const summary = yield* Effect.gen(function* () {
-          const service = yield* makeWithCursor(cursor.read);
-          return yield* service.readSummary({ ...WINDOW, awaitRefresh: true });
-        }).pipe(
-          Effect.provide(
-            layerService({
-              prefix: `usage-service-cursor-api-key-${index}`,
-              home,
-              settings,
-              platform: "darwin",
-              environment: testCase.environment,
-              secretStore: { get: () => Effect.succeed(testCase.stored) },
-            }),
-          ),
-        );
-        if (index === 2) {
-          assert.deepStrictEqual(cursor.state.credentials, []);
-          assert.isUndefined(cursorSource(summary));
-          continue;
+        yield* Effect.promise(async () => {
+          await NodeFSP.mkdir(NodePath.join(home, ".cursor"), { recursive: true });
+          await NodeFSP.writeFile(
+            NodePath.join(home, ".cursor", "auth.json"),
+            '{"accessToken":"stale-cli-token"}',
+          );
+        });
+        for (const [index, testCase] of [
+          { environment: { CURSOR_API_KEY: "environment-key" }, stored: Option.none() },
+          { environment: {}, stored: Option.some(signIn) },
+          { environment: {}, stored: Option.none() },
+        ].entries()) {
+          const cursor = makeFakeCursor();
+          const summary = yield* Effect.gen(function* () {
+            const service = yield* makeWithCursor(cursor.read);
+            return yield* service.readSummary({ ...WINDOW, awaitRefresh: true });
+          }).pipe(
+            Effect.provide(
+              layerService({
+                prefix: `usage-service-cursor-api-key-${index}`,
+                home,
+                settings,
+                platform: "darwin",
+                environment: testCase.environment,
+                secretStore: { get: () => Effect.succeed(testCase.stored) },
+              }),
+            ),
+          );
+          if (index === 2) {
+            assert.deepStrictEqual(cursor.state.credentials, []);
+            assert.strictEqual(cursorSource(summary)?.status, "missing");
+            assert.strictEqual(cursorSource(summary)?.action, "enableCursorKeychain");
+            continue;
+          }
+          assert.deepStrictEqual(cursor.state.credentials, [
+            { kind: "apiKey", apiKey: index === 0 ? "environment-key" : "signed-in-key" },
+          ]);
+          assert.strictEqual(cursorSource(summary)?.status, "ok");
         }
-        assert.deepStrictEqual(cursor.state.credentials, [
-          { kind: "apiKey", apiKey: index === 0 ? "environment-key" : "signed-in-key" },
-        ]);
-        assert.strictEqual(cursorSource(summary)?.status, "ok");
-      }
-    }),
+      }),
   );
 
   it.effect("does not show a previous Cursor account's history after the API key changes", () =>
@@ -2016,7 +2019,7 @@ describe("UsageService", () => {
                 Effect.gen(function* () {
                   inFlight++;
                   mostInFlight = Math.max(mostInFlight, inFlight);
-                  if (credential.apiKey === "failing-key") {
+                  if (credential.kind === "apiKey" && credential.apiKey === "failing-key") {
                     yield* Deferred.await(started);
                     return {
                       accountKey: null,
@@ -2190,7 +2193,7 @@ describe("UsageService", () => {
         const summary = yield* service.readSummary(WINDOW);
         assert.strictEqual(summary.buckets[0]?.provider, "opencode");
         assert.isFalse(summary.buckets.some((bucket) => bucket.provider === "cursor"));
-        assert.isFalse(summary.sources.some((source) => source.fingerprint.provider === "cursor"));
+        assert.strictEqual(cursorSource(summary)?.status, "missing");
         assert.strictEqual(
           summary.buckets[0]?.sourcePath,
           yield* Effect.promise(() => NodeFSP.realpath(root)),
@@ -3928,7 +3931,7 @@ describe("UsageService", () => {
       );
 
       let orphanedAt: number | undefined;
-      // oxlint-disable-next-line t3code/no-polling-loop-in-tests -- Fixed-count scheduler interruption matrix; each iteration exercises a different interruption point.
+      // oxlint-disable-next-line j1code/no-polling-loop-in-tests -- Fixed-count scheduler interruption matrix; each iteration exercises a different interruption point.
       for (let interruptAt = 1; interruptAt <= 31; interruptAt += 1) {
         const tasks: Array<() => void> = [];
         const dispatcher: Scheduler.SchedulerDispatcher = {

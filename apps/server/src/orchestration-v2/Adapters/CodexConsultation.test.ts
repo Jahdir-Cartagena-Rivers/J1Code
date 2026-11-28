@@ -1,5 +1,6 @@
-import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import * as NodeAssert from "node:assert/strict";
+// @effect-diagnostics-next-line nodeBuiltinImport:off - Build the native child's attestation independently.
+import * as NodeCrypto from "node:crypto";
 
 import { it } from "@effect/vitest";
 
@@ -20,7 +21,8 @@ function fixture() {
   let released = false;
   let onBeforeWrite = (_operation: string) => {};
   let alterProof = (proof: CodexConsultationAttestation) => proof;
-  const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  const digest = (value: unknown) =>
+    NodeCrypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
   const claim: CodexConsultationClaim = {
     providerInstanceId: "codex-instance",
     providerSessionId: "source-session",
@@ -43,8 +45,10 @@ function fixture() {
     },
     async spawn(plan) {
       const processId = "isolated-child";
-      let state: Pick<CodexConsultationAttestation, "authorization" | "nativeThreadId" |
-        "nativeTurnId" | "model" | "historyDigest"> = {
+      let state: Pick<
+        CodexConsultationAttestation,
+        "authorization" | "nativeThreadId" | "nativeTurnId" | "model" | "historyDigest"
+      > = {
         authorization: null,
         nativeThreadId: null,
         nativeTurnId: null,
@@ -77,9 +81,14 @@ function fixture() {
         },
         async bindAccount(input) {
           await write("bind", input.authorize);
-          state = { ...state, authorization: digest([
-            input.providerInstanceId, input.providerSessionId, input.accountRevision,
-          ]) };
+          state = {
+            ...state,
+            authorization: digest([
+              input.providerInstanceId,
+              input.providerSessionId,
+              input.accountRevision,
+            ]),
+          };
         },
         async createThread(input) {
           await write("thread", input.authorize);
@@ -104,13 +113,17 @@ function fixture() {
   return {
     writes,
     controller,
-    changeProof: (alter: typeof alterProof) => { alterProof = alter; },
+    changeProof: (alter: typeof alterProof) => {
+      alterProof = alter;
+    },
     expireBefore: (target: string) => {
-      onBeforeWrite = (operation) => { if (operation === target) current = false; };
+      onBeforeWrite = (operation) => {
+        if (operation === target) current = false;
+      };
     },
     verifyCleanup: () => {
-      assert.equal(closed, 1);
-      assert.equal(released, true);
+      NodeAssert.equal(closed, 1);
+      NodeAssert.equal(released, true);
     },
     run: (receive: Parameters<typeof startIsolatedCodexConsultation<string>>[3]) =>
       startIsolatedCodexConsultation(factory, process.execPath, claim, receive),
@@ -119,19 +132,25 @@ function fixture() {
 
 it("receives the attested child turn and releases the owned process", async () => {
   const child = fixture();
-  assert.equal(await child.run(async (turn) => {
-    assert.deepEqual(turn, { nativeThreadId: "child-thread", nativeTurnId: "child-turn" });
-    return "result";
-  }), "result");
-  assert.deepEqual(child.writes, ["bind", "thread", "history", "start"]);
+  NodeAssert.equal(
+    await child.run(async (turn) => {
+      NodeAssert.deepEqual(turn, { nativeThreadId: "child-thread", nativeTurnId: "child-turn" });
+      return "result";
+    }),
+    "result",
+  );
+  NodeAssert.deepEqual(child.writes, ["bind", "thread", "history", "start"]);
   child.verifyCleanup();
 });
 
 it("rejects unexpected config before binding an account", async () => {
   const child = fixture();
   child.changeProof((proof) => ({ ...proof, configSources: ["untrusted-config"] }));
-  await assert.rejects(child.run(async () => assert.fail("Unexpected result handler")), /attest/);
-  assert.deepEqual(child.writes, []);
+  await NodeAssert.rejects(
+    child.run(async () => NodeAssert.fail("Unexpected result handler")),
+    /attest/,
+  );
+  NodeAssert.deepEqual(child.writes, []);
   child.verifyCleanup();
 });
 
@@ -140,8 +159,11 @@ it("rejects an unexpected child account before creating the thread", async () =>
   child.changeProof((proof) =>
     proof.authorization === null ? proof : { ...proof, authorization: "different-account" },
   );
-  await assert.rejects(child.run(async () => assert.fail("Unexpected result handler")), /attest/);
-  assert.deepEqual(child.writes, ["bind"]);
+  await NodeAssert.rejects(
+    child.run(async () => NodeAssert.fail("Unexpected result handler")),
+    /attest/,
+  );
+  NodeAssert.deepEqual(child.writes, ["bind"]);
   child.verifyCleanup();
 });
 
@@ -150,24 +172,33 @@ it("rejects a different loaded history before starting the turn", async () => {
   child.changeProof((proof) =>
     proof.historyDigest === null ? proof : { ...proof, historyDigest: "different-history" },
   );
-  await assert.rejects(child.run(async () => assert.fail("Unexpected result handler")), /attest/);
-  assert.deepEqual(child.writes, ["bind", "thread", "history"]);
+  await NodeAssert.rejects(
+    child.run(async () => NodeAssert.fail("Unexpected result handler")),
+    /attest/,
+  );
+  NodeAssert.deepEqual(child.writes, ["bind", "thread", "history"]);
   child.verifyCleanup();
 });
 
 it("rejects action tools reported by the child before binding an account", async () => {
   const child = fixture();
   child.changeProof((proof) => ({ ...proof, actionTools: ["shell"] }));
-  await assert.rejects(child.run(async () => assert.fail("Unexpected result handler")), /attest/);
-  assert.deepEqual(child.writes, []);
+  await NodeAssert.rejects(
+    child.run(async () => NodeAssert.fail("Unexpected result handler")),
+    /attest/,
+  );
+  NodeAssert.deepEqual(child.writes, []);
   child.verifyCleanup();
 });
 
 it("rejects native start if the claim expires at the write boundary", async () => {
   const child = fixture();
   child.expireBefore("start");
-  await assert.rejects(child.run(async () => assert.fail("Unexpected result handler")), /write rejected/);
-  assert.deepEqual(child.writes, ["bind", "thread", "history"]);
+  await NodeAssert.rejects(
+    child.run(async () => NodeAssert.fail("Unexpected result handler")),
+    /write rejected/,
+  );
+  NodeAssert.deepEqual(child.writes, ["bind", "thread", "history"]);
   child.verifyCleanup();
 });
 
@@ -178,14 +209,14 @@ it("cancels and releases the child even if the result consumer never settles", a
     child.controller.abort(reason);
     return new Promise<string>(() => {});
   });
-  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const deadline = AbortSignal.timeout(1_000);
+  const stalled = Promise.withResolvers<never>();
+  const expire = () => stalled.reject(new Error("Cancellation did not settle"));
+  deadline.addEventListener("abort", expire, { once: true });
   try {
-    const stalled = new Promise<never>((_, reject) => {
-      timeout = setTimeout(() => reject(new Error("Cancellation did not settle")), 1_000);
-    });
-    await assert.rejects(Promise.race([result, stalled]), /Consultation cancelled/);
+    await NodeAssert.rejects(Promise.race([result, stalled.promise]), /Consultation cancelled/);
   } finally {
-    clearTimeout(timeout);
+    deadline.removeEventListener("abort", expire);
   }
   child.verifyCleanup();
 });

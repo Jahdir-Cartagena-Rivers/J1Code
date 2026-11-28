@@ -129,12 +129,18 @@ export function WelcomePage({
   onDone,
 }: {
   readonly environmentId: EnvironmentId;
-  readonly onDone: (projectRef?: ScopedProjectRef) => void | Promise<void>;
+  readonly onDone: (
+    projectRef?: ScopedProjectRef,
+    destination?: "assistants",
+  ) => void | Promise<void>;
 }) {
   const { environments } = useEnvironments();
-  const label =
-    environments.find((environment) => environment.environmentId === environmentId)?.label ??
-    "this computer";
+  const environment = environments.find(
+    (environment) => environment.environmentId === environmentId,
+  );
+  const label = environment?.label ?? "this computer";
+  const canOperate = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
+  const canImportBots = canOperate && environment?.serverConfig?.environment.capabilities.mausbot;
   const agentReady = useWelcomeAgents(environmentId).readyCount > 0;
   // The phone and `t3` on PATH belong to the primary computer, so only it offers them.
   const isPrimary = usePrimaryEnvironmentId() === environmentId;
@@ -177,6 +183,7 @@ export function WelcomePage({
     enableBeforeUnload: false,
   });
   const finishingPromiseRef = useRef<Promise<boolean> | null>(null);
+  const continueToBotsRef = useRef(false);
   // Starting before the project list loads keeps saved picks, such as an import a quit cut short.
   const keepChoicesRef = useRef(false);
   const completionErrorToastIdRef = useRef<ReturnType<typeof toastManager.add> | null>(null);
@@ -200,7 +207,11 @@ export function WelcomePage({
         }
         // Release before onDone so its own navigation is not blocked.
         holdPageRef.current = false;
-        await onDone(projectRef);
+        if (continueToBotsRef.current) {
+          await onDone(projectRef, "assistants");
+        } else {
+          await onDone(projectRef);
+        }
         if (!keepChoicesRef.current) setImportSelection(null);
         if (importWarning) {
           toastManager.add({
@@ -251,7 +262,9 @@ export function WelcomePage({
   // Without import permission, starting simply skips the projects.
   const selected = projectImport.canWrite ? projectImport.selected : [];
   const newCount = selected.filter(projectImport.isNew).length;
-  const start = () => {
+  const start = (continueToBots = false) => {
+    if (isImporting || finishingPromiseRef.current !== null) return;
+    continueToBotsRef.current = continueToBots;
     keepChoicesRef.current = scans.some((scan) => scan.data === null);
     if (selected.length === 0) {
       projectImport.finishAfterImport();
@@ -291,6 +304,21 @@ export function WelcomePage({
                 projectImport={projectImport}
                 isImporting={isImporting}
               />
+              {canImportBots ? (
+                <WelcomeSection title="Bots">
+                  <p className="text-sm text-muted-foreground">
+                    Bring a bot workspace from OpenMaus or Grok.
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={isImporting}
+                    onClick={() => start(true)}
+                  >
+                    Continue to bot import
+                  </Button>
+                </WelcomeSection>
+              ) : null}
               {isPrimary ? (
                 <WelcomeSection title="Restore J1">
                   <details className="min-w-0 space-y-3 text-sm text-muted-foreground">
@@ -302,7 +330,9 @@ export function WelcomePage({
                       attachments. Use its password file and import into a new J1 home.
                     </p>
                     <TransferCommand operation="import" />
-                    <p>Start the restored home with <code>j1 serve --base-dir NEW_HOME</code>.</p>
+                    <p>
+                      Start the restored home with <code>j1 serve --base-dir NEW_HOME</code>.
+                    </p>
                   </details>
                 </WelcomeSection>
               ) : null}
@@ -312,7 +342,7 @@ export function WelcomePage({
               {agentReady ? (
                 <span />
               ) : (
-                <Button variant="ghost-muted" disabled={isImporting} onClick={start}>
+                <Button variant="ghost-muted" disabled={isImporting} onClick={() => start()}>
                   Start without an agent
                 </Button>
               )}
@@ -320,7 +350,7 @@ export function WelcomePage({
                 {agentReady ? null : (
                   <span className="text-xs text-muted-foreground">Set up one agent to start.</span>
                 )}
-                <Button disabled={!agentReady || isImporting} onClick={start}>
+                <Button disabled={!agentReady || isImporting} onClick={() => start()}>
                   {isImporting
                     ? selected.length > 0
                       ? "Importing…"
@@ -445,7 +475,7 @@ function AgentsSection({
   const [codexSetupId, setCodexSetupId] = useState<ProviderInstanceId | null>(null);
   const [cliTerminalFor, setCliTerminalFor] = useState<ProviderInstanceId | null>(null);
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- asks the environment to refresh its provider list when the environment changes
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- asks the environment to refresh its provider list when the environment changes
   useEffect(() => {
     void refreshProviders({ environmentId, input: {} });
   }, [environmentId, refreshProviders]);
@@ -992,7 +1022,7 @@ function PhoneConnectLink({ environmentId }: { readonly environmentId: Environme
   const linkState = useCloudLinkState(environmentId);
   const refreshLinkState = useEffectEvent(linkState.refresh);
   // The server rechecks the tunnel every 30 s; read its latest result while this panel is open.
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- 30 s interval that refreshes the cloud link reachability while mounted
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- 30 s interval that refreshes the cloud link reachability while mounted
   useEffect(() => {
     const interval = window.setInterval(() => refreshLinkState(), 30_000);
     return () => window.clearInterval(interval);
@@ -1260,7 +1290,7 @@ function AgentInstallTerminal({
   const commandStartedRef = useRef(false);
   const handleCommandFinished = useEffectEvent(onCommandFinished);
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- the shell stays open after an install or sign-in, so its command exiting is the only signal to check the agent again
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- the shell stays open after an install or sign-in, so its command exiting is the only signal to check the agent again
   useEffect(() => {
     if (commandRunning) {
       commandStartedRef.current = true;
@@ -1272,7 +1302,7 @@ function AgentInstallTerminal({
 
   // StrictMode can finish a cancelled open after replacement setup; it must not close or pre-type into that
   // session.
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- opens the setup PTY, types the command into it, and closes it on cleanup
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- opens the setup PTY, types the command into it, and closes it on cleanup
   useEffect(() => {
     const generation = setupGenerationRef.current + 1;
     setupGenerationRef.current = generation;
@@ -1443,7 +1473,7 @@ function useProjectImport({
   );
   const importGenerationRef = useRef(0);
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- bumps the import generation on mount and unmount so in-flight imports drop stale results
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- bumps the import generation on mount and unmount so in-flight imports drop stale results
   useEffect(() => {
     importGenerationRef.current += 1;
     return () => {

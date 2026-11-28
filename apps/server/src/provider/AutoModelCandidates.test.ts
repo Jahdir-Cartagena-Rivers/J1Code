@@ -9,7 +9,7 @@ const policy = {
   deep: { instanceId, model: "deep" },
   capabilities: { fast: { tools: true, contextWindow: 200000 } },
 } satisfies AutoModelPolicy;
-const provider = Schema.decodeUnknownSync(ServerProvider)({
+const provider = Schema.decodeSync(ServerProvider)({
   instanceId,
   driver: "codex",
   enabled: true,

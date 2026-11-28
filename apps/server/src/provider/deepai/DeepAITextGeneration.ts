@@ -41,57 +41,63 @@ export function makeDeepAITextGeneration(options: {
   catalog: () => Promise<{ models: ReadonlyArray<DeepAIModel> }>;
 }): ProviderTextGeneration {
   const client = options.client ?? makeDeepAIClient();
-  const generate = <A>(modelId: string, prompt: string, schema: Schema.Codec<A, unknown>) =>
-    Effect.gen(function* () {
-      const result = yield* Effect.tryPromise({
-        try: async (signal) => {
-          const apiKey = await options.credentials();
-          const catalog = await options.catalog();
-          const model = catalog.models.find((item) => item.id === modelId);
-          if (!model) throw new Error("Unavailable model.");
-          const response = await client.completion({
-            apiKey,
-            api: model.api ?? "openai-completions",
-            signal: AbortSignal.any([signal, AbortSignal.timeout(60000)]),
-            body: {
-              model: modelId,
-              stream: false,
-              ...(model.api === "openai-responses"
-                ? { input: prompt, max_output_tokens: 4096 }
-                : { messages: [{ role: "user", content: prompt }], max_tokens: 4096 }),
-            },
-          });
-          const body = decodeResponse(await response.json());
-          return (
-            body.choices?.[0]?.message.content ??
-            body.output
-              ?.flatMap((item) => item.content?.map((part) => part.text ?? "") ?? [])
-              .join("") ??
-            ""
-          );
-        },
-        catch: () =>
+  const generate = Effect.fn("DeepAITextGeneration.generate")(function* <A>(
+    modelId: string,
+    prompt: string,
+    schema: Schema.Codec<A, unknown>,
+  ) {
+    const result = yield* Effect.tryPromise({
+      try: async (signal) => {
+        const apiKey = await options.credentials();
+        const catalog = await options.catalog();
+        const model = catalog.models.find((item) => item.id === modelId);
+        if (!model) throw new Error("Unavailable model.");
+        const response = await client.completion({
+          apiKey,
+          api: model.api ?? "openai-completions",
+          signal: AbortSignal.any([signal, AbortSignal.timeout(60000)]),
+          body: {
+            model: modelId,
+            stream: false,
+            ...(model.api === "openai-responses"
+              ? { input: prompt, max_output_tokens: 4096 }
+              : { messages: [{ role: "user", content: prompt }], max_tokens: 4096 }),
+          },
+        });
+        const body = decodeResponse(await response.json());
+        return (
+          body.choices?.[0]?.message.content ??
+          body.output
+            ?.flatMap((item) => item.content?.map((part) => part.text ?? "") ?? [])
+            .join("") ??
+          ""
+        );
+      },
+      catch: () =>
+        new TextGenerationError({
+          operation: "DeepAI generation",
+          detail: "DeepAI could not generate this content. Check sign-in and model allowance.",
+        }),
+    });
+    return yield* Schema.decodeEffect(Schema.fromJsonString(schema))(
+      extractJsonObject(result),
+    ).pipe(
+      Effect.mapError(
+        () =>
           new TextGenerationError({
             operation: "DeepAI generation",
-            detail: "DeepAI could not generate this content. Check sign-in and model allowance.",
+            detail: "DeepAI returned invalid structured content.",
           }),
-      });
-      return yield* Schema.decodeUnknownEffect(Schema.fromJsonString(schema))(
-        extractJsonObject(result),
-      ).pipe(
-        Effect.mapError(
-          () =>
-            new TextGenerationError({
-              operation: "DeepAI generation",
-              detail: "DeepAI returned invalid structured content.",
-            }),
-        ),
-      );
-    });
-  const unsupported = () => Effect.fail(new TextGenerationError({
-    operation: "DeepAI generation",
-    detail: "This generation operation is not supported by DeepAI.",
-  }));
+      ),
+    );
+  });
+  const unsupported = () =>
+    Effect.fail(
+      new TextGenerationError({
+        operation: "DeepAI generation",
+        detail: "This generation operation is not supported by DeepAI.",
+      }),
+    );
   return {
     generateTranscriptionPostProcessing: unsupported,
     generateReviewGuide: unsupported,

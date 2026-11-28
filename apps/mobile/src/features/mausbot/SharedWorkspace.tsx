@@ -52,7 +52,7 @@ export function SharedWorkspace(props: {
       ? props.initialUrl
       : urls.home;
   const source = useMemo(() => ({ uri: urls.pair }), [urls.pair]);
-  const webView = useRef<WebView>(null);
+  const webView = useRef<WebView<object>>(null);
   const issue = useAtomCommand(issueWorkspace, { reportFailure: false });
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -67,14 +67,9 @@ export function SharedWorkspace(props: {
   const grantedScopes = useRef<ReadonlyArray<string> | null>(null);
   const handoffScopes = useRef<ReadonlyArray<string> | null>(null);
   const navigateAfterAuth = useRef(false);
-  const connectRef = useRef<(navigate: boolean) => void>(() => {});
-  const lifecycle = useRef(
-    new WorkspaceLifecycle({
-      onHandoffTimeout: () => setError("Workspace sign-in timed out. Try again."),
-      onRefreshNeeded: () => connectRef.current(false),
-    }),
-  );
+  const workspaceLifecycle = useRef<WorkspaceLifecycle | null>(null);
 
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Navigate the mounted WebView when the requested location changes.
   useEffect(() => {
     lastWorkspaceUrl.current = destination;
     if (authenticated.current && loaded.current)
@@ -93,45 +88,62 @@ export function SharedWorkspace(props: {
 
   const connect = useCallback(
     async (navigate: boolean) => {
-      const generation = lifecycle.current.begin();
+      const lifecycle = workspaceLifecycle.current;
+      if (lifecycle === null) return;
+      const generation = lifecycle.begin();
       if (generation === null) return;
-      try {
-        const result = await issue({ environmentId, input: undefined });
-        if (!lifecycle.current.acceptIssue(generation)) return;
-        if (result._tag !== "Success")
-          throw new Error("Reconnect this environment to open its workspace.");
-        pending.current = {
-          credential: result.value.credential,
-          navigate: navigate || workspaceScopesChanged(grantedScopes.current, result.value.scopes),
-          generation,
-        };
-        handoffScopes.current = result.value.scopes;
-        if (pending.current.navigate) setReady(false);
-        flush();
-      } catch (cause) {
-        if (lifecycle.current.acceptFailure(generation))
-          setError(cause instanceof Error ? cause.message : "Workspace unavailable.");
-      }
+      await issue({ environmentId, input: undefined })
+        .then((result) => {
+          if (!lifecycle.acceptIssue(generation)) return;
+          if (result._tag !== "Success") {
+            if (lifecycle.acceptFailure(generation))
+              setError("Reconnect this environment to open its workspace.");
+            return;
+          }
+          pending.current = {
+            credential: result.value.credential,
+            navigate:
+              navigate || workspaceScopesChanged(grantedScopes.current, result.value.scopes),
+            generation,
+          };
+          handoffScopes.current = result.value.scopes;
+          if (pending.current.navigate) setReady(false);
+          flush();
+        })
+        .catch((cause: unknown) => {
+          if (lifecycle.acceptFailure(generation))
+            setError(cause instanceof Error ? cause.message : "Workspace unavailable.");
+        });
     },
     [environmentId, flush, issue],
   );
-  connectRef.current = (navigate) => void connect(navigate);
 
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Suspend workspace credentials while the native app is backgrounded.
   useEffect(() => {
+    const lifecycle = new WorkspaceLifecycle({
+      onHandoffTimeout: () => setError("Workspace sign-in timed out. Try again."),
+      onRefreshNeeded: () => void connect(false),
+    });
+    workspaceLifecycle.current = lifecycle;
     if (AppState.currentState === "active") {
-      if (lifecycle.current.activate()) void connect(true);
-    } else lifecycle.current.background();
+      if (lifecycle.activate()) {
+        queueMicrotask(() => {
+          if (workspaceLifecycle.current === lifecycle) void connect(true);
+        });
+      }
+    } else lifecycle.background();
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") {
-        if (lifecycle.current.foregrounded()) void connect(!authenticated.current);
+        if (lifecycle.foregrounded()) void connect(!authenticated.current);
       } else {
         pending.current = null;
-        lifecycle.current.background();
+        lifecycle.background();
       }
     });
     return () => {
+      workspaceLifecycle.current = null;
       pending.current = null;
-      lifecycle.current.dispose();
+      lifecycle.dispose();
       subscription.remove();
     };
   }, [connect]);
@@ -153,7 +165,7 @@ export function SharedWorkspace(props: {
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <WebView
+        <WebView<object>
           key={browserGeneration}
           ref={webView}
           source={source}
@@ -208,13 +220,13 @@ export function SharedWorkspace(props: {
               lastWorkspaceUrl.current = state.url;
           }}
           onContentProcessDidTerminate={() => {
-            lifecycle.current.invalidate();
+            workspaceLifecycle.current?.invalidate();
             authenticated.current = false;
             setReady(false);
             setError("The workspace stopped. Retry to reopen it.");
           }}
           onRenderProcessGone={() => {
-            lifecycle.current.invalidate();
+            workspaceLifecycle.current?.invalidate();
             authenticated.current = false;
             setReady(false);
             setError("The workspace stopped. Retry to reopen it.");
@@ -240,14 +252,16 @@ export function SharedWorkspace(props: {
               return;
             }
             if (message.type === "authentication-failed") {
-              if (lifecycle.current.rejectHandoff(message.handoffId)) {
+              if (workspaceLifecycle.current?.rejectHandoff(message.handoffId)) {
                 authenticated.current = false;
                 setReady(false);
                 setError("The workspace sign-in expired. Retry or reconnect this environment.");
               }
               return;
             }
-            if (!lifecycle.current.acceptAuthenticated(message.handoffId, message.expiresAt))
+            if (
+              !workspaceLifecycle.current?.acceptAuthenticated(message.handoffId, message.expiresAt)
+            )
               return;
             grantedScopes.current = handoffScopes.current;
             authenticated.current = true;
@@ -275,7 +289,7 @@ export function SharedWorkspace(props: {
                 label="Retry"
                 onPress={() => {
                   pending.current = null;
-                  lifecycle.current.invalidate();
+                  workspaceLifecycle.current?.invalidate();
                   loaded.current = false;
                   authenticated.current = false;
                   setReady(false);

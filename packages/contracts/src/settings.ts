@@ -2,6 +2,7 @@ import { EasDeviceHostConfigs, SimlockDeviceHostConfigs, SshDeviceHostConfigs } 
 import {
   AuthOrchestrationOperateScope,
   AuthAccessWriteScope,
+  AuthFilesystemReadScope,
   AuthSettingsWriteScope,
   AuthProvidersManageScope,
   type AuthEnvironmentScope,
@@ -639,7 +640,8 @@ export const PersistedClientSettingsSchema = Schema.StructWithRest(
     SchemaTransformation.transform({
       decode: (raw) => {
         const migrated =
-          !Object.hasOwn(raw, "boringSidebarEnabled") && typeof raw.legacySidebarEnabled === "boolean"
+          !Object.hasOwn(raw, "boringSidebarEnabled") &&
+          typeof raw.legacySidebarEnabled === "boolean"
             ? { ...raw, boringSidebarEnabled: raw.legacySidebarEnabled }
             : raw;
         // ClientSettingsSchema validates the remaining persisted values.
@@ -1493,6 +1495,9 @@ export const StorageCleanupSettings = Schema.Struct({
 });
 export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
 
+export const DEFAULT_WORKFLOW_SKIPPED_RUNS_KEPT = 500;
+const WorkflowSkippedRunsKept = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 10_000 }));
+
 const CloudSpeechCredential = SettingsSecretValue.pipe(
   Schema.withDecodingDefault(Effect.succeed("")),
 );
@@ -1641,6 +1646,10 @@ export const ServerSettings = Schema.Struct({
   linkedEnvironmentsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   /** Beta: Claude and Codex predict the next prompt after completed turns. Codex follows a change at once; open Claude threads after they restart. */
   promptSuggestionsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  workflowsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  workflowSkippedRunsKept: WorkflowSkippedRunsKept.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_WORKFLOW_SKIPPED_RUNS_KEPT)),
+  ),
   sidebarAutoSettleKeepPullRequests: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(false)),
   ),
@@ -1746,7 +1755,9 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
 
-  cursorKeychainUsageEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  cursorKeychainUsageEnabled: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
 
   usagePriceOverrides: Schema.Record(TrimmedNonEmptyString, UsageModelPriceOverride).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
@@ -2080,6 +2091,8 @@ export const ServerSettingsPatch = Schema.Struct({
   guestSharingEnabled: Schema.optionalKey(Schema.Boolean),
   linkedEnvironmentsEnabled: Schema.optionalKey(Schema.Boolean),
   promptSuggestionsEnabled: Schema.optionalKey(Schema.Boolean),
+  workflowsEnabled: Schema.optionalKey(Schema.Boolean),
+  workflowSkippedRunsKept: Schema.optionalKey(WorkflowSkippedRunsKept),
   backgroundActivity: Schema.optionalKey(
     Schema.Struct({
       schemaVersion: Schema.optionalKey(Schema.Literal(1)),
@@ -2197,12 +2210,17 @@ export function requiredScopesForServerSettingsPatch(
 export function requiredScopesForProjectMutation(
   mutation: ProjectMutation,
 ): ReadonlyArray<AuthEnvironmentScope> {
-  if (mutation.type === "project.delete" || mutation.scripts === undefined) {
-    return [AuthOrchestrationOperateScope];
-  }
+  if (mutation.type === "project.delete") return [AuthOrchestrationOperateScope];
+  const changesFolders =
+    mutation.trackedFolders !== undefined ||
+    (mutation.type === "project.update" &&
+      (mutation.trackFolders !== undefined || mutation.untrackFolders !== undefined));
   return [
     AuthOrchestrationOperateScope,
-    ...requiredScopesForServerSettingsPatch({ defaultProjectScripts: mutation.scripts }),
+    ...(changesFolders ? [AuthFilesystemReadScope] : []),
+    ...(mutation.scripts === undefined
+      ? []
+      : requiredScopesForServerSettingsPatch({ defaultProjectScripts: mutation.scripts })),
   ];
 }
 

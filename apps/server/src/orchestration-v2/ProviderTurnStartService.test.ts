@@ -55,7 +55,7 @@ import {
   ThreadWorktreeRestore,
 } from "../workspace/restoreMissingWorktree.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
-import { layerRealGit } from "./ProviderTurnStartService.testkit.ts";
+import { layerNoTaskFolders, layerRealGit } from "./ProviderTurnStartService.testkit.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -182,6 +182,7 @@ function startWithMissingWorktree(
                 ),
         } as never),
         layerWorktreeLocation(),
+        layerNoTaskFolders,
         Layer.mock(GitWorkflow.GitWorkflowService)({
           pruneWorktrees,
           createWorktree,
@@ -302,6 +303,7 @@ const restoreLeaseCreateWorktree = vi.fn(() => Effect.succeed({} as never));
 const layerRestoreLeaseTest = layerThreadWorktreeRestore.pipe(
   Layer.provide(
     Layer.mergeAll(
+      layerNoTaskFolders,
       Layer.succeed(FileSystem.FileSystem, {
         exists: restoreLeaseExists,
         realPath: (target: string) => Effect.succeed(normalize(target)),
@@ -365,6 +367,7 @@ it.each([
       layerThreadWorktreeRestore.pipe(
         Layer.provide(
           Layer.mergeAll(
+            layerNoTaskFolders,
             Layer.succeed(FileSystem.FileSystem, {
               exists: () => Effect.succeed(false),
               realPath: (target: string) => Effect.succeed(target),
@@ -455,8 +458,8 @@ function makeLocalCommandHarness(input: {
 }) {
   const settledRuns: Array<string> = [];
   const routeOwner = { subject: "authenticated-user", environmentId: "environment" };
-  const readRouteIntake = vi.fn<NonNullable<EventSink.EventSinkV2Shape["readRouteIntake"]>>(
-    () => Effect.succeed(input.routeIntake === "authored" ? routeOwner : undefined),
+  const readRouteIntake = vi.fn<NonNullable<EventSink.EventSinkV2Shape["readRouteIntake"]>>(() =>
+    Effect.succeed(input.routeIntake === "authored" ? routeOwner : undefined),
   );
   const now = DateTime.makeUnsafe("2026-09-04T12:00:00Z");
   const threadId = input.botThreadId ?? ThreadId.make("thread-native-account-command");
@@ -717,28 +720,33 @@ function makeLocalCommandHarness(input: {
     providerThreads: [parentProviderThread],
     attempts: parentTurns.map(({ attempt }) => attempt),
     providerTurns: parentTurns.map(({ turn }) => turn),
-    subagents: input.delegationDeadline === undefined ? [] : [{
-      id: delegationNodeId,
-      threadId: parentThreadId,
-      runId: parentRunId,
-      parentNodeId: rootNodeId,
-      origin: "app_owned" as const,
-      createdBy: "agent" as const,
-      driver: providerThread.driver,
-      providerInstanceId: newInstanceId,
-      providerThreadId: null,
-      childThreadId: threadId,
-      nativeTaskRef: null,
-      prompt: "",
-      title: null,
-      model: null,
-      deadlineAt: input.delegationDeadline,
-      status: "running" as const,
-      result: null,
-      startedAt: now,
-      completedAt: null,
-      updatedAt: now,
-    }],
+    subagents:
+      input.delegationDeadline === undefined
+        ? []
+        : [
+            {
+              id: delegationNodeId,
+              threadId: parentThreadId,
+              runId: parentRunId,
+              parentNodeId: rootNodeId,
+              origin: "app_owned" as const,
+              createdBy: "agent" as const,
+              driver: providerThread.driver,
+              providerInstanceId: newInstanceId,
+              providerThreadId: null,
+              childThreadId: threadId,
+              nativeTaskRef: null,
+              prompt: "",
+              title: null,
+              model: null,
+              deadlineAt: input.delegationDeadline,
+              status: "running" as const,
+              result: null,
+              startedAt: now,
+              completedAt: null,
+              updatedAt: now,
+            },
+          ],
     turnItems: [],
   };
   if (input.sideChat !== undefined) {
@@ -843,9 +851,9 @@ function makeLocalCommandHarness(input: {
         },
         forkedFrom: { type: "node", nodeId: delegationNodeId },
       },
-      runs: projection.runs.map((row) => row.id === runId
-        ? { ...row, delegatedTaskId: delegationNodeId }
-        : row),
+      runs: projection.runs.map((row) =>
+        row.id === runId ? { ...row, delegatedTaskId: delegationNodeId } : row,
+      ),
     };
   }
   if (input.sideChat?.unsentResume) {
@@ -1126,7 +1134,10 @@ function makeLocalCommandHarness(input: {
       if (turn.authorizeDelegationWrite && !(yield* turn.authorizeDelegationWrite)) return;
       if (input.dispatchObservationScenario === "rejected") {
         return yield* new ProviderAdapter.ProviderAdapterTurnStartError({
-          driver: providerThread.driver, threadId, providerThreadId, runId,
+          driver: providerThread.driver,
+          threadId,
+          providerThreadId,
+          runId,
           cause: "fixture rejection",
         });
       }
@@ -1156,16 +1167,24 @@ function makeLocalCommandHarness(input: {
           startTurn(ProviderAdapter.resumeTurnInput(input)),
   };
   const defaultRuntimeCwd = "/tmp/native-account-command";
-  const readCodexHistory = vi.fn<NonNullable<LegacyV1ThreadImporter.LegacyV1ThreadImporter["Service"]["readCodexHistory"]>>(
-    () => Effect.succeed(input.legacyNativeId === undefined ? undefined : {
-      nativeId: input.legacyNativeId,
-      storeCwd: projection.thread.worktreePath ?? defaultRuntimeCwd,
-    }),
+  const readCodexHistory = vi.fn<
+    NonNullable<LegacyV1ThreadImporter.LegacyV1ThreadImporter["Service"]["readCodexHistory"]>
+  >(() =>
+    Effect.succeed(
+      input.legacyNativeId === undefined
+        ? undefined
+        : {
+            nativeId: input.legacyNativeId,
+            storeCwd: projection.thread.worktreePath ?? defaultRuntimeCwd,
+          },
+    ),
   );
-  const resumeImportedThread = vi.fn((request: Parameters<
-    ProviderAdapter.ProviderAdapterV2SessionRuntime["resumeThread"]
-  >[0]) => Effect.succeed(request.providerThread));
-  const botThreadRegistrations: Array<{ readonly names: string[]; readonly authorized: boolean }> = [];
+  const resumeImportedThread = vi.fn(
+    (request: Parameters<ProviderAdapter.ProviderAdapterV2SessionRuntime["resumeThread"]>[0]) =>
+      Effect.succeed(request.providerThread),
+  );
+  const botThreadRegistrations: Array<{ readonly names: string[]; readonly authorized: boolean }> =
+    [];
   const ensureBotThread = (request: ProviderAdapter.ProviderAdapterV2EnsureThreadInput) =>
     Effect.gen(function* () {
       const offer = request.newBotTools;
@@ -1177,55 +1196,58 @@ function makeLocalCommandHarness(input: {
       }
       return providerThread;
     });
-  const open = vi.fn((_request: Parameters<
-    ProviderSessionManager.ProviderSessionManagerV2["Service"]["open"]
-  >[0]) =>
-    input.botThreadId !== undefined
-      ? Effect.succeed({
-          driver: providerThread.driver,
-          providerSession,
-          ensureThread: ensureBotThread,
-          resumeThread: () => Effect.succeed(providerThread),
-          startTurn,
-          botTurnStart: input.botTurnStart,
-        } as never)
-      : input.sideChat !== undefined
-      ? Effect.succeed(sideChatSession as never)
-      : input.interruptOpen === true
-        ? Effect.interrupt
-        : "historyReadFailureAfterFallback" in input || "resumeFailure" in input
-          ? Effect.succeed(resumeFallbackSession as never)
-          : "ensureThreadFailure" in input
-            ? Effect.succeed({ driver: providerThread.driver, ensureThread } as never)
-            : "openFailure" in input
-              ? Effect.sync(() => {
-                  if (input.interruptRunBeforeOpenFailure === true) interruptRun();
-                }).pipe(
-                  Effect.andThen(
-                    Effect.fail(
-                      new ProviderSessionManager.ProviderSessionOpenError({
-                        instanceId: newInstanceId,
-                        providerSessionId,
-                        cause: input.openFailure,
-                      }),
-                    ),
-                  ),
-                )
-              : input.legacyNativeId !== undefined
-                ? Effect.succeed({
-                    driver: providerThread.driver,
-                    providerSession,
-                    ensureThread: fallbackEnsureThread,
-                    resumeThread: resumeImportedThread,
-                  } as never)
-              : input.routeIntake !== undefined || input.failReadsAfterRunning === true || input.previousTurn !== undefined
-                ? Effect.succeed({
-                    driver: providerThread.driver,
-                    providerSession,
-                    ensureThread: () => Effect.succeed(providerThread),
-                    resumeThread: () => Effect.succeed(projection.providerThreads[0]),
-                  } as never)
-                : Effect.die("A local command must not open a native session."),
+  const open = vi.fn(
+    (
+      _request: Parameters<ProviderSessionManager.ProviderSessionManagerV2["Service"]["open"]>[0],
+    ) =>
+      input.botThreadId !== undefined
+        ? Effect.succeed({
+            driver: providerThread.driver,
+            providerSession,
+            ensureThread: ensureBotThread,
+            resumeThread: () => Effect.succeed(providerThread),
+            startTurn,
+            botTurnStart: input.botTurnStart,
+          } as never)
+        : input.sideChat !== undefined
+          ? Effect.succeed(sideChatSession as never)
+          : input.interruptOpen === true
+            ? Effect.interrupt
+            : "historyReadFailureAfterFallback" in input || "resumeFailure" in input
+              ? Effect.succeed(resumeFallbackSession as never)
+              : "ensureThreadFailure" in input
+                ? Effect.succeed({ driver: providerThread.driver, ensureThread } as never)
+                : "openFailure" in input
+                  ? Effect.sync(() => {
+                      if (input.interruptRunBeforeOpenFailure === true) interruptRun();
+                    }).pipe(
+                      Effect.andThen(
+                        Effect.fail(
+                          new ProviderSessionManager.ProviderSessionOpenError({
+                            instanceId: newInstanceId,
+                            providerSessionId,
+                            cause: input.openFailure,
+                          }),
+                        ),
+                      ),
+                    )
+                  : input.legacyNativeId !== undefined
+                    ? Effect.succeed({
+                        driver: providerThread.driver,
+                        providerSession,
+                        ensureThread: fallbackEnsureThread,
+                        resumeThread: resumeImportedThread,
+                      } as never)
+                    : input.routeIntake !== undefined ||
+                        input.failReadsAfterRunning === true ||
+                        input.previousTurn !== undefined
+                      ? Effect.succeed({
+                          driver: providerThread.driver,
+                          providerSession,
+                          ensureThread: () => Effect.succeed(providerThread),
+                          resumeThread: () => Effect.succeed(projection.providerThreads[0]),
+                        } as never)
+                      : Effect.die("A local command must not open a native session."),
   );
   const providerExecutionResults: Array<string | null> = [];
   const startRootRun = vi.fn<
@@ -1250,13 +1272,18 @@ function makeLocalCommandHarness(input: {
         ? runInput.session.resumeTurn!({ ...turnTarget, messageId: runInput.message.messageId })
         : runInput.session.startTurn({ ...turnTarget, message: runInput.message });
       return dispatch.pipe(
-        Effect.onExit(result => Effect.sync(() => {
-          providerExecutionResults.push(result._tag === "Failure" ? Cause.pretty(result.cause) : null);
-        })),
+        Effect.onExit((result) =>
+          Effect.sync(() => {
+            providerExecutionResults.push(
+              result._tag === "Failure" ? Cause.pretty(result.cause) : null,
+            );
+          }),
+        ),
         Effect.orDie,
       );
     }
-    return input.routeIntake !== undefined || input.failReadsAfterRunning === true ||
+    return input.routeIntake !== undefined ||
+      input.failReadsAfterRunning === true ||
       input.previousTurn !== undefined
       ? Effect.suspend(() =>
           providerBusy ? Effect.die("The previous provider turn is still running.") : Effect.void,
@@ -1515,8 +1542,10 @@ function layerStartEffectWorker(
         Layer.mock(ProjectionStore.ProjectionStoreV2)({
           getThread: () => Effect.sync(() => harness.projection().thread),
           getThreadRecords: () => Effect.sync(harness.projection),
-          getMessagesById: () => Effect.sync(() =>
-            new Map(harness.projection().messages.map(message => [message.id, message]))),
+          getMessagesById: () =>
+            Effect.sync(
+              () => new Map(harness.projection().messages.map((message) => [message.id, message])),
+            ),
         }),
         ServerSettings.layerTest(),
       ),
@@ -2197,53 +2226,59 @@ effectIt.effect(
     }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
-effectIt.effect.each([false, true])("only resumes a saved V1 cursor on ordinary continuation (fresh: %s)", (freshContext) =>
-  Effect.gen(function* () {
-    const legacyNativeId = "saved-v1-native-cursor";
-    const harness = makeLocalCommandHarness({ text: "Continue", legacyNativeId, freshContext });
-    yield* harness.start;
-    expect(harness.open).toHaveBeenCalledOnce();
-    const opened = harness.open.mock.calls[0]?.[0];
-    expect(opened?.modelSelection.instanceId).toBe(harness.newInstanceId);
-    expect(opened?.resumeFromSession).toBeUndefined();
-    if (freshContext) {
-      expect(harness.readCodexHistory).not.toHaveBeenCalled();
-      expect(opened?.initialNativeThreadId).toBeUndefined();
-      expect(harness.resumeImportedThread).not.toHaveBeenCalled();
-      expect(harness.fallbackEnsureThread).toHaveBeenCalledOnce();
-      expect(harness.startRootRun.mock.calls[0]?.[0].providerThread.nativeThreadRef).toBeNull();
-    } else {
-      expect(harness.readCodexHistory).toHaveBeenCalledWith(
-        harness.projection().thread.id, harness.newInstanceId,
-      );
-      expect(opened?.initialNativeThreadId).toBe(legacyNativeId);
-      expect(harness.resumeImportedThread).toHaveBeenCalledOnce();
-      expect(harness.fallbackEnsureThread).not.toHaveBeenCalled();
-      expect(harness.startRootRun.mock.calls[0]?.[0].providerThread.nativeThreadRef?.nativeId)
-        .toBe(legacyNativeId);
-    }
-  }),
+effectIt.effect.each([false, true])(
+  "only resumes a saved V1 cursor on ordinary continuation (fresh: %s)",
+  (freshContext) =>
+    Effect.gen(function* () {
+      const legacyNativeId = "saved-v1-native-cursor";
+      const harness = makeLocalCommandHarness({ text: "Continue", legacyNativeId, freshContext });
+      yield* harness.start;
+      expect(harness.open).toHaveBeenCalledOnce();
+      const opened = harness.open.mock.calls[0]?.[0];
+      expect(opened?.modelSelection.instanceId).toBe(harness.newInstanceId);
+      expect(opened?.resumeFromSession).toBeUndefined();
+      if (freshContext) {
+        expect(harness.readCodexHistory).not.toHaveBeenCalled();
+        expect(opened?.initialNativeThreadId).toBeUndefined();
+        expect(harness.resumeImportedThread).not.toHaveBeenCalled();
+        expect(harness.fallbackEnsureThread).toHaveBeenCalledOnce();
+        expect(harness.startRootRun.mock.calls[0]?.[0].providerThread.nativeThreadRef).toBeNull();
+      } else {
+        expect(harness.readCodexHistory).toHaveBeenCalledWith(
+          harness.projection().thread.id,
+          harness.newInstanceId,
+        );
+        expect(opened?.initialNativeThreadId).toBe(legacyNativeId);
+        expect(harness.resumeImportedThread).toHaveBeenCalledOnce();
+        expect(harness.fallbackEnsureThread).not.toHaveBeenCalled();
+        expect(
+          harness.startRootRun.mock.calls[0]?.[0].providerThread.nativeThreadRef?.nativeId,
+        ).toBe(legacyNativeId);
+      }
+    }),
 );
 
-effectIt.effect("preserves imported history when an explicit fresh provider start is rejected", () =>
-  Effect.gen(function* () {
-    const harness = makeLocalCommandHarness({
-      text: "Fresh prompt",
-      previousMessages: ["Saved user message"],
-      legacyNativeId: "saved-v1-native-cursor",
-      freshContext: true,
-      openFailure: new Error("fixture fresh start rejected"),
-    });
-    const before = harness.projection().messages;
-    yield* harness.start;
-    expect(harness.readCodexHistory).not.toHaveBeenCalled();
-    expect(harness.open).toHaveBeenCalledOnce();
-    expect(harness.open.mock.calls[0]?.[0].initialNativeThreadId).toBeUndefined();
-    expect(harness.resumeImportedThread).not.toHaveBeenCalled();
-    expect(harness.startRootRun).not.toHaveBeenCalled();
-    expect(harness.projection().runs.at(-1)?.status).toBe("failed");
-    expect(harness.projection().messages).toEqual(before);
-  }),
+effectIt.effect(
+  "preserves imported history when an explicit fresh provider start is rejected",
+  () =>
+    Effect.gen(function* () {
+      const harness = makeLocalCommandHarness({
+        text: "Fresh prompt",
+        previousMessages: ["Saved user message"],
+        legacyNativeId: "saved-v1-native-cursor",
+        freshContext: true,
+        openFailure: new Error("fixture fresh start rejected"),
+      });
+      const before = harness.projection().messages;
+      yield* harness.start;
+      expect(harness.readCodexHistory).not.toHaveBeenCalled();
+      expect(harness.open).toHaveBeenCalledOnce();
+      expect(harness.open.mock.calls[0]?.[0].initialNativeThreadId).toBeUndefined();
+      expect(harness.resumeImportedThread).not.toHaveBeenCalled();
+      expect(harness.startRootRun).not.toHaveBeenCalled();
+      expect(harness.projection().runs.at(-1)?.status).toBe("failed");
+      expect(harness.projection().messages).toEqual(before);
+    }),
 );
 
 effectIt.effect("passes only stored authored-message evidence to an ordinary Codex start", () =>
@@ -2362,7 +2397,9 @@ effectIt.effect("refuses a handoff prompt over the provider input limit before s
       sideChat: { contextRun: "current" },
     });
     yield* harness.start;
-    expect(harness.providerExecutionResults).toEqual([expect.stringContaining("provider input limit")]);
+    expect(harness.providerExecutionResults).toEqual([
+      expect.stringContaining("provider input limit"),
+    ]);
     expect(harness.startTurn).not.toHaveBeenCalled();
     expect(harness.projection().contextHandoffs[0]?.delivery).toBeUndefined();
   }),
@@ -2385,31 +2422,37 @@ effectIt.effect("does not send or settle a handoff when Stop arrives during prep
 
 effectIt.effect.each(["accepted", "rejected", "expired"] as const)(
   "observes ordinary provider dispatch after authorization (%s)",
-  (scenario) => Effect.gen(function* () {
-    const deadline = DateTime.makeUnsafe(DateTime.toEpochMillis(yield* DateTime.now) + 1_000);
-    const harness = makeLocalCommandHarness({
-      text: "Fixture message",
-      sideChat: { contextRun: "current" },
-      dispatchObservationScenario: scenario,
-      ...(scenario === "expired" ? { delegationDeadline: deadline } : {}),
-    });
-    const observed: string[] = [];
-    yield* harness.start.pipe(
-      Effect.provideService(ProviderUsageAnalytics.ProviderDispatchObservation, {
-        attempted: Effect.sync(() => void observed.push("attempted")),
-        rejected: Effect.sync(() => void observed.push("rejected")),
-      }),
-    );
+  (scenario) =>
+    Effect.gen(function* () {
+      const deadline = DateTime.makeUnsafe(DateTime.toEpochMillis(yield* DateTime.now) + 1_000);
+      const harness = makeLocalCommandHarness({
+        text: "Fixture message",
+        sideChat: { contextRun: "current" },
+        dispatchObservationScenario: scenario,
+        ...(scenario === "expired" ? { delegationDeadline: deadline } : {}),
+      });
+      const observed: string[] = [];
+      yield* harness.start.pipe(
+        Effect.provideService(ProviderUsageAnalytics.ProviderDispatchObservation, {
+          attempted: Effect.sync(() => void observed.push("attempted")),
+          rejected: Effect.sync(() => void observed.push("rejected")),
+        }),
+      );
 
-    expect(harness.open).toHaveBeenCalledOnce();
-    expect(harness.startRootRun).toHaveBeenCalledOnce();
-    expect(harness.startTurn).toHaveBeenCalledOnce();
-    expect(harness.providerExecutionResults).toEqual([
-      scenario === "rejected" ? expect.stringContaining("fixture rejection") : null,
-    ]);
-    expect(observed).toEqual(scenario === "expired" ? [] :
-      scenario === "rejected" ? ["attempted", "rejected"] : ["attempted"]);
-  }),
+      expect(harness.open).toHaveBeenCalledOnce();
+      expect(harness.startRootRun).toHaveBeenCalledOnce();
+      expect(harness.startTurn).toHaveBeenCalledOnce();
+      expect(harness.providerExecutionResults).toEqual([
+        scenario === "rejected" ? expect.stringContaining("fixture rejection") : null,
+      ]);
+      expect(observed).toEqual(
+        scenario === "expired"
+          ? []
+          : scenario === "rejected"
+            ? ["attempted", "rejected"]
+            : ["attempted"],
+      );
+    }),
 );
 
 effectIt.effect.each([
@@ -2840,7 +2883,9 @@ effectIt.effect.each([
       });
       const open = harness.open.getMockImplementation()!;
       harness.open.mockImplementation((request) =>
-        Effect.sync(() => order.push("provider session opened")).pipe(Effect.andThen(open(request))),
+        Effect.sync(() => order.push("provider session opened")).pipe(
+          Effect.andThen(open(request)),
+        ),
       );
       // The reservation CheckpointRollbackServiceV2.execute holds around its
       // isolation check, provider rollback, and git restore of `restorePath`.
@@ -3254,58 +3299,84 @@ for (const previousMessages of [[], ["/compact", " /COMPACT "]]) {
   );
 }
 
-effectIt.effect.each(["selected", "new-thread-tools", "restricted-unsupported", "replaced"] as const)(
-  "passes the exact bot prompt and tool owner to the start service when $0",
-  (scenario) => Effect.gen(function* () {
+effectIt.effect.each([
+  "selected",
+  "new-thread-tools",
+  "restricted-unsupported",
+  "replaced",
+] as const)("passes the exact bot prompt and tool owner to the start service when $0", (scenario) =>
+  Effect.gen(function* () {
     const threadId = ThreadId.make(`j1-mausbot:bot:${scenario}`);
     const shouldStart = scenario === "selected" || scenario === "new-thread-tools";
     const starts: string[] = [];
     const observed: string[] = [];
     const botTurnStart: ProviderAdapter.ProviderAdapterV2BotTurnStart = {
       supportsRestrictedTools: scenario !== "restricted-unsupported",
-      start: (turn, context) => Effect.gen(function* () {
-        expect(yield* context.authorizeNativeWrite).toBe(true);
-        expect(context.tools.map(({ name }) => name)).toEqual(["selected"]);
-        expect(turn.runtimePolicy.runtimeMode).toBe(turn.appThread.runtimeMode);
-        starts.push(context.prompt);
-      }),
+      start: (turn, context) =>
+        Effect.gen(function* () {
+          expect(yield* context.authorizeNativeWrite).toBe(true);
+          expect(context.tools.map(({ name }) => name)).toEqual(["selected"]);
+          expect(turn.runtimePolicy.runtimeMode).toBe(turn.appThread.runtimeMode);
+          starts.push(context.prompt);
+        }),
     };
     let active = true;
     const harness = makeLocalCommandHarness({
-      text: "Original user message.", botThreadId: threadId, botTurnStart,
-      beforeBotProjection: Effect.sync(() => { if (scenario === "replaced") active = false; }),
+      text: "Original user message.",
+      botThreadId: threadId,
+      botTurnStart,
+      beforeBotProjection: Effect.sync(() => {
+        if (scenario === "replaced") active = false;
+      }),
     });
-    const release = registerBotExecutionContext(threadId, {
-      prompt: "Captured bot prompt", restrictedTools: scenario !== "new-thread-tools",
-      tools: [{ name: "selected", inputSchema: {} }],
-      call: async (name) => name,
-    }, { botId: "bot", messageId: harness.messageId, isCurrent: () => active });
+    const release = registerBotExecutionContext(
+      threadId,
+      {
+        prompt: "Captured bot prompt",
+        restrictedTools: scenario !== "new-thread-tools",
+        tools: [{ name: "selected", inputSchema: {} }],
+        call: async (name) => name,
+      },
+      { botId: "bot", messageId: harness.messageId, isCurrent: () => active },
+    );
     try {
-      const result = yield* Effect.result(harness.start.pipe(
-        Effect.provideService(ProviderUsageAnalytics.ProviderDispatchObservation, {
-          attempted: Effect.sync(() => void observed.push("attempted")),
-          rejected: Effect.sync(() => void observed.push("rejected")),
-        }),
-      ));
+      const result = yield* Effect.result(
+        harness.start.pipe(
+          Effect.provideService(ProviderUsageAnalytics.ProviderDispatchObservation, {
+            attempted: Effect.sync(() => void observed.push("attempted")),
+            rejected: Effect.sync(() => void observed.push("rejected")),
+          }),
+        ),
+      );
       expect(result._tag).toBe(shouldStart ? "Success" : "Failure");
       expect(starts).toEqual(shouldStart ? ["Captured bot prompt"] : []);
       expect(observed).toEqual(shouldStart ? ["attempted"] : []);
-      expect(harness.botThreadRegistrations).toEqual(scenario === "new-thread-tools"
-        ? [{ names: ["selected"], authorized: true }]
-        : []);
+      expect(harness.botThreadRegistrations).toEqual(
+        scenario === "new-thread-tools" ? [{ names: ["selected"], authorized: true }] : [],
+      );
       expect(harness.startTurn).not.toHaveBeenCalled();
       if (scenario === "replaced") expect(harness.open).not.toHaveBeenCalled();
-    } finally { release(); }
+    } finally {
+      release();
+    }
   }),
 );
 
 it("requires the first exact worker claim for an idle native start", () => {
   const runId = RunId.make("run:route-idle:guard");
   const commandId = CommandId.make("command:route-idle:guard");
-  const claim = { effectId: `effect:${commandId}:provider-turn.start:${runId}`, leaseOwner: "worker-a", attemptCount: 1 };
+  const claim = {
+    effectId: `effect:${commandId}:provider-turn.start:${runId}`,
+    leaseOwner: "worker-a",
+    attemptCount: 1,
+  };
   expect(ProviderTurnStart.idleWorkerLease(claim, commandId, runId)).toBe("worker-a");
   expect(ProviderTurnStart.idleWorkerLease(undefined, commandId, runId)).toBeNull();
-  expect(ProviderTurnStart.idleWorkerLease({ ...claim, attemptCount: 2 }, commandId, runId)).toBeNull();
-  expect(ProviderTurnStart.idleWorkerLease({ ...claim, leaseOwner: "" }, commandId, runId)).toBeNull();
+  expect(
+    ProviderTurnStart.idleWorkerLease({ ...claim, attemptCount: 2 }, commandId, runId),
+  ).toBeNull();
+  expect(
+    ProviderTurnStart.idleWorkerLease({ ...claim, leaseOwner: "" }, commandId, runId),
+  ).toBeNull();
   expect(ProviderTurnStart.idleWorkerLease(claim, commandId, RunId.make("foreign-run"))).toBeNull();
 });

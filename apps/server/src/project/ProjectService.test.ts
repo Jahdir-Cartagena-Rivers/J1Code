@@ -102,8 +102,11 @@ const layerTestFor = (
     | ProjectFaviconResolver.ProjectFaviconResolver
     | RepositoryIdentityResolver.RepositoryIdentityResolver
   >,
-  workspacePathsLayer: Layer.Layer<WorkspacePaths.WorkspacePaths, never, FileSystem.FileSystem | Path.Path> =
-    layerWorkspacePaths,
+  workspacePathsLayer: Layer.Layer<
+    WorkspacePaths.WorkspacePaths,
+    never,
+    FileSystem.FileSystem | Path.Path
+  > = layerWorkspacePaths,
 ) =>
   RuntimeLayer.layerProjectService.pipe(
     Layer.provideMerge(ProjectEnrichmentService.layer),
@@ -112,7 +115,8 @@ const layerTestFor = (
     Layer.provideMerge(SqlitePersistence.layerMemory),
     Layer.provideMerge(ServerSettings.layerTest()),
     Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "project-service-test-" })),
-    Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+    Layer.provide(NodeCrypto.layer),
+    Layer.provideMerge(NodeServices.layer),
     Layer.provideMerge(layerEnrichmentCompletions),
   );
 
@@ -240,7 +244,10 @@ it.effect("provisions a standalone bot and an ordinary project through V2 projec
     const path = yield* Path.Path;
     const projects = yield* ProjectService.ProjectService;
     const root = yield* fs.makeTempDirectoryScoped({ prefix: "j1-bot-workspaces-test-" });
-    const workspace = standaloneBotWorkspace(path.join(root, "bot-workspaces"), BotId.make("fixture"));
+    const workspace = standaloneBotWorkspace(
+      path.join(root, "bot-workspaces"),
+      BotId.make("fixture"),
+    );
     const create = {
       type: "project.create" as const,
       commandId: CommandId.make("command:bot-workspace:create"),
@@ -261,7 +268,10 @@ it.effect("provisions a standalone bot and an ordinary project through V2 projec
     assert.equal(bot.workspaceRoot, workspace.workspaceRoot);
     assert.isNull(bot.defaultModelSelection);
     assert.equal((yield* fs.stat(workspace.workspaceRoot)).type, "Directory");
-    assert.equal(Option.getOrThrow(yield* projects.getById(bot.id)).workspaceRoot, bot.workspaceRoot);
+    assert.equal(
+      Option.getOrThrow(yield* projects.getById(bot.id)).workspaceRoot,
+      bot.workspaceRoot,
+    );
 
     const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" };
     const ordinaryRoot = path.join(root, "nested", "ordinary-project");
@@ -277,9 +287,62 @@ it.effect("provisions a standalone bot and an ordinary project through V2 projec
     assert.equal((yield* fs.stat(ordinaryRoot)).type, "Directory");
     assert.deepEqual(ordinary.defaultModelSelection, modelSelection);
   }).pipe(
-    Effect.provide(layerTestFor(layerMetadata, WorkspacePaths.layer)),
-    Effect.provide(NodeServices.layer),
+    Effect.provide(
+      layerTestFor(layerMetadata, WorkspacePaths.layer).pipe(
+        Layer.provideMerge(NodeServices.layer),
+      ),
+    ),
   ),
+);
+
+it.effect("preserves concurrent tracked-folder additions and rejects invalid paths", () =>
+  Effect.gen(function* () {
+    const service = yield* ProjectService.ProjectService;
+    const path = yield* Path.Path;
+    const projectId = ProjectId.make("project:tracked-folders");
+    const parent = path.resolve("project-folder-fixture");
+    const workspaceRoot = path.join(parent, "primary");
+    const first = { name: "Backend", path: path.join(parent, "backend") };
+    const second = { name: "Frontend", path: path.join(parent, "frontend") };
+    yield* projectMutationOperation(service, {
+      type: "project.create",
+      commandId: CommandId.make("command:tracked-folders:create"),
+      projectId,
+      title: "Tracked folders",
+      workspaceRoot,
+    });
+    yield* Effect.forEach(
+      [first, second],
+      (folder) =>
+        projectMutationOperation(service, {
+          type: "project.update",
+          commandId: CommandId.make(`command:tracked-folders:add:${folder.name}`),
+          projectId,
+          trackFolders: [folder],
+        }),
+      { concurrency: "unbounded" },
+    );
+    const tracked = Option.getOrThrow(yield* service.getById(projectId)).trackedFolders;
+    assert.sameDeepMembers([...(tracked ?? [])], [first, second]);
+    for (const invalidPath of [parent, "relative/path"]) {
+      const failure = yield* Effect.flip(
+        projectMutationOperation(service, {
+          type: "project.update",
+          commandId: CommandId.make(`command:tracked-folders:reject:${invalidPath}`),
+          projectId,
+          trackFolders: [{ name: "Invalid", path: invalidPath }],
+        }),
+      );
+      assert.instanceOf(failure, ProjectService.ProjectInvalidError);
+    }
+    const updated = yield* projectMutationOperation(service, {
+      type: "project.update",
+      commandId: CommandId.make("command:tracked-folders:remove"),
+      projectId,
+      untrackFolders: [first.path],
+    });
+    assert.deepEqual(updated.trackedFolders, [second]);
+  }).pipe(Effect.provide(layerTest)),
 );
 
 it.layer(layerTest)("ProjectService", (it) => {

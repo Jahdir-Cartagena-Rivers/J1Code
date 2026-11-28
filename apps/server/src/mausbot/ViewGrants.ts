@@ -9,9 +9,11 @@ import {
   AuthSettingsWriteScope,
   type AuthClientSession,
 } from "@j1code/contracts";
+import { savedAppFileKey } from "./SavedAppFiles.ts";
 
 /** A view can reach only this runtime, expires quickly, and dies with its originating J1 session. */
 export class MausbotViewGrants {
+  private readonly fileViews = new Map<string, string>();
   private readonly grants = new Map<
     string,
     {
@@ -28,6 +30,9 @@ export class MausbotViewGrants {
     const grant = this.grants.get(key);
     if (!grant) return;
     this.grants.delete(key);
+    for (const [token, view] of this.fileViews) {
+      if (view === key) this.fileViews.delete(token);
+    }
     NodeTimers.clearTimeout(grant.timer);
     grant.abort.abort();
   }
@@ -100,6 +105,17 @@ export class MausbotViewGrants {
       return false;
     }
     return true;
+  }
+  bindSavedAppFiles(token: string, view: string, now: number) {
+    if (!savedAppFileKey.test(token) || !this.valid(view, now)) return;
+    this.fileViews.delete(token);
+    const oldest = this.fileViews.keys().next();
+    if (this.fileViews.size >= 5_000 && !oldest.done) this.fileViews.delete(oldest.value);
+    this.fileViews.set(token, view);
+  }
+  savedAppFileView(token: string, now: number) {
+    const view = this.fileViews.get(token);
+    return view && this.valid(view, now) ? view : undefined;
   }
   revoke(sessionId: string) {
     for (const [key, grant] of this.grants) if (grant.sessionId === sessionId) this.drop(key);

@@ -28,7 +28,9 @@ const ALL_MCP_CAPABILITIES = [
 export type McpCapability = (typeof ALL_MCP_CAPABILITIES)[number];
 
 export interface McpThreadCaller {
-  readonly deepAIOrigin?: Readonly<import("../provider/deepai/DeepAIMcpInvocation.ts").DeepAIInvocationOrigin>;
+  readonly deepAIOrigin?: Readonly<
+    import("../provider/deepai/DeepAIMcpInvocation.ts").DeepAIInvocationOrigin
+  >;
   readonly threadId: ThreadId;
   readonly providerSessionId: string;
   readonly providerInstanceId: ProviderInstanceId;
@@ -122,6 +124,7 @@ export const withRuntimeModeCeiling = (
   const asked = scope.client.narrowedTo;
   return {
     ...scope,
+    runtimeModeCeiling: ceiling,
     client: {
       ...scope.client,
       narrowedTo: {
@@ -143,6 +146,7 @@ export interface McpInvocationScope {
   readonly requestNamespace: string;
   readonly thread: McpThreadCaller | undefined;
   readonly client: McpClientCaller | undefined;
+  readonly runtimeModeCeiling?: RuntimeMode;
   /** False while the Linked environments beta is off here; `/mcp` reads it per request. */
   readonly linkedEnvironments?: boolean;
   /**
@@ -182,6 +186,12 @@ export const hiddenFromSubagents = (): boolean => {
   const fiber = Fiber.getCurrent();
   const scope = fiber && Context.getOrUndefined(fiber.context, McpInvocationContext);
   return scope?.thread?.subagent !== true;
+};
+
+export const hiddenFromThreads = (): boolean => {
+  const fiber = Fiber.getCurrent();
+  const scope = fiber && Context.getOrUndefined(fiber.context, McpInvocationContext);
+  return scope?.thread === undefined;
 };
 
 /**
@@ -227,7 +237,8 @@ const missingCapability = (
 
 export const canUseMcpCapability = (invocation: McpInvocationScope, capability: McpCapability) =>
   invocation.capabilities.has(capability) &&
-  (invocation.thread === undefined || !botExecutionContext(invocation.thread.threadId)?.restrictedTools);
+  (invocation.thread === undefined ||
+    !botExecutionContext(invocation.thread.threadId)?.restrictedTools);
 
 export const requireMcpCapability = <const C extends McpCapability>(
   capability: C,

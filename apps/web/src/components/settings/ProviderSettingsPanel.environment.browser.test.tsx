@@ -172,6 +172,7 @@ vi.mock(import("../ProviderUpdatesAction"), async (original) => ({
 
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { EnvironmentProviderSettings } from "./ProviderSettingsPanel";
+import { MergedSettingsAppearance } from "./settingsAppearance";
 
 const environmentId = EnvironmentId.make("remote-device");
 const codexId = ProviderInstanceId.make("codex");
@@ -250,6 +251,43 @@ async function setup() {
 }
 
 describe("EnvironmentProviderSettings routing", () => {
+  it("publishes names for default and configured providers in merged settings", async () => {
+    await setup();
+    state.settings = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerInstances: {
+        [customId]: {
+          driver: ProviderDriverKind.make("codex"),
+          enabled: true,
+          displayName: "Work",
+        },
+      },
+    };
+    const receive = vi.fn((event: Event) => (event as CustomEvent<unknown>).detail);
+    window.addEventListener("j1-provider-catalog", receive);
+    try {
+      await using _screen = await render(
+        <MergedSettingsAppearance value>{panel()}</MergedSettingsAppearance>,
+      );
+      expect(receive.mock.results.at(-1)?.value).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: codexId, label: "Codex" }),
+          expect.objectContaining({ id: customId, label: "Work" }),
+        ]),
+      );
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("j1-provider-select", { detail: customId }));
+      });
+      expect(receive.mock.results.at(-1)?.value).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: customId, label: "Work", selected: true }),
+        ]),
+      );
+    } finally {
+      window.removeEventListener("j1-provider-catalog", receive);
+    }
+  });
+
   it("does not substitute another account when the requested instance was removed", async () => {
     await setup();
     await setProviders([provider()]);
@@ -469,23 +507,28 @@ describe("EnvironmentProviderSettings routing", () => {
 });
 
 describe("EnvironmentProviderSettings provider list", () => {
-  it.each([false, true])("selects a provider near the row edge while readOnly=%s", async (readOnly) => {
-    await setup();
-    await setProviders([provider()]);
-    await using _screen = await render(panel({ readOnly }));
-    const select = page.getByRole("button", { name: "Select Claude" });
-    await expect.element(select).toHaveAttribute("aria-pressed", "false");
-    const row = page.elementLocator(select.element().closest('[data-slot="settings-row"]')!);
+  it.each([false, true])(
+    "selects a provider near the row edge while readOnly=%s",
+    async (readOnly) => {
+      await setup();
+      await setProviders([provider()]);
+      await using _screen = await render(panel({ readOnly }));
+      const select = page.getByRole("button", { name: "Select Claude" });
+      await expect.element(select).toHaveAttribute("aria-pressed", "false");
+      const row = page.elementLocator(select.element().closest('[data-slot="settings-row"]')!);
 
-    await userEvent.click(row, { position: { x: 3, y: 3 } });
+      await userEvent.click(row, { position: { x: 3, y: 3 } });
 
-    await expect.element(select).toHaveAttribute("aria-pressed", "true");
-    if (readOnly) {
-      await expect.element(page.getByRole("switch", { name: "Enable Claude" }).first()).toBeDisabled();
-    }
-    expect(state.mutateProviderInstance).not.toHaveBeenCalled();
-    expect(state.updateSettings).not.toHaveBeenCalled();
-  });
+      await expect.element(select).toHaveAttribute("aria-pressed", "true");
+      if (readOnly) {
+        await expect
+          .element(page.getByRole("switch", { name: "Enable Claude" }).first())
+          .toBeDisabled();
+      }
+      expect(state.mutateProviderInstance).not.toHaveBeenCalled();
+      expect(state.updateSettings).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("EnvironmentProviderSettings instance removal", () => {

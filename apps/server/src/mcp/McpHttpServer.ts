@@ -48,7 +48,10 @@ import {
 } from "../telemetry/ProviderDimensions.ts";
 import { advertisedJsonSchema } from "./advertisedJsonSchema.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
-import { DEEPAI_INVOCATION_HEADER, resolveDeepAIInvocation } from "../provider/deepai/DeepAIMcpInvocation.ts";
+import {
+  DEEPAI_INVOCATION_HEADER,
+  resolveDeepAIInvocation,
+} from "../provider/deepai/DeepAIMcpInvocation.ts";
 import * as McpToolAccess from "./McpToolAccess.ts";
 import * as McpToolExposure from "./McpToolExposure.ts";
 import { MCP_TOOL_EXPOSURE_HEADER } from "@j1code/provider-core/server/mcpSession";
@@ -64,6 +67,8 @@ import * as ProjectHandlers from "./toolkits/project/handlers.ts";
 import { AttachmentToolkit } from "./toolkits/attachment/tools.ts";
 import * as AttachmentHandlers from "./toolkits/attachment/handlers.ts";
 import { ThreadToolkit } from "./toolkits/thread/tools.ts";
+import * as WorkflowHandlers from "./toolkits/workflow/handlers.ts";
+import { WorkflowToolkit } from "./toolkits/workflow/tools.ts";
 import * as ThreadHandlers from "./toolkits/thread/handlers.ts";
 import * as ThreadMetadataMcpService from "./ThreadMetadataMcpService.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
@@ -278,22 +283,26 @@ const makeMcpAuthMiddleware = Effect.gen(function* () {
     // Re-resolve on every request, even when the transport session is already open.
     const providerScope = yield* registry.resolve(token);
     const proof = request.headers[DEEPAI_INVOCATION_HEADER];
-    const deepAIOrigin = providerScope && resolveDeepAIInvocation(proof, {
-      environmentId: providerScope.environmentId,
-      threadId: providerScope.thread.threadId,
-      providerSessionId: providerScope.thread.providerSessionId,
-    });
+    const deepAIOrigin =
+      providerScope &&
+      resolveDeepAIInvocation(proof, {
+        environmentId: providerScope.environmentId,
+        threadId: providerScope.thread.threadId,
+        providerSessionId: providerScope.thread.providerSessionId,
+      });
     if (proof !== undefined && deepAIOrigin === undefined)
       return unauthorized({ request, presentedToken: token.length > 0, offerOAuth: false });
-    const provider = providerScope && deepAIOrigin
-      ? { ...providerScope, thread: { ...providerScope.thread, deepAIOrigin } }
-      : providerScope;
+    const provider =
+      providerScope && deepAIOrigin
+        ? { ...providerScope, thread: { ...providerScope.thread, deepAIOrigin } }
+        : providerScope;
     const client =
       provider === undefined && Option.isSome(clients) && token.length > 0
         ? yield* clients.value.authenticate(request)
         : undefined;
     const invocation =
-      provider ?? (client?.client !== undefined && client.thread === undefined ? client : undefined);
+      provider ??
+      (client?.client !== undefined && client.thread === undefined ? client : undefined);
     if (!invocation) {
       yield* Effect.logWarning("rejected MCP request with an unusable credential", {
         reason:
@@ -949,14 +958,13 @@ const registerDesktopScreenshot = Effect.fn("McpHttpServer.registerDesktopScreen
     yield* registerImageTool(
       DesktopScreenshotTool,
       (payload) =>
-        built.handle("desktop_screenshot", payload).pipe(
-          Stream.unwrap,
-          Stream.run(Sink.last()),
-          Effect.flatMap(Effect.fromOption),
-        ),
+        built
+          .handle("desktop_screenshot", payload)
+          .pipe(Stream.unwrap, Stream.run(Sink.last()), Effect.flatMap(Effect.fromOption)),
       (effect) => effect.pipe(Effect.provideService(DesktopAutomation.DesktopAutomation, desktop)),
       "screenshot",
-      (error) => parameterValidationMessage(error) ??
+      (error) =>
+        parameterValidationMessage(error) ??
         "Desktop screenshot failed. Check desktop access and the target application's availability.",
     );
   },
@@ -968,7 +976,11 @@ const isBotResultObject = (value: unknown): value is Record<string, unknown> =>
 /** Keep native screenshots as image blocks and native denials as tool errors. */
 function botToolResult(encoded: unknown): McpSchema.CallToolResult {
   const result = isBotResultObject(encoded) ? encoded.result : undefined;
-  if (!isBotResultObject(result) || typeof result.text !== "string" || typeof result.ok !== "boolean") {
+  if (
+    !isBotResultObject(result) ||
+    typeof result.text !== "string" ||
+    typeof result.ok !== "boolean"
+  ) {
     return new McpSchema.CallToolResult({
       content: [{ type: "text", text: JSON.stringify(encoded) }],
       ...(isBotResultObject(encoded) ? { structuredContent: encoded } : {}),
@@ -977,7 +989,10 @@ function botToolResult(encoded: unknown): McpSchema.CallToolResult {
   const images: Array<{ type: "image"; data: Uint8Array; mimeType: string }> = [];
   let encodedBytes = 0;
   for (const image of Array.isArray(result.images) ? result.images : []) {
-    const url = isBotResultObject(image) && isBotResultObject(image.image_url) ? image.image_url.url : undefined;
+    const url =
+      isBotResultObject(image) && isBotResultObject(image.image_url)
+        ? image.image_url.url
+        : undefined;
     const match =
       typeof url === "string"
         ? /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=]+)$/u.exec(url)
@@ -1028,7 +1043,9 @@ const registerBotToolkit = Effect.fn("McpHttpServer.registerBotToolkit")(functio
             Effect.matchCauseEffect({
               // Decode/native failures can contain private tool arguments. Return only a fixed diagnostic.
               onFailure: imageToolFailure(
-                tool.name, "bot", "The bot tool could not run on this session.",
+                tool.name,
+                "bot",
+                "The bot tool could not run on this session.",
               ),
               onSuccess: ({ encodedResult }) => Effect.sync(() => botToolResult(encodedResult)),
             }),
@@ -1366,7 +1383,8 @@ const canCallNativeTool = (
   scope: McpInvocationContext.McpInvocationScope | undefined,
   capability: McpInvocationContext.McpCapability | undefined,
 ) =>
-  scope?.thread !== undefined && scope.client === undefined &&
+  scope?.thread !== undefined &&
+  scope.client === undefined &&
   (capability === undefined || McpInvocationContext.canUseMcpCapability(scope, capability));
 
 /**
@@ -1381,7 +1399,7 @@ const withNativeToolScope = Effect.fn("McpHttpServer.withNativeToolScope")(funct
   const server = yield* McpServer.McpServer;
   const scopedServer = McpServer.McpServer.of({
     ...server,
-    addTool: (options) => {
+    addTool: Effect.fn("McpHttpServer.addNativeTool")((options) => {
       const annotations = options.annotations ?? Context.empty();
       const previous = Context.getOrUndefined(annotations, McpSchema.EnabledWhen);
       return server.addTool({
@@ -1394,16 +1412,23 @@ const withNativeToolScope = Effect.fn("McpHttpServer.withNativeToolScope")(funct
         ),
         handle: (payload) =>
           Effect.withFiber((fiber) => {
-            const scope = Context.getOrUndefined(fiber.context, McpInvocationContext.McpInvocationContext);
+            const scope = Context.getOrUndefined(
+              fiber.context,
+              McpInvocationContext.McpInvocationContext,
+            );
             return canCallNativeTool(scope, capability)
               ? options.handle(payload)
-              : Effect.succeed(new McpSchema.CallToolResult({
-                  isError: true,
-                  content: [{ type: "text", text: "This tool is unavailable for the calling session." }],
-                }));
+              : Effect.succeed(
+                  new McpSchema.CallToolResult({
+                    isError: true,
+                    content: [
+                      { type: "text", text: "This tool is unavailable for the calling session." },
+                    ],
+                  }),
+                );
           }),
       });
-    },
+    }),
   });
   return yield* registration.pipe(Effect.provideService(McpServer.McpServer, scopedServer));
 });
@@ -1414,10 +1439,14 @@ const nativeToolkitRegistration = <Tools extends Record<string, Tool.Any>, E, R>
   capability: McpInvocationContext.McpCapability,
 ) =>
   Layer.effectDiscard(
-    withToolAnalytics(withToolSpans(withNativeToolScope(
-      capability,
-      withAdvertisedSchemas(toolkit, McpServer.registerToolkit(decodeAsAdvertised(toolkit))),
-    ))),
+    withToolAnalytics(
+      withToolSpans(
+        withNativeToolScope(
+          capability,
+          withAdvertisedSchemas(toolkit, McpServer.registerToolkit(decodeAsAdvertised(toolkit))),
+        ),
+      ),
+    ),
   ).pipe(
     Layer.provide(
       provideRegistrationServices<
@@ -1429,16 +1458,20 @@ const nativeToolkitRegistration = <Tools extends Record<string, Tool.Any>, E, R>
   );
 
 export const AgentsToolkitRegistrationLive = nativeToolkitRegistration(
-  AgentsToolkit, AgentsToolkitHandlersLive, "agents",
+  AgentsToolkit,
+  AgentsToolkitHandlersLive,
+  "agents",
 );
 export const HiveMindToolkitRegistrationLive = nativeToolkitRegistration(
-  HiveMindToolkit, HiveMindToolkitHandlersLive, "agents",
+  HiveMindToolkit,
+  HiveMindToolkitHandlersLive,
+  "agents",
 );
 export const DesktopToolkitRegistration = Layer.mergeAll(
   nativeToolkitRegistration(DesktopStandardToolkit, DesktopStandardHandlersLive, "desktop"),
-  Layer.effectDiscard(withToolAnalytics(withToolSpans(withNativeToolScope(
-    "desktop", registerDesktopScreenshot(),
-  )))).pipe(Layer.provide(DesktopScreenshotHandlersLive)),
+  Layer.effectDiscard(
+    withToolAnalytics(withToolSpans(withNativeToolScope("desktop", registerDesktopScreenshot()))),
+  ).pipe(Layer.provide(DesktopScreenshotHandlersLive)),
 );
 export const DesktopToolkitRegistrationLive = DesktopToolkitRegistration.pipe(
   Layer.provide(DesktopAutomation.layer.pipe(Layer.provide(ProcessRunner.layer))),
@@ -1450,10 +1483,20 @@ const layerRoutingToolkits = Layer.mergeAll(
   nativeToolkitRegistration(HomeToolkit, HomeToolkitHandlersLive, "agents"),
   nativeToolkitRegistration(RoutingToolkit, RoutingToolkitHandlers, "agents"),
 ).pipe(Layer.provide(RoutingRuntimeLive));
+export const BackgroundBrowserToolkitRegistration = nativeToolkitRegistration(
+  BackgroundBrowserToolkit,
+  BackgroundBrowserHandlers,
+  "preview",
+);
+export const ConversationsToolkitRegistration = nativeToolkitRegistration(
+  ConversationsToolkit,
+  ConversationsToolkitHandlers,
+  "agents",
+);
 const layerNativeTools = Layer.mergeAll(
-  nativeToolkitRegistration(BackgroundBrowserToolkit, BackgroundBrowserHandlers, "preview"),
+  BackgroundBrowserToolkitRegistration,
   layerRoutingToolkits,
-  nativeToolkitRegistration(ConversationsToolkit, ConversationsToolkitHandlers, "agents"),
+  ConversationsToolkitRegistration,
   AgentsToolkitRegistrationLive,
   HiveMindToolkitRegistrationLive,
   DesktopToolkitRegistrationLive,
@@ -1494,6 +1537,8 @@ export const layerOrchestratorToolkit = toolkitRegistration(
 ).pipe(Layer.provide(OrchestratorMcpService.layer), Layer.provide(ThreadMetadataMcpService.layer));
 
 export const layerThreadToolkit = toolkitRegistration(ThreadToolkit, ThreadHandlers.layer);
+
+export const layerWorkflowToolkit = toolkitRegistration(WorkflowToolkit, WorkflowHandlers.layer);
 
 const layerMessageToolkit = toolkitRegistration(MessageToolkit, MessageHandlers.layer);
 
@@ -1578,6 +1623,7 @@ export const layerTools = Layer.mergeAll(
   layerPreviewToolkit,
   layerOrchestratorToolkit,
   layerThreadToolkit,
+  layerWorkflowToolkit,
   layerAttachmentToolkit,
   layerProjectRegistration,
   layerEnvironmentToolkit,

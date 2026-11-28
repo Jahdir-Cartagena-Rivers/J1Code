@@ -73,98 +73,93 @@ const fromRow = Effect.fnUntraced(function* (row: Row) {
   };
 });
 
-/** Isolated infrastructure: migration registration, authenticated verifier, lifecycle hooks,
- * ownerDiscovery evidence freshness and routing admission remain integration work.
- * lookupDurable returns active persisted claims, NOT delivery readiness. lookupCurrent
- * additionally checks a fresh J1 shell snapshot; ambiguity never silently picks a winner.
- * history includes revoked claims. Rebind after revocation requires a NEW binding ID.
- */
-export const makeTaskOwnerStore = (verifier: TaskOwnerVerifier) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const get = Effect.fn("TaskOwnerStore.get")(function* (bindingId: string) {
-      const rows =
-        yield* sql<Row>`SELECT * FROM task_owner_bindings WHERE binding_id = ${bindingId}`;
-      return rows[0] ? yield* fromRow(rows[0]) : null;
-    });
-    const history = Effect.fn("TaskOwnerStore.history")(function* (
-      taskId: string,
-      scope: Pick<OwnerEndpoint, "environmentId" | "projectId">,
-    ) {
-      yield* decodeId(taskId);
-      yield* decodeId(scope.environmentId);
-      yield* decodeId(scope.projectId);
-      const rows = yield* sql<Row>`SELECT * FROM task_owner_bindings
+/** Durable claims need a fresh shell snapshot for delivery. Revocation keeps history and requires a new binding ID. */
+export const makeTaskOwnerStore = Effect.fn("TaskOwnerStore.make")(function* (
+  verifier: TaskOwnerVerifier,
+) {
+  const sql = yield* SqlClient.SqlClient;
+  const get = Effect.fn("TaskOwnerStore.get")(function* (bindingId: string) {
+    const rows = yield* sql<Row>`SELECT * FROM task_owner_bindings WHERE binding_id = ${bindingId}`;
+    return rows[0] ? yield* fromRow(rows[0]) : null;
+  });
+  const history = Effect.fn("TaskOwnerStore.history")(function* (
+    taskId: string,
+    scope: Pick<OwnerEndpoint, "environmentId" | "projectId">,
+  ) {
+    yield* decodeId(taskId);
+    yield* decodeId(scope.environmentId);
+    yield* decodeId(scope.projectId);
+    const rows = yield* sql<Row>`SELECT * FROM task_owner_bindings
       WHERE task_id = ${taskId} AND environment_id = ${scope.environmentId}
       AND project_id = ${scope.projectId} ORDER BY binding_id`;
-      return yield* Effect.forEach(rows, fromRow);
-    });
-    const lookupDurable = Effect.fn("TaskOwnerStore.lookupDurable")(function* (
-      taskId: string,
-      scope: Pick<OwnerEndpoint, "environmentId" | "projectId">,
-    ) {
-      const bindings = (yield* history(taskId, scope)).filter((b) => b.revocation === null);
-      const threads = new Set(bindings.map((b) => b.threadId));
-      const first = bindings[0];
-      return {
-        status: threads.size > 1 ? "ambiguous" : first ? "bound" : "none",
-        owner:
-          threads.size === 1 && first
-            ? {
-                environmentId: first.environmentId,
-                projectId: first.projectId,
-                threadId: first.threadId,
-              }
-            : null,
-        bindings,
-      } satisfies TaskOwnerLookup;
-    });
-    const bind = Effect.fn("TaskOwnerStore.bind")(function* (input: TaskOwnerBinding) {
-      const binding = yield* decodeBinding(input);
-      const provenance = yield* decodeProvenance(yield* verifier.verify("bind", binding));
-      yield* sql`INSERT INTO task_owner_bindings
+    return yield* Effect.forEach(rows, fromRow);
+  });
+  const lookupDurable = Effect.fn("TaskOwnerStore.lookupDurable")(function* (
+    taskId: string,
+    scope: Pick<OwnerEndpoint, "environmentId" | "projectId">,
+  ) {
+    const bindings = (yield* history(taskId, scope)).filter((b) => b.revocation === null);
+    const threads = new Set(bindings.map((b) => b.threadId));
+    const first = bindings[0];
+    return {
+      status: threads.size > 1 ? "ambiguous" : first ? "bound" : "none",
+      owner:
+        threads.size === 1 && first
+          ? {
+              environmentId: first.environmentId,
+              projectId: first.projectId,
+              threadId: first.threadId,
+            }
+          : null,
+      bindings,
+    } satisfies TaskOwnerLookup;
+  });
+  const bind = Effect.fn("TaskOwnerStore.bind")(function* (input: TaskOwnerBinding) {
+    const binding = yield* decodeBinding(input);
+    const provenance = yield* decodeProvenance(yield* verifier.verify("bind", binding));
+    yield* sql`INSERT INTO task_owner_bindings
       (binding_id, task_id, environment_id, project_id, thread_id, provenance_json)
       VALUES (${binding.bindingId}, ${binding.taskId}, ${binding.environmentId},
       ${binding.projectId}, ${binding.threadId}, ${yield* encodeProvenanceJson(provenance)})
       ON CONFLICT(binding_id) DO NOTHING`;
-      const stored = yield* get(binding.bindingId);
-      if (
-        !stored ||
-        stored.taskId !== binding.taskId ||
-        stored.environmentId !== binding.environmentId ||
-        stored.projectId !== binding.projectId ||
-        stored.threadId !== binding.threadId
-      )
-        return yield* new TaskOwnerStoreError({ reason: "binding-id-conflict" });
-      if (stored.revocation) return yield* new TaskOwnerStoreError({ reason: "binding-revoked" });
-      return stored;
-    });
-    const revoke = Effect.fn("TaskOwnerStore.revoke")(function* (bindingId: string) {
-      const stored = yield* get(bindingId);
-      if (!stored) return yield* new TaskOwnerStoreError({ reason: "binding-missing" });
-      const provenance = yield* decodeProvenance(yield* verifier.verify("revoke", stored));
-      yield* sql`UPDATE task_owner_bindings SET revocation_json = ${yield* encodeProvenanceJson(provenance)}
-      WHERE binding_id = ${bindingId} AND revocation_json IS NULL`;
-      return yield* get(bindingId);
-    });
-    const lookupCurrent = Effect.fn("TaskOwnerStore.lookupCurrent")(function* (
-      taskId: string,
-      scope: Pick<OwnerEndpoint, "environmentId" | "projectId">,
-      shells: readonly CurrentOwnerShell[],
-    ) {
-      const result = yield* lookupDurable(taskId, scope);
-      if (!result.owner) return result;
-      const matches = shells.filter(
-        (s) =>
-          s.environmentId === scope.environmentId &&
-          s.projectId === scope.projectId &&
-          s.threadId === result.owner!.threadId,
-      );
-      return matches.length === 1 &&
-        matches[0]!.state === "available" &&
-        matches[0]!.taskIds.includes(taskId)
-        ? result
-        : { ...result, status: "unavailable" as const, owner: null };
-    });
-    return { bind, revoke, unbind: revoke, get, history, lookupDurable, lookupCurrent };
+    const stored = yield* get(binding.bindingId);
+    if (
+      !stored ||
+      stored.taskId !== binding.taskId ||
+      stored.environmentId !== binding.environmentId ||
+      stored.projectId !== binding.projectId ||
+      stored.threadId !== binding.threadId
+    )
+      return yield* new TaskOwnerStoreError({ reason: "binding-id-conflict" });
+    if (stored.revocation) return yield* new TaskOwnerStoreError({ reason: "binding-revoked" });
+    return stored;
   });
+  const revoke = Effect.fn("TaskOwnerStore.revoke")(function* (bindingId: string) {
+    const stored = yield* get(bindingId);
+    if (!stored) return yield* new TaskOwnerStoreError({ reason: "binding-missing" });
+    const provenance = yield* decodeProvenance(yield* verifier.verify("revoke", stored));
+    yield* sql`UPDATE task_owner_bindings SET revocation_json = ${yield* encodeProvenanceJson(provenance)}
+      WHERE binding_id = ${bindingId} AND revocation_json IS NULL`;
+    return yield* get(bindingId);
+  });
+  const lookupCurrent = Effect.fn("TaskOwnerStore.lookupCurrent")(function* (
+    taskId: string,
+    scope: Pick<OwnerEndpoint, "environmentId" | "projectId">,
+    shells: readonly CurrentOwnerShell[],
+  ) {
+    const result = yield* lookupDurable(taskId, scope);
+    if (!result.owner) return result;
+    const matches = shells.filter(
+      (s) =>
+        s.environmentId === scope.environmentId &&
+        s.projectId === scope.projectId &&
+        s.threadId === result.owner!.threadId,
+    );
+    return matches.length === 1 &&
+      matches[0]!.state === "available" &&
+      matches[0]!.taskIds.includes(taskId)
+      ? result
+      : { ...result, status: "unavailable" as const, owner: null };
+  });
+  return { bind, revoke, unbind: revoke, get, history, lookupDurable, lookupCurrent };
+});

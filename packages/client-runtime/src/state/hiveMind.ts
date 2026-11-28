@@ -1,5 +1,5 @@
 import { WS_METHODS, type HiveMindConfig } from "@j1code/contracts";
-import type { Atom } from "effect/unstable/reactivity";
+import type { Atom } from "effect/reactivity";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { createEnvironmentRpcCommand } from "./runtime.ts";
 export const formatHiveSkillRoots = (roots: HiveMindConfig["skills"]) =>

@@ -2,11 +2,18 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 
 /** All replacements are pinned; an upstream layout change fails the assembly. */
-export async function patchSharedExecution(stage: string, root: string, { settingsWindow = false } = {}) {
+export async function patchSharedExecution(
+  stage: string,
+  root: string,
+  { settingsWindow = false } = {},
+) {
   const change = async (file: string, before: string, after: string) => {
     const movedProtocolFile =
       settingsWindow && (file === "shared/wire.ts" || file === "shared/runtime-events.ts");
-    const path = NodePath.join(stage, movedProtocolFile ? `packages/phone-protocol/src/${NodePath.basename(file)}` : file);
+    const path = NodePath.join(
+      stage,
+      movedProtocolFile ? `packages/phone-protocol/src/${NodePath.basename(file)}` : file,
+    );
     const source = (await NodeFSP.readFile(path, "utf8")).replaceAll("\r\n", "\n");
     if (source.split(before).length !== 2)
       throw new Error(`Pinned shared execution source changed: ${file}`);
@@ -231,7 +238,7 @@ const outsideLineage = createOutsideLineage({`,
   await change(
     "server/contracts.ts",
     "export interface SendTurnInput {",
-    "export interface SendTurnInput {\n  j1BotName?: string;\n  j1RoomTurn?: true;\n  j1Consultation?: true;\n  j1RoomMemberRead?: import(\"./drivers/j1-shared.ts\").NativeRoomMemberRead;\n  j1ProjectId?: string;\n  j1ExplicitResume?: () => boolean;\n  j1RetryFailure?: string;\n  j1RetryNote?: import(\"./drivers/j1-shared.ts\").NativeIncidentRetryNote;\n  j1SavedHistoryAnchor?: import(\'./drivers/j1-shared.ts\').SavedHistoryAnchor;",
+    'export interface SendTurnInput {\n  j1BotName?: string;\n  j1RoomTurn?: true;\n  j1Consultation?: true;\n  j1RoomMemberRead?: import("./drivers/j1-shared.ts").NativeRoomMemberRead;\n  j1ProjectId?: string;\n  j1ExplicitResume?: () => boolean;\n  j1RetryFailure?: string;\n  j1RetryNote?: import("./drivers/j1-shared.ts").NativeIncidentRetryNote;\n  j1SavedHistoryAnchor?: import(\'./drivers/j1-shared.ts\').SavedHistoryAnchor;',
   );
   await change(
     "shared/wire.ts",
@@ -241,11 +248,7 @@ const outsideLineage = createOutsideLineage({`,
   const wireTask = settingsWindow
     ? "export interface WireTask extends InboxTask, HandoffStatusField {"
     : "export interface WireTask extends InboxTask {";
-  await change(
-    "shared/wire.ts",
-    wireTask,
-    `${wireTask}\n  j1ProjectId?: string;`,
-  );
+  await change("shared/wire.ts", wireTask, `${wireTask}\n  j1ProjectId?: string;`);
   await change(
     "server/store.ts",
     '  "title", "projectId", "modelSelection",',
@@ -259,7 +262,7 @@ const outsideLineage = createOutsideLineage({`,
   await change(
     "server/index.ts",
     "        botId: bot.id,\n        startupRecovery,",
-    "        botId: bot.id,\n        j1BotName: bot.name,\n        ...(nativeAssignment && \"consultation\" in nativeAssignment ? { j1Consultation: true as const } : {}),\n        ...(bot.j1ProjectId ? { j1ProjectId: bot.j1ProjectId } : {}),\n        ...(instance.driverKind === \"j1-shared\" ? { j1SavedHistoryAnchor: {\n          messageId: nativeAssignment?.sourceMessageId ?? userMessage.id,\n          ...(nativeAssignment ? { origin: nativeAssignment } : {}),\n          ...(nativeAssignment?.root && nativeAssignment.dispatch === \"first\" ? { authoredInputText: liveInputText } : {}),\n          promptText: privateCoordinator ? liveInputText : opts?.j1Resume ? \"\" : withTurnClock(clock, withRecalled(recalled, attachmentsForBox(userTurnText, cwd) + shareNote.text + devsReports.note(threadId, Boolean(integrations.agents)))),\n          currentImages: opts?.j1Resume || privateCoordinator ? [] : turnImages,\n        } } : {}),\n        startupRecovery,",
+    '        botId: bot.id,\n        j1BotName: bot.name,\n        ...(nativeAssignment && "consultation" in nativeAssignment ? { j1Consultation: true as const } : {}),\n        ...(bot.j1ProjectId ? { j1ProjectId: bot.j1ProjectId } : {}),\n        ...(instance.driverKind === "j1-shared" ? { j1SavedHistoryAnchor: {\n          messageId: nativeAssignment?.sourceMessageId ?? userMessage.id,\n          ...(nativeAssignment ? { origin: nativeAssignment } : {}),\n          ...(nativeAssignment?.root && nativeAssignment.dispatch === "first" ? { authoredInputText: liveInputText } : {}),\n          promptText: privateCoordinator ? liveInputText : opts?.j1Resume ? "" : withTurnClock(clock, withRecalled(recalled, attachmentsForBox(userTurnText, cwd) + shareNote.text + devsReports.note(threadId, Boolean(integrations.agents)))),\n          currentImages: opts?.j1Resume || privateCoordinator ? [] : turnImages,\n        } } : {}),\n        startupRecovery,',
   );
   await change(
     "shared/wire.ts",
@@ -283,7 +286,7 @@ const outsideLineage = createOutsideLineage({`,
   );
   await change(
     "server/index.ts",
-    '      const fileIncident = () => { if (broken',
+    "      const fileIncident = () => { if (broken",
     `      const failedOwner = directRequestOwners.get(event.threadId);
       if (broken && !held && completedTurnId && !failedOwner?.stopped && failedOwner?.messageId &&
           failedOwner.turnId === completedTurnId && event.j1IncidentFailure) {
@@ -296,13 +299,24 @@ const outsideLineage = createOutsideLineage({`,
   );
   await change(
     "server/host/chief-notices.ts",
-    '  startTurn(botId: string, text: string, opts:',
-    '  retrySharedIncident?(input: { chief: BotRecord; chiefThreadId?: string; bot: BotRecord; threadId: string; unattended: boolean; note?: string }): Promise<boolean>;\n  startTurn(botId: string, text: string, opts:',
+    "  startTurn(botId: string, text: string, opts:",
+    "  retrySharedIncident?(input: { chief: BotRecord; chiefThreadId?: string; bot: BotRecord; threadId: string; unattended: boolean; note?: string }): Promise<boolean>;\n  startTurn(botId: string, text: string, opts:",
   );
+  const chiefFile = "server/host/chief-notices.ts";
+  const chiefSource = await NodeFSP.readFile(NodePath.join(stage, chiefFile), "utf8");
+  const classifiedRetry = chiefSource.includes('Promise<"request" | "turn" | "queued">');
+  const retryGuard = classifiedRetry
+    ? "    const refused = retryRefusal(input.bot.id, input.threadId);\n    if (refused) throw new Error(refused);"
+    : "    if (refused) throw new Error(refused);\n    const chief = peerName(input.chief.name);";
   await change(
-    "server/host/chief-notices.ts",
-    "    if (refused) throw new Error(refused);\n    const chief = peerName(input.chief.name);",
-    "    if (refused) throw new Error(refused);\n    if (await deps.retrySharedIncident?.(input)) return;\n    const chief = peerName(input.chief.name);",
+    chiefFile,
+    retryGuard,
+    classifiedRetry
+      ? `${retryGuard}\n    if (await deps.retrySharedIncident?.(input)) return "turn";`
+      : retryGuard.replace(
+          "\n    const chief",
+          "\n    if (await deps.retrySharedIncident?.(input)) return;\n    const chief",
+        ),
   );
   const chiefNotices = settingsWindow
     ? "const { reportIncident, incidentRefused, retryThread } = createChiefNotices({"
@@ -368,16 +382,23 @@ const outsideLineage = createOutsideLineage({`,
     "threadId: string; unattended?: boolean; peerAsk: PeerAsk",
     "threadId: string; unattended?: boolean; peerAsk: PeerAsk; j1IncidentRetry?: true",
   );
+  const chiefRetryOptions = classifiedRetry
+    ? "{ threadId: input.threadId, unattended: input.unattended, peerAsk });"
+    : "{ threadId: input.threadId, unattended: input.unattended, peerAsk: {";
   await change(
-    "server/host/chief-notices.ts",
-    "{ threadId: input.threadId, unattended: input.unattended, peerAsk: {",
-    "{ threadId: input.threadId, unattended: input.unattended, j1IncidentRetry: true, peerAsk: {",
+    chiefFile,
+    chiefRetryOptions,
+    chiefRetryOptions.replace("peerAsk", "j1IncidentRetry: true, peerAsk"),
   );
   const roomFinalTurn = settingsWindow ? "${finalTurnBlock(spoken)}" : "";
   await change(
     "server/index.ts",
-    "  const roomTail = `\\n\\n(Reply to the conversation above as ${bot.name}.)${learnBlock}${heldReplay.block}${cardContinuation ? `\\n\\n${cardContinuation}` : \"\"}${coordinationReminder}${liveRosterBlock}" + roomFinalTurn + "`;",
-    "  const roomInstructionsBeforeHistory = `\\n\\n(Reply to the conversation above as ${bot.name}.)${operation?.j1ParkedAnswer ? \"\" : learnBlock}`;\n  const roomInstructionsAfterHistory = `${cardContinuation ? `\\n\\n${cardContinuation}` : \"\"}${coordinationReminder}${liveRosterBlock}" + roomFinalTurn + "`;\n  const roomTail = roomInstructionsBeforeHistory + heldReplay.block + roomInstructionsAfterHistory;",
+    '  const roomTail = `\\n\\n(Reply to the conversation above as ${bot.name}.)${learnBlock}${heldReplay.block}${cardContinuation ? `\\n\\n${cardContinuation}` : ""}${coordinationReminder}${liveRosterBlock}' +
+      roomFinalTurn +
+      "`;",
+    '  const roomInstructionsBeforeHistory = `\\n\\n(Reply to the conversation above as ${bot.name}.)${operation?.j1ParkedAnswer ? "" : learnBlock}`;\n  const roomInstructionsAfterHistory = `${cardContinuation ? `\\n\\n${cardContinuation}` : ""}${coordinationReminder}${liveRosterBlock}' +
+      roomFinalTurn +
+      "`;\n  const roomTail = roomInstructionsBeforeHistory + heldReplay.block + roomInstructionsAfterHistory;",
   );
   await change(
     "server/index.ts",
@@ -387,11 +408,11 @@ const outsideLineage = createOutsideLineage({`,
   await change(
     "shared/wire.ts",
     "  goalRun?: GroupGoalRunCardData;",
-    "  j1RoomQuestion?: { nodeId: string; turnId: string; sourceMessageId: string; generation?: string; execution?: number; restartCount?: number; cardIds?: string[]; requestIds?: string[]; handoffHash?: string; privateBotId?: string; goal?: { runId: string; cardId: string; step: number; memberId: string; coordinator: boolean } };\n  j1RoomAnswer?: { person: string; decisionHash?: string };\n  j1Credential?: { botId: string; threadId: string; person: string; actionHash: string; saveId?: string; state?: \"saved\" | \"cancelled\" };\n  j1SignInAck?: { botId: string; threadId: string; person: string; actionHash: string; state?: \"acknowledged\" | \"cancelled\" };\n  j1AppConnector?: { botId: string; threadId: string; person: string; resumeKey: string; cardIds: string[]; scope: string; targetHash: string; authConfigHash?: string; flowId?: string };\n  j1McpOAuth?: { botId: string; threadId: string; requestId: string; server: string; scope: string; person: string; flowId?: string };\n  j1RoomSetup?: { roomId: string; memberId: string; operationId: string; nodeId: string; execution: number; generation: string; turnId: string; sourceId: string; sourceHash: string; handoffHash?: string; person: string; actionHash: string; family?: \"mcp\" | \"oauth\" | \"app\" | \"signin\" | \"credential\"; decision?: { state: \"applied\" | \"denied\" | \"cancelled\" | \"failed\" | \"acknowledged\" | \"saved\"; hash: string } };\n  j1RoomSetupCards?: string[];\n  j1SetupWake?: { nodeId: string; execution: number; generation: string; turnId: string; sourceId: string; scopeHash: string; cardIds: string[]; batchIds?: string[]; actionHash: string; family?: \"mcp\" | \"oauth\" | \"app\" | \"signin\" | \"credential\"; reviewPerson?: string; reviewHash?: string; state?: \"applied\" | \"denied\" | \"cancelled\" | \"failed\" | \"acknowledged\" | \"saved\" };\n  j1HandoffStarts?: { nodeId: string; execution: number; generation: string; turnId: string; resultHash?: string; rootAnswerHash?: string; rootRestartHash?: string; rootQuestion?: true; issuedAt?: number }[];\n  goalRun?: GroupGoalRunCardData;",
+    '  j1RoomQuestion?: { nodeId: string; turnId: string; sourceMessageId: string; generation?: string; execution?: number; restartCount?: number; cardIds?: string[]; requestIds?: string[]; handoffHash?: string; privateBotId?: string; goal?: { runId: string; cardId: string; step: number; memberId: string; coordinator: boolean } };\n  j1RoomAnswer?: { person: string; decisionHash?: string };\n  j1Credential?: { botId: string; threadId: string; person: string; actionHash: string; saveId?: string; state?: "saved" | "cancelled" };\n  j1SignInAck?: { botId: string; threadId: string; person: string; actionHash: string; state?: "acknowledged" | "cancelled" };\n  j1AppConnector?: { botId: string; threadId: string; person: string; resumeKey: string; cardIds: string[]; scope: string; targetHash: string; authConfigHash?: string; flowId?: string };\n  j1McpOAuth?: { botId: string; threadId: string; requestId: string; server: string; scope: string; person: string; flowId?: string };\n  j1RoomSetup?: { roomId: string; memberId: string; operationId: string; nodeId: string; execution: number; generation: string; turnId: string; sourceId: string; sourceHash: string; handoffHash?: string; person: string; actionHash: string; family?: "mcp" | "oauth" | "app" | "signin" | "credential"; decision?: { state: "applied" | "denied" | "cancelled" | "failed" | "acknowledged" | "saved"; hash: string } };\n  j1RoomSetupCards?: string[];\n  j1SetupWake?: { nodeId: string; execution: number; generation: string; turnId: string; sourceId: string; scopeHash: string; cardIds: string[]; batchIds?: string[]; actionHash: string; family?: "mcp" | "oauth" | "app" | "signin" | "credential"; reviewPerson?: string; reviewHash?: string; state?: "applied" | "denied" | "cancelled" | "failed" | "acknowledged" | "saved" };\n  j1HandoffStarts?: { nodeId: string; execution: number; generation: string; turnId: string; resultHash?: string; rootAnswerHash?: string; rootRestartHash?: string; rootQuestion?: true; issuedAt?: number }[];\n  goalRun?: GroupGoalRunCardData;',
   );
   await change(
     "server/index.ts",
-    'const heldContext = { source: verdict?.source, permission };',
+    "const heldContext = { source: verdict?.source, permission };",
     `const heldContext = { source: verdict?.source, permission };
       const roomGeneration = activeInternalGenerationByThread.get(event.threadId);
       const roomRequests = group && !permission && event.provider === "j1-shared" && event.turnId && roomGeneration
@@ -420,7 +441,7 @@ const outsideLineage = createOutsideLineage({`,
   );
   await change(
     "server/index.ts",
-    '  if (result.cap || result.stalled || !cards.length) return result;',
+    "  if (result.cap || result.stalled || !cards.length) return result;",
     `  if (!node.groupId && (node.parentId || j1PrivateRoot(node)) && outcome.ok && !result.cap && !result.stalled) {
     const questions = turnRows(node).filter(row => row.j1RoomQuestion?.privateBotId === node.botId &&
       row.j1RoomQuestion.nodeId === node.id && row.j1RoomQuestion.generation === generation &&
@@ -507,7 +528,7 @@ const outsideLineage = createOutsideLineage({`,
   );
   await change(
     "server/index.ts",
-    '  askCards.answerParked(threadId, requestId, answer) ? { queued: false } : personReplies.deliverLateQuestionAnswer(auth, threadId, requestId, answer, cardMessage, owner, via, callId);',
+    "  askCards.answerParked(threadId, requestId, answer) ? { queued: false } : personReplies.deliverLateQuestionAnswer(auth, threadId, requestId, answer, cardMessage, owner, via, callId);",
     `  (() => {
     if (cardMessage.j1RoomQuestion)
       return acceptJ1ParkedRoomAnswer(auth, threadId, requestId, answer, cardMessage.id, owner.id, via);
@@ -1191,8 +1212,8 @@ function acceptJ1ParkedRoomAnswer(auth: RequestAuth, threadId: string, requestId
   );
   await change(
     "server/index.ts",
-    '        const proposed = await teamSetupRequests.submit(setup);',
-    '        const proposed = await teamSetupRequests.submit(setup);\n        j1RecordSetupProducer(internalCapability, proposed);',
+    "        const proposed = await teamSetupRequests.submit(setup);",
+    "        const proposed = await teamSetupRequests.submit(setup);\n        j1RecordSetupProducer(internalCapability, proposed);",
   );
   await change(
     "server/index.ts",
@@ -1206,62 +1227,62 @@ function acceptJ1ParkedRoomAnswer(auth: RequestAuth, threadId: string, requestId
   );
   await change(
     "server/index.ts",
-    'createMcpChat({ store, cfg, mcpOAuth, teamConnections, mcpServersHost, managedPolicy,',
+    "createMcpChat({ store, cfg, mcpOAuth, teamConnections, mcpServersHost, managedPolicy,",
     'createMcpChat({ store, cfg, mcpOAuth, teamConnections, mcpServersHost, managedPolicy,\n  recordSetupProducer: j1RecordMcpSetupProducer,\n  recordOAuthProducer: j1RecordMcpOAuthProducer,\n  recordOAuthDecision: (threadId, messageId, person) => {\n    const reviewer = { kind: "session" as const, person, name: "" };\n    return store.groupByThread(threadId) ? j1SaveRoomSetupDecision(threadId, messageId, reviewer) :\n      j1SavePrivateMcpSetupDecision(threadId, messageId, reviewer);\n  },\n  oauthReviewer: auth => auth.kind === "session" && sessions.isLive(auth.session.id)\n    ? { person: actorKey(auth), live: () => sessions.isLive(auth.session.id) } : undefined,\n  recordSetupDecision: (threadId, messageId, auth) => {\n    if (auth?.kind !== "session" || !sessions.isLive(auth.session.id)) return;\n    const reviewer = cardAnswererFor(auth);\n    if (store.groupByThread(threadId)) j1SaveRoomSetupDecision(threadId, messageId, reviewer);\n    else j1SavePrivateMcpSetupDecision(threadId, messageId, reviewer);\n  },',
   );
   await change(
     "server/host/mcp-chat.ts",
-    '  answerCardNode(threadId: string, messageId: string, text: string): boolean;',
-    '  answerCardNode(threadId: string, messageId: string, text: string): boolean;\n  recordSetupProducer?(botId: string, threadId: string, generation: string, cardId: string, requestId: string): void;\n  recordSetupDecision?(threadId: string, messageId: string, auth?: RequestAuth): void;',
+    "  answerCardNode(threadId: string, messageId: string, text: string): boolean;",
+    "  answerCardNode(threadId: string, messageId: string, text: string): boolean;\n  recordSetupProducer?(botId: string, threadId: string, generation: string, cardId: string, requestId: string): void;\n  recordSetupDecision?(threadId: string, messageId: string, auth?: RequestAuth): void;",
   );
   await change(
     "server/host/mcp-chat.ts",
-    'ownerReview: boolean): Promise<boolean> {\n    const outcome = await mcpRequests.respond(args, ownerReview);',
-    'ownerReview: boolean, auth?: RequestAuth): Promise<boolean> {\n    const outcome = await mcpRequests.respond(args, ownerReview, (threadId, messageId) => deps.recordSetupDecision?.(threadId, messageId, auth));',
+    "ownerReview: boolean): Promise<boolean> {\n    const outcome = await mcpRequests.respond(args, ownerReview);",
+    "ownerReview: boolean, auth?: RequestAuth): Promise<boolean> {\n    const outcome = await mcpRequests.respond(args, ownerReview, (threadId, messageId) => deps.recordSetupDecision?.(threadId, messageId, auth));",
   );
   await change(
     "server/host/mcp-chat.ts",
-    'requestApproval: ({ action, name, subtitle, targetHash, fields }) => mcpRequests.propose({ action, name, botId: sender.id, threadId, targetHash }, subtitle, fields, from),',
-    'requestApproval: ({ action, name, subtitle, targetHash, fields }) => {\n        const proposed = mcpRequests.propose({ action, name, botId: sender.id, threadId, targetHash }, subtitle, fields, from);\n        if (generation) deps.recordSetupProducer?.(sender.id, threadId, generation, proposed.messageId, proposed.requestId);\n        return proposed;\n      },',
+    "requestApproval: ({ action, name, subtitle, targetHash, fields }) => mcpRequests.propose({ action, name, botId: sender.id, threadId, targetHash }, subtitle, fields, from),",
+    "requestApproval: ({ action, name, subtitle, targetHash, fields }) => {\n        const proposed = mcpRequests.propose({ action, name, botId: sender.id, threadId, targetHash }, subtitle, fields, from);\n        if (generation) deps.recordSetupProducer?.(sender.id, threadId, generation, proposed.messageId, proposed.requestId);\n        return proposed;\n      },",
   );
   await change(
     "server/host/mcp-requests.ts",
-    'ownerReview: boolean): Promise<Respond | null> {',
-    'ownerReview: boolean, beforeWake?: (threadId: string, messageId: string) => void): Promise<Respond | null> {',
+    "ownerReview: boolean): Promise<Respond | null> {",
+    "ownerReview: boolean, beforeWake?: (threadId: string, messageId: string) => void): Promise<Respond | null> {",
   );
   await change(
     "server/host/mcp-requests.ts",
-    '      settled = this.record(args.threadId, message.id, request, result, args.behavior);',
-    '      settled = this.record(args.threadId, message.id, request, result, args.behavior);\n      beforeWake?.(args.threadId, message.id);',
+    "      settled = this.record(args.threadId, message.id, request, result, args.behavior);",
+    "      settled = this.record(args.threadId, message.id, request, result, args.behavior);\n      beforeWake?.(args.threadId, message.id);",
   );
   await change(
     "server/routes/bot-messages.ts",
-    'resolveAndSendMcp(res: ServerResponse, args: { botId: string; threadId: string; requestId: string; behavior: string }, ownerReview: boolean):',
-    'resolveAndSendMcp(res: ServerResponse, args: { botId: string; threadId: string; requestId: string; behavior: string }, ownerReview: boolean, auth?: RequestAuth):',
+    "resolveAndSendMcp(res: ServerResponse, args: { botId: string; threadId: string; requestId: string; behavior: string }, ownerReview: boolean):",
+    "resolveAndSendMcp(res: ServerResponse, args: { botId: string; threadId: string; requestId: string; behavior: string }, ownerReview: boolean, auth?: RequestAuth):",
   );
   await change(
     "server/mcp-oauth-store.ts",
-    '  tokens: tokensSchema.optional(),',
-    '  tokens: tokensSchema.optional(),\n  authorizationFlowId: z.string().uuid().optional(),',
+    "  tokens: tokensSchema.optional(),",
+    "  tokens: tokensSchema.optional(),\n  authorizationFlowId: z.string().uuid().optional(),",
   );
   await change(
     "server/mcp-oauth.ts",
-    'this.onSettled(flow.name, phase, flow.owner);',
-    'this.onSettled(flow.name, phase, flow.owner, flow.status.flowId);',
+    "this.onSettled(flow.name, phase, flow.owner);",
+    "this.onSettled(flow.name, phase, flow.owner, flow.status.flowId);",
   );
   await change(
     "server/mcp-oauth.ts",
-    'owner: string) => void;',
-    'owner: string, flowId: string) => void;',
+    "owner: string) => void;",
+    "owner: string, flowId: string) => void;",
   );
   await change(
     "server/mcp-oauth.ts",
-    'onSettled?(name: string, phase: McpSignInPhase, owner: string): void;',
-    'onSettled?(name: string, phase: McpSignInPhase, owner: string, flowId: string): void;',
+    "onSettled?(name: string, phase: McpSignInPhase, owner: string): void;",
+    "onSettled?(name: string, phase: McpSignInPhase, owner: string, flowId: string): void;",
   );
   await change(
     "server/mcp-oauth.ts",
-    '  authState(name: string, url: string): McpAuthState {',
+    "  authState(name: string, url: string): McpAuthState {",
     '  completedCardFlow(name: string, url: string, flowId: string): boolean {\n    return this.store.get(name, url)?.authorizationFlowId === flowId && this.authState(name, url) === "signed-in";\n  }\n\n  authState(name: string, url: string): McpAuthState {',
   );
   await change(
@@ -1276,18 +1297,19 @@ function acceptJ1ParkedRoomAnswer(auth: RequestAuth, threadId: string, requestId
   );
   await change(
     "server/team-connections.ts",
-    'onSettled?: (name: string, phase: McpSignInPhase, owner: string) => void;',
-    'onSettled?: (name: string, phase: McpSignInPhase, owner: string, flowId: string) => void;',
+    "onSettled?: (name: string, phase: McpSignInPhase, owner: string) => void;",
+    "onSettled?: (name: string, phase: McpSignInPhase, owner: string, flowId: string) => void;",
   );
   await change(
     "server/host/team-connections-host.ts",
-    'onSettled?(name: string, phase: McpSignInPhase, owner: string): void;',
-    'onSettled?(name: string, phase: McpSignInPhase, owner: string, flowId: string): void;',
+    "onSettled?(name: string, phase: McpSignInPhase, owner: string): void;",
+    "onSettled?(name: string, phase: McpSignInPhase, owner: string, flowId: string): void;",
   );
-  const settleMcpHealth = 'if (phase === "succeeded") connectionHealth.connectedAgain({ kind: "mcp", id: name });';
+  const settleMcpHealth =
+    'if (phase === "succeeded") connectionHealth.connectedAgain({ kind: "mcp", id: name });';
   const settleMcpCard = settingsWindow
     ? `{ ${settleMcpHealth} mcpSignInCards.settled(name, phase, owner); }`
-    : 'mcpSignInCards.settled(name, phase, owner)';
+    : "mcpSignInCards.settled(name, phase, owner)";
   await change(
     "server/index.ts",
     `  onSettled: (name, phase, owner) => ${settleMcpCard},`,
@@ -1295,8 +1317,8 @@ function acceptJ1ParkedRoomAnswer(auth: RequestAuth, threadId: string, requestId
   );
   await change(
     "server/index.ts",
-    'onSettled: (name, phase, owner) => mcpSignInCards.settled(name, phase, owner),',
-    'onSettled: (name, phase, owner, flowId) => mcpSignInCards.settled(name, phase, owner, flowId),',
+    "onSettled: (name, phase, owner) => mcpSignInCards.settled(name, phase, owner),",
+    "onSettled: (name, phase, owner, flowId) => mcpSignInCards.settled(name, phase, owner, flowId),",
   );
   await change(
     "server/routes/internal-mcp.ts",
@@ -1305,8 +1327,8 @@ function acceptJ1ParkedRoomAnswer(auth: RequestAuth, threadId: string, requestId
   );
   await change(
     "server/host/mcp-chat.ts",
-    '  recordSetupDecision?(threadId: string, messageId: string, auth?: RequestAuth): void;',
-    '  recordSetupDecision?(threadId: string, messageId: string, auth?: RequestAuth): void;\n  recordOAuthProducer?(botId: string, threadId: string, generation: string, cardId: string, scope: string): boolean;\n  recordOAuthDecision?(threadId: string, cardId: string, person: string): boolean;\n  oauthReviewer?(auth: RequestAuth): { person: string; live: () => boolean } | undefined;',
+    "  recordSetupDecision?(threadId: string, messageId: string, auth?: RequestAuth): void;",
+    "  recordSetupDecision?(threadId: string, messageId: string, auth?: RequestAuth): void;\n  recordOAuthProducer?(botId: string, threadId: string, generation: string, cardId: string, scope: string): boolean;\n  recordOAuthDecision?(threadId: string, cardId: string, person: string): boolean;\n  oauthReviewer?(auth: RequestAuth): { person: string; live: () => boolean } | undefined;",
   );
   await change(
     "server/host/mcp-chat.ts",
@@ -1315,8 +1337,8 @@ function acceptJ1ParkedRoomAnswer(auth: RequestAuth, threadId: string, requestId
   );
   await change(
     "server/host/mcp-chat.ts",
-    'requestSignIn: (name, server) => mcpSignInCards.request({ bot: sender, threadId, ...(from ? { from } : {}) }, name, server),',
-    'requestSignIn: (name, server) => mcpSignInCards.request({ bot: sender, threadId, generation, ...(from ? { from } : {}) }, name, server),',
+    "requestSignIn: (name, server) => mcpSignInCards.request({ bot: sender, threadId, ...(from ? { from } : {}) }, name, server),",
+    "requestSignIn: (name, server) => mcpSignInCards.request({ bot: sender, threadId, generation, ...(from ? { from } : {}) }, name, server),",
   );
   await change(
     "server/drivers/agents-catalog.ts",
@@ -1330,13 +1352,13 @@ function acceptJ1ParkedRoomAnswer(auth: RequestAuth, threadId: string, requestId
   );
   await change(
     "server/host/mcp-sign-in-cards.ts",
-    'return Boolean(at && !at.card.connector.dismissed);',
-    'return Boolean(at && !at.card.connector.dismissed && !at.card.connector.stopped && !at.card.connector.superseded);',
+    "return Boolean(at && !at.card.connector.dismissed);",
+    "return Boolean(at && !at.card.connector.dismissed && !at.card.connector.stopped && !at.card.connector.superseded);",
   );
   await change(
     "server/host/mcp-sign-in-cards.ts",
-    '    patch(threadId, card.id, { dismissed: true });\n    cancel(card.connector.slug, threadId, card.id);',
-    '    patch(threadId, card.id, { dismissed: true });\n    const owner = cardOwner(threadId, card.id);\n    attempts.delete(owner);\n    targets.delete(owner);\n    cancel(card.connector.slug, threadId, card.id);',
+    "    patch(threadId, card.id, { dismissed: true });\n    cancel(card.connector.slug, threadId, card.id);",
+    "    patch(threadId, card.id, { dismissed: true });\n    const owner = cardOwner(threadId, card.id);\n    attempts.delete(owner);\n    targets.delete(owner);\n    cancel(card.connector.slug, threadId, card.id);",
   );
   await change(
     "server/index.ts",
@@ -1345,32 +1367,32 @@ function acceptJ1ParkedRoomAnswer(auth: RequestAuth, threadId: string, requestId
   );
   await change(
     "server/index.ts",
-    'mcpOAuth, isOwnerLive: (owner) => sessions.isLive(owner) || isCardOwnerLive(store, owner), onSettled:',
-    'mcpOAuth, isOwnerLive: (owner) => sessions.isLive(owner) ||\n    (isCardOwnerLive(store, owner) && mcpSignInCards.isFreshOwnerLive(owner)), onSettled:',
+    "mcpOAuth, isOwnerLive: (owner) => sessions.isLive(owner) || isCardOwnerLive(store, owner), onSettled:",
+    "mcpOAuth, isOwnerLive: (owner) => sessions.isLive(owner) ||\n    (isCardOwnerLive(store, owner) && mcpSignInCards.isFreshOwnerLive(owner)), onSettled:",
   );
   await change(
     "server/host/mcp-sign-in-cards.ts",
-    '  changed(): void;',
-    '  changed(): void;\n  recordOAuthProducer?(botId: string, threadId: string, generation: string, cardId: string, scope: string): boolean;\n  recordOAuthDecision?(threadId: string, cardId: string, person: string): boolean;\n  oauthReviewer?(auth: RequestAuth): { person: string; live: () => boolean } | undefined;',
+    "  changed(): void;",
+    "  changed(): void;\n  recordOAuthProducer?(botId: string, threadId: string, generation: string, cardId: string, scope: string): boolean;\n  recordOAuthDecision?(threadId: string, cardId: string, person: string): boolean;\n  oauthReviewer?(auth: RequestAuth): { person: string; live: () => boolean } | undefined;",
   );
   await change(
     "server/host/mcp-sign-in-cards.ts",
-    '  function current(name: string): StoredRemoteMcpServer | Unreachable {',
+    "  function current(name: string): StoredRemoteMcpServer | Unreachable {",
     '  const targets = new Map<string, string>();\n  const attempts = new Map<string, { manager: McpOAuthManager; url: string; scope: string; person: string; live: () => boolean; flowId: string }>();\n  const scopeFor = (name: string, threadId: string, generation?: string) => deps.personal().includes(name)\n    ? (deps.turnPerson(threadId, generation) ?? null) : "shared";\n  const exactReceipt = (card: McpCard) => {\n    const proof = card.j1McpOAuth;\n    const server = current(card.connector.slug);\n    if (!proof?.flowId || card.connector.dismissed || card.connector.superseded || card.connector.stopped ||\n        card.connector.status !== "connected" || "reason" in server || proof.server !== card.connector.slug ||\n        proof.requestId !== card.connector.resumeKey ||\n        (proof.scope === "shared") === deps.personal().includes(proof.server)) return false;\n    const manager = proof.scope === "shared" ? deps.mcpOAuth : deps.oauthFor(proof.scope);\n    return manager.completedCardFlow(proof.server, server.url, proof.flowId);\n  };\n\n  function current(name: string): StoredRemoteMcpServer | Unreachable {',
   );
   await change(
     "server/host/mcp-sign-in-cards.ts",
-    '  turnPerson(threadId: string): string | null;',
-    '  turnPerson(threadId: string, generation?: string): string | null;',
+    "  turnPerson(threadId: string): string | null;",
+    "  turnPerson(threadId: string, generation?: string): string | null;",
   );
   await change(
     "server/host/mcp-chat.ts",
-    '    turnPerson: (threadId) => teamConnections.turnPerson(threadId),',
-    '    turnPerson: (threadId, generation) => teamConnections.turnPerson(threadId, generation),',
+    "    turnPerson: (threadId) => teamConnections.turnPerson(threadId),",
+    "    turnPerson: (threadId, generation) => teamConnections.turnPerson(threadId, generation),",
   );
   await change(
     "server/host/mcp-sign-in-cards.ts",
-    '    const manager = signer(name, threadId)!;\n    const owner = cardOwner(threadId, card.id);',
+    "    const manager = signer(name, threadId)!;\n    const owner = cardOwner(threadId, card.id);",
     '    const owner = cardOwner(threadId, card.id);\n    const proof = card.j1McpOAuth;\n    const reviewer = proof && deps.oauthReviewer?.(auth);\n    if (proof && (!reviewer || !reviewer.live() || reviewer.person !== proof.person ||\n        proof.server !== name || proof.requestId !== card.connector.resumeKey || proof.scope !== scopeFor(name, threadId) ||\n        targets.get(owner) !== server.url || proof.flowId || card.connector.stopped || card.connector.superseded))\n      return { status: 409, body: { error: "The original sign-in requester or destination is no longer current." } };\n    const manager = signer(name, threadId)!;',
   );
   await change(
@@ -1395,13 +1417,13 @@ function acceptJ1ParkedRoomAnswer(auth: RequestAuth, threadId: string, requestId
   );
   await change(
     "server/host/mcp-sign-in-cards.ts",
-    '      for (const old of replaced) deps.followCard(at.threadId, old, card.id);',
-    '      const scope = scopeFor(name, at.threadId, at.generation);\n      if (at.bot.id && at.generation && scope && deps.recordOAuthProducer?.(at.bot.id, at.threadId, at.generation, card.id, scope))\n        targets.set(cardOwner(at.threadId, card.id), server.url);\n      for (const old of replaced) {\n        targets.delete(cardOwner(at.threadId, old));\n        attempts.delete(cardOwner(at.threadId, old));\n        deps.followCard(at.threadId, old, card.id);\n      }',
+    "      for (const old of replaced) deps.followCard(at.threadId, old, card.id);",
+    "      const scope = scopeFor(name, at.threadId, at.generation);\n      if (at.bot.id && at.generation && scope && deps.recordOAuthProducer?.(at.bot.id, at.threadId, at.generation, card.id, scope))\n        targets.set(cardOwner(at.threadId, card.id), server.url);\n      for (const old of replaced) {\n        targets.delete(cardOwner(at.threadId, old));\n        attempts.delete(cardOwner(at.threadId, old));\n        deps.followCard(at.threadId, old, card.id);\n      }",
   );
   await change(
     "server/host/mcp-sign-in-cards.ts",
-    '    settled(name: string, phase: McpSignInPhase, owner: string): void {',
-    '    exactReceipt(row: Message): boolean {\n      return isMcpSignInCard(row) && exactReceipt(row);\n    },\n    isFreshOwnerLive(owner: string): boolean {\n      return attempts.get(owner)?.live() ?? true;\n    },\n    settled(name: string, phase: McpSignInPhase, owner: string, flowId?: string): void {',
+    "    settled(name: string, phase: McpSignInPhase, owner: string): void {",
+    "    exactReceipt(row: Message): boolean {\n      return isMcpSignInCard(row) && exactReceipt(row);\n    },\n    isFreshOwnerLive(owner: string): boolean {\n      return attempts.get(owner)?.live() ?? true;\n    },\n    settled(name: string, phase: McpSignInPhase, owner: string, flowId?: string): void {",
   );
   await change(
     "server/host/mcp-sign-in-cards.ts",
@@ -1410,39 +1432,37 @@ function acceptJ1ParkedRoomAnswer(auth: RequestAuth, threadId: string, requestId
   );
   await change(
     "server/routes/bot-messages.ts",
-    'resolveAndSendMcp(res, answer, ownerReview(auth, req))',
-    'resolveAndSendMcp(res, answer, ownerReview(auth, req), auth)',
+    "resolveAndSendMcp(res, answer, ownerReview(auth, req))",
+    "resolveAndSendMcp(res, answer, ownerReview(auth, req), auth)",
   );
   await change(
     "server/routes/bot-messages.ts",
-    'resolveAndSendMcp(res, { botId: mcpBotId, threadId, requestId, behavior }, ownerReview(auth, req))',
-    'resolveAndSendMcp(res, { botId: mcpBotId, threadId, requestId, behavior }, ownerReview(auth, req), auth)',
+    "resolveAndSendMcp(res, { botId: mcpBotId, threadId, requestId, behavior }, ownerReview(auth, req))",
+    "resolveAndSendMcp(res, { botId: mcpBotId, threadId, requestId, behavior }, ownerReview(auth, req), auth)",
   );
   await change(
     "server/routes/bot-messages.ts",
-    'behavior: string }, ownerReview: boolean): Promise<boolean>;\n  resolveAndSendMcp',
-    'behavior: string }, ownerReview: boolean, reviewerAuth?: RequestAuth): Promise<boolean>;\n  resolveAndSendMcp',
+    "behavior: string }, ownerReview: boolean): Promise<boolean>;\n  resolveAndSendMcp",
+    "behavior: string }, ownerReview: boolean, reviewerAuth?: RequestAuth): Promise<boolean>;\n  resolveAndSendMcp",
   );
   await change(
     "server/routes/bot-messages.ts",
-    'resolveAndSendTeamSetup(res, { botId: setupBotId, threadId, requestId, behavior }, ownerReview(auth, req))',
-    'resolveAndSendTeamSetup(res, { botId: setupBotId, threadId, requestId, behavior }, ownerReview(auth, req), auth)',
+    "resolveAndSendTeamSetup(res, { botId: setupBotId, threadId, requestId, behavior }, ownerReview(auth, req))",
+    "resolveAndSendTeamSetup(res, { botId: setupBotId, threadId, requestId, behavior }, ownerReview(auth, req), auth)",
   );
   await change(
     "server/index.ts",
-    'args: { botId: string; threadId: string; requestId: string; behavior: string }, ownerReview: boolean): Promise<boolean> {\n  const card = store.messagesFor(args.threadId).find((item) => item.card?.requestId === args.requestId && item.card.teamSetupRequest)?.card;',
-    'args: { botId: string; threadId: string; requestId: string; behavior: string }, ownerReview: boolean, reviewerAuth?: RequestAuth): Promise<boolean> {\n  const card = store.messagesFor(args.threadId).find((item) => item.card?.requestId === args.requestId && item.card.teamSetupRequest)?.card;',
+    "args: { botId: string; threadId: string; requestId: string; behavior: string }, ownerReview: boolean): Promise<boolean> {\n  const card = store.messagesFor(args.threadId).find((item) => item.card?.requestId === args.requestId && item.card.teamSetupRequest)?.card;",
+    "args: { botId: string; threadId: string; requestId: string; behavior: string }, ownerReview: boolean, reviewerAuth?: RequestAuth): Promise<boolean> {\n  const card = store.messagesFor(args.threadId).find((item) => item.card?.requestId === args.requestId && item.card.teamSetupRequest)?.card;",
   );
   await change(
     "server/index.ts",
-    '  const current = store.messagesFor(args.threadId).find((item) => item.id === resolved.messageId);\n  if (current?.card?.teamSetupRequest?.result',
+    "  const current = store.messagesFor(args.threadId).find((item) => item.id === resolved.messageId);\n  if (current?.card?.teamSetupRequest?.result",
     '  const current = store.messagesFor(args.threadId).find((item) => item.id === resolved.messageId);\n  if (current?.j1RoomSetup && !resolved.duplicate && reviewerAuth?.kind === "session" && sessions.isLive(reviewerAuth.session.id))\n    j1SaveRoomSetupDecision(args.threadId, current.id, cardAnswererFor(reviewerAuth));\n  if (current?.card?.teamSetupRequest?.result',
   );
-  const legacyCardAnswer = '  if (coordinator.answerNode(node.id, text)) return true;';
-  const modernCardAnswer = '  return coordinator.answerNode(node.id, text);';
-  const genericCardAnswer = settingsWindow
-    ? modernCardAnswer
-    : legacyCardAnswer;
+  const legacyCardAnswer = "  if (coordinator.answerNode(node.id, text)) return true;";
+  const modernCardAnswer = "  return coordinator.answerNode(node.id, text);";
+  const genericCardAnswer = settingsWindow ? modernCardAnswer : legacyCardAnswer;
   await change(
     "server/index.ts",
     genericCardAnswer,
@@ -1470,7 +1490,7 @@ ${genericCardAnswer}`,
   );
   await change(
     "server/index.ts",
-    '  const messages = store.messagesFor(node.threadId);\n  for (const id of node.cards) {\n    const message = messages.find((item) => item.id === id);',
+    "  const messages = store.messagesFor(node.threadId);\n  for (const id of node.cards) {\n    const message = messages.find((item) => item.id === id);",
     `  const messages = store.messagesFor(node.threadId);
   if (node.cards.some(id => messages.some(row => row.id === id && row.j1RoomSetup)))
     return j1SettleRoomSetup(node);
@@ -1489,13 +1509,13 @@ ${genericCardAnswer}`,
   );
   await change(
     "server/index.ts",
-    '      const closed = closedByStop(message.card);',
+    "      const closed = closedByStop(message.card);",
     '      const closed = message.j1RoomQuestion && message.card && !message.card.answered\n        ? { ...message.card, answered: "unavailable" as const, dismissed: true } : closedByStop(message.card);',
   );
   await change(
     "server/host/resumable-cards.ts",
-    '  return ids.some((id) => open.has(id));',
-    '  return ids.some(id => open.has(id) || store.messagesFor(threadId).some(message => message.id === id &&\n    message.j1RoomQuestion && message.card && !message.card.answered && !message.card.dismissed && !message.card.expired));',
+    "  return ids.some((id) => open.has(id));",
+    "  return ids.some(id => open.has(id) || store.messagesFor(threadId).some(message => message.id === id &&\n    message.j1RoomQuestion && message.card && !message.card.answered && !message.card.dismissed && !message.card.expired));",
   );
   await change(
     "server/index.ts",
@@ -1617,13 +1637,13 @@ async function runGroupGoalStep(args: {`,
   );
   await change(
     "server/index.ts",
-    '            run.turnCount += 1;\n            args.operation.botIds.add(args.bot.id);',
-    '            if (!args.operation.j1ParkedAnswer) run.turnCount += 1;\n            args.operation.botIds.add(args.bot.id);',
+    "            run.turnCount += 1;\n            args.operation.botIds.add(args.bot.id);",
+    "            if (!args.operation.j1ParkedAnswer) run.turnCount += 1;\n            args.operation.botIds.add(args.bot.id);",
   );
   await change(
     "server/index.ts",
-    '        args.operation.j1GoalRequestMessageId && (run.turnCount === 0 || args.operation.j1GoalContinuation) ? args.operation : undefined,',
-    '        args.operation.j1GoalRequestMessageId && (run.turnCount === 0 || args.operation.j1GoalContinuation || args.operation.j1ParkedAnswer) ? args.operation : undefined,',
+    "        args.operation.j1GoalRequestMessageId && (run.turnCount === 0 || args.operation.j1GoalContinuation) ? args.operation : undefined,",
+    "        args.operation.j1GoalRequestMessageId && (run.turnCount === 0 || args.operation.j1GoalContinuation || args.operation.j1ParkedAnswer) ? args.operation : undefined,",
   );
   await change(
     "server/index.ts",
@@ -1704,12 +1724,12 @@ async function runGroupGoalStep(args: {`,
   await change(
     "server/index.ts",
     "    return (node && coordinator.node(node.rootId)?.origin) ?? OUTSIDE;",
-    "    return (node && node.mode !== \"consult\" && coordinator.node(node.rootId)?.origin) || OUTSIDE;",
+    '    return (node && node.mode !== "consult" && coordinator.node(node.rootId)?.origin) || OUTSIDE;',
   );
   await change(
     "server/host/acting-person.ts",
     "    const thread = deps.store.messagesFor(threadId);\n    if (deps.store.groupByThread(threadId)) {",
-    "    if (deps.informationOnly?.(threadId, generation ?? deps.direct(threadId)?.generation ?? \"\")) return null;\n    const thread = deps.store.messagesFor(threadId);\n    if (deps.store.groupByThread(threadId)) {",
+    '    if (deps.informationOnly?.(threadId, generation ?? deps.direct(threadId)?.generation ?? "")) return null;\n    const thread = deps.store.messagesFor(threadId);\n    if (deps.store.groupByThread(threadId)) {',
   );
   await change(
     "server/host/acting-person.ts",
@@ -1758,7 +1778,7 @@ async function runGroupGoalStep(args: {`,
   );
   await change(
     "server/host/acting-person.ts",
-    'console.warn(`handed-on work: could not save',
+    "console.warn(`handed-on work: could not save",
     `if (room) this.#work.set(workId, { person, at: now${lendsValue} });\n      console.warn(\`handed-on work: could not save`,
   );
   await change(
@@ -1767,7 +1787,9 @@ async function runGroupGoalStep(args: {`,
     `get(workId: string): { person: string; at: number${lendsField}; room?: J1RoomAuthority } | undefined {`,
   );
   const handOnLending = settingsWindow ? ", lends = false, lender?: string" : "";
-  const fallbackLender = settingsWindow ? " ?? (lends && lender && unnamedAlone(turn.threadId, turn.generation) ? lender : null)" : "";
+  const fallbackLender = settingsWindow
+    ? " ?? (lends && lender && unnamedAlone(turn.threadId, turn.generation) ? lender : null)"
+    : "";
   const recordLending = settingsWindow ? ", lends" : "";
   await change(
     "server/host/acting-person.ts",
@@ -1777,7 +1799,7 @@ async function runGroupGoalStep(args: {`,
   await change(
     "server/host/acting-person.ts",
     "    handedRun(workId: string): HandedRun | undefined {",
-    '    roomAuthority(workId: string) {\n      const entry = deps.handed.get(workId);\n      return entry?.room && { ...entry.room, person: entry.person, since: entry.at };\n    },\n    handedRun(workId: string): HandedRun | undefined {',
+    "    roomAuthority(workId: string) {\n      const entry = deps.handed.get(workId);\n      return entry?.room && { ...entry.room, person: entry.person, since: entry.at };\n    },\n    handedRun(workId: string): HandedRun | undefined {",
   );
   await change(
     "server/turn-dispatch-guard.ts",
@@ -1818,8 +1840,8 @@ async function runGroupGoalStep(args: {`,
   if (settingsWindow) {
     await change(
       "server/coordinator.ts",
-      'export interface HandoffView {',
-      'export interface HandoffView {\n  approvalGranted: boolean;',
+      "export interface HandoffView {",
+      "export interface HandoffView {\n  approvalGranted: boolean;",
     );
     await change(
       "server/runtime-coordinator.ts",
@@ -1838,8 +1860,8 @@ async function runGroupGoalStep(args: {`,
     );
     await change(
       "server/team-connections.ts",
-      'onSettled: (name: string, phase: McpSignInPhase, owner: string) => {',
-      'onSettled: (name: string, phase: McpSignInPhase, owner: string, flowId: string) => {',
+      "onSettled: (name: string, phase: McpSignInPhase, owner: string) => {",
+      "onSettled: (name: string, phase: McpSignInPhase, owner: string, flowId: string) => {",
     );
     await change(
       "server/team-connections.ts",
@@ -1861,7 +1883,7 @@ async function runGroupGoalStep(args: {`,
   );
   await change(
     "server/runtime-coordinator.ts",
-    '  sharedRequest(node: HandoffView):',
+    "  sharedRequest(node: HandoffView):",
     `  externalConsultation(id: string): string | undefined {
     this.ready();
     const node = this.store.get(id);
@@ -1969,7 +1991,7 @@ async function runGroupGoalStep(args: {`,
   );
   await change(
     "server/runtime-coordinator.ts",
-    'import type { BeginTurnRequest,',
+    "import type { BeginTurnRequest,",
     'import { createHash as j1ResultHash } from "node:crypto";\nimport type { BeginTurnRequest,',
   );
   await change(
@@ -2933,7 +2955,7 @@ function runRoomRootTurn(node:`,
   );
   await change(
     "server/index.ts",
-    '  const liveTurnId = event.turnId ?? liveTurnByThread.get(event.threadId);',
+    "  const liveTurnId = event.turnId ?? liveTurnByThread.get(event.threadId);",
     `  if (event.type === "turn.started" && event.provider === "j1-shared" && event.turnId) {
     const generation = activeInternalGenerationByThread.get(event.threadId);
     if (generation && requestOwner && !requestOwner.stopped &&
@@ -2968,11 +2990,16 @@ function runRoomRootTurn(node:`,
   await change(
     "server/index.ts",
     "        ...roomSession.send,\n        threadId,",
-    "        ...roomSession.send,\n        ...(roomMemberRead ? { j1RoomTurn: true as const, j1RoomMemberRead: roomMemberRead, ...(orchestration?.roomHandoffId && coordinator.node(orchestration.roomHandoffId)?.mode === \"consult\" ? { j1Consultation: true as const } : {}), j1ProjectId: readyBot.j1ProjectId } : {}),\n        threadId,",
+    '        ...roomSession.send,\n        ...(roomMemberRead ? { j1RoomTurn: true as const, j1RoomMemberRead: roomMemberRead, ...(orchestration?.roomHandoffId && coordinator.node(orchestration.roomHandoffId)?.mode === "consult" ? { j1Consultation: true as const } : {}), j1ProjectId: readyBot.j1ProjectId } : {}),\n        threadId,',
   );
-  const turnAttachments = settingsWindow ? "images: turnImages, videos: turnVideos," : "images: turnImages,";
-  const replaceTurnAttachments = settingsWindow ? "[] : turnImages,\n        videos: preserveRoomAttachments ? turnVideos : []," : "[] : turnImages,";
-  const restrictedRoomAttachments = 'operation?.j1ParkedAnswer || operation?.j1ParkedSetup || (roomMemberRead && (orchestration?.j1ResultRoomHandoff || orchestration?.j1RestartRoomHandoff || (orchestration?.j1FirstRoomHandoff && operation?.handedFor)))';
+  const turnAttachments = settingsWindow
+    ? "images: turnImages, videos: turnVideos,"
+    : "images: turnImages,";
+  const replaceTurnAttachments = settingsWindow
+    ? "[] : turnImages,\n        videos: preserveRoomAttachments ? turnVideos : [],"
+    : "[] : turnImages,";
+  const restrictedRoomAttachments =
+    "operation?.j1ParkedAnswer || operation?.j1ParkedSetup || (roomMemberRead && (orchestration?.j1ResultRoomHandoff || orchestration?.j1RestartRoomHandoff || (orchestration?.j1FirstRoomHandoff && operation?.handedFor)))";
   if (settingsWindow) {
     await change(
       "server/index.ts",
@@ -2993,12 +3020,12 @@ function runRoomRootTurn(node:`,
   await change(
     "shared/wire.ts",
     "  goalRun?: GroupGoalRunCardData;",
-    '  goalRun?: GroupGoalRunCardData;\n  j1GoalSteps?: Array<{ turnId: string; itemIds: string[]; coordinator: boolean; memberId: string; replyHash: string; publicRowId?: string; publicHash?: string; decision?: string }>;\n  j1GoalTerminalHash?: string;',
+    "  goalRun?: GroupGoalRunCardData;\n  j1GoalSteps?: Array<{ turnId: string; itemIds: string[]; coordinator: boolean; memberId: string; replyHash: string; publicRowId?: string; publicHash?: string; decision?: string }>;\n  j1GoalTerminalHash?: string;",
   );
   await change(
     "server/index.ts",
-    '  const pushAssistantText = (text: string, turnId: string | undefined) => {',
-    '  const pushAssistantText = (text: string, turnId: string | undefined, j1ProviderMessageId?: string) => {',
+    "  const pushAssistantText = (text: string, turnId: string | undefined) => {",
+    "  const pushAssistantText = (text: string, turnId: string | undefined, j1ProviderMessageId?: string) => {",
   );
   const nativeAssistantItemId = settingsWindow
     ? ', ...(event.type === "item.completed" && event.itemId ? { itemId: event.itemId } : {})'
@@ -3031,7 +3058,7 @@ function runRoomRootTurn(node:`,
   );
   await change(
     "server/routes/bot-messages.ts",
-    '    m = path.match(/^\\/api\\/bots\\/([\\w-]+)\\/interrupt$/);',
+    "    m = path.match(/^\\/api\\/bots\\/([\\w-]+)\\/interrupt$/);",
     `    const resumePath = path.match(/^\\/api\\/bots\\/([\\w-]+)\\/resume$/);
     if (deps.j1Resume && resumePath && (method === "GET" || method === "POST")) {
       const botId = resumePath[1]!;
@@ -3154,7 +3181,7 @@ async function beginTurn(`,
   );
   await change(
     "server/index.ts",
-    "    store.patchTask(bot.id, threadId, { surface, surfaceSource: \"auto\" });\n    const text =",
+    '    store.patchTask(bot.id, threadId, { surface, surfaceSource: "auto" });\n    const text =',
     `    const sourceRow = selection.source && store.activePath(threadId).find(row => row.id === selection.source?.id);
     const selected = sourceRow?.j1ComputerSelections?.at(-1);
     if ((selection.j1Shared || bot.modelSelection.instanceId === "j1-shared") &&
@@ -3167,7 +3194,7 @@ async function beginTurn(`,
   await change(
     "server/index.ts",
     "\\n\\n${selection.text}`;",
-    "` + (selected ? \"\" : `\\n\\n${selection.text}`);",
+    '` + (selected ? "" : `\\n\\n${selection.text}`);',
   );
   await change(
     "server/index.ts",
@@ -3192,7 +3219,7 @@ async function beginTurn(`,
   await change(
     "server/index.ts",
     "if (source) computerSelectionTurns.set(threadId, { generation: dispatchClaimId, botId: bot.id, source, text, dataContext: opts?.dataContext });",
-    "if (source) computerSelectionTurns.set(threadId, { generation: dispatchClaimId, botId: bot.id, source, text,\n      dataContext: opts?.dataContext, ...(instanceId === \"j1-shared\" ? { j1Shared: true } : {}) });",
+    'if (source) computerSelectionTurns.set(threadId, { generation: dispatchClaimId, botId: bot.id, source, text,\n      dataContext: opts?.dataContext, ...(instanceId === "j1-shared" ? { j1Shared: true } : {}) });',
   );
   const goalContinuation = settingsWindow ? ' continuesRun: composed.turn !== "first",' : "";
   await change(
@@ -3203,7 +3230,7 @@ async function beginTurn(`,
   await change(
     "server/index.ts",
     "    commsDepth?: number;\n    userMessage?: Message;",
-    "    commsDepth?: number;\n    userMessage?: Message;\n    j1Resume?: { cursor: string; current(): boolean; incidentFailure?: string; incidentNote?: import(\'./drivers/j1-shared.ts\').NativeIncidentRetryNote };\n    j1NativeComputerSelection?: string;\n    j1IncidentRetry?: true;\n    j1ConsultationText?: string;\n    j1NativeAssignment?: { root?: boolean; nodeId: string; requestId: string; execution: number; dispatch: \"first\" | \"resume\" | \"rerun\"; restarts: number };",
+    '    commsDepth?: number;\n    userMessage?: Message;\n    j1Resume?: { cursor: string; current(): boolean; incidentFailure?: string; incidentNote?: import(\'./drivers/j1-shared.ts\').NativeIncidentRetryNote };\n    j1NativeComputerSelection?: string;\n    j1IncidentRetry?: true;\n    j1ConsultationText?: string;\n    j1NativeAssignment?: { root?: boolean; nodeId: string; requestId: string; execution: number; dispatch: "first" | "resume" | "rerun"; restarts: number };',
   );
   await change(
     "server/index.ts",
@@ -3218,7 +3245,7 @@ async function beginTurn(`,
   await change(
     "server/index.ts",
     "resolvedImages, instance, automated, quickFallback.refused(instance.instanceId));",
-    "resolvedImages, instance, automated || Boolean(opts?.j1Resume || (opts?.j1NativeComputerSelection && instance.instanceId === \"j1-shared\")), quickFallback.refused(instance.instanceId));",
+    'resolvedImages, instance, automated || Boolean(opts?.j1Resume || (opts?.j1NativeComputerSelection && instance.instanceId === "j1-shared")), quickFallback.refused(instance.instanceId));',
   );
   await change(
     "server/index.ts",
@@ -3237,7 +3264,7 @@ async function beginTurn(`,
   );
   await change(
     "server/index.ts",
-    '  const resourceOwner: TurnOwner = { threadId, generation: dispatchClaimId };',
+    "  const resourceOwner: TurnOwner = { threadId, generation: dispatchClaimId };",
     `  const resourceOwner: TurnOwner = { threadId, generation: dispatchClaimId };
   const incidentIds = opts?.excludeMessageIds ?? [userMessage.id];
   const incidentCandidate = instanceId === "j1-shared" &&
@@ -3246,7 +3273,8 @@ async function beginTurn(`,
   if (opts?.j1Resume || incidentCandidate || ((opts?.j1NativeAssignment || opts?.j1NativeComputerSelection) && instanceId === "j1-shared")) j1ResumeGenerations.add(resourceOwner);`,
   );
   const resumeOwner = "const endingOwner = turnResourceOwners.get(event.threadId);";
-  const switchUnownedFailure = "failed && bot && (!endingOwner || !j1ResumeGenerations.has(endingOwner))";
+  const switchUnownedFailure =
+    "failed && bot && (!endingOwner || !j1ResumeGenerations.has(endingOwner))";
   if (settingsWindow) {
     await change(
       "server/index.ts",
@@ -3261,7 +3289,7 @@ async function beginTurn(`,
   } else {
     await change(
       "server/index.ts",
-      '      if (failed && bot) void quotaSwitch.turnFailed(bot, event, internal);',
+      "      if (failed && bot) void quotaSwitch.turnFailed(bot, event, internal);",
       `      ${resumeOwner}\n      if (${switchUnownedFailure}) void quotaSwitch.turnFailed(bot, event, internal);`,
     );
   }
@@ -3270,7 +3298,8 @@ async function beginTurn(`,
     "  const continuation = Boolean(opts?.cardContinuation || opts?.computerSelectionContinuation);",
     "  const continuation = Boolean(opts?.cardContinuation || opts?.computerSelectionContinuation || opts?.j1Resume);",
   );
-  const rejectFolderChange = 'if (followed && (opts?.j1Resume || opts?.j1NativeComputerSelection)) throw new Error("The saved continuation uses a different working folder.");';
+  const rejectFolderChange =
+    'if (followed && (opts?.j1Resume || opts?.j1NativeComputerSelection)) throw new Error("The saved continuation uses a different working folder.");';
   if (settingsWindow) {
     await change(
       "server/index.ts",
@@ -3286,7 +3315,7 @@ async function beginTurn(`,
     );
     await change(
       "server/index.ts",
-      '}); if (followed) store.patchTask(bot.id, threadId, { cwd: followed, resumeCursors: {} });',
+      "}); if (followed) store.patchTask(bot.id, threadId, { cwd: followed, resumeCursors: {} });",
       `});
       ${rejectFolderChange}
       if (followed) store.patchTask(bot.id, threadId, { cwd: followed, resumeCursors: {} });`,
@@ -3294,8 +3323,8 @@ async function beginTurn(`,
   }
   await change(
     "server/index.ts",
-    "      if (autoPinAllowed()) {\n        const claimSlot = autoVmClaims.get(threadId);\n        const pinsAtClaim = claimSlot?.owner.generation === resourceOwner.generation;\n        const used = pinsAtClaim ? null : mountedComputer ?? (integrations.browser ? \"browser\" : null);\n        if (used) store.patchTask(bot.id, threadId, { surface: used, surfaceSource: \"auto\" });\n      }\n      const computerSelection = computerSelectionTurns.get(threadId);\n      if (computerSelection) computerSelection.mounted = mountedComputer ?? (integrations.browser ? \"browser\" : undefined);\n      recordTurnPlace(bot.id, threadId, plan.computer === undefined && mountedComputer === \"local\" && integrations.browser ? \"browser\" : mountedComputer ?? (integrations.browser ? \"browser\" : null));",
-    "      const mountedSurface = plan.computer === undefined && mountedComputer === \"local\" && integrations.browser\n        ? \"browser\" : mountedComputer ?? (integrations.browser ? \"browser\" : undefined);\n      if (autoPinAllowed()) {\n        const claimSlot = autoVmClaims.get(threadId);\n        const pinsAtClaim = claimSlot?.owner.generation === resourceOwner.generation;\n        const used = pinsAtClaim ? null : opts?.j1NativeComputerSelection\n          ? mountedSurface : mountedComputer ?? (integrations.browser ? \"browser\" : null);\n        if (used) store.patchTask(bot.id, threadId, { surface: used, surfaceSource: \"auto\" });\n      }\n      const computerSelection = computerSelectionTurns.get(threadId);\n      if (computerSelection) computerSelection.mounted = instanceId === \"j1-shared\"\n        ? mountedSurface : mountedComputer ?? (integrations.browser ? \"browser\" : undefined);\n      recordTurnPlace(bot.id, threadId, mountedSurface ?? null);",
+    '      if (autoPinAllowed()) {\n        const claimSlot = autoVmClaims.get(threadId);\n        const pinsAtClaim = claimSlot?.owner.generation === resourceOwner.generation;\n        const used = pinsAtClaim ? null : mountedComputer ?? (integrations.browser ? "browser" : null);\n        if (used) store.patchTask(bot.id, threadId, { surface: used, surfaceSource: "auto" });\n      }\n      const computerSelection = computerSelectionTurns.get(threadId);\n      if (computerSelection) computerSelection.mounted = mountedComputer ?? (integrations.browser ? "browser" : undefined);\n      recordTurnPlace(bot.id, threadId, plan.computer === undefined && mountedComputer === "local" && integrations.browser ? "browser" : mountedComputer ?? (integrations.browser ? "browser" : null));',
+    '      const mountedSurface = plan.computer === undefined && mountedComputer === "local" && integrations.browser\n        ? "browser" : mountedComputer ?? (integrations.browser ? "browser" : undefined);\n      if (autoPinAllowed()) {\n        const claimSlot = autoVmClaims.get(threadId);\n        const pinsAtClaim = claimSlot?.owner.generation === resourceOwner.generation;\n        const used = pinsAtClaim ? null : opts?.j1NativeComputerSelection\n          ? mountedSurface : mountedComputer ?? (integrations.browser ? "browser" : null);\n        if (used) store.patchTask(bot.id, threadId, { surface: used, surfaceSource: "auto" });\n      }\n      const computerSelection = computerSelectionTurns.get(threadId);\n      if (computerSelection) computerSelection.mounted = instanceId === "j1-shared"\n        ? mountedSurface : mountedComputer ?? (integrations.browser ? "browser" : undefined);\n      recordTurnPlace(bot.id, threadId, mountedSurface ?? null);',
   );
   await change(
     "server/index.ts",
@@ -3512,8 +3541,11 @@ async function beginTurn(`,
       const privateCoordinator = nativeAssignment && !(nativeAssignment.root && nativeAssignment.dispatch === "first");
       const startupRecovery = !resume && !privateCoordinator && (opts?.automaticRecoveryIndex ?? 0) < startupBackups(liveBot ?? bot, cfg.automaticRecovery).length;`,
   );
-  const modernInput = 'withTurnClock(clock, withRecalled(recalled, (posted?.text ?? "") + attachmentsForBox(dispatchContext.turnText, cwd, { botId: bot.id, threadId }) + shareNote.text + devsReports.note(threadId, Boolean(integrations.agents)) + (CLOUD_HOME ? idleReclaimNote(DATA_DIR, threadId) : "") + settingNudges.note(threadId, { tools: Boolean(integrations.agents) && personLine && !opts?.unattended, owner: phones.turnOwner({ botId: bot.id, threadId, generation: dispatchClaimId }) !== null && !cloudGuestDriven(threadId), model: `${instanceId}/${model}` })))';
-  const directTurnInput = settingsWindow ? modernInput : "withTurnClock(clock, withRecalled(recalled, attachmentsForBox(dispatchContext.turnText, cwd) + shareNote.text + devsReports.note(threadId, Boolean(integrations.agents))))";
+  const modernInput =
+    'withTurnClock(clock, withRecalled(recalled, (posted?.text ?? "") + attachmentsForBox(dispatchContext.turnText, cwd, { botId: bot.id, threadId }) + shareNote.text + devsReports.note(threadId, Boolean(integrations.agents)) + (CLOUD_HOME ? idleReclaimNote(DATA_DIR, threadId) : "") + settingNudges.note(threadId, { tools: Boolean(integrations.agents) && personLine && !opts?.unattended, owner: phones.turnOwner({ botId: bot.id, threadId, generation: dispatchClaimId }) !== null && !cloudGuestDriven(threadId), model: `${instanceId}/${model}` })))';
+  const directTurnInput = settingsWindow
+    ? modernInput
+    : "withTurnClock(clock, withRecalled(recalled, attachmentsForBox(dispatchContext.turnText, cwd) + shareNote.text + devsReports.note(threadId, Boolean(integrations.agents))))";
   await change(
     "server/index.ts",
     "      const dispatch = await guardTurnDispatch(shareNote.after(savedSteps.dispatch.sendTurn(instance,",
@@ -3541,14 +3573,17 @@ async function beginTurn(`,
     `        resumeCursor: dispatchContext.resumeCursor,\n        sessionReset: dispatchContext.sessionReset,\n        ...(dispatchContext.recoveryText !== undefined ? { recoveryText: ${recoveryInput} } : {}),\n        transcript,`,
     `        resumeCursor: privateCoordinator ? undefined : resume?.cursor ?? dispatchContext.resumeCursor,\n        sessionReset: resume ? false : dispatchContext.sessionReset,\n        ...(!resume && !privateCoordinator && dispatchContext.recoveryText !== undefined ? { recoveryText: ${recoveryInput} } : {}),\n        ...(!resume && !privateCoordinator ? { transcript } : {}),`,
   );
-  const fallbackInput = settingsWindow ? "enginePrestart.note(instance.instanceId, input, personLine && !automated)" : "input";
+  const fallbackInput = settingsWindow
+    ? "enginePrestart.note(instance.instanceId, input, personLine && !automated)"
+    : "input";
   const fallbackCallback = settingsWindow ? "}), (input) => " : "}, (input) => ";
   await change(
     "server/index.ts",
     `${fallbackCallback}quickFallback.sendTurn(instance, ${fallbackInput}, route.quickModel`,
     `${fallbackCallback}resume || privateCoordinator ? instance.adapter.sendTurn(input) : quickFallback.sendTurn(instance, ${fallbackInput}, route.quickModel`,
   );
-  const canUseProviderFallback = '!incidentCandidate && !opts?.j1IncidentRetry && !opts?.j1Resume && !((opts?.j1NativeAssignment || opts?.j1NativeComputerSelection) && instanceId === "j1-shared")';
+  const canUseProviderFallback =
+    '!incidentCandidate && !opts?.j1IncidentRetry && !opts?.j1Resume && !((opts?.j1NativeAssignment || opts?.j1NativeComputerSelection) && instanceId === "j1-shared")';
   const upstreamMayRecover = settingsWindow
     ? "claimed && !outOfProcesses((e as Error).message);"
     : "e instanceof TurnNotStartedError &&\n        directTurnClaimIsCurrent";
@@ -3627,11 +3662,7 @@ async function beginTurn(`,
   );
   const additionalMascotFields = settingsWindow ? ' | "mascotBodyColor" | "mascotMaterial"' : "";
   const botInterface = `export interface Bot extends DefaultBotFields, Pick<WireBot, "mascotFaceColor"${additionalMascotFields} | "access" | "yourAccess" | "onlyPeopleAdded"> {`;
-  await change(
-    "src/state/store.tsx",
-    botInterface,
-    `${botInterface}\n  j1ProjectId?: string;`,
-  );
+  await change("src/state/store.tsx", botInterface, `${botInterface}\n  j1ProjectId?: string;`);
   for (const file of [
     "src/components/bot-settings/useBotSettingsDerived.ts",
     "src/state/bot-patch-queue.ts",
@@ -3653,17 +3684,21 @@ async function beginTurn(`,
     `          <${identityComponent}\n            bot={bot}`,
     `          <>\n            <J1EngineeringTeam bot={bot} />\n            <J1ProjectBinding bot={bot} />\n            <${identityComponent}\n            bot={bot}`,
   );
-  const identityLastProp = settingsWindow ? "activeState={derived.activeState}" : "mascotMotion={derived.mascotMotion}";
+  const identityLastProp = settingsWindow
+    ? "activeState={derived.activeState}"
+    : "mascotMotion={derived.mascotMotion}";
   await change(
     "src/components/BotSettingsDialog.tsx",
     `            ${identityLastProp}\n          />`,
     `            ${identityLastProp}\n          />\n          </>`,
   );
-  await change("server/composio.ts",
+  await change(
+    "server/composio.ts",
     "const linkResponseSchema = z.object({ redirect_url: z.string().optional() });",
     "const linkResponseSchema = z.object({ redirect_url: z.string().optional(), connected_account_id: z.string().optional() });",
   );
-  await change("server/composio.ts",
+  await change(
+    "server/composio.ts",
     "export async function authorizeService(cfg: AppConfig, slug: string, requestedAlias?: string | null, as?: BrokerAccess) {",
     `export interface CardAccountLink {
   id: string;
@@ -3693,7 +3728,8 @@ export async function authorizeService(cfg: AppConfig, slug: string, requestedAl
   capture?: (link: CardAccountLink) => void, authConfigHash?: string) {`,
   );
   const connectionsChanged = settingsWindow ? "\n  connectionsChanged(cfg, as);" : "";
-  await change("server/composio.ts",
+  await change(
+    "server/composio.ts",
     `  const apiKey = as ? null : projectApiKey(cfg);${connectionsChanged}
   if (!apiKey) {
     const request: RequestInit = { method: "POST" };`,
@@ -3703,7 +3739,8 @@ export async function authorizeService(cfg: AppConfig, slug: string, requestedAl
     if (capture) throw inputError("This connection request requires a project-owned account link.", 409);
     const request: RequestInit = { method: "POST" };`,
   );
-  await change("server/composio.ts",
+  await change(
+    "server/composio.ts",
     `  const userId = session.config?.user_id ?? cfg.composio?.userId;
   if (!userId) throw new Error("Composio Session has no user ID");
   const accounts = await listConnectedAccounts(apiKey, userId, [toolkit]).catch(() => []);`,
@@ -3719,8 +3756,13 @@ export async function authorizeService(cfg: AppConfig, slug: string, requestedAl
     return [];
   });`,
   );
-  await change("server/composio.ts", "  const { session } = await sessionForToolkit(cfg, toolkit);\n  const verifyAuthConfig", "  const { session, choice } = await sessionForToolkit(cfg, toolkit);\n  const verifyAuthConfig");
-  await change("server/composio.ts",
+  await change(
+    "server/composio.ts",
+    "  const { session } = await sessionForToolkit(cfg, toolkit);\n  const verifyAuthConfig",
+    "  const { session, choice } = await sessionForToolkit(cfg, toolkit);\n  const verifyAuthConfig",
+  );
+  await change(
+    "server/composio.ts",
     "    res = await link(fresh.session.session_id);",
     `    verifyAuthConfig(fresh.choice?.id);
     const freshUserId = fresh.session.config?.user_id ?? cfg.composio?.userId;
@@ -3728,7 +3770,8 @@ export async function authorizeService(cfg: AppConfig, slug: string, requestedAl
     if (freshUserId) userId = freshUserId;
     res = await link(fresh.session.session_id);`,
   );
-  await change("server/composio.ts",
+  await change(
+    "server/composio.ts",
     "  return { url: trustedAuthUrl(body.redirect_url, toolkit) };",
     `  const url = trustedAuthUrl(body.redirect_url, toolkit);
   if (capture) {
@@ -3739,7 +3782,8 @@ export async function authorizeService(cfg: AppConfig, slug: string, requestedAl
   }
   return { url };`,
   );
-  await change("server/index.ts",
+  await change(
+    "server/index.ts",
     "function maybeResumeConnectors(threadId: string, resumeKey: string) {",
     `function j1AppConnectorTarget(connector: NonNullable<Message["connector"]>, authConfigHash?: string) {
   return createHash("sha256").update(JSON.stringify([connector.slug, connector.alias ?? null, authConfigHash ?? null])).digest("hex");
@@ -3803,7 +3847,8 @@ const j1AppLinks = new Map<string, { account: composio.CardAccountLink; person: 
 
 function maybeResumeConnectors(threadId: string, resumeKey: string) {`,
   );
-  await change("server/index.ts",
+  await change(
+    "server/index.ts",
     `  if (cards.every((message) => message.connector?.resumed)) return true;
   const labels = cards.map((message) => message.connector!.label);`,
     `  if (cards.some(row => row.j1AppConnector)) {
@@ -3816,11 +3861,13 @@ function maybeResumeConnectors(threadId: string, resumeKey: string) {`,
   const labels = cards.map((message) => message.connector!.label);`,
   );
   if (settingsWindow) {
-    await change("server/host/connector-cards.ts",
+    await change(
+      "server/host/connector-cards.ts",
       "requireActive: () => void): Promise<ConnectorCardAnswer>",
       "requireActive: () => void, record?: (target: { botId: string; threadId: string }, resumeKey: string, messageIds: string[], authConfigs: readonly (string | undefined)[]) => void): Promise<ConnectorCardAnswer>",
     );
-    await change("server/host/connector-cards.ts",
+    await change(
+      "server/host/connector-cards.ts",
       "    if (!nothingToSignIn) deps.maybeResume(threadId, resumeKey);",
       `    if (!nothingToSignIn) {
       requireActive();
@@ -3828,7 +3875,8 @@ function maybeResumeConnectors(threadId: string, resumeKey: string) {`,
       deps.maybeResume(threadId, resumeKey);
     }`,
     );
-    await change("server/index.ts",
+    await change(
+      "server/index.ts",
       "connectorCardRequests.request(internalCapability, await readInternalBody(), requireActiveInternalCapability);",
       `connectorCardRequests.request(internalCapability, await readInternalBody(), requireActiveInternalCapability,
           ({ botId, threadId }, resumeKey, messageIds, authConfigs) => {
@@ -3837,7 +3885,8 @@ function maybeResumeConnectors(threadId: string, resumeKey: string) {`,
           });`,
     );
   } else {
-    await change("server/index.ts",
+    await change(
+      "server/index.ts",
       `        maybeResumeConnectors(threadId, resumeKey);
         return json(res, 200, { messageIds,`,
       `        if (botId === internalCapability.botId && threadId === internalCapability.threadId)
@@ -3846,8 +3895,9 @@ function maybeResumeConnectors(threadId: string, resumeKey: string) {`,
         return json(res, 200, { messageIds,`,
     );
   }
-  await change("server/index.ts",
-    "      if (m[3] === \"authorize\" && method === \"POST\") { const refused = managedPolicy.appRefusal(connector.slug);",
+  await change(
+    "server/index.ts",
+    '      if (m[3] === "authorize" && method === "POST") { const refused = managedPolicy.appRefusal(connector.slug);',
     `      const app = message.j1AppConnector;
       const session = auth.kind === "session" && sessions.isLive(auth.session.id) ? auth.session : undefined;
       const person = auth.kind === "session" && session ? actorKey(auth) : undefined;
@@ -3862,7 +3912,8 @@ function maybeResumeConnectors(threadId: string, resumeKey: string) {`,
   const addedConnectionHealth = settingsWindow
     ? ' connectionHealth.added("app", connector.slug, auth.kind === "session" ? auth.session.email ?? null : null);'
     : "";
-  await change("server/index.ts",
+  await change(
+    "server/index.ts",
     `        store.patchMessage(threadId, message.id, { connector: { ...connector, alias, status: "authorizing", error: undefined, dismissed: false } });
         try {
           const started = await composio.authorizeService(cfg, connector.slug, alias); void routineHolds?.connections("added");${addedConnectionHealth} return json(res, 200, started);`,
@@ -3892,7 +3943,8 @@ function maybeResumeConnectors(threadId: string, resumeKey: string) {`,
           }
           void routineHolds?.connections("added");${addedConnectionHealth} return json(res, 200, started);`,
   );
-  await change("server/index.ts",
+  await change(
+    "server/index.ts",
     `      if (m[3] === "status" && method === "GET") {
         const service = (await composio.connectionStatus(cfg, [connector.slug]))[connector.slug];`,
     `      if (m[3] === "status" && method === "GET") {
@@ -3931,9 +3983,18 @@ function maybeResumeConnectors(threadId: string, resumeKey: string) {`,
         }
         const service = (await composio.connectionStatus(cfg, [connector.slug]))[connector.slug];`,
   );
-  await change("server/index.ts", "          throw error;\n        }\n      }\n      if (m[3] === \"status\" && method === \"GET\") {\n        if (app)", "          throw error;\n        } finally {\n          if (app) j1AppStarting.delete(appKey);\n        }\n      }\n      if (m[3] === \"status\" && method === \"GET\") {\n        if (app)");
-  await change("server/index.ts", "        } catch (error) {\n          const detail = error instanceof Error ? error.message : String(error);\n          store.patchMessage(threadId, message.id, {\n            connector: { ...connector, status: \"failed\", error: detail.slice(0, 180) },\n          });\n          throw error;\n        } finally {\n          if (app) j1AppStarting.delete(appKey);", "        } catch (error) {\n          if (app) {\n            const current = connectorMessage(m[1], threadId, m[2]);\n            if (current?.connector && j1AppConnectorBound(current, threadId))\n              store.patchMessage(threadId, message.id, {\n                connector: { ...current.connector, status: \"failed\", error: \"Connection could not be started.\" },\n              });\n            return json(res, 409, { error: \"Connection could not be started.\" });\n          }\n          const detail = error instanceof Error ? error.message : String(error);\n          store.patchMessage(threadId, message.id, {\n            connector: { ...connector, status: \"failed\", error: detail.slice(0, 180) },\n          });\n          throw error;\n        } finally {\n          if (app) j1AppStarting.delete(appKey);");
-  await change("server/index.ts",
+  await change(
+    "server/index.ts",
+    '          throw error;\n        }\n      }\n      if (m[3] === "status" && method === "GET") {\n        if (app)',
+    '          throw error;\n        } finally {\n          if (app) j1AppStarting.delete(appKey);\n        }\n      }\n      if (m[3] === "status" && method === "GET") {\n        if (app)',
+  );
+  await change(
+    "server/index.ts",
+    '        } catch (error) {\n          const detail = error instanceof Error ? error.message : String(error);\n          store.patchMessage(threadId, message.id, {\n            connector: { ...connector, status: "failed", error: detail.slice(0, 180) },\n          });\n          throw error;\n        } finally {\n          if (app) j1AppStarting.delete(appKey);',
+    '        } catch (error) {\n          if (app) {\n            const current = connectorMessage(m[1], threadId, m[2]);\n            if (current?.connector && j1AppConnectorBound(current, threadId))\n              store.patchMessage(threadId, message.id, {\n                connector: { ...current.connector, status: "failed", error: "Connection could not be started." },\n              });\n            return json(res, 409, { error: "Connection could not be started." });\n          }\n          const detail = error instanceof Error ? error.message : String(error);\n          store.patchMessage(threadId, message.id, {\n            connector: { ...connector, status: "failed", error: detail.slice(0, 180) },\n          });\n          throw error;\n        } finally {\n          if (app) j1AppStarting.delete(appKey);',
+  );
+  await change(
+    "server/index.ts",
     `      if (m[3] === "dismiss" && method === "POST") {
         store.patchMessage(threadId, message.id, { connector: { ...connector, dismissed: true } });`,
     `      if (m[3] === "dismiss" && method === "POST") {
@@ -3943,50 +4004,60 @@ function maybeResumeConnectors(threadId: string, resumeKey: string) {`,
   const signInSettleParams = settingsWindow ? ", saved?: undefined, note?: unknown" : "";
   const signInNote = settingsWindow ? ", undefined, body.note" : "";
   const inputSignInSettle = `  settle(botId: string, threadId: string, messageId: string, outcome: SignInOutcome${signInSettleParams}): Answer;`;
-  await change("server/routes/sign-in-cards.ts",
+  await change(
+    "server/routes/sign-in-cards.ts",
     inputSignInSettle,
     `${inputSignInSettle}
   acknowledge?(botId: string, threadId: string, messageId: string, outcome: SignInOutcome, auth: RequestAuth): Answer | undefined;`,
   );
-  await change("server/routes/sign-in-cards.ts",
+  await change(
+    "server/routes/sign-in-cards.ts",
     `    const result = deps.threadVisible(auth, threadId) ? deps.settle(m[1]!, threadId, m[2]!, m[3] === "done" ? "done" : "cancelled"${signInNote}) : HIDDEN;`,
     `    const outcome = m[3] === "done" ? "done" : "cancelled";
     const result = deps.threadVisible(auth, threadId)
       ? (deps.acknowledge?.(m[1]!, threadId, m[2]!, outcome, auth) ?? deps.settle(m[1]!, threadId, m[2]!, outcome${signInNote})) : HIDDEN;`,
   );
-  await change("server/host/sign-in-settle.ts",
-    "      if (message.kind !== \"signin\" || !card || card.stopped || !signInWaits(card) || (only && !only.includes(message.id))) continue;",
-    "      if (message.kind !== \"signin\" || message.j1SignInAck || !card || card.stopped || !signInWaits(card) || (only && !only.includes(message.id))) continue;",
+  await change(
+    "server/host/sign-in-settle.ts",
+    '      if (message.kind !== "signin" || !card || card.stopped || !signInWaits(card) || (only && !only.includes(message.id))) continue;',
+    '      if (message.kind !== "signin" || message.j1SignInAck || !card || card.stopped || !signInWaits(card) || (only && !only.includes(message.id))) continue;',
   );
   const preserveHandoff = settingsWindow ? "isHandoff(card) || " : "";
-  await change("server/host/sign-in-settle.ts",
+  await change(
+    "server/host/sign-in-settle.ts",
     `      if (message.kind !== "signin" || !card || ${preserveHandoff}message.at < since || card.stopped || !signInWaits(card)) return;`,
     `      if (message.kind !== "signin" || message.j1SignInAck || !card || ${preserveHandoff}message.at < since || card.stopped || !signInWaits(card)) return;`,
   );
-  await change("server/host/sign-in-settle.ts",
-    '    const card = message.signIn;\n    if (card.superseded)',
+  await change(
+    "server/host/sign-in-settle.ts",
+    "    const card = message.signIn;\n    if (card.superseded)",
     '    if (message.j1SignInAck) return { status: 409, body: { error: "The sign-in request needs its owner to answer." } };\n    const card = message.signIn;\n    if (card.superseded)',
   );
   const signInExpiry = settingsWindow ? " expire," : "";
-  await change("server/host/sign-in-settle.ts",
+  await change(
+    "server/host/sign-in-settle.ts",
     `  return { settle,${signInExpiry} answerInChat, answeredElsewhere, verified };`,
     `  return { settle,${signInExpiry} answerInChat, answeredElsewhere, verified, handPlaceBack };`,
   );
   if (settingsWindow) {
-    await change("server/host/handoff-requests.ts",
+    await change(
+      "server/host/handoff-requests.ts",
       "ask: SignInAsk): Promise<SignInAsked>",
       "ask: SignInAsk, origin?: { requireActive(): void; recordSignIn(messageId: string): void }): Promise<SignInAsked>",
     );
-    await change("server/host/handoff-requests.ts",
+    await change(
+      "server/host/handoff-requests.ts",
       "    const message = deps.store.appendMessage(threadId, {",
       "    origin?.requireActive();\n    const message = deps.store.appendMessage(threadId, {",
     );
-    await change("server/host/handoff-requests.ts",
+    await change(
+      "server/host/handoff-requests.ts",
       "    // A handoff stacks with the others; a site sign-in replaces the open one for its site.",
       `    if (!instruction) origin?.recordSignIn(message.id);
     // A handoff stacks with the others; a site sign-in replaces the open one for its site.`,
     );
-    await change("server/index.ts",
+    await change(
+      "server/index.ts",
       "request: (body) => handoffRequests.request(internalSender, internalCapability.threadId, body),",
       `request: (body) => handoffRequests.request(internalSender, internalCapability.threadId, body, {
           requireActive: requireActiveInternalCapability,
@@ -3994,32 +4065,38 @@ function maybeResumeConnectors(threadId: string, resumeKey: string) {`,
         }),`,
     );
   } else {
-  await change("server/index.ts",
-    "function requestSignIn(from: BotRecord, threadId: string, rawSite: unknown, rawReason: unknown):",
-    "function requestSignIn(from: BotRecord, threadId: string, rawSite: unknown, rawReason: unknown, capability?: InternalCapability):",
-  );
-  await change("server/index.ts",
-    "  computerControl.requestHelp(signInControlKey(from, threadId, place),",
-    `  if (capability) j1RecordSignInProducer(capability, message.id);
+    await change(
+      "server/index.ts",
+      "function requestSignIn(from: BotRecord, threadId: string, rawSite: unknown, rawReason: unknown):",
+      "function requestSignIn(from: BotRecord, threadId: string, rawSite: unknown, rawReason: unknown, capability?: InternalCapability):",
+    );
+    await change(
+      "server/index.ts",
+      "  computerControl.requestHelp(signInControlKey(from, threadId, place),",
+      `  if (capability) j1RecordSignInProducer(capability, message.id);
   computerControl.requestHelp(signInControlKey(from, threadId, place),`,
-  );
-  await change("server/index.ts",
-    "request: (site, reason) => requestSignIn(internalSender, internalCapability.threadId, site, reason),",
-    "request: (site, reason) => requestSignIn(internalSender, internalCapability.threadId, site, reason, internalCapability),",
-  );
+    );
+    await change(
+      "server/index.ts",
+      "request: (site, reason) => requestSignIn(internalSender, internalCapability.threadId, site, reason),",
+      "request: (site, reason) => requestSignIn(internalSender, internalCapability.threadId, site, reason, internalCapability),",
+    );
   }
-  await change("server/index.ts",
+  await change(
+    "server/index.ts",
     "createSignInCardRoutes({ settle: signInSettle.settle,",
     "createSignInCardRoutes({ settle: signInSettle.settle, acknowledge: j1AcknowledgeSignIn,",
   );
-  await change("server/index.ts",
-    "  return signInSettle.settle(botId, threadId, messageId, \"done\", { site: [place.site, ...elsewhere].join(\" and \") });",
+  await change(
+    "server/index.ts",
+    '  return signInSettle.settle(botId, threadId, messageId, "done", { site: [place.site, ...elsewhere].join(" and ") });',
     `  const savedSite = [place.site, ...elsewhere].join(" and ");
   if (signInMessage(botId, threadId, messageId)?.j1SignInAck)
     return { status: 200, body: { saved: true, resumed: false, site: savedSite } };
   return signInSettle.settle(botId, threadId, messageId, "done", { site: savedSite });`,
   );
-  await change("server/index.ts",
+  await change(
+    "server/index.ts",
     "const signInSettle = createSignInSettle({",
     `function j1SignInSurface(botId: string, threadId: string, expected: Surface) {
   const bot = botForThread(botId, threadId);
@@ -4110,15 +4187,21 @@ function j1AcknowledgeSignIn(botId: string, threadId: string, cardId: string, ou
 
 const signInSettle = createSignInSettle({`,
   );
-  await change("server/index.ts", "import { createSignInCardRoutes } from \"./routes/sign-in-cards.ts\";", "import { createSignInCardRoutes } from \"./routes/sign-in-cards.ts\";\nimport { CUSTOM_SECRET_TARGET } from \"../shared/credential-request.ts\";");
-  await change("server/index.ts",
+  await change(
+    "server/index.ts",
+    'import { createSignInCardRoutes } from "./routes/sign-in-cards.ts";',
+    'import { createSignInCardRoutes } from "./routes/sign-in-cards.ts";\nimport { CUSTOM_SECRET_TARGET } from "../shared/credential-request.ts";',
+  );
+  await change(
+    "server/index.ts",
     "const secretCards = createSecretCards({ store, cfg, botLogins,",
     `const secretCards = createSecretCards({ store, cfg, botLogins,
   boundCredentialAllowed: j1CredentialAnswerAllowed,
   finishBoundCredential: j1FinishCredential,
 `,
   );
-  await change("server/index.ts",
+  await change(
+    "server/index.ts",
     "request: (body) => secretCards.requestCredential(internalSender, internalCapability.threadId, body)",
     `request: ${settingsWindow ? "async " : ""}(body) => {
         const result = ${settingsWindow ? "await " : ""}secretCards.requestCredential(internalSender, internalCapability.threadId, body);
@@ -4128,7 +4211,8 @@ const signInSettle = createSignInSettle({`,
         return result;
       }`,
   );
-  await change("server/index.ts",
+  await change(
+    "server/index.ts",
     "const phoneSecretSubmissions = new PhoneSecretSubmissionRegistry();",
     `function j1CredentialActionHash(row: Message, proof: NonNullable<Message["j1Credential"]>) {
   if (row.kind !== "secret" || !row.secret || row.secret.superseded || row.secret.stopped) return undefined;
@@ -4231,46 +4315,54 @@ function j1FinishCredential(row: Message, botId: string, threadId: string, outco
 
 const phoneSecretSubmissions = new PhoneSecretSubmissionRegistry();`,
   );
-  await change("server/host/secret-cards.ts",
+  await change(
+    "server/host/secret-cards.ts",
     "  answerCardNode(threadId: string, messageId: string, text: string): boolean;",
     `  answerCardNode(threadId: string, messageId: string, text: string): boolean;
   boundCredentialAllowed?(row: Message, botId: string, threadId: string, auth?: RequestAuth): boolean;
   finishBoundCredential?(row: Message, botId: string, threadId: string, outcome: "provided" | "dismissed", auth?: RequestAuth): boolean | undefined;`,
   );
-  await change("server/host/secret-cards.ts",
+  await change(
+    "server/host/secret-cards.ts",
     "export interface SecretCardsDeps {",
     `import type { RequestAuth } from "../request-auth.ts";
 
 export interface SecretCardsDeps {`,
   );
-  await change("server/host/secret-cards.ts",
+  await change(
+    "server/host/secret-cards.ts",
     "    store.patchMessage(threadId, message.id, { secret: { ...secret, savedAt: Date.now() } });",
     `    const saveId = message.j1Credential && vault.refVersion(message.id);
     if (message.j1Credential && !saveId) throw new Error("The credential could not be saved securely.");
     store.patchMessage(threadId, message.id, { secret: { ...secret, savedAt: Date.now() },
       ...(message.j1Credential && saveId ? { j1Credential: { ...message.j1Credential, saveId } } : {}) });`,
   );
-  await change("server/host/secret-cards.ts",
+  await change(
+    "server/host/secret-cards.ts",
     "function saveCustomSecret(botId: string, threadId: string, messageId: string, raw: unknown):",
     "function saveCustomSecret(botId: string, threadId: string, messageId: string, raw: unknown, auth?: RequestAuth):",
   );
   if (settingsWindow) {
-    await change("server/host/secret-cards.ts",
+    await change(
+      "server/host/secret-cards.ts",
       "function openCustomCard(botId: string, threadId: string, messageId: string):",
       "function openCustomCard(botId: string, threadId: string, messageId: string, auth?: RequestAuth):",
     );
-    await change("server/host/secret-cards.ts",
+    await change(
+      "server/host/secret-cards.ts",
       "raw: unknown, auth?: RequestAuth): { status: number; body: Record<string, unknown> } {\n    const message = openCustomCard(botId, threadId, messageId);",
       "raw: unknown, auth?: RequestAuth): { status: number; body: Record<string, unknown> } {\n    const message = openCustomCard(botId, threadId, messageId, auth);",
     );
   }
-  await change("server/host/secret-cards.ts",
-    "    if (!custom(secret)) return { status: 400, body: { ...userError(\"serverError.secret.settingsCard\") } };",
+  await change(
+    "server/host/secret-cards.ts",
+    '    if (!custom(secret)) return { status: 400, body: { ...userError("serverError.secret.settingsCard") } };',
     `    if (!custom(secret)) return { status: 400, body: { ...userError("serverError.secret.settingsCard") } };
     if (message.j1Credential && deps.boundCredentialAllowed?.(message, botId, threadId, auth) !== true)
       return { status: 409, body: { error: "The original credential request is no longer current." } };`,
   );
-  await change("server/host/secret-cards.ts",
+  await change(
+    "server/host/secret-cards.ts",
     `      console.warn(\`secret card: could not keep a secret: \${error instanceof Error ? error.message : String(error)}\`);
       return { status: 500, body: { ...userError("serverError.secret.notKeptSafely") } };
     }
@@ -4281,36 +4373,42 @@ export interface SecretCardsDeps {`,
     if (!resumeSecretCard(botId, threadId, message.id, "provided", auth)) return { status: 409, body: { ...userError("serverError.secret.unavailableLower") } };`,
   );
   if (settingsWindow) {
-    await change("server/host/secret-cards.ts",
+    await change(
+      "server/host/secret-cards.ts",
       "    const card = message.secret!;\n    const asked = vaultNameKey(card.label);",
       "    if (message.j1Credential) return [];\n    const card = message.secret!;\n    const asked = vaultNameKey(card.label);",
     );
   }
-  await change("server/host/secret-cards.ts",
-    "function resumeSecretCard(botId: string, threadId: string, messageId: string, outcome: \"provided\" | \"dismissed\") {",
-    "function resumeSecretCard(botId: string, threadId: string, messageId: string, outcome: \"provided\" | \"dismissed\", auth?: RequestAuth) {",
+  await change(
+    "server/host/secret-cards.ts",
+    'function resumeSecretCard(botId: string, threadId: string, messageId: string, outcome: "provided" | "dismissed") {',
+    'function resumeSecretCard(botId: string, threadId: string, messageId: string, outcome: "provided" | "dismissed", auth?: RequestAuth) {',
   );
-  await change("server/host/secret-cards.ts",
+  await change(
+    "server/host/secret-cards.ts",
     `    if (!message?.secret) return false;
     if (message.secret.resumed) return true;`,
     `    if (!message?.secret) return false;
     if (message.j1Credential) return deps.finishBoundCredential?.(message, botId, threadId, outcome, auth) === true;
     if (message.secret.resumed) return true;`,
   );
-  await change("server/host/secret-cards.ts",
+  await change(
+    "server/host/secret-cards.ts",
     `    authenticatedDeviceId: string,
   ): Promise<{ provided: boolean; resumed: boolean }> {`,
     `    authenticatedDeviceId: string,
     auth?: RequestAuth,
   ): Promise<{ provided: boolean; resumed: boolean }> {`,
   );
-  await change("server/host/secret-cards.ts",
+  await change(
+    "server/host/secret-cards.ts",
     "    assertPhoneSecretRequestMatches(context, authenticatedDeviceId, {",
     `    if (message.j1Credential && deps.boundCredentialAllowed?.(message, context.botId, context.threadId, auth) !== true)
       throw new PhoneSecretError("The original credential request is no longer current.", 409);
     assertPhoneSecretRequestMatches(context, authenticatedDeviceId, {`,
   );
-  await change("server/host/secret-cards.ts",
+  await change(
+    "server/host/secret-cards.ts",
     `      if (opened !== null) {
         if (current.secret.stopped)`,
     `      if (current.j1Credential && deps.boundCredentialAllowed?.(current, context.botId, context.threadId, auth) !== true)
@@ -4318,35 +4416,42 @@ export interface SecretCardsDeps {`,
       if (opened !== null) {
         if (current.secret.stopped)`,
   );
-  await change("server/host/secret-cards.ts",
+  await change(
+    "server/host/secret-cards.ts",
     "    secretSaved, updateText, redeemMcpServer,",
     `    secretSaved, updateText, redeemMcpServer,
     boundCredentialAvailable: (id: string, version: string) => vault.refVersion(id) === version,`,
   );
-  await change("server/routes/secret-cards.ts",
+  await change(
+    "server/routes/secret-cards.ts",
     "deps.cards.saveCustomSecret(m[1]!, threadId, m[2]!, fields.value)",
     "deps.cards.saveCustomSecret(m[1]!, threadId, m[2]!, fields.value, auth)",
   );
-  await change("server/routes/secret-cards.ts",
+  await change(
+    "server/routes/secret-cards.ts",
     "      }, authenticatedDeviceId);",
     "      }, authenticatedDeviceId, auth);",
   );
-  await change("server/routes/secret-cards.ts",
+  await change(
+    "server/routes/secret-cards.ts",
     `      if (m[3] === "provided") {
         if (message.secret.dismissed)`,
     `      if (m[3] === "provided") {
         if (message.j1Credential) return json(res, 409, { error: "Use secure entry for this credential request." });
         if (message.secret.dismissed)`,
   );
-  await change("server/routes/secret-cards.ts",
+  await change(
+    "server/routes/secret-cards.ts",
     "resumeSecretCard(m[1], threadId, message.id, outcome)",
     "resumeSecretCard(m[1], threadId, message.id, outcome, auth)",
   );
-  await change("server/routes/secret-cards.ts",
-    "resumeSecretCard(m[1], threadId, message.id, \"dismissed\")",
-    "resumeSecretCard(m[1], threadId, message.id, \"dismissed\", auth)",
+  await change(
+    "server/routes/secret-cards.ts",
+    'resumeSecretCard(m[1], threadId, message.id, "dismissed")',
+    'resumeSecretCard(m[1], threadId, message.id, "dismissed", auth)',
   );
-  await change("server/routes/secret-cards.ts",
+  await change(
+    "server/routes/secret-cards.ts",
     `      if (phoneSecretSubmissions.has(
         phoneSecretSubmissionKey`,
     `      if (message.j1Credential && !deps.threadVisible(auth, threadId))
@@ -4354,27 +4459,78 @@ export interface SecretCardsDeps {`,
       if (phoneSecretSubmissions.has(
         phoneSecretSubmissionKey`,
   );
-  await change("server/host/secret-cards.ts", "      if (!resumeSecretCard(context.botId, context.threadId, context.messageId, \"provided\")) {\n        throw new PhoneSecretError(\"This credential request is no longer available\", 409);\n      }\n      const recovered", "      if (!resumeSecretCard(context.botId, context.threadId, context.messageId, \"provided\", auth)) {\n        throw new PhoneSecretError(\"This credential request is no longer available\", 409);\n      }\n      const recovered");
-  await change("server/host/secret-cards.ts", "      if (!resumeSecretCard(context.botId, context.threadId, context.messageId, \"provided\")) {\n        throw new PhoneSecretError(\"This credential request is no longer available\", 409);\n      }\n    });", "      if (!resumeSecretCard(context.botId, context.threadId, context.messageId, \"provided\", auth)) {\n        throw new PhoneSecretError(\"This credential request is no longer available\", 409);\n      }\n    });");
-  await change("server/host/secret-cards.ts", "        context.messageId,\n        \"provided\",\n      ))", "        context.messageId,\n        \"provided\", auth,\n      ))");
-  await change("server/host/secret-cards.ts", "      if (opened !== null) {\n        if (current.secret.stopped)", "      if (opened !== null) {\n        if (current.j1Credential && (current.j1Credential.saveId || vault.refVersion(current.id))) throw new PhoneSecretError(\"This credential is already saved.\", 409);\n        if (current.secret.stopped)");
-  await change("server/routes/secret-cards.ts", "      const outcome = credentialResumeOutcome(message.secret);", "      const outcome = message.j1Credential?.saveId ? \"provided\" : credentialResumeOutcome(message.secret);");
-  await change("server/host/secret-cards.ts", "    const value = typeof raw === \"string\" ? raw.trim() : \"\";", "    if (message.j1Credential && vault.refVersion(message.id))\n      return { status: 409, body: { error: \"This credential was already saved for this request.\" } };\n    const value = typeof raw === \"string\" ? raw.trim() : \"\";");
-  await change("server/secret-vault.ts", "import { randomBytes } from \"node:crypto\";", "import { randomBytes, randomUUID } from \"node:crypto\";");
-  await change("server/secret-vault.ts", "{ ref: string } | { file: string; until: number }", "{ ref: string; version: string } | { file: string; until: number }");
-  await change("server/secret-vault.ts", "this.byCard.set(messageId, { ref });", "this.byCard.set(messageId, { ref, version: randomUUID() });");
-  await change("server/secret-vault.ts", "  savedFor(messageId: string): SavedSecret | null {", "  refVersion(messageId: string): string | undefined {\n    const saved = this.byCard.get(messageId);\n    return saved && \"ref\" in saved && this.savedFor(messageId) ? saved.version : undefined;\n  }\n\n  savedFor(messageId: string): SavedSecret | null {");
-  await change("server/routes/secret-cards.ts", "      if (message.j1Credential && !deps.threadVisible(auth, threadId))\n        return json(res, 404, { ...userError(\"serverError.secret.missing\") });", "      if (message.j1Credential) {\n        if (!deps.threadVisible(auth, threadId)) return json(res, 404, { ...userError(\"serverError.secret.missing\") });\n        const refusal = codedSecretAnswerRefusal(auth, deps.answerContext(auth, m[1], threadId));\n        if (refusal) return json(res, 403, refusal);\n      }");
-  await change("server/routes/secret-cards.ts", "deps.cards.saveCustomSecret(m[1]!, threadId, m[2]!, fields.value, auth)", "deps.cards.saveCustomSecret(m[1]!, threadId, m[2]!, fields.value,\n          ...(secretMessage(m[1]!, threadId, m[2]!)?.j1Credential ? [auth] as const : []))");
-  await change("server/secret-vault.ts",
+  await change(
+    "server/host/secret-cards.ts",
+    '      if (!resumeSecretCard(context.botId, context.threadId, context.messageId, "provided")) {\n        throw new PhoneSecretError("This credential request is no longer available", 409);\n      }\n      const recovered',
+    '      if (!resumeSecretCard(context.botId, context.threadId, context.messageId, "provided", auth)) {\n        throw new PhoneSecretError("This credential request is no longer available", 409);\n      }\n      const recovered',
+  );
+  await change(
+    "server/host/secret-cards.ts",
+    '      if (!resumeSecretCard(context.botId, context.threadId, context.messageId, "provided")) {\n        throw new PhoneSecretError("This credential request is no longer available", 409);\n      }\n    });',
+    '      if (!resumeSecretCard(context.botId, context.threadId, context.messageId, "provided", auth)) {\n        throw new PhoneSecretError("This credential request is no longer available", 409);\n      }\n    });',
+  );
+  await change(
+    "server/host/secret-cards.ts",
+    '        context.messageId,\n        "provided",\n      ))',
+    '        context.messageId,\n        "provided", auth,\n      ))',
+  );
+  await change(
+    "server/host/secret-cards.ts",
+    "      if (opened !== null) {\n        if (current.secret.stopped)",
+    '      if (opened !== null) {\n        if (current.j1Credential && (current.j1Credential.saveId || vault.refVersion(current.id))) throw new PhoneSecretError("This credential is already saved.", 409);\n        if (current.secret.stopped)',
+  );
+  await change(
+    "server/routes/secret-cards.ts",
+    "      const outcome = credentialResumeOutcome(message.secret);",
+    '      const outcome = message.j1Credential?.saveId ? "provided" : credentialResumeOutcome(message.secret);',
+  );
+  await change(
+    "server/host/secret-cards.ts",
+    '    const value = typeof raw === "string" ? raw.trim() : "";',
+    '    if (message.j1Credential && vault.refVersion(message.id))\n      return { status: 409, body: { error: "This credential was already saved for this request." } };\n    const value = typeof raw === "string" ? raw.trim() : "";',
+  );
+  await change(
+    "server/secret-vault.ts",
+    'import { randomBytes } from "node:crypto";',
+    'import { randomBytes, randomUUID } from "node:crypto";',
+  );
+  await change(
+    "server/secret-vault.ts",
+    "{ ref: string } | { file: string; until: number }",
+    "{ ref: string; version: string } | { file: string; until: number }",
+  );
+  await change(
+    "server/secret-vault.ts",
+    "this.byCard.set(messageId, { ref });",
+    "this.byCard.set(messageId, { ref, version: randomUUID() });",
+  );
+  await change(
+    "server/secret-vault.ts",
+    "  savedFor(messageId: string): SavedSecret | null {",
+    '  refVersion(messageId: string): string | undefined {\n    const saved = this.byCard.get(messageId);\n    return saved && "ref" in saved && this.savedFor(messageId) ? saved.version : undefined;\n  }\n\n  savedFor(messageId: string): SavedSecret | null {',
+  );
+  await change(
+    "server/routes/secret-cards.ts",
+    '      if (message.j1Credential && !deps.threadVisible(auth, threadId))\n        return json(res, 404, { ...userError("serverError.secret.missing") });',
+    '      if (message.j1Credential) {\n        if (!deps.threadVisible(auth, threadId)) return json(res, 404, { ...userError("serverError.secret.missing") });\n        const refusal = codedSecretAnswerRefusal(auth, deps.answerContext(auth, m[1], threadId));\n        if (refusal) return json(res, 403, refusal);\n      }',
+  );
+  await change(
+    "server/routes/secret-cards.ts",
+    "deps.cards.saveCustomSecret(m[1]!, threadId, m[2]!, fields.value, auth)",
+    "deps.cards.saveCustomSecret(m[1]!, threadId, m[2]!, fields.value,\n          ...(secretMessage(m[1]!, threadId, m[2]!)?.j1Credential ? [auth] as const : []))",
+  );
+  await change(
+    "server/secret-vault.ts",
     "fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, rmSync, writeSync",
     "fsyncSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, realpathSync, rmSync, writeSync, type BigIntStats",
   );
-  await change("server/secret-vault.ts",
-    "import { join } from \"node:path\";",
-    "import { basename, dirname, join, resolve } from \"node:path\";",
+  await change(
+    "server/secret-vault.ts",
+    'import { join } from "node:path";',
+    'import { basename, dirname, join, resolve } from "node:path";',
   );
-  await change("server/secret-vault.ts",
+  await change(
+    "server/secret-vault.ts",
     "export class SecretVault {",
     `/** Keep original authorized roots, including VM backing directories, when a leaf has not been created yet. */
 export function canonicalSecretRoot(path: string): string {
@@ -4431,33 +4587,39 @@ function secureFileIdentity(root: string, path: string): BigIntStats {
 
 export class SecretVault {`,
   );
-  await change("server/secret-vault.ts",
+  await change(
+    "server/secret-vault.ts",
     "{ file: string; until: number }>();",
     "{ file: string; until: number; bound?: BoundSecretFile }>();",
   );
-  await change("server/secret-vault.ts",
+  await change(
+    "server/secret-vault.ts",
     "saveFile(owner: SecretOwner, messageId: string, value: string, home: SecretFileHome): string {",
     "saveFile(owner: SecretOwner, messageId: string, value: string, home: SecretFileHome, bindIdentity = false): string {",
   );
   const deliveryFileName = settingsWindow ? "name" : "messageId";
   if (settingsWindow) {
-    await change("server/secret-vault.ts",
+    await change(
+      "server/secret-vault.ts",
       "    const saved = this.writeFile(owner, messageId, value, home);",
       "    const saved = this.writeFile(owner, messageId, value, home, bindIdentity);",
     );
-    await change("server/secret-vault.ts",
+    await change(
+      "server/secret-vault.ts",
       "private writeFile(owner: SecretOwner, name: string, value: string, home: SecretFileHome): { file: string; until: number } {",
       "private writeFile(owner: SecretOwner, name: string, value: string, home: SecretFileHome, bindIdentity = false): { file: string; until: number; bound?: BoundSecretFile } {",
     );
   }
-  await change("server/secret-vault.ts",
+  await change(
+    "server/secret-vault.ts",
     `    privateFolder(home.host, "all");
     const folder = join(home.host, SECRET_FOLDER);`,
     `    const root = bindIdentity ? canonicalSecretRoot(home.host) : home.host;
     privateFolder(root, "all");
     const folder = join(root, SECRET_FOLDER);`,
   );
-  await change("server/secret-vault.ts",
+  await change(
+    "server/secret-vault.ts",
     `    const file = join(threadFolder, ${deliveryFileName});
     rmSync(file, { force: true });`,
     `    const rootInfo = bindIdentity ? lstatSync(root, { bigint: true }) : undefined;
@@ -4470,7 +4632,8 @@ export class SecretVault {`,
   const bindVaultDelivery = settingsWindow
     ? "    this.hold(value, until);\n    return { file: shown, until, ...(bound ? { bound } : {}) };"
     : "    this.byCard.set(messageId, { file: shown, until, ...(bound ? { bound } : {}) });";
-  await change("server/secret-vault.ts",
+  await change(
+    "server/secret-vault.ts",
     `    try {
       writeSync(fd, value);
       fsyncSync(fd);
@@ -4501,7 +4664,8 @@ export class SecretVault {`,
     const until = this.now() + SECRET_FILE_TTL_MS;
 ${bindVaultDelivery}`,
   );
-  await change("server/secret-vault.ts",
+  await change(
+    "server/secret-vault.ts",
     "  savedFor(messageId: string): SavedSecret | null {",
     `  fileVersion(messageId: string, home: SecretFileHome): string | undefined {
     const saved = this.byCard.get(messageId);
@@ -4516,7 +4680,8 @@ ${bindVaultDelivery}`,
 
   savedFor(messageId: string): SavedSecret | null {`,
   );
-  await change("server/host/secret-cards.ts",
+  await change(
+    "server/host/secret-cards.ts",
     "import { userError }",
     `import { canonicalSecretRoot } from "../secret-vault.ts";
 import { userError }`,
@@ -4524,7 +4689,8 @@ import { userError }`,
   const customCardDocumentation = settingsWindow
     ? "  /** Hands a custom card's value over as its delivery says, and marks when; never touches the card's other fields."
     : "  /** Keeps a custom card's value where its delivery says, and marks when; never touches the card's other fields. */";
-  await change("server/host/secret-cards.ts",
+  await change(
+    "server/host/secret-cards.ts",
     customCardDocumentation,
     `  function credentialFileHome(botId: string, threadId: string, secret: SecretRequestCardData): SecretFileHome | null {
     if (secret.vm) return vmFileHome(botId, secret.vm);
@@ -4549,7 +4715,8 @@ import { userError }`,
   ${customCardDocumentation.trimStart()}`,
   );
   if (settingsWindow) {
-    await change("server/host/secret-cards.ts",
+    await change(
+      "server/host/secret-cards.ts",
       "      vault.saveFile(owner, message.id, value, fileHome(botId, threadId, secret.vm));",
       `      const home = message.j1Credential
         ? credentialFileHome(botId, threadId, secret)
@@ -4558,7 +4725,8 @@ import { userError }`,
       vault.saveFile(owner, message.id, value, home, Boolean(message.j1Credential));`,
     );
   } else {
-    await change("server/host/secret-cards.ts",
+    await change(
+      "server/host/secret-cards.ts",
       `      const home = (secret.vm ? vmFileHome(botId, secret.vm) : null) ?? { host: deps.layerFolder(botId, threadId), shown: deps.layerFolder(botId, threadId) };
       vault.saveFile(owner, message.id, value, home);`,
       `      const resolved = credentialFileHome(botId, threadId, secret);
@@ -4570,19 +4738,23 @@ import { userError }`,
       vault.saveFile(owner, message.id, value, resolved ?? fallback(), Boolean(message.j1Credential));`,
     );
   }
-  await change("server/host/secret-cards.ts",
+  await change(
+    "server/host/secret-cards.ts",
     "    const saveId = message.j1Credential && vault.refVersion(message.id);",
     "    const saveId = message.j1Credential && boundVersion(message, botId, threadId);",
   );
-  await change("server/host/secret-cards.ts",
+  await change(
+    "server/host/secret-cards.ts",
     "message.j1Credential && vault.refVersion(message.id)",
     "message.j1Credential && boundVersion(message, botId, threadId)",
   );
-  await change("server/host/secret-cards.ts",
+  await change(
+    "server/host/secret-cards.ts",
     "current.j1Credential.saveId || vault.refVersion(current.id)",
     "current.j1Credential.saveId || boundVersion(current, context.botId, context.threadId)",
   );
-  await change("server/host/secret-cards.ts",
+  await change(
+    "server/host/secret-cards.ts",
     "    boundCredentialAvailable: (id: string, version: string) => vault.refVersion(id) === version,",
     `    fileScope,
     boundCredentialAvailable: (id: string, version: string, message?: Message, botId?: string, threadId?: string) =>
@@ -4590,20 +4762,43 @@ import { userError }`,
         ? botId && threadId && boundVersion(message, botId, threadId)
         : vault.refVersion(id)) === version,`,
   );
-  await change("server/host/secret-cards.ts", "  turnVm(threadId: string): string | undefined;", "  turnVm(threadId: string): string | undefined;\n  boundVm?(botId: string, threadId: string, target: string): boolean;");
-  await change("server/host/secret-cards.ts", "  function fileScope(botId: string, threadId: string, secret: SecretRequestCardData): string | undefined {\n    try {", "  function fileScope(botId: string, threadId: string, secret: SecretRequestCardData): string | undefined {\n    if (secret.vm && deps.boundVm?.(botId, threadId, secret.vm) !== true) return undefined;\n    try {");
-  await change("server/index.ts", "  boundCredentialAllowed: j1CredentialAnswerAllowed,", "  boundCredentialAllowed: j1CredentialAnswerAllowed,\n  boundVm: (botId, threadId, key) => {\n    const active = localVmThreadTargets.get(threadId);\n    if (active) return active.key === key;\n    if (localVmMode(cfg) !== \"pool\") return localVmTargetForStatus(botId, threadId).key === key;\n    const seat = localVmSeatPool.affinitySeat(threadId);\n    return seat !== null && poolLocalVmTarget(seat).key === key;\n  },");
-  await change("server/secret-vault.ts", "    return saved.until > this.now() ? { file: saved.file } : null;", "    if (saved.until <= this.now()) return null;\n    if (saved.bound && !this.fileVersion(messageId, { host: saved.bound.root, shown: saved.file })) return null;\n    return { file: saved.file };");
-  await change("server/host/secret-cards.ts", "console.warn(`secret card: could not keep a secret: ${error instanceof Error ? error.message : String(error)}`);", "if (!message.j1Credential) console.warn(`secret card: could not keep a secret: ${error instanceof Error ? error.message : String(error)}`);\n      else console.warn(\"The secure credential write failed.\");");
-  await change("server/index.ts",
-    "import { CUSTOM_SECRET_TARGET } from \"../shared/credential-request.ts\";",
-    "import { CUSTOM_SECRET_TARGET, CREDENTIAL_TARGETS, credentialConfigPatch, credentialIsConfigured, isConfigCredentialTarget, isCredentialTargetId, type ConfigCredentialTargetId } from \"../shared/credential-request.ts\";",
+  await change(
+    "server/host/secret-cards.ts",
+    "  turnVm(threadId: string): string | undefined;",
+    "  turnVm(threadId: string): string | undefined;\n  boundVm?(botId: string, threadId: string, target: string): boolean;",
   );
-  await change("server/config.ts",
+  await change(
+    "server/host/secret-cards.ts",
+    "  function fileScope(botId: string, threadId: string, secret: SecretRequestCardData): string | undefined {\n    try {",
+    "  function fileScope(botId: string, threadId: string, secret: SecretRequestCardData): string | undefined {\n    if (secret.vm && deps.boundVm?.(botId, threadId, secret.vm) !== true) return undefined;\n    try {",
+  );
+  await change(
+    "server/index.ts",
+    "  boundCredentialAllowed: j1CredentialAnswerAllowed,",
+    '  boundCredentialAllowed: j1CredentialAnswerAllowed,\n  boundVm: (botId, threadId, key) => {\n    const active = localVmThreadTargets.get(threadId);\n    if (active) return active.key === key;\n    if (localVmMode(cfg) !== "pool") return localVmTargetForStatus(botId, threadId).key === key;\n    const seat = localVmSeatPool.affinitySeat(threadId);\n    return seat !== null && poolLocalVmTarget(seat).key === key;\n  },',
+  );
+  await change(
+    "server/secret-vault.ts",
+    "    return saved.until > this.now() ? { file: saved.file } : null;",
+    "    if (saved.until <= this.now()) return null;\n    if (saved.bound && !this.fileVersion(messageId, { host: saved.bound.root, shown: saved.file })) return null;\n    return { file: saved.file };",
+  );
+  await change(
+    "server/host/secret-cards.ts",
+    "console.warn(`secret card: could not keep a secret: ${error instanceof Error ? error.message : String(error)}`);",
+    'if (!message.j1Credential) console.warn(`secret card: could not keep a secret: ${error instanceof Error ? error.message : String(error)}`);\n      else console.warn("The secure credential write failed.");',
+  );
+  await change(
+    "server/index.ts",
+    'import { CUSTOM_SECRET_TARGET } from "../shared/credential-request.ts";',
+    'import { CUSTOM_SECRET_TARGET, CREDENTIAL_TARGETS, credentialConfigPatch, credentialIsConfigured, isConfigCredentialTarget, isCredentialTargetId, type ConfigCredentialTargetId } from "../shared/credential-request.ts";',
+  );
+  await change(
+    "server/config.ts",
     "      listener(before, disk);",
     "      listener(before, disk, checkedPatch);",
   );
-  await change("server/routes/config.ts",
+  await change(
+    "server/routes/config.ts",
     "export interface ConfigRouteDeps {",
     `export interface NamedCredentialCommit {
   current(): boolean;
@@ -4614,7 +4809,8 @@ import { userError }`,
 export interface ConfigRouteDeps {
   credentialCardSave?(header: string, patch: unknown, auth: RequestAuth): NamedCredentialCommit | null;`,
   );
-  await change("server/routes/config.ts",
+  await change(
+    "server/routes/config.ts",
     "      const patch = parseConfigPatchForPerson(body);",
     `      const patch = parseConfigPatchForPerson(body);
       const header = req.headers["x-j1-credential-card"];
@@ -4622,36 +4818,41 @@ export interface ConfigRouteDeps {
         ? deps.credentialCardSave?.(header, body, auth) : undefined;
       if (header !== undefined && !named) return json(res, 409, { error: "The original credential save is no longer current." });`,
   );
-  await change("server/routes/config.ts",
+  await change(
+    "server/routes/config.ts",
     "      for (const key of resetKeys) if (key) forgetKey(key);",
     `      const namedRevision = named?.revision();
       for (const key of resetKeys) if (key) forgetKey(key);`,
   );
   const configReply = settingsWindow
-    ? '{ ...(configForAccess(finalized.value, auth) as object), ...(savedVpsNotice ? { notice: savedVpsNotice } : {}) }'
+    ? "{ ...(configForAccess(finalized.value, auth) as object), ...(savedVpsNotice ? { notice: savedVpsNotice } : {}) }"
     : "configForAccess(finalized.value, auth)";
-  await change("server/routes/config.ts",
+  await change(
+    "server/routes/config.ts",
     `      return json(res, 200, ${configReply});`,
     `      if (named && (!namedRevision || !named.finish(namedRevision)))
         return json(res, 409, { error: "The credential was saved, but the original request could not resume." });
       return json(res, 200, ${configReply});`,
   );
-  await change("server/index.ts",
+  await change(
+    "server/index.ts",
     `  store, cfg, registry, sessions, browserCleanup, browserLive, browserRuntime, usedBrowserSessions, decider,
   sharedComputers, sharedComputerControl, closeBrowser, browserEngineSwitched,`,
     `  store, cfg, registry, sessions, browserCleanup, browserLive, browserRuntime, usedBrowserSessions, decider,
   credentialCardSave: j1PrepareNamedCredential,
   sharedComputers, sharedComputerControl, closeBrowser, browserEngineSwitched,`,
   );
-  await change("server/index.ts",
-    "function j1CredentialActionHash(row: Message, proof: NonNullable<Message[\"j1Credential\"]>) {",
-    "const j1NamedSlotVersions = new Map<ConfigCredentialTargetId, string>();\nconst j1NamedSlots = Object.keys(CREDENTIAL_TARGETS).filter(\n  (key): key is ConfigCredentialTargetId => isCredentialTargetId(key) && isConfigCredentialTarget(key),\n).map(target => {\n  const sentinel = \"__j1_settings_slot__\";\n  const [part, fields] = Object.entries(credentialConfigPatch(target, sentinel))[0]!;\n  const key = Object.entries(fields).find(([, value]) => value === sentinel)![0];\n  return { target, part, key };\n});\n\nfunction j1NamedField(root: unknown, part: string, key: string): unknown {\n  if (!root || typeof root !== \"object\") return undefined;\n  const nested = (root as Record<string, unknown>)[part];\n  return nested && typeof nested === \"object\" ? (nested as Record<string, unknown>)[key] : undefined;\n}\n\nonConfigSaved((before, after, touched) => {\n  for (const { target, part, key } of j1NamedSlots) {\n    if (j1NamedField(touched, part, key) !== undefined || j1NamedField(before, part, key) !== j1NamedField(after, part, key))\n      j1NamedSlotVersions.set(target, randomUUID());\n  }\n});\n\nfunction j1NamedTarget(row: Message) {\n  const target = row.secret?.target;\n  return process.env.J1_MAUSBOT_MANAGED === \"1\" && isCredentialTargetId(target) && isConfigCredentialTarget(target)\n    ? target : undefined;\n}\n\nfunction j1NamedPatchMatches(target: ConfigCredentialTargetId, patch: unknown) {\n  const slot = j1NamedSlots.find(item => item.target === target);\n  if (!slot || !patch || typeof patch !== \"object\" || Array.isArray(patch)) return false;\n  const value = j1NamedField(patch, slot.part, slot.key);\n  if (typeof value !== \"string\" || !value.trim()) return false;\n  const expected = credentialConfigPatch(target, value);\n  const keys = Object.keys(patch);\n  if (keys.length !== 1 || keys[0] !== slot.part) return false;\n  const input = Object.entries((patch as Record<string, object>)[slot.part]!);\n  const requested = Object.entries((expected as Record<string, object>)[slot.part]!);\n  return input.length === requested.length && requested.every(([key, value]) => input.some(item => item[0] === key && item[1] === value));\n}\n\nfunction j1PrepareNamedCredential(header: string, patch: unknown, auth: RequestAuth) {\n  if (header.length > 600 || auth.kind !== \"session\" || !auth.scopes.includes(\"admin\")) return null;\n  let ids: unknown;\n  try { ids = JSON.parse(header); } catch { return null; }\n  if (!Array.isArray(ids) || ids.length !== 4 || ids.some(id => typeof id !== \"string\" || !/^[\\w-]{1,128}$/.test(id))) return null;\n  const [botId, threadId, cardId, requestKey] = ids as [string, string, string, string];\n  if (!visibleTo(viewerFor(auth)).thread(threadId)) return null;\n  const original = secretCards.secretMessage(botId, threadId, cardId);\n  const target = original && j1NamedTarget(original);\n  if (!original?.j1Credential || !target || original.secret?.requestKey !== requestKey ||\n      original.j1Credential.saveId || original.secret.provided || original.secret.dismissed ||\n      !j1CredentialAnswerAllowed(original, botId, threadId, auth) || !j1NamedPatchMatches(target, patch) ||\n      credentialIsConfigured(cfg, target)) return null;\n  const before = j1NamedSlotVersions.get(target);\n  return {\n    revision: () => {\n      const revision = j1NamedSlotVersions.get(target);\n      return revision !== before && credentialIsConfigured(cfg, target) ? revision : undefined;\n    },\n    finish: (revision: string) => {\n      const row = secretCards.secretMessage(botId, threadId, cardId);\n      if (!row?.j1Credential || row.secret?.requestKey !== requestKey || j1NamedTarget(row) !== target ||\n          row.j1Credential.saveId || row.secret.dismissed || !j1CredentialAnswerAllowed(row, botId, threadId, auth) ||\n          j1NamedSlotVersions.get(target) !== revision || !credentialIsConfigured(cfg, target)) return false;\n      const saved = store.patchMessage(threadId, cardId, { j1Credential: { ...row.j1Credential, saveId: revision } });\n      return saved?.j1Credential?.saveId === revision && j1FinishCredential(saved, botId, threadId, \"provided\", auth) === true;\n    },\n  };\n}\n\nfunction j1CredentialActionHash(row: Message, proof: NonNullable<Message[\"j1Credential\"]>) {",
+  await change(
+    "server/index.ts",
+    'function j1CredentialActionHash(row: Message, proof: NonNullable<Message["j1Credential"]>) {',
+    'const j1NamedSlotVersions = new Map<ConfigCredentialTargetId, string>();\nconst j1NamedSlots = Object.keys(CREDENTIAL_TARGETS).filter(\n  (key): key is ConfigCredentialTargetId => isCredentialTargetId(key) && isConfigCredentialTarget(key),\n).map(target => {\n  const sentinel = "__j1_settings_slot__";\n  const [part, fields] = Object.entries(credentialConfigPatch(target, sentinel))[0]!;\n  const key = Object.entries(fields).find(([, value]) => value === sentinel)![0];\n  return { target, part, key };\n});\n\nfunction j1NamedField(root: unknown, part: string, key: string): unknown {\n  if (!root || typeof root !== "object") return undefined;\n  const nested = (root as Record<string, unknown>)[part];\n  return nested && typeof nested === "object" ? (nested as Record<string, unknown>)[key] : undefined;\n}\n\nonConfigSaved((before, after, touched) => {\n  for (const { target, part, key } of j1NamedSlots) {\n    if (j1NamedField(touched, part, key) !== undefined || j1NamedField(before, part, key) !== j1NamedField(after, part, key))\n      j1NamedSlotVersions.set(target, randomUUID());\n  }\n});\n\nfunction j1NamedTarget(row: Message) {\n  const target = row.secret?.target;\n  return process.env.J1_MAUSBOT_MANAGED === "1" && isCredentialTargetId(target) && isConfigCredentialTarget(target)\n    ? target : undefined;\n}\n\nfunction j1NamedPatchMatches(target: ConfigCredentialTargetId, patch: unknown) {\n  const slot = j1NamedSlots.find(item => item.target === target);\n  if (!slot || !patch || typeof patch !== "object" || Array.isArray(patch)) return false;\n  const value = j1NamedField(patch, slot.part, slot.key);\n  if (typeof value !== "string" || !value.trim()) return false;\n  const expected = credentialConfigPatch(target, value);\n  const keys = Object.keys(patch);\n  if (keys.length !== 1 || keys[0] !== slot.part) return false;\n  const input = Object.entries((patch as Record<string, object>)[slot.part]!);\n  const requested = Object.entries((expected as Record<string, object>)[slot.part]!);\n  return input.length === requested.length && requested.every(([key, value]) => input.some(item => item[0] === key && item[1] === value));\n}\n\nfunction j1PrepareNamedCredential(header: string, patch: unknown, auth: RequestAuth) {\n  if (header.length > 600 || auth.kind !== "session" || !auth.scopes.includes("admin")) return null;\n  let ids: unknown;\n  try { ids = JSON.parse(header); } catch { return null; }\n  if (!Array.isArray(ids) || ids.length !== 4 || ids.some(id => typeof id !== "string" || !/^[\\w-]{1,128}$/.test(id))) return null;\n  const [botId, threadId, cardId, requestKey] = ids as [string, string, string, string];\n  if (!visibleTo(viewerFor(auth)).thread(threadId)) return null;\n  const original = secretCards.secretMessage(botId, threadId, cardId);\n  const target = original && j1NamedTarget(original);\n  if (!original?.j1Credential || !target || original.secret?.requestKey !== requestKey ||\n      original.j1Credential.saveId || original.secret.provided || original.secret.dismissed ||\n      !j1CredentialAnswerAllowed(original, botId, threadId, auth) || !j1NamedPatchMatches(target, patch) ||\n      credentialIsConfigured(cfg, target)) return null;\n  const before = j1NamedSlotVersions.get(target);\n  return {\n    revision: () => {\n      const revision = j1NamedSlotVersions.get(target);\n      return revision !== before && credentialIsConfigured(cfg, target) ? revision : undefined;\n    },\n    finish: (revision: string) => {\n      const row = secretCards.secretMessage(botId, threadId, cardId);\n      if (!row?.j1Credential || row.secret?.requestKey !== requestKey || j1NamedTarget(row) !== target ||\n          row.j1Credential.saveId || row.secret.dismissed || !j1CredentialAnswerAllowed(row, botId, threadId, auth) ||\n          j1NamedSlotVersions.get(target) !== revision || !credentialIsConfigured(cfg, target)) return false;\n      const saved = store.patchMessage(threadId, cardId, { j1Credential: { ...row.j1Credential, saveId: revision } });\n      return saved?.j1Credential?.saveId === revision && j1FinishCredential(saved, botId, threadId, "provided", auth) === true;\n    },\n  };\n}\n\nfunction j1CredentialActionHash(row: Message, proof: NonNullable<Message["j1Credential"]>) {',
   );
   const useDesktopCredentialStore = settingsWindow ? "store" : "slot && window.ogb?.setCredential";
   const writeDesktopCredential = settingsWindow
     ? 'store(next, target === "anthropicApiKey" ? { everyClaudeBot: false } : undefined)'
     : "window.ogb.setCredential(slot, next)";
-  await change("src/components/SecretRequestCard.tsx",
+  await change(
+    "src/components/SecretRequestCard.tsx",
     `        if (isConfigCredentialTarget(target)) {
           const status: ConfigStatus = ${useDesktopCredentialStore}
             ? await ${writeDesktopCredential}
@@ -4663,23 +4864,46 @@ export interface ConfigRouteDeps {
             : await api(request.path, { method: request.method, body: JSON.stringify(request.body),
               ...(owned ? { headers: { "content-type": "application/json", "x-j1-credential-card": JSON.stringify([botId, threadId, message.id, secret.requestKey]) } } : {}) });`,
   );
-  await change("src/components/SecretRequestCard.tsx",
+  await change(
+    "src/components/SecretRequestCard.tsx",
     `      await notifyProvided();
       returnFocusToComposer();`,
     `      if (secret.j1NamedSettings !== true) await notifyProvided();
       returnFocusToComposer();`,
   );
-  await change("server/config.ts", "const configSaveListeners = new Set<(before: JsonObject, after: JsonObject) => void>();", "const configSaveListeners = new Set<(before: JsonObject, after: JsonObject, touched?: unknown) => void>();");
-  await change("server/config.ts", "export function onConfigSaved(listener: (before: JsonObject, after: JsonObject) => void): () => void {", "export function onConfigSaved(listener: (before: JsonObject, after: JsonObject, touched?: unknown) => void): () => void {");
-  await change("server/routes/config.ts", "      let configWriteCommitted = false;", "      if (named && !named.current()) return json(res, 409, { error: \"The original credential save is no longer current.\" });\n      let configWriteCommitted = false;");
-  await change("shared/wire.ts", "export interface SecretRequestCardData {", "export interface SecretRequestCardData {\n  j1NamedSettings?: true;");
-  await change("server/index.ts", "  const before = j1NamedSlotVersions.get(target);\n  return {\n    revision: () => {", "  const before = j1NamedSlotVersions.get(target);\n  return {\n    current: () => {\n      const row = secretCards.secretMessage(botId, threadId, cardId);\n      return !!row?.j1Credential && row.secret?.requestKey === requestKey && !row.secret.dismissed &&\n        !row.j1Credential.saveId && j1CredentialAnswerAllowed(row, botId, threadId, auth) &&\n        j1NamedSlotVersions.get(target) === before && !credentialIsConfigured(cfg, target);\n    },\n    revision: () => {");
-  await change("server/routes/config.ts",
+  await change(
+    "server/config.ts",
+    "const configSaveListeners = new Set<(before: JsonObject, after: JsonObject) => void>();",
+    "const configSaveListeners = new Set<(before: JsonObject, after: JsonObject, touched?: unknown) => void>();",
+  );
+  await change(
+    "server/config.ts",
+    "export function onConfigSaved(listener: (before: JsonObject, after: JsonObject) => void): () => void {",
+    "export function onConfigSaved(listener: (before: JsonObject, after: JsonObject, touched?: unknown) => void): () => void {",
+  );
+  await change(
+    "server/routes/config.ts",
+    "      let configWriteCommitted = false;",
+    '      if (named && !named.current()) return json(res, 409, { error: "The original credential save is no longer current." });\n      let configWriteCommitted = false;',
+  );
+  await change(
+    "shared/wire.ts",
+    "export interface SecretRequestCardData {",
+    "export interface SecretRequestCardData {\n  j1NamedSettings?: true;",
+  );
+  await change(
+    "server/index.ts",
+    "  const before = j1NamedSlotVersions.get(target);\n  return {\n    revision: () => {",
+    "  const before = j1NamedSlotVersions.get(target);\n  return {\n    current: () => {\n      const row = secretCards.secretMessage(botId, threadId, cardId);\n      return !!row?.j1Credential && row.secret?.requestKey === requestKey && !row.secret.dismissed &&\n        !row.j1Credential.saveId && j1CredentialAnswerAllowed(row, botId, threadId, auth) &&\n        j1NamedSlotVersions.get(target) === before && !credentialIsConfigured(cfg, target);\n    },\n    revision: () => {",
+  );
+  await change(
+    "server/routes/config.ts",
     `import { liveSavePatch } from "../live-config.ts";`,
     `import { liveSavePatch } from "../live-config.ts";
 import { managedPhoneSettingsDevice, managedPhoneSettingsIdentity, openManagedPhoneSettings } from "../j1-phone-settings.ts";`,
   );
-  await change("server/routes/config.ts",
+  await change(
+    "server/routes/config.ts",
     `    // API keys are never echoed back: booleans only.`,
     `    const managedPhone = path === "/api/config" && url.searchParams.has("j1NamedCredential");
     const phoneDevice = managedPhone && req.headers["x-j1-phone-settings"];
@@ -4697,12 +4921,15 @@ import { managedPhoneSettingsDevice, managedPhoneSettingsIdentity, openManagedPh
     }
     // API keys are never echoed back: booleans only.`,
   );
-  const pairedDeviceGate = settingsWindow ? `      const pairedDevice = fromPairedDevice(req, auth);
+  const pairedDeviceGate = settingsWindow
+    ? `      const pairedDevice = fromPairedDevice(req, auth);
       if (pairedDevice && !isPhoneKeyPatch(body)) {
         return json(res, 403, { error: "From a phone, only API keys can be changed. Change other settings on your computer." });
       }
-` : "";
-  await change("server/routes/config.ts",
+`
+    : "";
+  await change(
+    "server/routes/config.ts",
     `      const body = await readBody(req);
 ${pairedDeviceGate}      if (hostedModels && ["instances",`,
     `      let body = await readBody(req, managedPhone ? 16_384 : undefined);
@@ -4727,32 +4954,40 @@ ${pairedDeviceGate}      if (hostedModels && ["instances",`,
         return json(res, 400, { error: "The settings request is invalid." });
 ${pairedDeviceGate}      if (hostedModels && ["instances",`,
   );
-  await change("server/routes/config.ts",
+  await change(
+    "server/routes/config.ts",
     `      const header = req.headers["x-j1-credential-card"];`,
     `      const header = managedHeader ?? req.headers["x-j1-credential-card"];`,
   );
-  await change("server/routes/config.ts",
+  await change(
+    "server/routes/config.ts",
     `      if (named && !named.current())`,
     `      if (named && ((device && res.destroyed) || !named.current()))`,
   );
-  await change("server/routes/config.ts",
+  await change(
+    "server/routes/config.ts",
     `      if (named && (!namedRevision || !named.finish(namedRevision)))`,
     `      if (named && (!namedRevision || (device && res.destroyed) || !named.finish(namedRevision)))`,
   );
-  await change("src/components/SecretRequestCard.tsx",
+  await change(
+    "src/components/SecretRequestCard.tsx",
     `import { useState, type FormEvent } from "react";`,
     `import { useState, type FormEvent } from "react";
 import { pairedNamedSettingsBody } from "@/lib/j1-phone-settings";`,
   );
-  const providerCredentialException = settingsWindow ? " && !isProviderCredentialTarget(secret.target)" : "";
-  await change("src/components/SecretRequestCard.tsx",
+  const providerCredentialException = settingsWindow
+    ? " && !isProviderCredentialTarget(secret.target)"
+    : "";
+  await change(
+    "src/components/SecretRequestCard.tsx",
     `  const onlyOnHost = window.ogb?.remoteClient?.active === true && secret.target !== CUSTOM_SECRET_TARGET && desktopCredentialSlot(secret.target) !== null${providerCredentialException};`,
     `  const pairedPhone = "ReactNativeWebView" in window && secret.j1NamedSettings === true;
   const onlyOnHost = secret.target !== CUSTOM_SECRET_TARGET && (pairedPhone
     ? desktopCredentialSlot(secret.target) === null || location.protocol !== "https:" || !globalThis.crypto?.subtle
     : window.ogb?.remoteClient?.active === true && desktopCredentialSlot(secret.target) !== null${providerCredentialException});`,
   );
-  await change("src/components/SecretRequestCard.tsx",
+  await change(
+    "src/components/SecretRequestCard.tsx",
     `            : await api(request.path, { method: request.method, body: JSON.stringify(request.body),
               ...(owned ? { headers: { "content-type": "application/json", "x-j1-credential-card": JSON.stringify([botId, threadId, message.id, secret.requestKey]) } } : {}) });`,
     `            : pairedPhone
@@ -4763,7 +4998,8 @@ import { pairedNamedSettingsBody } from "@/lib/j1-phone-settings";`,
                 ? { j1NamedCard: [botId, threadId, message.id, secret.requestKey], settings: request.body }
                 : request.body) });`,
   );
-  await change("server/phone-secret.ts",
+  await change(
+    "server/phone-secret.ts",
     `  async provide(context: PhoneSecretContext): Promise<void> {`,
     `  async waitForIdentity(): Promise<void> {
     if (!this.identity) throw new PhoneSecretError("Secure phone entry is unavailable.", 503);
@@ -4772,7 +5008,9 @@ import { pairedNamedSettingsBody } from "@/lib/j1-phone-settings";`,
 
   async provide(context: PhoneSecretContext): Promise<void> {`,
   );
-  await NodeFSP.writeFile(NodePath.join(stage, "server/j1-phone-settings.ts"), String.raw`import { createHash, createHmac, timingSafeEqual, webcrypto } from "node:crypto";
+  await NodeFSP.writeFile(
+    NodePath.join(stage, "server/j1-phone-settings.ts"),
+    String.raw`import { createHash, createHmac, timingSafeEqual, webcrypto } from "node:crypto";
 import { credentialConfigPatch, isConfigCredentialTarget, isCredentialTargetId } from "../shared/credential-request.ts";
 import { assertPhoneSecretRequestMatches, PhoneSecretBridge, type PhoneSecretContext } from "./phone-secret.ts";
 
@@ -4828,8 +5066,11 @@ export async function openManagedPhoneSettings(value: unknown, device: string) {
   const secret = await bridge.open(context);
   return { card: JSON.stringify([botId, threadId, messageId, requestKey]), patch: credentialConfigPatch(target, secret) };
 }
-`);
-  await NodeFSP.writeFile(NodePath.join(stage, "src/lib/j1-phone-settings.ts"), String.raw`type Card = { botId: string; threadId: string; messageId: string; target: string; requestKey: string };
+`,
+  );
+  await NodeFSP.writeFile(
+    NodePath.join(stage, "src/lib/j1-phone-settings.ts"),
+    String.raw`type Card = { botId: string; threadId: string; messageId: string; target: string; requestKey: string };
 type Identity = { version: 1; keyId: string; publicKey: string; deviceId: string };
 const encode = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 const decode = (encoded: string) => Uint8Array.from(atob(encoded.replaceAll("-", "+").replaceAll("_", "/")), char => char.charCodeAt(0));
@@ -4859,17 +5100,21 @@ export async function pairedNamedSettingsBody(identity: Identity, card: Card, va
     cleartext.fill(0);
   }
 }
-`);
+`,
+  );
 
-  await change("server/email/store.ts",
+  await change(
+    "server/email/store.ts",
     'import { randomBytes } from "node:crypto";',
     'import { randomBytes, randomUUID } from "node:crypto";',
   );
-  await change("server/email/store.ts",
+  await change(
+    "server/email/store.ts",
     "  private cache: StoreFile | null = null;",
     "  private cache: StoreFile | null = null;\n  private readonly revisions = new Map<string, string>();",
   );
-  await change("server/email/store.ts",
+  await change(
+    "server/email/store.ts",
     `  /** Adds a mailbox, or replaces the one at that address. */
   put(account: EmailAccount): void {
     this.write([...this.list().filter((other) => !same(other.address, account.address)), account]);
@@ -4891,11 +5136,13 @@ export async function pairedNamedSettingsBody(identity: Identity, card: Card, va
     return revision;
   }`,
   );
-  await change("server/email/store.ts",
-    '    else { this.cache = EMPTY; rmSync(this.file, { force: true }); }',
-    '    else { rmSync(this.file, { force: true }); this.cache = EMPTY; }\n    this.revisions.delete(address.toLowerCase());',
+  await change(
+    "server/email/store.ts",
+    "    else { this.cache = EMPTY; rmSync(this.file, { force: true }); }",
+    "    else { rmSync(this.file, { force: true }); this.cache = EMPTY; }\n    this.revisions.delete(address.toLowerCase());",
   );
-  await change("server/email/service.ts",
+  await change(
+    "server/email/service.ts",
     "export function createEmailService(deps: EmailServiceDeps) {",
     `export interface EmailConnectCommit {
   current(): boolean;
@@ -4904,33 +5151,38 @@ export async function pairedNamedSettingsBody(identity: Identity, card: Card, va
 
 export function createEmailService(deps: EmailServiceDeps) {`,
   );
-  await change("server/email/service.ts",
+  await change(
+    "server/email/service.ts",
     "    async connect(request: EmailConnectRequest, reading?: (imapHost: string) => void): Promise<EmailConnectAnswer> {",
     "    async connect(request: EmailConnectRequest, reading?: (imapHost: string) => void, commit?: EmailConnectCommit): Promise<EmailConnectAnswer> {",
   );
-  await change("server/email/service.ts",
+  await change(
+    "server/email/service.ts",
     "      store.put(account);\n      const hint =",
     `      if (commit && !commit.current()) return { ok: false, error: "The original mailbox request is no longer current." };
       const revision = store.put(account);
       commit?.saved(revision);
       const hint =`,
   );
-  await change("server/host/secret-cards.ts",
+  await change(
+    "server/host/secret-cards.ts",
     'import { canonicalSecretRoot } from "../secret-vault.ts";',
     'import { canonicalSecretRoot } from "../secret-vault.ts";\nimport type { EmailConnectCommit } from "../email/service.ts";',
   );
-  await change("server/host/secret-cards.ts",
+  await change(
+    "server/host/secret-cards.ts",
     "    connect(request: EmailConnectRequest, reading?: (imapHost: string) => void): Promise<EmailConnectAnswer>;",
     "    connect(request: EmailConnectRequest, reading?: (imapHost: string) => void, commit?: EmailConnectCommit): Promise<EmailConnectAnswer>;\n    revision?(address: string): string | undefined;",
   );
   const secretCardServices = `  const { store, cfg, botLogins, ${settingsWindow ? "vaultStore, " : ""}phoneSecrets, phoneSecretSubmissions, connectorThread, answerCardNode } = deps;`;
-  await change("server/host/secret-cards.ts",
+  await change(
+    "server/host/secret-cards.ts",
     secretCardServices,
     `${secretCardServices}\n  const boundEmailSaves = new Set<string>();`,
   );
 
-
-  await change("server/host/secret-cards.ts",
+  await change(
+    "server/host/secret-cards.ts",
     "  /** The mailbox card: the password goes to the Email connector, which reads a real header before keeping it.",
     `  // Only the original live card can authorize this commit. The existing connector remains the sole credential writer.
   async function saveBoundEmail(
@@ -4979,11 +5231,13 @@ export function createEmailService(deps: EmailServiceDeps) {`,
 
   /** The mailbox card: the password goes to the Email connector, which reads a real header before keeping it.`,
   );
-  await change("server/host/secret-cards.ts",
-    '  async function saveEmailSecret(botId: string, threadId: string, messageId: string, fields: Record<string, unknown>):',
-    '  async function saveEmailSecret(botId: string, threadId: string, messageId: string, fields: Record<string, unknown>, auth?: RequestAuth):',
+  await change(
+    "server/host/secret-cards.ts",
+    "  async function saveEmailSecret(botId: string, threadId: string, messageId: string, fields: Record<string, unknown>):",
+    "  async function saveEmailSecret(botId: string, threadId: string, messageId: string, fields: Record<string, unknown>, auth?: RequestAuth):",
   );
-  await change("server/host/secret-cards.ts",
+  await change(
+    "server/host/secret-cards.ts",
     "    const answer = await deps.email.connect({ address, password, ...emailServerFields(fields) }, reading);",
     `    const request = { address, password, ...emailServerFields(fields) };
     if (message.j1Credential) {
@@ -4998,12 +5252,14 @@ export function createEmailService(deps: EmailServiceDeps) {`,
     }
     const answer = await deps.email.connect(request, reading);`,
   );
-  await change("server/routes/secret-cards.ts",
-    '        ? await deps.cards.saveEmailSecret(m[1]!, threadId, m[2]!, fields)',
-    '        ? await deps.cards.saveEmailSecret(m[1]!, threadId, m[2]!, fields,\n          ...(secretMessage(m[1]!, threadId, m[2]!)?.j1Credential ? [auth] as const : []))',
+  await change(
+    "server/routes/secret-cards.ts",
+    "        ? await deps.cards.saveEmailSecret(m[1]!, threadId, m[2]!, fields)",
+    "        ? await deps.cards.saveEmailSecret(m[1]!, threadId, m[2]!, fields,\n          ...(secretMessage(m[1]!, threadId, m[2]!)?.j1Credential ? [auth] as const : []))",
   );
-  await change("server/routes/secret-cards.ts",
-    '      if (parsed.data.target === CUSTOM_SECRET_TARGET) {',
+  await change(
+    "server/routes/secret-cards.ts",
+    "      if (parsed.data.target === CUSTOM_SECRET_TARGET) {",
     `      if (parsed.data.target === CUSTOM_SECRET_TARGET) {
         const candidate = secretMessage(m[1]!, parsed.data.threadId, m[2]!);
         if (candidate?.j1Credential && candidate.secret?.delivery === "email" && !deps.threadVisible(auth, parsed.data.threadId))
@@ -5014,7 +5270,8 @@ export function createEmailService(deps: EmailServiceDeps) {`,
             ? await deps.email.checkOutgoing(current.secret.address, { ...current.secret.emailOutgoing, smtpPassword: opened })
             : `
     : "";
-  await change("server/host/secret-cards.ts",
+  await change(
+    "server/host/secret-cards.ts",
     `          const answer = ${phoneCheckOutgoing}await deps.email.connect({ address: current.secret.address, password: opened });`,
     `          const emailRequest = { address: current.secret.address, password: opened };
           if (current.j1Credential) {
@@ -5024,21 +5281,23 @@ export function createEmailService(deps: EmailServiceDeps) {`,
           }
           const answer = ${phoneCheckOutgoing}await deps.email.connect(emailRequest);`,
   );
-  await change("server/host/secret-cards.ts",
-    "      (message?.secret?.delivery === \"file\"\n        ? botId && threadId && boundVersion(message, botId, threadId)\n        : vault.refVersion(id)) === version,",
+  await change(
+    "server/host/secret-cards.ts",
+    '      (message?.secret?.delivery === "file"\n        ? botId && threadId && boundVersion(message, botId, threadId)\n        : vault.refVersion(id)) === version,',
     `      message?.secret?.delivery === "email"
         ? !!message.secret.address && deps.email?.revision?.(message.secret.address) === version && deps.email?.connected(message.secret.address) === true
         : (message?.secret?.delivery === "file"
           ? botId && threadId && boundVersion(message, botId, threadId)
           : vault.refVersion(id)) === version,`,
   );
-  await change("server/index.ts",
+  await change(
+    "server/index.ts",
     '(row.secret.delivery !== "ref" && row.secret.delivery !== "file"))) return undefined;',
     '(row.secret.delivery !== "ref" && row.secret.delivery !== "file" && row.secret.delivery !== "email"))) return undefined;',
   );
-  await change("server/index.ts",
-    'email: { connect: (request, reading) => emailService.connect(request, reading), refusal:',
-    'email: { connect: (request, reading, commit) => emailService.connect(request, reading, commit), revision: (address) => emailService.store.revision(address), refusal:',
+  await change(
+    "server/index.ts",
+    "email: { connect: (request, reading) => emailService.connect(request, reading), refusal:",
+    "email: { connect: (request, reading, commit) => emailService.connect(request, reading, commit), revision: (address) => emailService.store.revision(address), refusal:",
   );
-
 }

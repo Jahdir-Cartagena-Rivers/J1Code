@@ -1,8 +1,5 @@
 import { pipe } from "effect/Function";
-import {
-  IMAGE_DIMENSIONS_HEADER_BYTES,
-  readImageDimensions,
-} from "@j1code/shared/imageDimensions";
+import { IMAGE_DIMENSIONS_HEADER_BYTES, readImageDimensions } from "@j1code/shared/imageDimensions";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { decodeHTMLAttribute, decodeHTMLStrict as decodeEntities } from "entities";
 import type JSZip from "jszip";
@@ -502,7 +499,7 @@ const RTF_CHARACTERS = new Map([
   ["tab", "\t"],
   ["cell", "\t"],
   ["endash", "–"],
-  // oxlint-disable-next-line t3code/no-em-dash-copy -- Preserve the RTF document's punctuation.
+  // oxlint-disable-next-line j1code/no-em-dash-copy -- Preserve the RTF document's punctuation.
   ["emdash", "—"],
   ["bullet", "•"],
   ["lquote", "‘"],
@@ -694,6 +691,7 @@ export function openRtf(bytes: ArrayBuffer): OfficeWorkerResult {
               949: "euc-kr",
               950: "big5",
               874: "windows-874",
+              54936: "gb18030",
             } as Record<number, string>
           )[arg] ?? `windows-${arg}`;
         try {

@@ -1,6 +1,6 @@
 ﻿import type { BotId, EnvironmentId } from "@j1code/contracts";
 import { useAtomValue } from "@effect/atom-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import { AppText } from "../../components/ui/AppText";
 import { Button as MaterialButton } from "../../components/ui/Button";
@@ -25,22 +25,20 @@ export function BotVoiceControl({
   const [error, setError] = useState(false);
   const active = useRef<string | null>(null);
   const lastMessage = useRef(messageId);
-  const speak = useCallback(async () => {
+  const speak = async () => {
     if (!botVoice || !text.trim()) return;
     const id = uuidv4();
     active.current = id;
     setSpeaking(true);
     setError(false);
-    try {
-      await botVoice.speak(text, profile?.voiceURI ?? null, id);
-    } catch {
+    await botVoice.speak(text, profile?.voiceURI ?? null, id).catch(() => {
       if (active.current === id) {
         active.current = null;
         setSpeaking(false);
         setError(true);
       }
-    }
-  }, [text, profile?.voiceURI]);
+    });
+  };
   useEffect(() => {
     const subscription = botVoice?.addListener("onBotVoice", (event) => {
       if (active.current !== event.sessionId) return;

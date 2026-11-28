@@ -128,7 +128,7 @@ describe("j1 theme", () => {
       const error = yield* run(["theme", "set", "unlisted-fixture", "--base-dir", baseDir]).pipe(
         Effect.flip,
       );
-      assert.equal(error._tag, "ThemeIdUnknownError");
+      assert.propertyVal(error, "_tag", "ThemeIdUnknownError");
       assert.isFalse(NodeFS.existsSync(settingsPathFor(baseDir)));
 
       yield* run(["theme", "set", "ocean"]);
@@ -139,22 +139,24 @@ describe("j1 theme", () => {
     }),
   );
 
-  it.effect.each(["json", "JSON", "JsOn"])("publishes a .%s theme file under its filename", (extension) =>
-    Effect.gen(function* () {
-      const baseDir = makeBaseDir();
-      const themeFile = NodePath.join(baseDir, `nightfall.${extension}`);
-      NodeFS.writeFileSync(themeFile, NIGHTFALL_THEME_JSON);
+  it.effect.each(["json", "JSON", "JsOn"])(
+    "publishes a .%s theme file under its filename",
+    (extension) =>
+      Effect.gen(function* () {
+        const baseDir = makeBaseDir();
+        const themeFile = NodePath.join(baseDir, `nightfall.${extension}`);
+        NodeFS.writeFileSync(themeFile, NIGHTFALL_THEME_JSON);
 
-      yield* runCli(["theme", "set", themeFile, "--base-dir", baseDir]);
+        yield* runCli(["theme", "set", themeFile, "--base-dir", baseDir]);
 
-      const published = NodePath.join(baseDir, "userdata", "themes", "nightfall.json");
-      assert.equal(NodeFS.readFileSync(published, "utf8"), NIGHTFALL_THEME_JSON);
-      assert.equal(readSettings(baseDir).defaultTheme, "nightfall");
-      const residue = NodeFS.readdirSync(NodePath.dirname(published)).filter(
-        (entry) => !entry.endsWith(".json"),
-      );
-      assert.deepEqual(residue, []);
-    }),
+        const published = NodePath.join(baseDir, "userdata", "themes", "nightfall.json");
+        assert.equal(NodeFS.readFileSync(published, "utf8"), NIGHTFALL_THEME_JSON);
+        assert.equal(readSettings(baseDir).defaultTheme, "nightfall");
+        const residue = NodeFS.readdirSync(NodePath.dirname(published)).filter(
+          (entry) => !entry.endsWith(".json"),
+        );
+        assert.deepEqual(residue, []);
+      }),
   );
 
   it.effect("rejects a file that is not a theme and sets nothing", () =>

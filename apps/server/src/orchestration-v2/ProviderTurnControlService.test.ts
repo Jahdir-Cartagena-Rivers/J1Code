@@ -219,6 +219,10 @@ it.effect(
           getAgentAwarenessSnapshot: () => Effect.die("unused awareness snapshot"),
           getShellSnapshot: () => Effect.die("unused getShellSnapshot"),
           listActiveSubagentThreadIds: () => Effect.die("unused listActiveSubagentThreadIds"),
+          listSavedWorkerDescendants: () => Effect.die("unused listSavedWorkerDescendants"),
+          listThreadArchiveCohort: () => Effect.die("unused listThreadArchiveCohort"),
+          hasUndeletedListedProjectThread: () =>
+            Effect.die("unused hasUndeletedListedProjectThread"),
           countThreads: () => Effect.die("unused countThreads"),
           listActiveShellIndex: () => Effect.die("unused listActiveShellIndex"),
           listActiveThreads: () => Effect.die("unused listActiveThreads"),
@@ -364,142 +368,210 @@ it.effect(
     }),
 );
 
-
-it.effect("strict steering rechecks ownership, native identity and current policy before delivery", () =>
-  Effect.gen(function* () {
-    const now = yield* DateTime.now;
-    const threadId = ThreadId.make("thread:strict");
-    const providerSessionId = ProviderSessionId.make("provider-session:strict");
-    const providerThreadId = ProviderThreadId.make("provider-thread:strict");
-    const providerTurnId = ProviderTurnId.make("provider-turn:strict");
-    const attemptId = RunAttemptId.make("attempt:strict");
-    const messageId = MessageId.make("message:strict");
-    const providerThread: OrchestrationV2ProviderThread = {
-      id: providerThreadId, driver, providerInstanceId, providerSessionId,
-      appThreadId: threadId, ownerNodeId: null,
-      nativeThreadRef: { driver, nativeId: "native-thread:strict", strength: "strong" },
-      nativeConversationHeadRef: null, status: "active",
-      firstRunOrdinal: 1, lastRunOrdinal: 1, handoffIds: [], forkedFrom: null,
-      createdAt: now, updatedAt: now,
-    };
-    const base = makeProjection({ now, threadId, providerThread, providerTurnId, attemptId });
-    const attempt = { ...base.attempts[0]!, status: "running" as const, completedAt: null };
-    const turn = base.providerTurns[0]!;
-    const policy: ProviderAdapter.ProviderAdapterV2RuntimePolicy = {
-      runtimeMode: base.thread.runtimeMode,
-      interactionMode: base.thread.interactionMode,
-      cwd: base.thread.worktreePath,
-    };
-    const target: OrchestrationV2StrictSteerTarget = {
-      projectId: base.thread.projectId, runId: attempt.runId, attemptId, providerInstanceId,
-      providerSessionId, providerThreadId, providerTurnId,
-      nativeThreadId: "native-thread:strict", nativeTurnId: "native-turn:restart-session",
-      runtimeMode: policy.runtimeMode, interactionMode: policy.interactionMode,
-      policyFingerprint: ProviderTurnControlService.strictSteerFingerprint(policy),
-    };
-    const strictCommandFingerprint = "strict-command";
-    const message = {
-      id: messageId, threadId, runId: attempt.runId, nodeId: attempt.rootNodeId,
-      role: "user" as const, text: "Strict message", attachments: [],
-      createdBy: "user" as const, creationSource: "web" as const,
-      streaming: false, createdAt: now, updatedAt: now,
-      strictSteer: { target, commandFingerprint: strictCommandFingerprint },
-    };
-    const run = {
-      id: attempt.runId, threadId, ordinal: 1, providerInstanceId, modelSelection,
-      providerThreadId, userMessageId: messageId, rootNodeId: attempt.rootNodeId,
-      activeAttemptId: attemptId, status: "running" as const,
-      requestedAt: now, startedAt: now, completedAt: null, checkpointId: null, contextHandoffId: null,
-    };
-    const current = {
-      ...base, attempts: [attempt], providerTurns: [turn], runs: [run], messages: [message],
-    } satisfies OrchestrationV2ThreadProjection;
-    const projection = yield* Ref.make<OrchestrationV2ThreadProjection>(current);
-    const resolvedPolicy = yield* Ref.make(policy);
-    const calls = yield* Ref.make(0);
-    const providerSession: ProviderAdapter.ProviderAdapterV2SessionRuntime["providerSession"] = {
-      id: providerSessionId, providerInstanceId, driver, status: "running", cwd: "/workspace",
-      model: modelSelection.model, capabilities: CodexProviderCapabilitiesV2,
-      createdAt: now, updatedAt: now, lastError: null,
-    };
-    const runtime: ProviderAdapter.ProviderAdapterV2SessionRuntime = {
-      instanceId: providerInstanceId, driver, providerSessionId, providerSession,
-      events: Stream.empty,
-      ensureThread: () => Effect.die("must not create a provider thread"),
-      resumeThread: () => Effect.die("must not resume a provider thread"),
-      startTurn: () => Effect.die("must not start a provider turn"),
-      steerTurn: () => Effect.die("must not use ordinary native steering"),
-      strictSteering: {
-        canSteer: () => Effect.succeed(true),
-        steer: (input) => {
-          assert.deepEqual(input.target, target);
-          assert.equal(input.message.messageId, messageId);
-          return Ref.update(calls, (count) => count + 1);
-        },
-      },
-      interruptTurn: () => Effect.die("must not interrupt a provider turn"),
-      respondToRuntimeRequest: () => Effect.die("unused"),
-      readThreadSnapshot: () => Effect.die("unused"),
-      rollbackThread: () => Effect.die("unused"),
-      forkThread: () => Effect.die("unused"),
-    };
-    const runtimeRef = yield* Ref.make(runtime);
-    const projectionLayer = Layer.mock(ProjectionStore.ProjectionStoreV2)({
-      getProviderControlContext: () => Effect.succeed({ providerThread, providerTurn: turn, attempt, message, run }),
-      getThreadRecords: () => Ref.get(projection),
-      hasRunInterruptRequest: () => Effect.succeed(false),
-    });
-    const nativeLayer = ProviderTurnControlService.layerStrictNativeSteering.pipe(
-      Layer.provide(projectionLayer),
-    );
-    const layer = ProviderTurnControlService.layer.pipe(Layer.provide(Layer.mergeAll(
-      Layer.mock(EventSink.EventSinkV2)({}),
-      projectionLayer,
-      nativeLayer,
-      Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({
-        get: () => Ref.get(runtimeRef).pipe(Effect.map(Option.some)),
-      }),
-      Layer.succeed(RuntimePolicyV2, { resolve: () => Ref.get(resolvedPolicy) }),
-
-    )));
-    yield* Effect.gen(function* () {
-      const control = yield* ProviderTurnControlService.ProviderTurnControlServiceV2;
-      const request = {
-        threadId, providerSessionId, providerThreadId, providerTurnId, messageId,
-        strictCommandFingerprint,
+it.effect(
+  "strict steering rechecks ownership, native identity and current policy before delivery",
+  () =>
+    Effect.gen(function* () {
+      const now = yield* DateTime.now;
+      const threadId = ThreadId.make("thread:strict");
+      const providerSessionId = ProviderSessionId.make("provider-session:strict");
+      const providerThreadId = ProviderThreadId.make("provider-thread:strict");
+      const providerTurnId = ProviderTurnId.make("provider-turn:strict");
+      const attemptId = RunAttemptId.make("attempt:strict");
+      const messageId = MessageId.make("message:strict");
+      const providerThread: OrchestrationV2ProviderThread = {
+        id: providerThreadId,
+        driver,
+        providerInstanceId,
+        providerSessionId,
+        appThreadId: threadId,
+        ownerNodeId: null,
+        nativeThreadRef: { driver, nativeId: "native-thread:strict", strength: "strong" },
+        nativeConversationHeadRef: null,
+        status: "active",
+        firstRunOrdinal: 1,
+        lastRunOrdinal: 1,
+        handoffIds: [],
+        forkedFrom: null,
+        createdAt: now,
+        updatedAt: now,
       };
-      for (const candidate of [
-        { ...current, runs: [{ ...run, status: "starting" as const }] },
-        { ...current, providerTurns: [{ ...turn, status: "completed" as const }] },
-        { ...current, providerTurns: [{ ...turn, nativeTurnRef: null }] },
-        { ...current, providerThreads: [{ ...providerThread, appThreadId: ThreadId.make("foreign") }] },
-        { ...current, thread: { ...base.thread, runtimeMode: "approval-required" as const } },
-      ]) {
-        yield* Ref.set(projection, candidate);
-        assert.isTrue(Exit.isFailure(yield* Effect.exit(control.steer(request))));
-      }
-      yield* Ref.set(projection, current);
-      yield* Ref.set(resolvedPolicy, { ...policy, cwd: "/changed" });
-      assert.isTrue(Exit.isFailure(yield* Effect.exit(control.steer(request))));
-      yield* Ref.set(resolvedPolicy, policy);
-      assert.isTrue(Exit.isFailure(yield* Effect.exit(control.steer({
-        ...request, strictCommandFingerprint: "wrong-command",
-      }))));
-      assert.equal(yield* Ref.get(calls), 0);
-      yield* control.steer(request);
-      assert.equal(yield* Ref.get(calls), 1);
-      const { strictSteering: _strict, ...unsupportedRuntime } = runtime;
-      yield* Ref.set(runtimeRef, unsupportedRuntime);
-      assert.isTrue(Exit.isFailure(yield* Effect.exit(control.steer(request))));
-      assert.equal(yield* Ref.get(calls), 1);
+      const base = makeProjection({ now, threadId, providerThread, providerTurnId, attemptId });
+      const attempt = { ...base.attempts[0]!, status: "running" as const, completedAt: null };
+      const turn = base.providerTurns[0]!;
+      const policy: ProviderAdapter.ProviderAdapterV2RuntimePolicy = {
+        runtimeMode: base.thread.runtimeMode,
+        interactionMode: base.thread.interactionMode,
+        cwd: base.thread.worktreePath,
+      };
+      const target: OrchestrationV2StrictSteerTarget = {
+        projectId: base.thread.projectId,
+        runId: attempt.runId,
+        attemptId,
+        providerInstanceId,
+        providerSessionId,
+        providerThreadId,
+        providerTurnId,
+        nativeThreadId: "native-thread:strict",
+        nativeTurnId: "native-turn:restart-session",
+        runtimeMode: policy.runtimeMode,
+        interactionMode: policy.interactionMode,
+        policyFingerprint: ProviderTurnControlService.strictSteerFingerprint(policy),
+      };
+      const strictCommandFingerprint = "strict-command";
+      const message = {
+        id: messageId,
+        threadId,
+        runId: attempt.runId,
+        nodeId: attempt.rootNodeId,
+        role: "user" as const,
+        text: "Strict message",
+        attachments: [],
+        createdBy: "user" as const,
+        creationSource: "web" as const,
+        streaming: false,
+        createdAt: now,
+        updatedAt: now,
+        strictSteer: { target, commandFingerprint: strictCommandFingerprint },
+      };
+      const run = {
+        id: attempt.runId,
+        threadId,
+        ordinal: 1,
+        providerInstanceId,
+        modelSelection,
+        providerThreadId,
+        userMessageId: messageId,
+        rootNodeId: attempt.rootNodeId,
+        activeAttemptId: attemptId,
+        status: "running" as const,
+        requestedAt: now,
+        startedAt: now,
+        completedAt: null,
+        checkpointId: null,
+        contextHandoffId: null,
+      };
+      const current = {
+        ...base,
+        attempts: [attempt],
+        providerTurns: [turn],
+        runs: [run],
+        messages: [message],
+      } satisfies OrchestrationV2ThreadProjection;
+      const projection = yield* Ref.make<OrchestrationV2ThreadProjection>(current);
+      const resolvedPolicy = yield* Ref.make(policy);
+      const calls = yield* Ref.make(0);
+      const providerSession: ProviderAdapter.ProviderAdapterV2SessionRuntime["providerSession"] = {
+        id: providerSessionId,
+        providerInstanceId,
+        driver,
+        status: "running",
+        cwd: "/workspace",
+        model: modelSelection.model,
+        capabilities: CodexProviderCapabilitiesV2,
+        createdAt: now,
+        updatedAt: now,
+        lastError: null,
+      };
+      const runtime: ProviderAdapter.ProviderAdapterV2SessionRuntime = {
+        instanceId: providerInstanceId,
+        driver,
+        providerSessionId,
+        providerSession,
+        events: Stream.empty,
+        ensureThread: () => Effect.die("must not create a provider thread"),
+        resumeThread: () => Effect.die("must not resume a provider thread"),
+        startTurn: () => Effect.die("must not start a provider turn"),
+        steerTurn: () => Effect.die("must not use ordinary native steering"),
+        strictSteering: {
+          canSteer: () => Effect.succeed(true),
+          steer: (input) => {
+            assert.deepEqual(input.target, target);
+            assert.equal(input.message.messageId, messageId);
+            return Ref.update(calls, (count) => count + 1);
+          },
+        },
+        interruptTurn: () => Effect.die("must not interrupt a provider turn"),
+        respondToRuntimeRequest: () => Effect.die("unused"),
+        readThreadSnapshot: () => Effect.die("unused"),
+        rollbackThread: () => Effect.die("unused"),
+        forkThread: () => Effect.die("unused"),
+      };
+      const runtimeRef = yield* Ref.make(runtime);
+      const projectionLayer = Layer.mock(ProjectionStore.ProjectionStoreV2)({
+        getProviderControlContext: () =>
+          Effect.succeed({ providerThread, providerTurn: turn, attempt, message, run }),
+        getThreadRecords: () => Ref.get(projection),
+        hasRunInterruptRequest: () => Effect.succeed(false),
+      });
+      const nativeLayer = ProviderTurnControlService.layerStrictNativeSteering.pipe(
+        Layer.provide(projectionLayer),
+      );
+      const layer = ProviderTurnControlService.layer.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.mock(EventSink.EventSinkV2)({}),
+            projectionLayer,
+            nativeLayer,
+            Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({
+              get: () => Ref.get(runtimeRef).pipe(Effect.asSome),
+            }),
+            Layer.succeed(RuntimePolicyV2, { resolve: () => Ref.get(resolvedPolicy) }),
+          ),
+        ),
+      );
       yield* Effect.gen(function* () {
-        const native = yield* ProviderTurnControlService.StrictNativeSteeringV2;
-        const input = { threadId, target, session: runtime, policy };
-        assert.isTrue(yield* native.canSteer(input));
-        assert.isFalse(yield* native.canSteer({ ...input, session: unsupportedRuntime }));
-        yield* Ref.set(projection, { ...current, providerThreads: [] });
-        assert.isFalse(yield* native.canSteer(input));
-      }).pipe(Effect.provide(nativeLayer));
-    }).pipe(Effect.provide(layer));
-  }),
+        const control = yield* ProviderTurnControlService.ProviderTurnControlServiceV2;
+        const request = {
+          threadId,
+          providerSessionId,
+          providerThreadId,
+          providerTurnId,
+          messageId,
+          strictCommandFingerprint,
+        };
+        for (const candidate of [
+          { ...current, runs: [{ ...run, status: "starting" as const }] },
+          { ...current, providerTurns: [{ ...turn, status: "completed" as const }] },
+          { ...current, providerTurns: [{ ...turn, nativeTurnRef: null }] },
+          {
+            ...current,
+            providerThreads: [{ ...providerThread, appThreadId: ThreadId.make("foreign") }],
+          },
+          { ...current, thread: { ...base.thread, runtimeMode: "approval-required" as const } },
+        ]) {
+          yield* Ref.set(projection, candidate);
+          assert.isTrue(Exit.isFailure(yield* Effect.exit(control.steer(request))));
+        }
+        yield* Ref.set(projection, current);
+        yield* Ref.set(resolvedPolicy, { ...policy, cwd: "/changed" });
+        assert.isTrue(Exit.isFailure(yield* Effect.exit(control.steer(request))));
+        yield* Ref.set(resolvedPolicy, policy);
+        assert.isTrue(
+          Exit.isFailure(
+            yield* Effect.exit(
+              control.steer({
+                ...request,
+                strictCommandFingerprint: "wrong-command",
+              }),
+            ),
+          ),
+        );
+        assert.equal(yield* Ref.get(calls), 0);
+        yield* control.steer(request);
+        assert.equal(yield* Ref.get(calls), 1);
+        const { strictSteering: _strict, ...unsupportedRuntime } = runtime;
+        yield* Ref.set(runtimeRef, unsupportedRuntime);
+        assert.isTrue(Exit.isFailure(yield* Effect.exit(control.steer(request))));
+        assert.equal(yield* Ref.get(calls), 1);
+        yield* Effect.gen(function* () {
+          const native = yield* ProviderTurnControlService.StrictNativeSteeringV2;
+          const input = { threadId, target, session: runtime, policy };
+          assert.isTrue(yield* native.canSteer(input));
+          assert.isFalse(yield* native.canSteer({ ...input, session: unsupportedRuntime }));
+          yield* Ref.set(projection, { ...current, providerThreads: [] });
+          assert.isFalse(yield* native.canSteer(input));
+        }).pipe(Effect.provide(nativeLayer));
+      }).pipe(Effect.provide(layer));
+    }),
 );

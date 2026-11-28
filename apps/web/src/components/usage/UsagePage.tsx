@@ -155,7 +155,7 @@ function UsageModelDialogHost({
   readonly onSetPrice: (model: string) => void;
 }) {
   const selectedKey = useAtomValue(selectedUsageModelKeyAtom);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- clears the shared selected-model atom on unmount
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- clears the shared selected-model atom on unmount
   useEffect(() => () => selectUsageModel(null), []);
   const model =
     selectedKey === null
@@ -288,7 +288,7 @@ export function UsagePage() {
     if (periodOption && !showingLimits) selectWindow(periodOption.days);
   });
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- window capture keydown listener for usage metric and period shortcuts
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- window capture keydown listener for usage metric and period shortcuts
   useEffect(() => {
     globalThis.window.addEventListener("keydown", onUsageKeyDown, true);
     return () => globalThis.window.removeEventListener("keydown", onUsageKeyDown, true);
@@ -335,7 +335,7 @@ export function UsagePage() {
   const autoRefreshLimits = useEffectEvent(() => {
     void refreshLimits(true);
   });
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refreshes provider limits from the server when the connected environment set changes
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- refreshes provider limits from the server when the connected environment set changes
   useEffect(() => {
     if (showingLimits && connectedLimitsEnvironments) autoRefreshLimits();
   }, [showingLimits, connectedLimitsEnvironments]);
@@ -654,14 +654,20 @@ function UsageOverview({
 
   return (
     <div aria-busy={loadingPartial} className="flex flex-col gap-6">
-      {selectedEnvironments.filter((environment) =>
-        !hiddenProviders.has("cursor") && environment.summary?.sources.some(
-          (source) => source.action === "enableCursorKeychain",
-        ),
-      ).map((environment) => (
-        <EnableCursorUsage key={environment.environmentId} environmentId={environment.environmentId}
-          label={environment.label} onEnabled={onRefresh} />
-      ))}
+      {selectedEnvironments
+        .filter(
+          (environment) =>
+            !hiddenProviders.has("cursor") &&
+            environment.summary?.sources.some((source) => source.action === "enableCursorKeychain"),
+        )
+        .map((environment) => (
+          <EnableCursorUsage
+            key={environment.environmentId}
+            environmentId={environment.environmentId}
+            label={environment.label}
+            onEnabled={onRefresh}
+          />
+        ))}
       {sourceMessages.map((message) => (
         <p key={message} className="mb-4 text-sm text-muted-foreground">
           {message}
@@ -681,7 +687,7 @@ function UsageOverview({
             <p className="inline-flex items-center gap-1 text-xs text-muted-foreground">
               <span>
                 <span className={figureClass(loadingPartial)}>
-                  {formatCount(merged.sessions)} sessions
+                  {formatCount(merged.sessions)} {merged.sessions === 1 ? "session" : "sessions"}
                 </span>
                 {metric === "cost" && " · API estimate"}
               </span>

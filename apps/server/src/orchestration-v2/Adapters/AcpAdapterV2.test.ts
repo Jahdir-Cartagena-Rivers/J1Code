@@ -80,7 +80,10 @@ import {
 import * as IdAllocator from "@j1code/provider-core/server/IdAllocator";
 import * as ProviderAdapter from "@j1code/provider-core/server/ProviderAdapter";
 import { makeTurnInput } from "./AcpAdapterV2.testkit.ts";
-import { composeCursorTransports, registerCursorAcpExtensions } from "../../provider/Drivers/CursorInteractiveDriver.ts";
+import {
+  composeCursorTransports,
+  registerCursorAcpExtensions,
+} from "../../provider/Drivers/CursorInteractiveDriver.ts";
 import type * as ProviderContinuationRequests from "@j1code/provider-core/server/ProviderContinuationRequests";
 import {
   AcpProviderCapabilitiesV2,
@@ -994,29 +997,27 @@ const makeAdvertisedCompactionHarness = Effect.fnUntraced(function* (
         const compactThread = runtime.compactThread;
         assert.isDefined(compactThread, "compactThread must be wired for compactCommand");
         return yield* Effect.exit(
-          compactThread!(
-            {
-              ...makeTurnInput({
-                threadId,
-                providerThread: otherSession
-                  ? {
-                      ...providerThread,
-                      nativeThreadRef: {
-                        driver: ACP_TEST_DRIVER,
-                        nativeId: "other-session",
-                        strength: "strong",
-                      },
-                    }
-                  : { ...providerThread, contextUsage: { usedTokens: 1234 } },
-                instanceId,
-                runtimePolicy,
-                now,
-                ordinal: ++ordinal,
-                messageText: "Compact the conversation.",
-              }),
-              ...(authorization === undefined ? {} : { authorizeDelegationWrite: authorization }),
-            },
-          ),
+          compactThread!({
+            ...makeTurnInput({
+              threadId,
+              providerThread: otherSession
+                ? {
+                    ...providerThread,
+                    nativeThreadRef: {
+                      driver: ACP_TEST_DRIVER,
+                      nativeId: "other-session",
+                      strength: "strong",
+                    },
+                  }
+                : { ...providerThread, contextUsage: { usedTokens: 1234 } },
+              instanceId,
+              runtimePolicy,
+              now,
+              ordinal: ++ordinal,
+              messageText: "Compact the conversation.",
+            }),
+            ...(authorization === undefined ? {} : { authorizeDelegationWrite: authorization }),
+          }),
         );
       }),
     nextPromptTexts,
@@ -2166,17 +2167,23 @@ describe("AcpAdapterV2", () => {
         selfInvocation: yield* resolveSelfInvocation(),
         settings,
         environment: {},
-        makeRuntime: (input) => replayRuntime(input).pipe(Effect.map((runtime) => ({
-          ...runtime,
-          prompt: (payload, options) => runtime.prompt(payload, {
-            ...options,
-            ...(options?.authorizeWrite === undefined ? {} : {
-              authorizeWrite: options.authorizeWrite.pipe(
-                Effect.tap(() => Deferred.succeed(registryPromptChecked, undefined)),
-              ),
-            }),
-          }),
-        }))),
+        makeRuntime: (input) =>
+          replayRuntime(input).pipe(
+            Effect.map((runtime) => ({
+              ...runtime,
+              prompt: (payload, options) =>
+                runtime.prompt(payload, {
+                  ...options,
+                  ...(options?.authorizeWrite === undefined
+                    ? {}
+                    : {
+                        authorizeWrite: options.authorizeWrite.pipe(
+                          Effect.tap(() => Deferred.succeed(registryPromptChecked, undefined)),
+                        ),
+                      }),
+                }),
+            })),
+          ),
       }).pipe(
         Effect.provide(
           Layer.mock(AcpRegistryCatalog)({ resolve: () => Effect.die("runtime is injected") }),
@@ -2200,18 +2207,16 @@ describe("AcpAdapterV2", () => {
         modelSelection,
         runtimePolicy,
       });
-      yield* runtime.startTurn(
-        {
-          ...makeTurnInput({
-            threadId,
-            providerThread,
-            instanceId,
-            runtimePolicy,
-            now: yield* DateTime.now,
-          }),
-          authorizeDelegationWrite: Effect.succeed(true),
-        },
-      );
+      yield* runtime.startTurn({
+        ...makeTurnInput({
+          threadId,
+          providerThread,
+          instanceId,
+          runtimePolicy,
+          now: yield* DateTime.now,
+        }),
+        authorizeDelegationWrite: Effect.succeed(true),
+      });
       yield* Deferred.await(registryPromptChecked);
       const item = Option.getOrThrow(
         yield* runtime.events.pipe(
@@ -2652,7 +2657,10 @@ describe("AcpAdapterV2", () => {
           T3_ACP_AVAILABLE_COMMANDS: "compact,plan",
           T3_ACP_COMPACTION_PROMPT_ORDINALS: structured ? "1" : "",
         });
-        const compacted = yield* harness.compact(false, structured ? Effect.succeed(true) : undefined);
+        const compacted = yield* harness.compact(
+          false,
+          structured ? Effect.succeed(true) : undefined,
+        );
         assert.isTrue(Exit.isSuccess(compacted));
         assert.deepEqual(yield* harness.nextPromptTexts(), [{ type: "text", text: "/compact" }]);
         const events = yield* harness.runtime.events.pipe(
@@ -4852,192 +4860,291 @@ describe("AcpAdapterV2", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
-  it.live("uses the original Grok native session on a deliberate retry after the process crashes", () =>
-    Effect.gen(function* () {
-      const protocolEvents = yield* Queue.unbounded<EffectAcpProtocol.AcpProtocolLogEvent>();
-      const instanceId = ProviderInstanceId.make("grok-crash-recovery");
-      const threadId = ThreadId.make("grok-crash-recovery");
-      const modelSelection = { instanceId, model: "grok-build" };
-      const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
-        runtimeMode: "full-access", interactionMode: "default", cwd: process.cwd(),
-      });
-      const selfInvocation = yield* resolveSelfInvocation();
-      const adapter = yield* makeAcpAdapterV2({
-        instanceId,
-        selfInvocation,
-        flavor: makeGrokAcpAdapterFlavor({
-          instanceId, selfInvocation, settings: Schema.decodeSync(GrokSettings)({}),
-          hostPlatform: process.platform, environment: {},
-          makeRuntime: makeMockRuntime({
-            childProcessSpawner: yield* ChildProcessSpawner.ChildProcessSpawner,
-            mockAgentPath: yield* bundledMockAgentPath,
-            protocolEvents,
-            environment: { T3_ACP_CRASH_PROMPT: "1" },
-          }),
-        }, process.cwd()),
-      });
-      const runtime = yield* adapter.openSession({
-        threadId, modelSelection, runtimePolicy, providerSessionId: ProviderSessionId.make("grok-crash-recovery"),
-      });
-      const thread = yield* runtime.ensureThread({ threadId, modelSelection, runtimePolicy });
-      const prompt = (ordinal: number, text: string) => Effect.gen(function* () {
-        const input = makeTurnInput({
-          threadId, providerThread: thread, instanceId, now: yield* DateTime.now, runtimePolicy, ordinal,
+  it.live(
+    "uses the original Grok native session on a deliberate retry after the process crashes",
+    () =>
+      Effect.gen(function* () {
+        const protocolEvents = yield* Queue.unbounded<EffectAcpProtocol.AcpProtocolLogEvent>();
+        const instanceId = ProviderInstanceId.make("grok-crash-recovery");
+        const threadId = ThreadId.make("grok-crash-recovery");
+        const modelSelection = { instanceId, model: "grok-build" };
+        const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: process.cwd(),
         });
-        yield* runtime.startTurn({ ...input, modelSelection, message: { ...input.message, text } });
-        return yield* runtime.events.pipe(Stream.filter((event) => event.type === "turn.terminal"), Stream.runHead);
-      });
-      const failure = yield* prompt(1, "crash now");
-      assert.equal(Option.getOrUndefined(failure)?.status, "failed");
-      const before = yield* pollProtocolMethods(protocolEvents);
-      assert.equal(before.filter((method) => method === "session/prompt").length, 1);
-      assert.equal(before.filter((method) => method === "session/new").length, 1);
-      const resumed = yield* runtime.resumeThread({ providerThread: thread, threadId, modelSelection, runtimePolicy });
-      assert.equal(resumed.nativeThreadRef?.nativeId, thread.nativeThreadRef?.nativeId);
-      const retried = yield* prompt(2, "retry now");
-      assert.equal(Option.getOrUndefined(retried)?.status, "completed");
-      const after = yield* pollProtocolMethods(protocolEvents);
-      assert.equal(after.filter((method) => method === "session/prompt").length, 1);
-      assert.equal(after.filter((method) => method === "session/load" || method === "session/resume").length, 1);
-      assert.notInclude(after, "session/new");
-    }).pipe(Effect.provide(layerTest)),
+        const selfInvocation = yield* resolveSelfInvocation();
+        const adapter = yield* makeAcpAdapterV2({
+          instanceId,
+          selfInvocation,
+          flavor: makeGrokAcpAdapterFlavor(
+            {
+              instanceId,
+              selfInvocation,
+              settings: DEFAULT_GROK_SETTINGS,
+              hostPlatform: yield* HostProcess.Platform,
+              environment: {},
+              makeRuntime: makeMockRuntime({
+                childProcessSpawner: yield* ChildProcessSpawner.ChildProcessSpawner,
+                mockAgentPath: yield* bundledMockAgentPath,
+                protocolEvents,
+                environment: { T3_ACP_CRASH_PROMPT: "1" },
+              }),
+            },
+            process.cwd(),
+          ),
+        });
+        const runtime = yield* adapter.openSession({
+          threadId,
+          modelSelection,
+          runtimePolicy,
+          providerSessionId: ProviderSessionId.make("grok-crash-recovery"),
+        });
+        const thread = yield* runtime.ensureThread({ threadId, modelSelection, runtimePolicy });
+        const prompt = (ordinal: number, text: string) =>
+          Effect.gen(function* () {
+            const input = makeTurnInput({
+              threadId,
+              providerThread: thread,
+              instanceId,
+              now: yield* DateTime.now,
+              runtimePolicy,
+              ordinal,
+            });
+            yield* runtime.startTurn({
+              ...input,
+              modelSelection,
+              message: { ...input.message, text },
+            });
+            return yield* runtime.events.pipe(
+              Stream.filter((event) => event.type === "turn.terminal"),
+              Stream.runHead,
+            );
+          });
+        const failure = yield* prompt(1, "crash now");
+        assert.equal(Option.getOrUndefined(failure)?.status, "failed");
+        const before = yield* pollProtocolMethods(protocolEvents);
+        assert.equal(before.filter((method) => method === "session/prompt").length, 1);
+        assert.equal(before.filter((method) => method === "session/new").length, 1);
+        const resumed = yield* runtime.resumeThread({
+          providerThread: thread,
+          threadId,
+          modelSelection,
+          runtimePolicy,
+        });
+        assert.equal(resumed.nativeThreadRef?.nativeId, thread.nativeThreadRef?.nativeId);
+        const retried = yield* prompt(2, "retry now");
+        assert.equal(Option.getOrUndefined(retried)?.status, "completed");
+        const after = yield* pollProtocolMethods(protocolEvents);
+        assert.equal(after.filter((method) => method === "session/prompt").length, 1);
+        assert.equal(
+          after.filter((method) => method === "session/load" || method === "session/resume").length,
+          1,
+        );
+        assert.notInclude(after, "session/new");
+      }).pipe(Effect.provide(layerTest)),
   );
 
   it.live.each(["accept", "decline", "question", "stop"] as const)(
     "settles a Cursor ACP runtime request through V2 (%s)",
-    (scenario) => Effect.gen(function* () {
-      const protocolEvents = yield* Queue.unbounded<EffectAcpProtocol.AcpProtocolLogEvent>();
-      const cursor = ProviderDriverKind.make("cursor");
-      const path = yield* Path.Path;
-      const fs = yield* FileSystem.FileSystem;
-      const stateDir = yield* fs.makeTempDirectoryScoped();
-      const answersPath = path.join(stateDir, "cursor-answers.json");
-      const instanceId = ProviderInstanceId.make("cursor-interactive-fixture");
-      const threadId = ThreadId.make("cursor-interactive-fixture");
-      const modelSelection = { instanceId, model: "default" };
-      const runtimePolicy = {
-        runtimeMode: "approval-required", interactionMode: "default", cwd: process.cwd(),
-      } as const;
-      const acp = yield* makeAcpAdapterV2({
-        instanceId,
-        selfInvocation: yield* resolveSelfInvocation(),
-        flavor: {
-          driver: cursor,
-          capabilities: AcpProviderCapabilitiesV2,
-          registerExtensions: registerCursorAcpExtensions,
-          interruptPromptOnCancel: true,
-          makeRuntime: makeMockRuntime({
-            childProcessSpawner: yield* ChildProcessSpawner.ChildProcessSpawner,
-            mockAgentPath: yield* bundledMockAgentPath,
-            protocolEvents,
-            environment: scenario === "question"
-              ? { T3_ACP_CURSOR_QUESTION: "1", T3_ACP_ELICITATION_RESPONSE_LOG_PATH: answersPath }
-              : { T3_ACP_EMIT_TOOL_CALLS: "1" },
+    (scenario) =>
+      Effect.gen(function* () {
+        const protocolEvents = yield* Queue.unbounded<EffectAcpProtocol.AcpProtocolLogEvent>();
+        const cursor = ProviderDriverKind.make("cursor");
+        const path = yield* Path.Path;
+        const fs = yield* FileSystem.FileSystem;
+        const stateDir = yield* fs.makeTempDirectoryScoped();
+        const answersPath = path.join(stateDir, "cursor-answers.json");
+        const instanceId = ProviderInstanceId.make("cursor-interactive-fixture");
+        const threadId = ThreadId.make("cursor-interactive-fixture");
+        const modelSelection = { instanceId, model: "default" };
+        const runtimePolicy = {
+          runtimeMode: "approval-required",
+          interactionMode: "default",
+          cwd: process.cwd(),
+        } as const;
+        const acp = yield* makeAcpAdapterV2({
+          instanceId,
+          selfInvocation: yield* resolveSelfInvocation(),
+          flavor: {
+            driver: cursor,
+            capabilities: AcpProviderCapabilitiesV2,
+            registerExtensions: registerCursorAcpExtensions,
+            interruptPromptOnCancel: true,
+            makeRuntime: makeMockRuntime({
+              childProcessSpawner: yield* ChildProcessSpawner.ChildProcessSpawner,
+              mockAgentPath: yield* bundledMockAgentPath,
+              protocolEvents,
+              environment:
+                scenario === "question"
+                  ? {
+                      T3_ACP_CURSOR_QUESTION: "1",
+                      T3_ACP_ELICITATION_RESPONSE_LOG_PATH: answersPath,
+                    }
+                  : { T3_ACP_EMIT_TOOL_CALLS: "1" },
+            }),
+          },
+        });
+        const adapter = composeCursorTransports(
+          {
+            ...acp,
+            openSession: () => Effect.die("interactive work must use ACP"),
+          },
+          acp,
+          (effect) => effect,
+          path,
+        );
+        const open = {
+          providerSessionId: ProviderSessionId.make("cursor-interactive-fixture"),
+          threadId,
+          modelSelection,
+          runtimePolicy,
+        };
+        const runtime = yield* adapter.openSession(open);
+        const native = yield* runtime.ensureThread(open);
+        assert.equal(native.nativeMetadata?.cursorTransport, "acp");
+        const otherId = ThreadId.make("cursor-unrelated");
+        const other = yield* adapter.openSession({
+          ...open,
+          threadId: otherId,
+          providerSessionId: ProviderSessionId.make("cursor-unrelated"),
+        });
+        assert.equal(
+          (yield* other.resumeThread({ providerThread: native }).pipe(Effect.result))._tag,
+          "Failure",
+        );
+        const queued = yield* runtime.events.pipe(Stream.toQueue({ capacity: "unbounded" }));
+        yield* runtime.startTurn(
+          makeTurnInput({
+            threadId,
+            providerThread: native,
+            instanceId,
+            runtimePolicy,
+            now: yield* DateTime.now,
           }),
-        },
-      });
-      const adapter = composeCursorTransports({
-        ...acp, openSession: () => Effect.die("interactive work must use ACP"),
-      }, acp, (effect) => effect, path);
-      const open = { providerSessionId: ProviderSessionId.make("cursor-interactive-fixture"),
-        threadId, modelSelection, runtimePolicy };
-      const runtime = yield* adapter.openSession(open);
-      const native = yield* runtime.ensureThread(open);
-      assert.equal(native.nativeMetadata?.cursorTransport, "acp");
-      const otherId = ThreadId.make("cursor-unrelated");
-      const other = yield* adapter.openSession({
-        ...open, threadId: otherId, providerSessionId: ProviderSessionId.make("cursor-unrelated"),
-      });
-      assert.equal((yield* other.resumeThread({ providerThread: native }).pipe(Effect.result))._tag, "Failure");
-      const queued = yield* runtime.events.pipe(Stream.toQueue({ capacity: "unbounded" }));
-      yield* runtime.startTurn(makeTurnInput({
-        threadId, providerThread: native, instanceId, runtimePolicy, now: yield* DateTime.now,
-      }));
-      let turnId: ProviderTurnId | undefined;
-      let requestId: RuntimeRequestId | undefined;
-      while (requestId === undefined) {
-        const event = yield* Queue.take(queued);
-        if (event.type === "provider_turn.updated") turnId = event.providerTurn.id;
-        if (event.type === "runtime_request.updated") requestId = event.runtimeRequest.id;
-        if (event.type === "turn.terminal") return yield* Effect.die("Cursor finished before asking");
-      }
-      const response = scenario === "question"
-        ? { requestId, answers: { choice: ["Tests"] } }
-        : { requestId, decision: scenario === "decline" ? "decline" as const : "accept" as const };
-      assert.equal((yield* other.respondToRuntimeRequest(response).pipe(Effect.result))._tag, "Failure");
-      if (scenario === "stop") {
-        if (turnId === undefined) return yield* Effect.die("Cursor did not start");
-        yield* runtime.interruptTurn({ providerThread: native, providerTurnId: turnId });
-        assert.equal((yield* runtime.respondToRuntimeRequest(response).pipe(Effect.result))._tag, "Failure");
-      } else {
-        yield* runtime.respondToRuntimeRequest(response);
-      }
-      const terminal = yield* Effect.repeat(Queue.take(queued), { until: (event) => event.type === "turn.terminal" });
-      assert.equal(terminal.type === "turn.terminal" && terminal.status, scenario === "stop" ? "interrupted" : "completed");
-      if (scenario === "question") {
-        assert.deepEqual(JSON.parse(yield* fs.readFileString(answersPath)), { answers: { choice: ["Tests"] } });
-      }
-    }).pipe(Effect.provide(layerTest)),
+        );
+        let turnId: ProviderTurnId | undefined;
+        let requestId: RuntimeRequestId | undefined;
+        while (requestId === undefined) {
+          const event = yield* Queue.take(queued);
+          if (event.type === "provider_turn.updated") turnId = event.providerTurn.id;
+          if (event.type === "runtime_request.updated") requestId = event.runtimeRequest.id;
+          if (event.type === "turn.terminal")
+            return yield* Effect.die("Cursor finished before asking");
+        }
+        const response =
+          scenario === "question"
+            ? { requestId, answers: { choice: ["Tests"] } }
+            : {
+                requestId,
+                decision: scenario === "decline" ? ("decline" as const) : ("accept" as const),
+              };
+        assert.equal(
+          (yield* other.respondToRuntimeRequest(response).pipe(Effect.result))._tag,
+          "Failure",
+        );
+        if (scenario === "stop") {
+          if (turnId === undefined) return yield* Effect.die("Cursor did not start");
+          yield* runtime.interruptTurn({ providerThread: native, providerTurnId: turnId });
+          assert.equal(
+            (yield* runtime.respondToRuntimeRequest(response).pipe(Effect.result))._tag,
+            "Failure",
+          );
+        } else {
+          yield* runtime.respondToRuntimeRequest(response);
+        }
+        const terminal = yield* Effect.repeat(Queue.take(queued), {
+          until: (event) => event.type === "turn.terminal",
+        });
+        assert.equal(
+          terminal.type === "turn.terminal" && terminal.status,
+          scenario === "stop" ? "interrupted" : "completed",
+        );
+        if (scenario === "question") {
+          assert.deepEqual(JSON.parse(yield* fs.readFileString(answersPath)), {
+            answers: { choice: ["Tests"] },
+          });
+        }
+      }).pipe(Effect.provide(layerTest)),
   );
 
-  it.live.each([false, true])("reopens the original Cursor ACP conversation or refuses (%s)", (stale) =>
-    Effect.gen(function* () {
-      const protocolEvents = yield* Queue.unbounded<EffectAcpProtocol.AcpProtocolLogEvent>();
-      const path = yield* Path.Path;
-      const instanceId = ProviderInstanceId.make("cursor-reopen-fixture");
-      const threadId = ThreadId.make("cursor-reopen-fixture");
-      const modelSelection = { instanceId, model: "default" };
-      const runtimePolicy = { runtimeMode: "full-access", interactionMode: "default", cwd: process.cwd() } as const;
-      const acp = yield* makeAcpAdapterV2({
-        instanceId,
-        selfInvocation: yield* resolveSelfInvocation(),
-        flavor: {
-          driver: ProviderDriverKind.make("cursor"),
-          capabilities: AcpProviderCapabilitiesV2,
-          makeRuntime: makeMockRuntime({
-            childProcessSpawner: yield* ChildProcessSpawner.ChildProcessSpawner,
-            mockAgentPath: yield* bundledMockAgentPath,
-            protocolEvents,
-            environment: stale ? { T3_ACP_FAIL_LOAD_SESSION: "1" } : {},
-          }),
-        },
-      });
-      let sdkOpened = 0;
-      const adapter = composeCursorTransports({
-        ...acp,
-        openSession: (input) => Effect.sync(() => {
-          sdkOpened++;
-          assert.isUndefined(input.initialNativeThreadId);
-          assert.isUndefined(input.initialCursorTransport);
-        }).pipe(Effect.andThen(acp.openSession(input))),
-      }, acp, (effect) => effect, path);
-      const open = {
-        providerSessionId: ProviderSessionId.make("cursor-reopen-fixture"),
-        threadId, modelSelection, runtimePolicy,
-      };
-      const exact = yield* adapter.openSession({
-        ...open, initialCursorTransport: "acp", initialNativeThreadId: "original-cursor-session",
-        initialCursorStoreCwd: process.cwd(),
-      }).pipe(Effect.result);
-      if (stale) {
-        assert.equal(exact._tag, "Failure");
-      } else {
-        if (exact._tag === "Failure") return yield* exact.failure;
-        const native = yield* exact.success.ensureThread(open);
-        assert.equal(native.nativeThreadRef?.nativeId, "original-cursor-session");
-        assert.equal(native.nativeMetadata?.cursorTransport, "acp");
-      }
-      const methods = yield* pollProtocolMethods(protocolEvents);
-      assert.isTrue(methods.includes("session/resume") || methods.includes("session/load"));
-      assert.notInclude(methods, "session/new");
-      assert.equal(sdkOpened, 0);
-      // A separately planned provider session with no inherited native ref uses the ordinary SDK route.
-      const fresh = yield* adapter.openSession({
-        ...open, providerSessionId: ProviderSessionId.make("cursor-forced-new-fixture"),
-      });
-      assert.equal((yield* fresh.ensureThread(open)).nativeMetadata?.cursorTransport, "sdk");
-      assert.equal(sdkOpened, 1);
-    }).pipe(Effect.provide(layerTest)),
+  it.live.each([false, true])(
+    "reopens the original Cursor ACP conversation or refuses (%s)",
+    (stale) =>
+      Effect.gen(function* () {
+        const protocolEvents = yield* Queue.unbounded<EffectAcpProtocol.AcpProtocolLogEvent>();
+        const path = yield* Path.Path;
+        const instanceId = ProviderInstanceId.make("cursor-reopen-fixture");
+        const threadId = ThreadId.make("cursor-reopen-fixture");
+        const modelSelection = { instanceId, model: "default" };
+        const runtimePolicy = {
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: process.cwd(),
+        } as const;
+        const acp = yield* makeAcpAdapterV2({
+          instanceId,
+          selfInvocation: yield* resolveSelfInvocation(),
+          flavor: {
+            driver: ProviderDriverKind.make("cursor"),
+            capabilities: AcpProviderCapabilitiesV2,
+            makeRuntime: makeMockRuntime({
+              childProcessSpawner: yield* ChildProcessSpawner.ChildProcessSpawner,
+              mockAgentPath: yield* bundledMockAgentPath,
+              protocolEvents,
+              environment: stale ? { T3_ACP_FAIL_LOAD_SESSION: "1" } : {},
+            }),
+          },
+        });
+        let sdkOpened = 0;
+        const adapter = composeCursorTransports(
+          {
+            ...acp,
+            openSession: (input) =>
+              Effect.sync(() => {
+                sdkOpened++;
+                assert.isUndefined(input.initialNativeThreadId);
+                assert.isUndefined(input.initialCursorTransport);
+              }).pipe(Effect.andThen(acp.openSession(input))),
+          },
+          acp,
+          (effect) => effect,
+          path,
+        );
+        const open = {
+          providerSessionId: ProviderSessionId.make("cursor-reopen-fixture"),
+          threadId,
+          modelSelection,
+          runtimePolicy,
+        };
+        const exact = yield* adapter
+          .openSession({
+            ...open,
+            initialCursorTransport: "acp",
+            initialNativeThreadId: "original-cursor-session",
+            initialCursorStoreCwd: process.cwd(),
+          })
+          .pipe(Effect.result);
+        if (stale) {
+          assert.equal(exact._tag, "Failure");
+        } else {
+          if (exact._tag === "Failure") return yield* exact.failure;
+          const native = yield* exact.success.ensureThread(open);
+          assert.equal(native.nativeThreadRef?.nativeId, "original-cursor-session");
+          assert.equal(native.nativeMetadata?.cursorTransport, "acp");
+        }
+        const methods = yield* pollProtocolMethods(protocolEvents);
+        assert.isTrue(methods.includes("session/resume") || methods.includes("session/load"));
+        assert.notInclude(methods, "session/new");
+        assert.equal(sdkOpened, 0);
+        // A separately planned provider session with no inherited native ref uses the ordinary SDK route.
+        const fresh = yield* adapter.openSession({
+          ...open,
+          providerSessionId: ProviderSessionId.make("cursor-forced-new-fixture"),
+        });
+        assert.equal((yield* fresh.ensureThread(open)).nativeMetadata?.cursorTransport, "sdk");
+        assert.equal(sdkOpened, 1);
+      }).pipe(Effect.provide(layerTest)),
   );
 
   it.live.each([false, true])("controls stale eager ACP history fallback (strict=%s)", (strict) =>
@@ -5220,34 +5327,37 @@ describe("AcpAdapterV2", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
-  it.effect("refuses a prompt that loses authorization during late preparation and accepts the next ordinary turn", () =>
-    Effect.gen(function* () {
-      const preparing = yield* Deferred.make<void>();
-      const release = yield* Deferred.make<void>();
-      const allowed = yield* Ref.make(true);
-      const harness = yield* makePromptInactivityHarness({
-        environment: () => ({}),
-        wrapPrompt: (prompt) => (payload, options) =>
-          options?.authorizeWrite === undefined
-            ? prompt(payload, options)
-            : Deferred.succeed(preparing, undefined).pipe(
-                Effect.andThen(Deferred.await(release)),
-                Effect.andThen(prompt(payload, options)),
-              ),
-      });
-      const terminalStatus = () => harness.runtime.events.pipe(
-        Stream.filter((event) => event.type === "turn.terminal"),
-        Stream.runHead,
-        Effect.map((event) => Option.getOrThrow(event).status),
-      );
-      yield* harness.startTurn(1, Ref.get(allowed));
-      yield* Deferred.await(preparing);
-      yield* Ref.set(allowed, false);
-      yield* Deferred.succeed(release, undefined);
-      assert.equal(yield* terminalStatus(), "interrupted");
-      yield* harness.startTurn(2);
-      assert.equal(yield* terminalStatus(), "completed");
-    }).pipe(Effect.provide(layerTest)),
+  it.effect(
+    "refuses a prompt that loses authorization during late preparation and accepts the next ordinary turn",
+    () =>
+      Effect.gen(function* () {
+        const preparing = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const allowed = yield* Ref.make(true);
+        const harness = yield* makePromptInactivityHarness({
+          environment: () => ({}),
+          wrapPrompt: (prompt) => (payload, options) =>
+            options?.authorizeWrite === undefined
+              ? prompt(payload, options)
+              : Deferred.succeed(preparing, undefined).pipe(
+                  Effect.andThen(Deferred.await(release)),
+                  Effect.andThen(prompt(payload, options)),
+                ),
+        });
+        const terminalStatus = () =>
+          harness.runtime.events.pipe(
+            Stream.filter((event) => event.type === "turn.terminal"),
+            Stream.runHead,
+            Effect.map((event) => Option.getOrThrow(event).status),
+          );
+        yield* harness.startTurn(1, Ref.get(allowed));
+        yield* Deferred.await(preparing);
+        yield* Ref.set(allowed, false);
+        yield* Deferred.succeed(release, undefined);
+        assert.equal(yield* terminalStatus(), "interrupted");
+        yield* harness.startTurn(2);
+        assert.equal(yield* terminalStatus(), "completed");
+      }).pipe(Effect.provide(layerTest)),
   );
 
   it.effect("fails a prompt its agent leaves silent past the inactivity timeout", () =>

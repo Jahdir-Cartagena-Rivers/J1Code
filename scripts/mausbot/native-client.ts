@@ -1,5 +1,10 @@
 // This adapter exposes only J1-owned native operations to the pinned upstream UI.
-type Host = { platform: "win32" | "darwin" | "linux"; capture: boolean };
+type Host = {
+  platform: "win32" | "darwin" | "linux";
+  capture: boolean;
+  savedAppWindows?: boolean;
+  savedAppShortcuts?: boolean;
+};
 const pending = new Map<
   string,
   { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: number }
@@ -137,6 +142,43 @@ function install(host: Host) {
         >,
     },
   };
+  if (host.savedAppWindows) {
+    Object.assign(adapter, {
+      localApps: {
+        openWindow: async (appId: string) => Boolean(await invoke("openSavedAppWindow", { appId })),
+      },
+    });
+  }
+  if (host.savedAppShortcuts) {
+    Object.assign(adapter, {
+      appInstall: {
+        list: () => invoke("savedAppShortcut", { operation: "list" }),
+        install: async ({
+          id,
+          name,
+          desktopShortcut,
+        }: {
+          id: string;
+          name: string;
+          desktopShortcut?: boolean;
+        }) => {
+          const installed = (await invoke("savedAppShortcut", {
+            operation: "install",
+            appId: id,
+            name,
+          })) as { ok: boolean };
+          return installed.ok && desktopShortcut
+            ? invoke("savedAppShortcut", { operation: "addToDesktop", appId: id })
+            : installed;
+        },
+        uninstall: (appId: string) => invoke("savedAppShortcut", { operation: "uninstall", appId }),
+        addToDesktop: (appId: string) =>
+          invoke("savedAppShortcut", { operation: "addToDesktop", appId }),
+        removeFromDesktop: (appId: string) =>
+          invoke("savedAppShortcut", { operation: "removeFromDesktop", appId }),
+      },
+    });
+  }
   // Unsupported desktop members stay absent, preserving the upstream web/platform fallbacks.
   window.ogb = adapter as NonNullable<Window["ogb"]>;
   void getCapabilities()

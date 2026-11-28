@@ -263,6 +263,16 @@ function difference(
   };
 }
 type StreamItem = OrchestrationV2ThreadStreamItem | OrchestrationV2ShellStreamItem;
+class TransferSubscriptionError extends Schema.TaggedError<TransferSubscriptionError>()(
+  "TransferSubscriptionError",
+  { cause: Schema.Defect() },
+) {}
+
+class TransferSubscriptionEnded extends Schema.TaggedError<TransferSubscriptionEnded>()(
+  "TransferSubscriptionEnded",
+  { message: Schema.String },
+) {}
+
 const collectUntil = Effect.fn("transfer.collectUntil")(function* <T, E>(
   queue: Queue.Queue<T, E>,
   done: (item: T) => boolean,
@@ -280,33 +290,39 @@ type Subscription =
 function subscriptionStream(
   client: MeasuredWsClient,
   subscription: Subscription,
-): Stream.Stream<StreamItem, unknown> {
+): Stream.Stream<StreamItem, TransferSubscriptionError> {
+  const wrapError = (cause: unknown) => new TransferSubscriptionError({ cause });
   if ("thread" in subscription) {
     const { thread, ...resume } = subscription;
     return client.client[ORCHESTRATION_V2_WS_METHODS.subscribeThread]({
       ...CLIENT_THREAD_SUBSCRIPTION,
       ...resume,
       threadId: thread,
-    });
+    }).pipe(Stream.mapError(wrapError));
   }
   const { shell: _, ...resume } = subscription;
   return client.client[ORCHESTRATION_V2_WS_METHODS.subscribeShell]({
     ...CLIENT_SHELL_SUBSCRIPTION,
     ...resume,
-  });
+  }).pipe(Stream.mapError(wrapError));
 }
 const queueSubscription = Effect.fn("transfer.queueSubscription")(function* <T, E>(
   stream: Stream.Stream<T, E>,
   scope: Scope.Scope,
   label: string,
 ) {
-  const queue = yield* Queue.unbounded<T, E | Error>();
+  const queue = yield* Queue.unbounded<T, E | TransferSubscriptionEnded>();
   yield* stream.pipe(
     Stream.runForEach((item) => Queue.offer(queue, item)),
     Effect.onExit((exit) =>
       Exit.isFailure(exit)
         ? Queue.failCause(queue, exit.cause)
-        : Queue.fail(queue, new Error(label + " ended before the expected event")),
+        : Queue.fail(
+            queue,
+            new TransferSubscriptionEnded({
+              message: label + " ended before the expected event",
+            }),
+          ),
     ),
     Scope.provide(scope),
     Effect.forkIn(scope),
@@ -319,7 +335,9 @@ const subscribe = (client: MeasuredWsClient, subscription: Subscription) =>
     client.scope,
     "thread" in subscription ? "Thread subscription " + subscription.thread : "Shell subscription",
   );
-const synchronized = (queue: Queue.Queue<StreamItem, unknown>) =>
+const synchronized = (
+  queue: Queue.Queue<StreamItem, TransferSubscriptionError | TransferSubscriptionEnded>,
+) =>
   collectUntil(queue, (item) => item.kind === "synchronized").pipe(
     Effect.map((items) =>
       items.some((item) => item.kind === "snapshot") ? ("snapshot" as const) : ("replay" as const),
@@ -331,14 +349,17 @@ it.effect("drains queued transfer samples and reports subscription failures prom
     const scope = yield* Effect.scope;
     const completed = yield* queueSubscription(Stream.make("first", "expected"), scope, "Fixture");
     assert.deepEqual(yield* collectUntil(completed, (item) => item === "expected"), [
-      "first", "expected",
+      "first",
+      "expected",
     ]);
     const ended = yield* collectUntil(completed, () => false).pipe(Effect.flip);
     assert.equal(ended.message, "Fixture ended before the expected event");
 
-    const error = new Error("Fixture RPC rejected the subscription");
+    const error = new TransferSubscriptionError({ cause: "Fixture RPC rejected the subscription" });
     const rejected = yield* queueSubscription(
-      Stream.concat(Stream.make("prefix"), Stream.fail(error)), scope, "Rejected fixture",
+      Stream.concat(Stream.make("prefix"), Stream.fail(error)),
+      scope,
+      "Rejected fixture",
     );
     assert.deepEqual(yield* collectUntil(rejected, (item) => item === "prefix"), ["prefix"]);
     assert.strictEqual(yield* collectUntil(rejected, () => false).pipe(Effect.flip), error);
@@ -433,13 +454,14 @@ it.live("reports V2 thread HTTP and WebSocket transfer budgets", () =>
           const liveTurn = yield* collectUntil(tq, threadTerminal);
           const secondThreadTurn = yield* collectUntil(ttq, threadTerminal);
           // A direct check, so live dedupe stays guarded however small the turn gets.
-          const liveAnswers = (items: ReadonlyArray<StreamItem>) => items.flatMap((item) =>
-            item.kind === "event" &&
-            item.event.type === "turn-item.updated" &&
-            item.event.payload.type === "assistant_message"
-              ? [item.event.payload]
-              : [],
-          );
+          const liveAnswers = (items: ReadonlyArray<StreamItem>) =>
+            items.flatMap((item) =>
+              item.kind === "event" &&
+              item.event.type === "turn-item.updated" &&
+              item.event.payload.type === "assistant_message"
+                ? [item.event.payload]
+                : [],
+            );
           const liveAnswer = liveAnswers(liveTurn);
           assert.equal(liveAnswer.length, 1);
           assert.deepEqual(liveAnswers(secondThreadTurn), liveAnswer);
@@ -453,14 +475,19 @@ it.live("reports V2 thread HTTP and WebSocket transfer budgets", () =>
           );
           const measuredTurnSqlStatements = counter.count() - sqlBefore;
           const durable = yield* projection.getThreadProjection(THREAD_ID);
-          const answer = events.find((event) =>
-            event.type === "message.updated" && event.payload.role === "assistant"
+          const answer = events.find(
+            (event) => event.type === "message.updated" && event.payload.role === "assistant",
           );
           assert.ok(answer?.type === "message.updated");
-          const durableAnswer = durable.messages.find((message) => message.id === answer.payload.id);
+          const durableAnswer = durable.messages.find(
+            (message) => message.id === answer.payload.id,
+          );
           assert.equal(durableAnswer?.text, answer.payload.text);
           assert.isFalse(durableAnswer?.streaming);
-          assert.equal(durable.runs.find((run) => run.id === answer.payload.runId)?.status, "completed");
+          assert.equal(
+            durable.runs.find((run) => run.id === answer.payload.runId)?.status,
+            "completed",
+          );
           assert.isTrue(
             durable.turnItems.some(
               (item) =>

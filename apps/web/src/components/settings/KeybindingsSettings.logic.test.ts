@@ -306,4 +306,22 @@ describe("KeybindingsSettings.logic", () => {
 
     expect(rows.map((row) => row.conflicts)).toEqual([[], []]);
   });
+
+  it.each([
+    { when: "true", conflicts: [["Chat: New Local"], ["Chat: New"]] },
+    { when: "false", conflicts: [[], []] },
+  ])(
+    "reports contextual shortcut conflicts with an explicit $when condition",
+    ({ when, conflicts }) => {
+      const rows = buildKeybindingRows(
+        compileResolvedKeybindingsConfig([
+          { command: "chat.new", key: "mod+k", when },
+          { command: "chat.newLocal", key: "mod+k", when: "terminalFocus" },
+        ]),
+        "Linux x86_64",
+      );
+
+      expect(rows.map((row) => row.conflicts)).toEqual(conflicts);
+    },
+  );
 });

@@ -68,30 +68,32 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
     it.effect.each([
       { subcommand: "status", hint: "connect link" },
       { subcommand: "publish", hint: "connect login" },
-    ])("j1 connect $subcommand includes the $hint command with --base-dir", ({ subcommand, hint }) =>
-      Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem;
-        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-connect-hint-test-" });
+    ])(
+      "j1 connect $subcommand includes the $hint command with --base-dir",
+      ({ subcommand, hint }) =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-connect-hint-test-" });
 
-        yield* Command.runWith(makeCli({ cloudEnabled: true }), { version: "0.0.0" })([
-          "connect",
-          subcommand,
-          "--base-dir",
-          baseDir,
-        ]);
+          yield* Command.runWith(makeCli({ cloudEnabled: true }), { version: "0.0.0" })([
+            "connect",
+            subcommand,
+            "--base-dir",
+            baseDir,
+          ]);
 
-        const { command } = yield* resolveHostCliCommand(hint, ["--base-dir", baseDir]);
-        assert.include((yield* TestConsole.logLines).join("\n"), `\`${command}\``);
-      }).pipe(
-        Effect.scoped,
-        Effect.provideService(HostProcess.Environment, {}),
-        Effect.provide(
-          Layer.mergeAll(
-            ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
-            Layer.fresh(TestConsole.layer),
+          const { command } = yield* resolveHostCliCommand(hint, ["--base-dir", baseDir]);
+          assert.include((yield* TestConsole.logLines).join("\n"), `\`${command}\``);
+        }).pipe(
+          Effect.scoped,
+          Effect.provideService(HostProcess.Environment, {}),
+          Effect.provide(
+            Layer.mergeAll(
+              ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
+              Layer.fresh(TestConsole.layer),
+            ),
           ),
         ),
-      ),
     );
   },
 );
@@ -106,12 +108,16 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
       Layer.succeed(FetchHttpClient.Fetch, async () => {
         throw new Error("Unexpected network access in local Connect fixture");
       }),
-      ConfigProvider.layer(ConfigProvider.fromEnv({ env: {
-        T3CODE_PORT: "43101",
-        T3CODE_CLERK_PUBLISHABLE_KEY: "pk_test_Y2xlcmsuZXhhbXBsZS50ZXN0JA==",
-        T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: "oauth_client_test",
-        T3CODE_RELAY_URL: "https://relay.example.test",
-      } })),
+      ConfigProvider.layer(
+        ConfigProvider.fromEnv({
+          env: {
+            T3CODE_PORT: "43101",
+            T3CODE_CLERK_PUBLISHABLE_KEY: "pk_test_Y2xlcmsuZXhhbXBsZS50ZXN0JA==",
+            T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: "oauth_client_test",
+            T3CODE_RELAY_URL: "https://relay.example.test",
+          },
+        }),
+      ),
     );
 
     it.effect("reports disconnected JSON status and a home-specific next step", () =>
@@ -121,7 +127,6 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
         yield* runCli(["connect", "status", "--base-dir", baseDir, "--json"]);
 
         const output = (yield* TestConsole.logLines).at(-1);
-        // @effect-diagnostics-next-line preferSchemaOverJson:off - Assert CLI JSON output.
         assert.include(JSON.parse(String(output)), {
           desired: false,
           authenticated: false,
@@ -140,38 +145,49 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
       }).pipe(Effect.provide(Layer.fresh(fixture))),
     );
 
-    it.effect("preserves the saved login and does not start authorization after a temporary refresh failure", () =>
-      Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem;
-        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "j1-connect-refresh-" });
-        const secretsDir = `${baseDir}/userdata/secrets`;
-        const tokenPath = `${secretsDir}/cloud-cli-oauth-token.bin`;
-        yield* fs.makeDirectory(secretsDir, { recursive: true });
-        const saved = JSON.stringify({
-          accessToken: "fixture-access-token", refreshToken: "fixture-refresh-token",
-          expiresAtEpochMs: 0,
-          destination: {
-            tokenEndpoint: "https://clerk.example.test/oauth/token",
-            clientId: "oauth_client_test", relayUrl: "https://relay.example.test",
-          },
-        });
-        yield* fs.writeFileString(tokenPath, saved);
-        const requests: string[] = [];
-        const failure = yield* runCli([
-          "connect", "login", "--base-dir", baseDir, "--headless",
-        ]).pipe(
-          Effect.provideService(FetchHttpClient.Fetch, async (request) => {
-            requests.push(String(request instanceof Request ? request.url : request));
-            return new Response(null, { status: 503 });
-          }),
-          Effect.flip,
-        );
-        assert.equal(failure._tag, "CloudCliCredentialRefreshError");
-        assert.isAbove(requests.length, 0);
-        assert.isTrue(requests.every((url) => url === "https://clerk.example.test/oauth/token"));
-        assert.equal(yield* fs.readFileString(tokenPath), saved);
-        assert.notInclude((yield* TestConsole.logLines).join("\n"), "J1 Connect sign-in expired.");
-      }).pipe(Effect.provide(Layer.fresh(fixture))),
+    it.effect(
+      "preserves the saved login and does not start authorization after a temporary refresh failure",
+      () =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "j1-connect-refresh-" });
+          const secretsDir = `${baseDir}/userdata/secrets`;
+          const tokenPath = `${secretsDir}/cloud-cli-oauth-token.bin`;
+          yield* fs.makeDirectory(secretsDir, { recursive: true });
+          const saved = JSON.stringify({
+            accessToken: "fixture-access-token",
+            refreshToken: "fixture-refresh-token",
+            expiresAtEpochMs: 0,
+            destination: {
+              tokenEndpoint: "https://clerk.example.test/oauth/token",
+              clientId: "oauth_client_test",
+              relayUrl: "https://relay.example.test",
+            },
+          });
+          yield* fs.writeFileString(tokenPath, saved);
+          const requests: string[] = [];
+          const failure = yield* runCli([
+            "connect",
+            "login",
+            "--base-dir",
+            baseDir,
+            "--headless",
+          ]).pipe(
+            Effect.provideService(FetchHttpClient.Fetch, async (request) => {
+              requests.push(String(request instanceof Request ? request.url : request));
+              return new Response(null, { status: 503 });
+            }),
+            Effect.flip,
+          );
+          assert.propertyVal(failure, "_tag", "CloudCliCredentialRefreshError");
+          assert.isAbove(requests.length, 0);
+          assert.isTrue(requests.every((url) => url === "https://clerk.example.test/oauth/token"));
+          assert.equal(yield* fs.readFileString(tokenPath), saved);
+          assert.notInclude(
+            (yield* TestConsole.logLines).join("\n"),
+            "J1 Connect sign-in expired.",
+          );
+        }).pipe(Effect.provide(Layer.fresh(fixture))),
     );
 
     it.effect("uses a stored headless login without enabling access and clears it on logout", () =>
@@ -183,7 +199,6 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
         yield* fs.makeDirectory(secretsDir, { recursive: true });
         yield* fs.writeFileString(
           tokenPath,
-          // @effect-diagnostics-next-line preferSchemaOverJson:off - Synthetic persisted token.
           JSON.stringify({
             accessToken: "fixture-access-token",
             refreshToken: "fixture-refresh-token",
@@ -201,7 +216,6 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
 
         yield* runCli(["connect", "status", "--base-dir", baseDir, "--json"]);
         const output = (yield* TestConsole.logLines).at(-1);
-        // @effect-diagnostics-next-line preferSchemaOverJson:off - Assert CLI JSON output.
         assert.include(JSON.parse(String(output)), { desired: false, authenticated: true });
 
         yield* runCli(["connect", "unlink", "--base-dir", baseDir]);
@@ -209,7 +223,10 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
         assert.isTrue(yield* fs.exists(tokenPath));
 
         yield* runCli(["connect", "logout", "--base-dir", baseDir]);
-        assert.include((yield* TestConsole.logLines).join("\n"), "Signed out of J1 Connect locally.");
+        assert.include(
+          (yield* TestConsole.logLines).join("\n"),
+          "Signed out of J1 Connect locally.",
+        );
         assert.isFalse(yield* fs.exists(tokenPath));
       }).pipe(Effect.provide(Layer.fresh(fixture))),
     );
@@ -379,8 +396,14 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
             config: { host: "127.0.0.1", privateNetworkOnly: undefined, devUrl: undefined },
             port: 3773,
           });
-          for (const origin of ["file:///fixture", "http://fixture-user@127.0.0.1:3773", state.origin]) {
-            const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "j1-connect-origin-test-" });
+          for (const origin of [
+            "file:///fixture",
+            "http://fixture-user@127.0.0.1:3773",
+            state.origin,
+          ]) {
+            const baseDir = yield* fs.makeTempDirectoryScoped({
+              prefix: "j1-connect-origin-test-",
+            });
             const stateDir = baseDir + "/userdata";
             yield* persistServerRuntimeState({
               path: stateDir + "/server-runtime.json",

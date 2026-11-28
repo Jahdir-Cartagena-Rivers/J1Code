@@ -49,7 +49,9 @@ it.effect("prepares only the requested saved thread and still accepts an unsaved
       Layer.mergeAll(
         NodeServices.layer,
         ServerSettings.layerTest(),
-        Layer.mock(ServerConfig.ServerConfig)({}),
+        ServerConfig.layerTest(process.cwd(), { prefix: "j1-restore-worktree-test-" }).pipe(
+          Layer.provide(NodeServices.layer),
+        ),
         Layer.mock(GitWorkflowService.GitWorkflowService)({}),
         Layer.mock(ProjectService.ProjectService)({}),
       ),

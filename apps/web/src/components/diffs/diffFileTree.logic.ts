@@ -14,7 +14,7 @@ export interface DiffFileTreeEntry {
   readonly status: GitStatus;
 }
 
-function toGitStatus(file: FileDiffMetadata): GitStatus {
+function toGitStatus(file: Pick<FileDiffMetadata, "type">): GitStatus {
   switch (file.type) {
     case "new":
       return "added";
@@ -29,7 +29,7 @@ function toGitStatus(file: FileDiffMetadata): GitStatus {
 }
 
 export function diffFileTreeEntries(
-  files: ReadonlyArray<FileDiffMetadata>,
+  files: ReadonlyArray<Pick<FileDiffMetadata, "name" | "prevName" | "type">>,
 ): ReadonlyArray<DiffFileTreeEntry> {
   const statusByPath = new Map<string, GitStatus>();
   for (const file of files) {

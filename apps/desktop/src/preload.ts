@@ -267,6 +267,10 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   captureMausbotScreenFrame: () =>
     ipcRenderer.invoke(IpcChannels.CAPTURE_MAUSBOT_SCREEN_FRAME_CHANNEL, undefined),
   readMedia: (url: string) => ipcRenderer.invoke(IpcChannels.READ_MEDIA_CHANNEL, url),
+  openMausbotSavedApp: (input) =>
+    ipcRenderer.invoke(IpcChannels.OPEN_MAUSBOT_SAVED_APP_CHANNEL, input),
+  manageMausbotShortcuts: (input) =>
+    ipcRenderer.invoke(IpcChannels.MAUSBOT_SHORTCUTS_CHANNEL, input),
   checkSystemPermission: (pane: string) =>
     ipcRenderer.invoke(IpcChannels.CHECK_SYSTEM_PERMISSION_CHANNEL, pane),
   openSystemSettings: (pane: string) =>

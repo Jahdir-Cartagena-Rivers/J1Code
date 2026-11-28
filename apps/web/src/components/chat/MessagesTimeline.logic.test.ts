@@ -37,7 +37,15 @@ import {
   type MessagesTimelineRow,
   workEntryDisplayLabel,
 } from "./MessagesTimeline.logic";
-import { workEntryIconName } from "./TimelineWorkEntryRow.logic";
+import { sliceThoughtPreviewSource, workEntryIconName } from "./TimelineWorkEntryRow.logic";
+
+describe("sliceThoughtPreviewSource", () => {
+  it("keeps whole characters at the reasoning preview source limit", () => {
+    const prefix = "a".repeat(8_191);
+    expect(sliceThoughtPreviewSource(prefix + "😀 rest")).toBe(prefix);
+    expect(sliceThoughtPreviewSource(prefix + "z rest")).toBe(prefix + "z");
+  });
+});
 
 describe("resolveAssistantMessageCopyState", () => {
   it("copies the rendered representation of Codex directives", () => {

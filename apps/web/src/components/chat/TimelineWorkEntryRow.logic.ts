@@ -4,6 +4,7 @@ import {
   resolveWorkEntryToolPresentation,
   toolGroupAction,
 } from "@j1code/client-runtime/work-log/presentation";
+import { splitsSurrogatePair } from "@j1code/shared/assistantCitations";
 import { isJavaScriptReplTool } from "@j1code/shared/toolActivity";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
 import { type TimelineWorkEntry, type TimelineRow } from "./timelineRowContext";
@@ -201,8 +202,13 @@ export function workEntryIconName(workEntry: TimelineWorkEntry): WorkEntryIconNa
 // Look past the visible label so long destinations and inline delimiters can close.
 // This is bounded lookahead, not document-wide Markdown parity: a closing delimiter
 // or reference definition beyond this prefix remains unresolved by the parser.
-export const THOUGHT_PREVIEW_SOURCE_MAX_LENGTH = 8_192;
+const THOUGHT_PREVIEW_SOURCE_MAX_LENGTH = 8_192;
 export const THOUGHT_PREVIEW_MAX_LENGTH = 2_048;
+
+export function sliceThoughtPreviewSource(text: string): string {
+  const limit = THOUGHT_PREVIEW_SOURCE_MAX_LENGTH;
+  return text.slice(0, splitsSurrogatePair(text, limit) ? limit - 1 : limit);
+}
 
 /** Compact reasoning keeps formulas while flattening other Markdown into label text. */
 export function remarkThoughtPreview(fallback: string) {

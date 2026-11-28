@@ -1,9 +1,6 @@
 import { WS_METHODS, type EnvironmentId } from "@j1code/contracts";
-import {
-  callMausbotRouting,
-  isMausbotRoutingMethod,
-} from "@j1code/client-runtime/mausbot-routing";
-import { CommonActions, useNavigation } from "@react-navigation/native";
+import { callMausbotRouting, isMausbotRoutingMethod } from "@j1code/client-runtime/mausbot-routing";
+import { useSelectWorkspaceDetail } from "../layout/workspace/useSelectWorkspaceDetail";
 import { createEnvironmentRpcCommand } from "@j1code/client-runtime/state/runtime";
 import { resolveAssetUrl } from "@j1code/client-runtime/state/assets";
 import { useLayoutEffect, useRef, useState } from "react";
@@ -31,8 +28,8 @@ export function MausbotWorkspace({
   initialConversation?: { botId: string; threadId: string };
   label?: string;
 }) {
-  const navigation = useNavigation();
-  const webView = useRef<WebView>(null);
+  const selectDetail = useSelectWorkspaceDetail();
+  const webView = useRef<WebView<object>>(null);
   const list = useAtomCommand(serverEnvironment.routingList, { reportFailure: false });
   const prepare = useAtomCommand(serverEnvironment.routingPrepare, { reportFailure: false });
   const confirm = useAtomCommand(serverEnvironment.routingConfirm, { reportFailure: false });
@@ -50,6 +47,7 @@ export function MausbotWorkspace({
       ? view.url
       : null;
   const activeUrl = useRef(url);
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Native messages check against the committed WebView URL.
   useLayoutEffect(() => {
     activeUrl.current = url;
   }, [url]);
@@ -93,12 +91,13 @@ export function MausbotWorkspace({
           );
         else {
           setView(null);
-          navigation.dispatch(
-            CommonActions.navigate("Thread", {
+          selectDetail({
+            name: "Thread",
+            params: {
               environmentId: endpoint.environmentId,
               threadId: endpoint.threadId,
-            }),
-          );
+            },
+          });
         }
       },
     });
@@ -106,21 +105,28 @@ export function MausbotWorkspace({
   const open = async () => {
     if (!environmentId || connection._tag !== "Some" || busy) return;
     setBusy(true);
-    try {
-      const result = await command({ environmentId, input: {} });
-      if (result._tag !== "Success")
-        throw new Error(
-          "This server could not open the assistant workspace. Check its runtime and connection permissions.",
-        );
-      const resolved = resolveAssetUrl(connection.value.httpBaseUrl, result.value.relativeUrl);
-      if (!resolved) throw new Error("The server returned an invalid workspace address.");
-      setView({ environmentId, base: connection.value.httpBaseUrl, url: resolved });
-      setError("");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Assistant workspace unavailable.");
-    } finally {
-      setBusy(false);
-    }
+    await command({ environmentId, input: {} })
+      .then((result) => {
+        if (result._tag !== "Success") {
+          setError(
+            "This server could not open the assistant workspace. Check its runtime and connection permissions.",
+          );
+          return;
+        }
+        const resolved = resolveAssetUrl(connection.value.httpBaseUrl, result.value.relativeUrl);
+        if (!resolved) {
+          setError("The server returned an invalid workspace address.");
+          return;
+        }
+        setView({ environmentId, base: connection.value.httpBaseUrl, url: resolved });
+        setError("");
+      })
+      .catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : "Assistant workspace unavailable.");
+      })
+      .finally(() => {
+        setBusy(false);
+      });
   };
   if (
     !environments.find((environment) => environment.environmentId === environmentId)?.serverConfig
@@ -143,7 +149,7 @@ export function MausbotWorkspace({
             style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}
           >
             <Button tone="text" label="Back to J1" onPress={() => setView(null)} />
-            <WebView
+            <WebView<object>
               ref={webView}
               source={{ uri: url }}
               injectedJavaScript={mobileMessage(nativeNavigation(initialConversation))}

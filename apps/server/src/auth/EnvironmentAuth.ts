@@ -102,6 +102,11 @@ export interface AuthenticatedSession {
   readonly peerLink?: true;
 }
 
+export const clientSessionLabel = (client: AuthClientMetadata | undefined): string =>
+  client?.label ??
+  ([client?.browser, client?.os].filter((part) => part !== undefined).join(" on ") ||
+    "J1 Code client");
+
 const serverAuthInternalErrorContext = {
   cause: Schema.Defect(),
 };
@@ -1524,8 +1529,10 @@ export const make = Effect.gen(function* () {
               ? { proofKeyThumbprint: session.proofKeyThumbprint }
               : {}),
             ...(session.expiresAt ? { expiresAt: session.expiresAt } : {}),
-        ...(session.runtimeModeCeiling ? { runtimeModeCeiling: session.runtimeModeCeiling } : {}),
-        ...(session.peerLink === true ? { peerLink: true as const } : {}),
+            ...(session.runtimeModeCeiling
+              ? { runtimeModeCeiling: session.runtimeModeCeiling }
+              : {}),
+            ...(session.peerLink === true ? { peerLink: true as const } : {}),
           };
         }
       }

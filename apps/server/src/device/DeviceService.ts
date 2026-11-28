@@ -804,17 +804,16 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
       Effect.retry({
         schedule: Schedule.spaced(ANDROID_BOOT_POLL_INTERVAL),
       }),
-      Effect.timeout(BOOT_TIMEOUT),
-      Effect.catchTag(
-        "TimeoutError",
-        () =>
+      Effect.timeoutOrElse({
+        duration: BOOT_TIMEOUT,
+        orElse: () =>
           new DeviceBootError({
             hostId: ready.hostId,
             deviceId: device.id,
             reason: "timeout",
             cause: new Error("Android framework did not finish booting in time."),
           }),
-      ),
+      }),
     );
   });
 
@@ -891,7 +890,11 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
       } else if (device.booted) {
         yield* ready.devices.attach(device);
       }
-      if (device.platform === "android" && !ready.upstream && (device.booted || input.boot !== false)) {
+      if (
+        device.platform === "android" &&
+        !ready.upstream &&
+        (device.booted || input.boot !== false)
+      ) {
         yield* waitForAndroidBoot(ready, device);
       }
       const openedAt = DateTime.formatIso(yield* DateTime.now);
@@ -1221,9 +1224,11 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
                   reason: "Host configuration changed. Retry the operation.",
                 });
               const { state } = yield* SynchronizedRef.get(stateRef);
-              const opened = state.sessions.find((entry) =>
-                entry.threadId === input.threadId && entry.hostId === input.hostId &&
-                entry.deviceId === input.deviceId
+              const opened = state.sessions.find(
+                (entry) =>
+                  entry.threadId === input.threadId &&
+                  entry.hostId === input.hostId &&
+                  entry.deviceId === input.deviceId,
               );
               if (ready.devices.agentEndpoint) {
                 const endpoint = yield* ready.devices.agentEndpoint(input.deviceId);
@@ -1259,9 +1264,15 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
         const args = ["--config", configPath, "--session", session];
         const { state } = yield* SynchronizedRef.get(stateRef);
         if (state.agentAccessEnabled && opened !== undefined && state.sessions.includes(opened)) {
-          const platformArgs = agentDeviceId === null ? [] : [
-            "--platform", opened.platform, opened.platform === "ios" ? "--udid" : "--serial", agentDeviceId,
-          ];
+          const platformArgs =
+            agentDeviceId === null
+              ? []
+              : [
+                  "--platform",
+                  opened.platform,
+                  opened.platform === "ios" ? "--udid" : "--serial",
+                  agentDeviceId,
+                ];
           preparedLaunchers.set(opened, {
             args: [...platformArgs, ...args],
             hostOwnsSession: boundSession !== undefined,
@@ -1286,14 +1297,17 @@ export const makeWithHosts = Effect.fn("DeviceService.makeWithHosts")(function* 
         return yield* launcherLock.withPermit(
           Effect.gen(function* () {
             const { state } = yield* SynchronizedRef.get(stateRef);
-            const live = state.sessions.find((entry) =>
-              entry.threadId === target.threadId && entry.hostId === target.hostId &&
-              entry.deviceId === target.deviceId
+            const live = state.sessions.find(
+              (entry) =>
+                entry.threadId === target.threadId &&
+                entry.hostId === target.hostId &&
+                entry.deviceId === target.deviceId,
             );
             if (live === undefined) return Option.none();
             const prepared = preparedLaunchers.get(live);
             if (
-              prepared === undefined || prepared.args.length !== targetArgs.length ||
+              prepared === undefined ||
+              prepared.args.length !== targetArgs.length ||
               prepared.args.some((arg, index) => arg !== targetArgs[index])
             ) {
               return yield* new DeviceOperationError({
@@ -1528,7 +1542,9 @@ export const make = Effect.gen(function* () {
               reason:
                 cause.reason === "npm_not_found" ? "package_manager_missing" : "command_failed",
               // npm's stderr can carry registry credentials; expose only the reason and exit code.
-              ...("exitCode" in cause && cause.exitCode !== undefined ? { exitCode: cause.exitCode } : {}),
+              ...("exitCode" in cause && cause.exitCode !== undefined
+                ? { exitCode: cause.exitCode }
+                : {}),
               cause,
             }),
         ),

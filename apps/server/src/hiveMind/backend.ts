@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - selected memory service, credentials and attachment persistence are host-owned boundaries.
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
-import { createHash } from "node:crypto";
+import * as NodeFSP from "node:fs/promises";
+import * as NodePath from "node:path";
+import * as NodeCrypto from "node:crypto";
 import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
@@ -13,7 +13,7 @@ import {
   type HiveMindMutation,
 } from "@j1code/contracts";
 import { readHiveConfig, readHiveConfigSync } from "./config.ts";
-import { hiveContext, hiveMemoryDigest, type HiveImportFact } from "./store.ts";
+import { hiveContext, hiveMemoryDigest } from "./store.ts";
 import {
   recallHiveMind,
   rememberHiveMind,
@@ -39,6 +39,10 @@ import {
 export { selectedHiveConnection, requestHive };
 export type { HiveConnection };
 
+const decodeHiveAttachment = Schema.decodeSync(
+  Schema.Union([ChatImageAttachment, ChatFileAttachment]),
+);
+
 const Packet = Schema.Struct({
   context: Schema.String,
   streamId: Schema.optionalKey(Schema.String),
@@ -59,7 +63,14 @@ const RecordResult = Schema.Struct({
   data: Schema.Record(Schema.String, Schema.Unknown),
 });
 
-const decodeCaptureReceipt = Schema.decodeUnknownSync(RecordResult);
+const decodeHiveImport = Schema.decodeUnknownSync(HiveMindImportResult);
+const decodeHiveSnapshot = Schema.decodeUnknownSync(HiveMindSnapshot);
+const decodeHivePacket = Schema.decodeUnknownSync(Packet);
+const decodeHiveRecords = Schema.decodeUnknownSync(
+  Schema.Struct({ records: Schema.Array(RecordResult) }),
+);
+const decodeHiveContinuity = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown));
+const decodeHiveRecord = Schema.decodeUnknownSync(RecordResult);
 
 export async function recallSelectedHive(file: string, query: string, project?: string) {
   const result = await recallHiveMind(file, query, project);
@@ -79,9 +90,7 @@ export const syncSelectedHive = syncHiveMind;
 export async function importSelectedHive(file: string, url: string, bank: string) {
   const connection = await selectedHiveConnection(file);
   return connection
-    ? Schema.decodeUnknownSync(HiveMindImportResult)(
-        await requestHive(connection, "/v1/import", { url, bank }),
-      )
+    ? decodeHiveImport(await requestHive(connection, "/v1/import", { url, bank }))
     : importHiveHindsight(file, url, bank);
 }
 export async function mutateExternalHive(file: string, input: HiveMindMutation) {
@@ -97,9 +106,7 @@ export async function externalHiveSnapshot(file: string) {
   try {
     const connection = await selectedHiveConnection(file);
     if (!connection) return null;
-    const snapshot = Schema.decodeUnknownSync(HiveMindSnapshot)(
-      await requestHive(connection, "/v1/status"),
-    );
+    const snapshot = decodeHiveSnapshot(await requestHive(connection, "/v1/status"));
     return { ...snapshot, config };
   } catch (error) {
     // Keep configuration reachable so the user can repair or switch back during an outage.
@@ -117,7 +124,7 @@ export async function externalHiveSnapshot(file: string) {
   }
 }
 export const hiveClientId = (file: string, threadId: string) =>
-  `j1-${createHash("sha256").update(path.resolve(file)).digest("hex").slice(0, 12)}-${createHash("sha256").update(threadId).digest("hex").slice(0, 24)}`;
+  `j1-${NodeCrypto.createHash("sha256").update(NodePath.resolve(file)).digest("hex").slice(0, 12)}-${NodeCrypto.createHash("sha256").update(threadId).digest("hex").slice(0, 24)}`;
 export const hiveEventId = (
   file: string,
   thread: string,
@@ -137,7 +144,7 @@ export async function selectedHiveContext(
   const connection = await selectedHiveConnection(file);
   if (!connection)
     return { context: hiveContext(file, query, projects), packet: null, connection: null };
-  const packet = Schema.decodeUnknownSync(Packet)(
+  const packet = decodeHivePacket(
     await requestHive(connection, "/v1/working-context", {
       query: query.slice(0, 4000),
       projects,
@@ -154,13 +161,13 @@ export async function acknowledgeHiveContext(
   packet: HivePacket,
 ) {
   const id = hiveClientId(file, threadId);
-  const list = Schema.decodeUnknownSync(Schema.Struct({ records: Schema.Array(RecordResult) }))(
+  const list = decodeHiveRecords(
     await requestHive(connection, "/v1/brain", { kind: "client", id }),
   );
   const existing = list.records[0];
   let task;
   if (packet.taskId)
-    task = Schema.decodeUnknownSync(Schema.Struct({ records: Schema.Array(RecordResult) }))(
+    task = decodeHiveRecords(
       await requestHive(connection, "/v1/brain", { kind: "task", id: packet.taskId }),
     ).records[0];
   await requestHive(connection, "/v1/brain/save", {
@@ -184,7 +191,7 @@ export async function bindHiveTask(file: string, threadId: string, taskId?: stri
   const connection = await selectedHiveConnection(file);
   if (!connection)
     throw new Error("Task binding requires the external Hive Mind backend in this version.");
-  const packet = Schema.decodeUnknownSync(Packet)(
+  const packet = decodeHivePacket(
     await requestHive(connection, "/v1/working-context", {
       taskId,
       projects: [],
@@ -212,7 +219,7 @@ export async function operateHiveContinuity(
     forget: "/v1/brain/forget",
     claim: "/v1/tasks/claim",
   }[operation];
-  return Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown))(
+  return decodeHiveContinuity(
     await requestHive(connection, route, {
       ...input,
       ...(operation === "claim" ? { owner: threadId } : {}),
@@ -242,20 +249,20 @@ export async function retainHiveAttachment(
     throw new Error("Only an attachment from this chat can be retained.");
   const target = resolveAttachmentPathById({ attachmentsDir, attachmentId: input.attachmentId });
   if (!target) throw new Error("The source attachment is unavailable.");
-  const stat = await fs.lstat(target);
+  const stat = await NodeFSP.lstat(target);
   if (
     !stat.isFile() ||
     stat.isSymbolicLink() ||
     stat.size > (input.media === "file" ? 25 : 10) * 1024 * 1024
   )
     throw new Error("Invalid source reference.");
-  return Schema.decodeUnknownSync(RecordResult)(
+  return decodeHiveRecord(
     await requestHive(connection, input.media === "file" ? "/v1/files" : "/v1/assets", {
       scope: input.scope,
       project: input.project,
       title: input.title,
-      ...(input.media === "file" ? { filename: path.basename(target) } : {}),
-      base64: (await fs.readFile(target)).toString("base64"),
+      ...(input.media === "file" ? { filename: NodePath.basename(target) } : {}),
+      base64: (await NodeFSP.readFile(target)).toString("base64"),
       source: { threadId, provider: "J1", type: "agent" },
     }),
   );
@@ -281,7 +288,7 @@ export async function captureHiveEvent(
         /-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?(?:-----END [^-]*PRIVATE KEY-----|$)/gu,
         "[redacted private key]",
       )
-      .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+/giu, "[redacted credential]")
+      .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+/giu, "[redacted credential]")
       .replace(/\b(?:sk-|gh[pousr]_)[A-Za-z0-9_-]{16,}\b/gu, "[redacted credential]")
       .replace(
         /\b(?:password|api[_ -]?key|access[_ -]?token|secret)\s*(?::|=|is\b)\s*\S+/giu,
@@ -304,7 +311,7 @@ export async function captureHiveEvent(
       ...(input.deliveredIds ? { deliveredIds: input.deliveredIds } : {}),
     },
   });
-  const receipt = decodeCaptureReceipt(result);
+  const receipt = decodeHiveRecord(result);
   if (!receipt.id || !receipt.revision)
     throw new Error("Hive Mind did not confirm the captured turn.");
   return receipt;
@@ -359,8 +366,7 @@ export async function materializeHiveAsset(
   const ext =
     extensions[mime] ??
     (mime === "application/octet-stream"
-      ? path
-          .extname(filename)
+      ? NodePath.extname(filename)
           .slice(1)
           .replace(/[^a-zA-Z0-9]/gu, "")
           .slice(0, 10) || "bin"
@@ -371,21 +377,19 @@ export async function materializeHiveAsset(
     throw new Error("Hive Mind reference is too large.");
   const attachmentId = createAttachmentId(threadId, ext);
   if (!attachmentId) throw new Error("Invalid image destination thread.");
-  const attachment = Schema.decodeUnknownSync(
-    Schema.Union([ChatImageAttachment, ChatFileAttachment]),
-  )({
+  const attachment = decodeHiveAttachment({
     type: extensions[mime] ? "image" : "file",
     id: attachmentId,
     name: filename,
     mimeType: mime,
     sizeBytes: bytes.length,
   });
-  await fs.mkdir(attachmentsDir, { recursive: true });
-  const target = path.join(attachmentsDir, `${attachmentId}.${ext}`);
-  await fs.writeFile(target, bytes, { flag: "wx", mode: 0o600 });
+  await NodeFSP.mkdir(attachmentsDir, { recursive: true });
+  const target = NodePath.join(attachmentsDir, `${attachmentId}.${ext}`);
+  await NodeFSP.writeFile(target, bytes, { flag: "wx", mode: 0o600 });
   const resolved = resolveAttachmentPath({ attachmentsDir, attachment });
   if (resolved !== target) {
-    await fs.unlink(target);
+    await NodeFSP.unlink(target);
     throw new Error("Image attachment could not be resolved.");
   }
   return { attachment, path: target };

@@ -1,5 +1,12 @@
 import { getCloseBehavior, setCloseBehavior } from "./methods/closeBehavior.ts";
-import { startDictation, cancelDictation, stopDictation, dictationText, dictationLevel, installDictationLifecycle } from "./methods/dictation.ts";
+import {
+  startDictation,
+  cancelDictation,
+  stopDictation,
+  dictationText,
+  dictationLevel,
+  installDictationLifecycle,
+} from "./methods/dictation.ts";
 import * as Effect from "effect/Effect";
 
 import { receiveProviderAuthCallback, cancelProviderAuthCallback } from "./methods/providerAuth.ts";
@@ -46,6 +53,8 @@ import {
   getWindowFullscreenState,
   openExternal,
   captureMausbotScreenFrame,
+  openMausbotSavedApp,
+  manageMausbotShortcuts,
   readMedia,
   restartAudioService,
   openSystemSettings,
@@ -166,6 +175,8 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(showContextMenu);
   yield* ipc.handle(openExternal);
   yield* ipc.handle(captureMausbotScreenFrame);
+  yield* ipc.handle(openMausbotSavedApp);
+  yield* ipc.handle(manageMausbotShortcuts);
   yield* ipc.handle(readMedia);
   yield* ipc.handle(receiveProviderAuthCallback);
   yield* ipc.handle(cancelProviderAuthCallback);

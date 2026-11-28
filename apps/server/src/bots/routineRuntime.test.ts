@@ -1,21 +1,17 @@
+// @effect-diagnostics-next-line nodeBuiltinImport:off - Seed the pre-existing occurrence ID independently of admission.
 import * as NodeCrypto from "node:crypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import {
-  BotProfile,
-  CommandId,
-  ProjectId,
-  ProviderDriverKind,
-  ThreadId,
-} from "@j1code/contracts";
+import { BotProfile, CommandId, ProjectId, ProviderDriverKind, ThreadId } from "@j1code/contracts";
 import { it } from "@effect/vitest";
 import * as IdAllocator from "@j1code/provider-core/server/IdAllocator";
 import type * as ProviderAdapter from "@j1code/provider-core/server/ProviderAdapter";
-import { Deferred, Effect, FileSystem, Layer, Path, Schema } from "effect";
+import { Deferred, Effect, FileSystem, Layer, Path, Schema, Stream } from "effect";
 import * as TestClock from "effect/testing/TestClock";
 import { expect } from "vite-plus/test";
 
 import { CodexProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
 import { EffectOutboxV2 } from "../orchestration-v2/EffectOutbox.ts";
+import { EventSinkV2 } from "../orchestration-v2/EventSink.ts";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
 import { layerFromAdapters } from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import { LegacyV1ThreadImporter } from "../orchestration-v2/legacy/LegacyV1ThreadImporter.ts";
@@ -52,10 +48,13 @@ const bot = Schema.decodeUnknownSync(BotProfile)({
   })),
 });
 
-const occurrenceKey = (routineId: string) => NodeCrypto.createHash("sha256")
-  .update(`6:garden${routineId.length}:${routineId}:${occurrence}`).digest("hex");
+const occurrenceKey = (routineId: string) =>
+  NodeCrypto.createHash("sha256")
+    .update(`6:garden${routineId.length}:${routineId}:${occurrence}`)
+    .digest("hex");
 const threadId = (routineId: string) => ThreadId.make(`bot-routine:${occurrenceKey(routineId)}`);
-const turnCommand = (routineId: string) => CommandId.make(`bot-routine-turn:${occurrenceKey(routineId)}`);
+const turnCommand = (routineId: string) =>
+  CommandId.make(`bot-routine-turn:${occurrenceKey(routineId)}`);
 
 const adapter = {
   instanceId: bot.modelSelection.instanceId,
@@ -68,104 +67,137 @@ const adapter = {
 const makeTestLayer = (dbPath: string) => {
   const database = Sqlite.layerFromPath(dbPath).pipe(Layer.provide(NodeServices.layer));
   return ProjectService.layer.pipe(
-    Layer.provide(Layer.mergeAll(
-      IdAllocator.layer,
-      WorkspacePaths.layer,
-      Layer.mock(LegacyV1ThreadImporter)({}),
-      Layer.mock(ProjectEnrichmentService)({
-        invalidate: () => Effect.void,
-        getAvailable: () => Effect.succeed({
-          repositoryIdentity: null, faviconPath: null, repositoryIdentityResolved: true,
+    Layer.provide(
+      Layer.mergeAll(
+        IdAllocator.layer,
+        WorkspacePaths.layer,
+        Layer.mock(LegacyV1ThreadImporter)({}),
+        Layer.mock(ProjectEnrichmentService)({
+          invalidate: () => Effect.void,
+          getAvailable: () =>
+            Effect.succeed({
+              repositoryIdentity: null,
+              faviconPath: null,
+              repositoryIdentityResolved: true,
+            }),
         }),
+      ),
+    ),
+    Layer.provideMerge(
+      layerWithRegistry({ name: "routine-runtime" }, layerFromAdapters([adapter]), {
+        databaseLayer: database,
+        runEffectWorker: false,
       }),
-    )),
-    Layer.provideMerge(layerWithRegistry(
-      { name: "routine-runtime" },
-      layerFromAdapters([adapter]),
-      { databaseLayer: database, runEffectWorker: false },
-    )),
+    ),
     Layer.provideMerge(database),
   );
 };
 
-it.effect("recovers claims after readiness and admits only the unclaimed occurrence across restart", () =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const root = yield* fs.makeTempDirectoryScoped({ prefix: "routine-runtime-" });
-    const dbPath = path.join(root, "state.sqlite");
-    yield* TestClock.setTime(occurrence);
+it.effect(
+  "recovers claims after readiness and admits only the unclaimed occurrence across restart",
+  () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "routine-runtime-" });
+      const dbPath = path.join(root, "state.sqlite");
+      yield* TestClock.setTime(occurrence);
 
-    // A fresh layer opens the same database in each scope, with the effect worker disabled.
-    yield* Effect.gen(function* () {
-      const projects = yield* ProjectService.ProjectService;
-      const settings = yield* ServerSettingsService;
-      const orchestrator = yield* OrchestratorV2;
-      yield* settings.insertBotProfileIfAbsent(bot);
-      yield* projects.create({
-        projectId, commandId: CommandId.make("seed-routine-project"), title: bot.name,
-        workspaceRoot: root,
+      // A fresh layer opens the same database in each scope, with the effect worker disabled.
+      yield* Effect.gen(function* () {
+        const projects = yield* ProjectService.ProjectService;
+        const settings = yield* ServerSettingsService;
+        const orchestrator = yield* OrchestratorV2;
+        yield* settings.insertBotProfileIfAbsent(bot);
+        yield* projects.create({
+          projectId,
+          commandId: CommandId.make("seed-routine-project"),
+          title: bot.name,
+          workspaceRoot: root,
+        });
+        yield* orchestrator.dispatch({
+          type: "thread.bot.create",
+          commandId: CommandId.make("seed-privileged-thread"),
+          projectId,
+          threadId: threadId("blocked"),
+          botId: bot.id,
+          title: "Blocked",
+          modelSelection: bot.modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdBy: "user",
+          creationSource: "server",
+        });
+        const runs = yield* makeRoutineRuns;
+        expect(yield* runs.claim(bot.id, "claimed", occurrence, at)).toBe(true);
+      }).pipe(Effect.provide(makeTestLayer(dbPath)));
+
+      const startRuntime = Effect.gen(function* () {
+        const settings = yield* ServerSettingsService;
+        const orchestrator = yield* OrchestratorV2;
+        const events = yield* EventSinkV2;
+        const afterSequence = yield* events.latestSequence();
+        const normalThreadId = threadId("normal");
+        const alreadyAdmitted = (yield* orchestrator.getThreadShell(normalThreadId)) !== null;
+        yield* settings.insertBotProfileIfAbsent(bot);
+        yield* settings.updateSettings({ defaultRuntimeMode: "approval-required" });
+
+        const activation = yield* Deferred.make<void>();
+        const ready = yield* Deferred.make<void>();
+        yield* Layer.build(BotRoutineRuntimeLive).pipe(
+          Effect.provideService(ServerActivation, Deferred.await(activation)),
+          Effect.provideService(ServerSettingsService, {
+            ...settings,
+            ready: Deferred.await(ready),
+          }),
+        );
+        const runs = yield* makeRoutineRuns;
+        yield* Deferred.succeed(activation, undefined);
+        yield* TestClock.adjust("30 seconds");
+        const beforeReady = yield* runs.listForBot(bot.id);
+
+        yield* Deferred.succeed(ready, undefined);
+        yield* TestClock.adjust("30 seconds");
+        if (!alreadyAdmitted) {
+          yield* events.stream({ threadId: normalThreadId, afterSequence }).pipe(
+            Stream.filter(({ event }) => event.type === "run.created"),
+            Stream.take(1),
+            Stream.runDrain,
+          );
+        }
+        const outbox = yield* EffectOutboxV2;
+        const normal = yield* orchestrator.getThreadProjection(normalThreadId);
+        expect(normal.messages.map(({ text }) => text)).toEqual(["Check plants"]);
+        expect(normal.runs).toHaveLength(1);
+        expect(normal.thread.runtimeMode).toBe("approval-required");
+        expect(yield* orchestrator.getThreadShell(threadId("claimed"))).toBeNull();
+        const blocked = yield* orchestrator.getThreadProjection(threadId("blocked"));
+        expect(blocked.runs).toEqual([]);
+        expect(blocked.messages).toEqual([]);
+        expect(yield* outbox.listByCommandId(turnCommand("claimed"))).toEqual([]);
+        expect(yield* outbox.listByCommandId(turnCommand("blocked"))).toEqual([]);
+        const effects = yield* outbox.listByCommandId(turnCommand("normal"));
+        const starts = effects.filter(({ request }) => request.type === "provider-turn.start");
+        expect(starts).toHaveLength(1);
+        const afterReady = yield* runs.listForBot(bot.id);
+        return { beforeReady, afterReady, effects, run: normal.runs[0] };
       });
-      yield* orchestrator.dispatch({
-        type: "thread.bot.create", commandId: CommandId.make("seed-privileged-thread"),
-        projectId, threadId: threadId("blocked"), botId: bot.id, title: "Blocked",
-        modelSelection: bot.modelSelection, runtimeMode: "full-access", interactionMode: "default",
-        branch: null, worktreePath: null, createdBy: "user", creationSource: "server",
-      });
-      const runs = yield* makeRoutineRuns;
-      expect(yield* runs.claim(bot.id, "claimed", occurrence, at)).toBe(true);
-    }).pipe(Effect.provide(makeTestLayer(dbPath)));
 
-    const startRuntime = Effect.gen(function* () {
-      const settings = yield* ServerSettingsService;
-      yield* settings.insertBotProfileIfAbsent(bot);
-      yield* settings.updateSettings({ defaultRuntimeMode: "approval-required" });
+      const first = yield* startRuntime.pipe(Effect.scoped, Effect.provide(makeTestLayer(dbPath)));
+      expect(first.beforeReady).toMatchObject([{ routine_id: "claimed", status: "claimed" }]);
+      expect(
+        Object.fromEntries(first.afterReady.map(({ routine_id, status }) => [routine_id, status])),
+      ).toEqual({ normal: "admitted", claimed: "uncertain", blocked: "uncertain" });
 
-      const activation = yield* Deferred.make<void>();
-      const ready = yield* Deferred.make<void>();
-      yield* Layer.build(BotRoutineRuntimeLive).pipe(
-        Effect.provideService(ServerActivation, Deferred.await(activation)),
-        Effect.provideService(ServerSettingsService, { ...settings, ready: Deferred.await(ready) }),
+      const restarted = yield* startRuntime.pipe(
+        Effect.scoped,
+        Effect.provide(makeTestLayer(dbPath)),
       );
-      const runs = yield* makeRoutineRuns;
-      yield* Deferred.succeed(activation, undefined);
-      yield* TestClock.adjust("30 seconds");
-      const beforeReady = yield* runs.listForBot(bot.id);
-
-      yield* Deferred.succeed(ready, undefined);
-      yield* TestClock.adjust("30 seconds");
-      const afterReady = yield* runs.listForBot(bot.id);
-      const orchestrator = yield* OrchestratorV2;
-      const outbox = yield* EffectOutboxV2;
-      const normal = yield* orchestrator.getThreadProjection(threadId("normal"));
-      expect(normal.messages.map(({ text }) => text)).toEqual(["Check plants"]);
-      expect(normal.runs).toHaveLength(1);
-      expect(normal.thread.runtimeMode).toBe("approval-required");
-      expect(yield* orchestrator.getThreadShell(threadId("claimed"))).toBeNull();
-      const blocked = yield* orchestrator.getThreadProjection(threadId("blocked"));
-      expect(blocked.runs).toEqual([]);
-      expect(blocked.messages).toEqual([]);
-      expect(yield* outbox.listByCommandId(turnCommand("claimed"))).toEqual([]);
-      expect(yield* outbox.listByCommandId(turnCommand("blocked"))).toEqual([]);
-      const effects = yield* outbox.listByCommandId(turnCommand("normal"));
-      const starts = effects.filter(({ request }) => request.type === "provider-turn.start");
-      expect(starts).toHaveLength(1);
-      return { beforeReady, afterReady, effects, run: normal.runs[0] };
-    });
-
-    const first = yield* startRuntime.pipe(
-      Effect.scoped, Effect.provide(makeTestLayer(dbPath)),
-    );
-    expect(first.beforeReady).toMatchObject([{ routine_id: "claimed", status: "claimed" }]);
-    expect(Object.fromEntries(first.afterReady.map(({ routine_id, status }) => [routine_id, status])))
-      .toEqual({ normal: "admitted", claimed: "uncertain", blocked: "uncertain" });
-
-    const restarted = yield* startRuntime.pipe(
-      Effect.scoped, Effect.provide(makeTestLayer(dbPath)),
-    );
-    expect(restarted.beforeReady).toEqual(first.afterReady);
-    expect(restarted.afterReady).toEqual(first.afterReady);
-    expect(restarted.effects).toEqual(first.effects);
-    expect(restarted.run).toEqual(first.run);
-  }).pipe(Effect.provide(NodeServices.layer)),
+      expect(restarted.beforeReady).toEqual(first.afterReady);
+      expect(restarted.afterReady).toEqual(first.afterReady);
+      expect(restarted.effects).toEqual(first.effects);
+      expect(restarted.run).toEqual(first.run);
+    }).pipe(Effect.provide(NodeServices.layer)),
 );

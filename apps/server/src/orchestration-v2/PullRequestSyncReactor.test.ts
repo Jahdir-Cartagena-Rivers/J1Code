@@ -1764,12 +1764,13 @@ describe("PullRequestSyncReactor", () => {
           const reactor = yield* startAndSweep(fixture);
           const linked = makeThread("missing", { pullRequests: [makeLink(9), makeLink(8)] });
           yield* Ref.set(fixture.snapshots, makeSnapshot([linked]));
+          const { bot: _bot, ...payload } = v2PullRequestThread(linked);
           yield* Queue.offer(fixture.domainEvents, {
             type: "thread.pull-request-synced",
             id: EventId.make("sibling-synced"),
             threadId: linked.id,
             occurredAt: DateTime.makeUnsafe(NOW),
-            payload: { ...v2PullRequestThread(linked), lastVisitedAt: null },
+            payload: { ...payload, lastVisitedAt: null },
           });
           yield* Queue.take(fixture.snapshotReads);
           yield* reactor.drain;

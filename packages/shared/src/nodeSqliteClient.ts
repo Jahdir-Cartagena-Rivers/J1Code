@@ -284,6 +284,7 @@ parentPort.on("message", (request) => {
       if (pendingBatch) Atomics.wait(received, 0, 0);
       parentPort.postMessage({ id, rows });
     } else {
+      if (!raw) statement.setReadBigInts(true);
       const result = statement.run(...params);
       parentPort.postMessage({ id, rows: raw ? result : [] });
     }
@@ -825,6 +826,8 @@ const make = Effect.fn("makeWithDatabase")(function* (
             if (arrays) statement.setReturnArrays(true);
             result = Exit.succeed(statement.all(...(params as any)));
           } else {
+            // SQLite reports the last inserted rowid even on BEGIN.
+            if (mode !== "raw") statement.setReadBigInts(true);
             const value = statement.run(...(params as any));
             result = Exit.succeed(
               mode === "raw" ? (value as unknown as ReadonlyArray<unknown>) : [],
