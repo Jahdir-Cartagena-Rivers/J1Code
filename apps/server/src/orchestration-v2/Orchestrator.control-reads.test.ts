@@ -1,3 +1,4 @@
+import { MausbotRoomCreation } from "./MausbotOrigin.ts";
 import * as NodeSqlite from "node:sqlite";
 
 import { assert, it } from "@effect/vitest";
@@ -3134,6 +3135,33 @@ it.effect("reserves native room thread identities for owned creation even when f
       assert.equal(refused.cause, "Reserved native room thread identity.");
     }
     assert.isNull(yield* orchestrator.getThreadShell(fork.targetThreadId));
+    const room = {
+      type: "thread.bot.create",
+      commandId: CommandId.make("create:owned-native-room"),
+      threadId: ThreadId.make("j1-mausbot:room:group:task:member"),
+      projectId: ProjectId.make("project:ordinary-fork"),
+      title: "Room member",
+      botId: BotId.make("mausbot:member"),
+      modelSelection,
+      runtimeMode: "approval-required",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      createdBy: "agent",
+      creationSource: "server",
+    } as const;
+    const proof = {
+      command: room,
+      member: { id: room.botId, name: "Room member", instructions: "" },
+      current: () => true,
+      refresh: Effect.succeed(true),
+    };
+    yield* orchestrator.dispatch(room).pipe(Effect.flip);
+    yield* orchestrator.dispatch(room).pipe(
+      Effect.provideService(MausbotRoomCreation, proof),
+    );
+    assert.deepEqual((yield* orchestrator.getThreadShell(room.threadId))?.bot, { id: room.botId, name: room.title });
+
     const targetThreadId = ThreadId.make("thread:ordinary-fork-target");
     yield* orchestrator.dispatch({ ...fork, targetThreadId });
     assert.equal(

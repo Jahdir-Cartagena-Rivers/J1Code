@@ -2,7 +2,7 @@
 import * as NodeCrypto from "node:crypto";
 import {
   CommandId, MessageId, type MausbotOriginStart, type OrchestrationV2Command,
-  type OrchestrationV2StoredEvent, type OrchestrationV2ThreadProjection, type OrchestrationV2InternalCommand, type ThreadId,
+  type OrchestrationV2StoredEvent, type OrchestrationV2ThreadProjection, type OrchestrationV2InternalCommand, type ThreadBotIdentity, type ThreadId,
   latestProviderTurnForAttempt, MAUSBOT_CHILD_RESTART_TEXT, mausbotParentResultText,
 } from "@j1code/contracts";
 import { stableStringify } from "@j1code/shared/relaySigning";
@@ -31,6 +31,7 @@ export const mausbotRoomThreadId = (room: Pick<NonNullable<MausbotOriginStart["r
 
 export const MausbotRoomCreation = Context.Reference<{
   command: Extract<OrchestrationV2InternalCommand, { type: "thread.bot.create" }>;
+  member?: ThreadBotIdentity;
   current(): boolean;
   refresh: Effect.Effect<boolean, MausbotNativeProofError>;
 } | undefined>("@j1code/server/orchestration-v2/MausbotRoomCreation", { defaultValue: () => undefined });

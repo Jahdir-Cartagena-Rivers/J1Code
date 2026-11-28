@@ -4032,6 +4032,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const readProfile = (bots: typeof initial.bots) =>
         Object.hasOwn(bots, command.botId) ? bots[command.botId] : undefined;
       let profile = readProfile(initial.bots);
+      const room = yield* MausbotRoomCreation;
+      if (
+        !profile &&
+        command.threadId.startsWith(MAUSBOT_ROOM_THREAD_PREFIX) &&
+        room?.command === command &&
+        room.current() &&
+        room.member?.id === command.botId
+      ) {
+        return room.member;
+      }
       if (!profile || profile.id !== command.botId || profile.archived) return yield* denied();
 
       const proof = yield* MausbotProjectOverride;

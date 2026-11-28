@@ -813,7 +813,14 @@ export function createMausbotExecutionV2(
             projectId, botId, title: snapshot.enrollment.name, modelSelection, runtimeMode, interactionMode: "default",
             branch: null, worktreePath: null, createdBy: "agent", creationSource: "server" } as const;
           await run(deps.orchestrator.dispatch(creation).pipe(Effect.provideService(DispatchModeLimit, limit),
-            Effect.provideService(MausbotRoomCreation, { command: creation, current: isCurrent, refresh: readNativeProof("Could not refresh the saved native room operation.", refresh) })));
+            Effect.provideService(MausbotRoomCreation, {
+              command: creation,
+              ...(profile === undefined && roomBinding?.projectId === null && input.projectId === undefined
+                ? { member: { id: botId, name: snapshot.enrollment.name, instructions: "" } }
+                : {}),
+              current: isCurrent,
+              refresh: readNativeProof("Could not refresh the saved native room operation.", refresh),
+            })));
         }
         turn.messageId = mausbotOriginInputId(plan.threadId, origin);
         turn.releaseContext = registerBotExecutionContext(plan.threadId, {

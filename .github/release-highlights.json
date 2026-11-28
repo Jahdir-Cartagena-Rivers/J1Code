@@ -1,21 +1,6 @@
 {
-  "since": "v1.106.0",
-  "highlights": [],
-  "sections": [
-    {
-      "title": "Bot chats",
-      "highlights": [
-        "Fix a timeout that prevented bots from answering in rooms, including when a new room thread first starts.",
-        "Let direct bot chats start on a shared Codex process while keeping each bot’s conversation and tools scoped to its own thread."
-      ]
-    },
-    {
-      "title": "Settings and navigation",
-      "highlights": [
-        "Use a consistent Settings window with related pages grouped together and search across all settings.",
-        "Keep internal bot workspaces out of Projects and show J1 branding and release information under This app.",
-        "Reduce background work during sidebar scrolling and Settings navigation."
-      ]
-    }
+  "since": "v1.110.0",
+  "highlights": [
+    "Fix room replies for existing bots that have not started a direct chat through J1."
   ]
 }
