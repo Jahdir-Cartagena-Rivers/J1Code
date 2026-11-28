@@ -4472,6 +4472,7 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
   ),
   smokeTest: Flag.Boolean("smoke-test").pipe(
     Flag.withDescription("Run a native Windows dir build and launch check in temporary staging."),
+    Flag.withDefault(false),
   ),
   signed: Flag.Boolean("signed").pipe(
     Flag.withDescription(

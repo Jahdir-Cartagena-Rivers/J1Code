@@ -118,6 +118,33 @@ import {
 import * as HostProcess from "@j1code/shared/HostProcess";
 import { symlinksSupported } from "@j1code/shared/testing/symlinks";
 
+it.live("reaches packaging option validation without the optional splash smoke flag", () =>
+  Effect.gen(function* () {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const child = yield* spawner.spawn(
+      ChildProcess.make(process.execPath, [
+        NodePath.join(import.meta.dirname, "build-desktop-artifact.ts"),
+        "--platform",
+        "win",
+        "--target",
+        "nsis",
+        "--arch",
+        "universal",
+      ]),
+    );
+    const [stdout, stderr, exitCode] = yield* Effect.all(
+      [
+        child.stdout.pipe(Stream.decodeText, Stream.mkString),
+        child.stderr.pipe(Stream.decodeText, Stream.mkString),
+        child.exitCode,
+      ],
+      { concurrency: "unbounded" },
+    );
+    assert.notEqual(Number(exitCode), 0);
+    assert.include(stdout + stderr, "UnsupportedDesktopBuildArchitectureError");
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
 const encodeModuleUrl = Schema.encodeEffect(Schema.fromJsonString(Schema.String));
 const decodePackageVersion = Schema.decodeUnknownEffect(
   Schema.fromJsonString(Schema.Struct({ version: Schema.String })),
