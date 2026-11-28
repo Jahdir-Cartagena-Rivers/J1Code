@@ -73,7 +73,8 @@ ID, and SHA-256. The upgrade job checks that SHA-256 before running either insta
 To retry a failed rehearsal, rerun the upgrade job while the installer artifact is available.
 To run the rehearsal again with a different test revision, dispatch the workflow with the
 original run ID, artifact ID, and SHA-256. Manual dispatch skips the package job and becomes
-available once the workflow is on the repository's default branch.
+available once the workflow is on the repository's default branch. Changes confined to the
+rehearsal workflow, test harness, fixture, or these instructions skip release packaging.
 
 ## Pull request macOS previews
 
