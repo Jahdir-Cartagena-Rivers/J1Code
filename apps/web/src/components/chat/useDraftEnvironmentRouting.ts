@@ -21,6 +21,7 @@ import {
 import { isTriagePrompt, replaceTriagePlaybookLink } from "@j1code/shared/triagePrompt";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import { applyMovedDraftWorkspaceDefault } from "../../lib/draftWorkspaceDefaults";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -158,7 +159,7 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
       return null;
     const originalDraft = getDraftSession(draftId);
     const composerDraft = useComposerDraftStore.getState().getComposerDraft(draftId);
-    return loadBalancing.refreshSelection(loadBalancingCandidates).then((environmentId) => {
+    return loadBalancing.refreshSelection(loadBalancingCandidates).then(async (environmentId) => {
       const current = readRouting();
       if (
         current.input.draftId !== draftId ||
@@ -199,10 +200,24 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
           branch: originalDraft?.branch ?? null,
         }),
       );
-      return true;
+      if (
+        originalDraft &&
+        (originalDraft.environmentId !== target.environmentId ||
+          originalDraft.projectId !== target.projectId)
+      ) {
+        await applyMovedDraftWorkspaceDefault(draftId, projectRef);
+      }
+      const routedDraft = getDraftSession(draftId);
+      return (
+        readRouting().input.draftId === draftId &&
+        routedDraft?.environmentId === target.environmentId &&
+        routedDraft.projectId === target.projectId &&
+        !routedDraft.promotedTo &&
+        useComposerDraftStore.getState().getComposerDraft(draftId) === composerDraft
+      );
     });
   };
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- writes the resolved load-balanced environment into the draft store once the async pick settles
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- writes the resolved load-balanced environment into the draft store once the async pick settles
   useEffect(() => {
     if (!needsLoadBalancing || loadBalancing.pending || !draftId || sendInFlightRef.current) return;
     const target = logicalProjectEnvironments.find(
@@ -211,11 +226,18 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
     if (!target?.projectId) return;
     const draft = getDraftSession(draftId);
     if (draft) carryFanoutSelections(draft, target.environmentId);
+    const projectRef = scopeProjectRef(target.environmentId, target.projectId);
     setDraftThreadContext(draftId, {
-      projectRef: scopeProjectRef(target.environmentId, target.projectId),
+      projectRef,
       environmentSelection: "auto",
       loadBalancedEnvironmentId: target.environmentId,
     });
+    if (
+      draft &&
+      (draft.environmentId !== target.environmentId || draft.projectId !== target.projectId)
+    ) {
+      void applyMovedDraftWorkspaceDefault(draftId, projectRef);
+    }
   }, [
     needsLoadBalancing,
     loadBalancing.pending,
@@ -266,12 +288,12 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
     readonly scope: string;
   } | null>(null);
   const environmentChangeScopeRef = useRef("");
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- mirrors the current change scope into a ref that async environment switches compare against
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- mirrors the current change scope into a ref that async environment switches compare against
   useLayoutEffect(() => {
     environmentChangeScopeRef.current = environmentChangeScope;
   });
   // Leaving the scope, or unmounting, abandons a change still in flight.
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- abandons an in-flight environment change when the draft or project scope changes or unmounts
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- abandons an in-flight environment change when the draft or project scope changes or unmounts
   useLayoutEffect(
     () => () => {
       if (environmentChangeRef.current?.scope === environmentChangeScope) {
@@ -337,6 +359,12 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
           environmentSelection: "manual",
           loadBalancedEnvironmentId: null,
         });
+      }
+      if (
+        currentDraft.environmentId !== target.environmentId ||
+        currentDraft.projectId !== project.id
+      ) {
+        void applyMovedDraftWorkspaceDefault(draftId, projectRef);
       }
       seedDraftModelSelection(draftId, projectRef);
     };

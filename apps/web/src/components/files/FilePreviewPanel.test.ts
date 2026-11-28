@@ -305,6 +305,7 @@ Third}`;
                 { data: { "text/html": [], "text/plain": "array fallback" } },
                 { data: { "text/html": "", "text/plain": "string fallback" } },
                 { data: { "text/html": "  ", "text/plain": "space fallback" } },
+                { data: { "text/markdown": ["**Markdown output**"] } },
                 { output_type: "stream", text: ["42\n"] },
                 { data: { "text/html": ["<b>Results</b>"], "text/plain": ["Results"] } },
               ],
@@ -325,12 +326,24 @@ Third}`;
             { kind: "text", text: "array fallback" },
             { kind: "text", text: "string fallback" },
             { kind: "text", text: "space fallback" },
+            { kind: "text", text: "**Markdown output**" },
             { kind: "text", text: "42\n" },
             { kind: "html", text: "<b>Results</b>" },
           ],
         },
       ],
     });
+    expect(
+      openNotebook(
+        bytes(
+          JSON.stringify({
+            nbformat: 4,
+            metadata: { language_info: { name: "   " } },
+            cells: [],
+          }),
+        ),
+      ),
+    ).toMatchObject({ language: "text" });
     // IPython traceback frames can omit trailing newlines or place ANSI resets after them.
     const failed = openNotebook(
       bytes(
@@ -422,6 +435,14 @@ Third}`;
     expect(result.sheets[0]!.rows).toEqual([["PT03H30M00S"]]);
   });
 
+  it("reports zero columns for an empty ODS sheet", async () => {
+    const archive = new JSZip().file(
+      "content.xml",
+      '<office:document><table:table table:name="Empty"/></office:document>',
+    );
+    const result = await openDocument(archive, "ods");
+    expect(result).toMatchObject({ sheets: [{ rowCount: 0, columns: 0 }] });
+  });
   it.each([1, 500])("ignores styled ODS filler after %s populated rows", async (count) => {
     const archive = new JSZip().file(
       "content.xml",

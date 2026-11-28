@@ -16,6 +16,7 @@ import { useProjectPin } from "~/hooks/useProjectGroupUpdate";
 import { useScratchProject } from "~/hooks/useScratchProject";
 import { isTriagePrompt } from "@j1code/shared/triagePrompt";
 import { useClientSettings } from "~/hooks/useSettings";
+import { applyMovedDraftWorkspaceDefault } from "~/lib/draftWorkspaceDefaults";
 import { seedDraftModelSelection } from "~/lib/seedDraftModelSelection";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -181,7 +182,15 @@ export function DraftHeroHeadline({
       void openProjectDraft(projectRef);
       return;
     }
+    const previous = useComposerDraftStore.getState().getDraftSession(draftId);
     setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, draftId);
+    if (
+      previous &&
+      (previous.environmentId !== projectRef.environmentId ||
+        previous.projectId !== projectRef.projectId)
+    ) {
+      void applyMovedDraftWorkspaceDefault(draftId, projectRef);
+    }
     seedDraftModelSelection(draftId, projectRef);
   };
   const startScratch = async (): Promise<boolean> => {
@@ -355,7 +364,10 @@ export function DraftHeroHeadline({
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col items-center">
       {isHome ? (
-        <h1 aria-label="What would you like to talk about?" className="w-full text-center font-normal text-2xl text-foreground tracking-tight sm:text-3xl">
+        <h1
+          aria-label="What would you like to talk about?"
+          className="w-full text-center font-normal text-2xl text-foreground tracking-tight sm:text-3xl"
+        >
           What would you like to talk about?
         </h1>
       ) : hasResolvedProject && !isScratchDraft ? (

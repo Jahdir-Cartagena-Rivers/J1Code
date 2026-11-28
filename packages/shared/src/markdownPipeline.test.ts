@@ -301,33 +301,43 @@ const insightRule = "─".repeat(20);
 const insightFence = (body: string, wrap = "") =>
   [`${wrap}★ Insight ${insightRule}${wrap}`, body, `${wrap}${insightRule}${wrap}`].join("\n");
 
-it.each(["", "`"])("groups %j insight fences while preserving surrounding markdown", (wrap) => {
-  const markdown = [
-    "Before **bold** and [reference][src].",
-    "",
-    insightFence("- Also [reference][src].", wrap),
-    "",
-    "After.",
-    "",
-    '[src]:\n  https://example.com\n  "Source"',
-  ].join("\n");
-  const processor = unified()
-    .use(remarkParse)
-    .use(CHAT_MARKDOWN_REMARK_PLUGINS)
-    .use(remarkAssistantInsights)
-    .use(remarkRehype)
-    .use(CHAT_MARKDOWN_REHYPE_PLUGINS);
-  const tree = processor.runSync(processor.parse(markdown), markdown);
-  expect(
-    tree.children.filter((node) => node.type === "element").map((node) => node.tagName),
-  ).toEqual(["p", "blockquote", "p"]);
-  expect(
-    tree.children.find((node) => node.type === "element" && node.tagName === "blockquote"),
-  ).toMatchObject({ properties: { dataAlert: "insight" } });
-  expect(JSON.stringify(tree).match(/"href":"https:\/\/example.com"/g)).toHaveLength(2);
-  expect(JSON.stringify(tree)).toContain('"tagName":"strong"');
-  expect(JSON.stringify(tree)).not.toContain(insightRule);
-});
+it.each([
+  { wrap: "", newline: "\n" },
+  { wrap: "`", newline: "\n" },
+  { wrap: "", newline: "\r\n" },
+  { wrap: "", newline: "\r" },
+])(
+  "groups insight fences with $newline while preserving surrounding Markdown",
+  ({ wrap, newline }) => {
+    const markdown = [
+      "Before **bold** and [reference][src].",
+      "",
+      insightFence("- Also [reference][src].", wrap),
+      "",
+      "After.",
+      "",
+      '[src]:\n  https://example.com\n  "Source"',
+    ]
+      .join("\n")
+      .replaceAll("\n", newline);
+    const processor = unified()
+      .use(remarkParse)
+      .use(CHAT_MARKDOWN_REMARK_PLUGINS)
+      .use(remarkAssistantInsights)
+      .use(remarkRehype)
+      .use(CHAT_MARKDOWN_REHYPE_PLUGINS);
+    const tree = processor.runSync(processor.parse(markdown), markdown);
+    expect(
+      tree.children.filter((node) => node.type === "element").map((node) => node.tagName),
+    ).toEqual(["p", "blockquote", "p"]);
+    expect(
+      tree.children.find((node) => node.type === "element" && node.tagName === "blockquote"),
+    ).toMatchObject({ properties: { dataAlert: "insight" } });
+    expect(JSON.stringify(tree).match(/"href":"https:\/\/example.com"/g)).toHaveLength(2);
+    expect(JSON.stringify(tree)).toContain('"tagName":"strong"');
+    expect(JSON.stringify(tree)).not.toContain(insightRule);
+  },
+);
 
 it.each([
   ["```text", "★ Insight " + insightRule, "literal", insightRule, "```"].join("\n"),

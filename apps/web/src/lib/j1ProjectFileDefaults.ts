@@ -11,11 +11,12 @@ import { appAtomRegistry } from "~/rpc/atomRegistry";
 export async function readJ1ProjectFile(
   environmentId: EnvironmentId,
   workspaceRoot: string,
+  signal?: AbortSignal,
 ): Promise<J1ProjectFile | null> {
   const result = await executeAtomQuery(
     appAtomRegistry,
     getProjectFileQueryAtom(environmentId, workspaceRoot, J1_PROJECT_FILE_NAME),
-    { reportDefect: false, reportFailure: false },
+    { reportDefect: false, reportFailure: false, ...(signal ? { signal } : {}) },
   );
   const data = resolveProjectFileQueryData(
     environmentId,

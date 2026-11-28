@@ -15,12 +15,16 @@ import {
 } from "./composerEventScope";
 import { ComposerFooterModeControls, ComposerPermissionsSection } from "./ComposerFooterControls";
 import { ComposerPickerFooter } from "./ComposerModelEffort";
-import { runtimeModeConfig, runtimeModeOptions } from "./runtimeModeConfig";
+import {
+  resolveRuntimeModeOptions,
+  runtimeModeConfig,
+  runtimeModeOptions,
+} from "./runtimeModeConfig";
 
 const options = runtimeModeOptions.map((mode) => ({ mode, ...runtimeModeConfig[mode] }));
 
 // Mirrors the overflow menu, which holds the Permissions section.
-function OverflowMenu() {
+function OverflowMenu({ folderRestricted = false }: { folderRestricted?: boolean }) {
   const [mode, setMode] = useState<RuntimeMode>("full-access");
   const composerMenuProps = useComposerMenuProps();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -31,7 +35,13 @@ function OverflowMenu() {
         <MenuPopup {...composerMenuProps}>
           <ComposerPermissionsSection
             runtimeMode={mode}
-            runtimeModeOptions={options}
+            runtimeModeOptions={
+              folderRestricted
+                ? resolveRuntimeModeOptions(runtimeModeOptions, undefined, [
+                    { mode: "auto", reason: "project-settings" },
+                  ])
+                : options
+            }
             onRuntimeModeChange={setMode}
           />
         </MenuPopup>
@@ -66,6 +76,17 @@ it("reaches Permissions with arrow keys, previews, and picks with Enter", async 
     .element(page.getByRole("menuitemradio", { name: "Supervised" }))
     .not.toBeInTheDocument();
   await expect.element(trigger).toHaveFocus();
+});
+
+it("shows why Claude Auto is unavailable in the selected project", async () => {
+  await using screen = await render(<OverflowMenu folderRestricted />, { router: false }); // no routes involved
+  await userEvent.click(screen.getByRole("button", { name: "More" }));
+  const auto = page.getByRole("menuitemradio", { name: "Auto", exact: true });
+  await expect.element(auto).toHaveAttribute("aria-disabled", "true");
+  await expect
+    .element(auto)
+    .toHaveAccessibleDescription("This project’s Claude settings turn Auto off.");
+  await expect.element(screen.getByRole("status")).toHaveTextContent("full-access");
 });
 
 it("marks the current mode as checked and closes on Escape", async () => {
@@ -189,6 +210,8 @@ function ContextPermissions() {
       environmentId={null}
       runtimeMode={mode}
       supportedRuntimeModes={["approval-required", "full-access"]}
+      instanceId={undefined}
+      cwd={null}
       onRuntimeModeChange={setMode}
     />
   );

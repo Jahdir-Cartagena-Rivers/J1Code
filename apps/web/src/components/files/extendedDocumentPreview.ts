@@ -378,7 +378,7 @@ export async function openDocument(
           name: table.attrs["table:name"] || `Sheet ${index + 1}`,
           rows,
           rowCount: rows.length,
-          columns: rows.reduce((columns, row) => Math.max(columns, row.length), 1),
+          columns: rows.reduce((columns, row) => Math.max(columns, row.length), 0),
           truncated,
         };
       }),
@@ -455,9 +455,10 @@ export function openNotebook(bytes: ArrayBuffer): OfficeWorkerResult {
   const notebook = record(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)));
   if (notebook.nbformat !== 4 || !Array.isArray(notebook.cells) || notebook.cells.length > 500)
     throw new Error("Preview supports version 4 notebooks with up to 500 cells.");
-  const language = String(record(record(notebook.metadata).language_info).name ?? "text")
-    .replaceAll(/[^a-z\d+#-]/gi, "")
-    .slice(0, 40);
+  const language =
+    String(record(record(notebook.metadata).language_info).name ?? "")
+      .replaceAll(/[^a-z\d+#-]/gi, "")
+      .slice(0, 40) || "text";
   const cells: NotebookCell[] = notebook.cells.map((value) => {
     const cell = record(value);
     const outputs = Array.isArray(cell.outputs) ? cell.outputs : [];
@@ -481,7 +482,10 @@ export function openNotebook(bytes: ArrayBuffer): OfficeWorkerResult {
           return {
             kind: "text" as const,
             text: notebookText(
-              output.text ?? data["text/plain"] ?? tracebackLines(output.traceback),
+              output.text ??
+                data["text/plain"] ??
+                data["text/markdown"] ??
+                tracebackLines(output.traceback),
             ),
           };
         })

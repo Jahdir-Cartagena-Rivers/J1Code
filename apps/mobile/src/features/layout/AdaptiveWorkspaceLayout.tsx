@@ -1,6 +1,7 @@
 import {
   WorkspaceColumnsRendererContext,
   WorkspacePresentationHostContext,
+  WorkspaceVisibleRouteContext,
 } from "./workspace-presentation-context";
 import { useAndroidFloatingTabs } from "../settings/appearance/AppearancePreferencesProvider";
 import { SafeAreaInsetsContext, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -44,6 +45,7 @@ import Animated, {
 import { AsyncResult } from "effect/reactivity";
 
 import {
+  constrainAuxiliaryPaneWidth,
   deriveFileInspectorPaneLayout,
   alignListPaneToHinge,
   deriveLayout,
@@ -134,6 +136,7 @@ export function Inspector(props: {
   const { registerWorkspaceInspector } = useAdaptiveWorkspaceLayout();
   const navigation = use(NavigationContext);
   const route = use(NavigationRouteContext);
+  const visibleWorkspaceRoute = use(WorkspaceVisibleRouteContext);
   const content: InspectorContent = {
     ...props.content,
     resetKeys: [route?.key, ...(props.content.resetKeys ?? [])],
@@ -158,8 +161,15 @@ export function Inspector(props: {
     }
     deactivateRef.current = registerWorkspaceInspector(content, route?.key, props.revealKey);
   });
+  // An overlay (a maximized thread, a sheet) blurs the route but leaves it the visible workspace
+  // page, so the column stays registered and the sidebar doesn't shift behind the overlay.
+  const handleBlur = useEffectEvent(() => {
+    if (route !== undefined && visibleWorkspaceRoute === route.key) return;
+    focusedRef.current = false;
+    syncRegistration();
+  });
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Navigation focus events own the inspector registration lifetime.
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Navigation focus events own the inspector registration lifetime.
   useEffect(() => {
     if (navigation === undefined) return;
     const focus = () => {
@@ -167,13 +177,9 @@ export function Inspector(props: {
       focusedRef.current = true;
       syncRegistration();
     };
-    const blur = () => {
-      focusedRef.current = false;
-      syncRegistration();
-    };
     if (navigation.isFocused()) focus();
     const unsubscribeFocus = navigation.addListener("focus", focus);
-    const unsubscribeBlur = navigation.addListener("blur", blur);
+    const unsubscribeBlur = navigation.addListener("blur", handleBlur);
     return () => {
       unsubscribeFocus();
       unsubscribeBlur();
@@ -183,7 +189,7 @@ export function Inspector(props: {
     };
   }, [navigation]);
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Changed column content replaces the focused inspector registration.
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Changed column content replaces the focused inspector registration.
   useEffect(() => {
     if (focusedRef.current) {
       syncRegistration();
@@ -199,7 +205,7 @@ export function Inspector(props: {
  */
 function useStableActions(actions: Required<AdaptiveWorkspaceActions>): AdaptiveWorkspaceActions {
   const latest = useRef(actions);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- points the stable actions at the handlers this commit rendered
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- points the stable actions at the handlers this commit rendered
   useLayoutEffect(() => {
     latest.current = actions;
   });
@@ -292,8 +298,21 @@ function AdaptiveWorkspaceLayoutContent(
   // re-renders on any layout state change, and the inspector registration then loops: each
   // re-register re-renders its screen, which hands over a new inspector renderer.
   const baseLayout = useMemo(
-    () => deriveLayout({ width: sharedWorkspaceActive && !nativeToolsActive ? 0 : viewportWidth, height, nativeMetrics, nativeWorkspace }),
-    [height, viewportWidth, nativeMetrics, nativeWorkspace, sharedWorkspaceActive, nativeToolsActive],
+    () =>
+      deriveLayout({
+        width: sharedWorkspaceActive && !nativeToolsActive ? 0 : viewportWidth,
+        height,
+        nativeMetrics,
+        nativeWorkspace,
+      }),
+    [
+      height,
+      viewportWidth,
+      nativeMetrics,
+      nativeWorkspace,
+      sharedWorkspaceActive,
+      nativeToolsActive,
+    ],
   );
   // The overlay sidebar closes when a page opens from it, and stays open on a list or on the
   // page a tab switch opened (`keepOpenFor`, set by that switch).
@@ -377,20 +396,13 @@ function AdaptiveWorkspaceLayoutContent(
         layout,
         viewportWidth: width,
         preferredWidth: fileInspectorPreferredWidth ?? undefined,
-        reservedLeadingWidth:
-          shouldRenderPrimarySidebar && showPrimarySidebar && !sidebarFloats
-            ? (layout.listPaneWidth ?? 0) + (layout.listPaneGap ?? 0)
-            : 0,
       }),
-    [
-      fileInspectorPreferredWidth,
-      layout,
-      showPrimarySidebar,
-      shouldRenderPrimarySidebar,
-      sidebarFloats,
-      width,
-    ],
+    [fileInspectorPreferredWidth, layout, width],
   );
+  const setInspectorWidth = (preferredWidth: number) =>
+    setFileInspectorPreferredWidth(
+      constrainAuxiliaryPaneWidth({ preferredWidth, viewportWidth: width }),
+    );
   const [workspaceInspector, setWorkspaceInspector] = useState<{
     readonly content: InspectorContent;
     readonly active: boolean;
@@ -783,7 +795,7 @@ function AdaptiveWorkspaceLayoutContent(
   const leavingWorkspacePage = useRef(false);
   // The slide starts after the commit that lays the pane out, not in the press handler: Reanimated
   // commits the shadow tree every frame, and that starves a large React commit until it stops.
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- animates the Reanimated rail and sidebar width shared values toward the layout's targets
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- animates the Reanimated rail and sidebar width shared values toward the layout's targets
   useEffect(() => {
     if (nativeWorkspace) return;
     renderedRailWidth.set(withTiming(navigationRailWidth, WORKSPACE_PANE_TIMING));
@@ -828,12 +840,12 @@ function AdaptiveWorkspaceLayoutContent(
   const floatingSidebarOpen = sidebarFloats && panes.primarySidebarVisible;
   // Its own value, so a sidebar that was beside a list doesn't dim the page as it leaves.
   const scrimOpacity = useSharedValue(0);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- animates the Reanimated scrim with the floating sidebar
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- animates the Reanimated scrim with the floating sidebar
   useEffect(() => {
     scrimOpacity.set(withTiming(floatingSidebarOpen ? 0.32 : 0, WORKSPACE_PANE_TIMING));
   }, [floatingSidebarOpen, scrimOpacity]);
   const scrimAnimatedStyle = useAnimatedStyle(() => ({ opacity: scrimOpacity.value }));
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Back closes a floating sidebar before it leaves the page
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Back closes a floating sidebar before it leaves the page
   useEffect(() => {
     if (!floatingSidebarOpen || nativeWorkspace) return;
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -947,12 +959,20 @@ function AdaptiveWorkspaceLayoutContent(
     revealPrimarySidebar,
     setPrimarySidebarVisible,
     openWorkspaceTab,
-    setAuxiliaryPaneWidth: setFileInspectorPreferredWidth,
+    setAuxiliaryPaneWidth: setInspectorWidth,
     setNativeInspectorWidth: (width: number) =>
       setNativeInspectorWidthFraction(inspectorWidthFor(width / viewportWidth) / viewportWidth),
   });
   const contextValue = useMemo(
-    () => ({ ...actions, layout, nativeInspectorWidth, workspacePageWidth, nativeToolsActive, setNativeToolsActive, setSharedWorkspaceActive }),
+    () => ({
+      ...actions,
+      layout,
+      nativeInspectorWidth,
+      workspacePageWidth,
+      nativeToolsActive,
+      setNativeToolsActive,
+      setSharedWorkspaceActive,
+    }),
     [actions, layout, nativeInspectorWidth, workspacePageWidth, nativeToolsActive],
   );
   const sidebarToggleable = layout.usesSplitView && !primarySidebarPinned && !workspacePage;
@@ -1143,7 +1163,7 @@ function AdaptiveWorkspaceLayoutContent(
           active={workspaceInspector?.active ?? false}
           panes={panes}
           content={workspaceInspector?.content}
-          setAuxiliaryPaneWidth={setFileInspectorPreferredWidth}
+          setAuxiliaryPaneWidth={setInspectorWidth}
           onClose={() => setFileInspectorPreferredVisible(false)}
           onClosed={handleWorkspaceInspectorClosed}
         />

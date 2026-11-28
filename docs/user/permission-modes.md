@@ -44,6 +44,8 @@ session-wide choice, because Grok would remember that command for the whole proj
 ACP Registry agents run their own tools in their own mode; J1 Code answers their approval requests
 by the permission mode. See [ACP Registry permissions](./providers-acp.md#permissions-and-terminals).
 
+In **Auto**, Claude asks you about actions its review leaves open. If Claude disables Auto for the current project, the permissions menu explains which settings turned it off. A chat already using Auto falls back to Supervised and shows a notice.
+
 Claude can still ask in **Full access** when its settings disable bypass permissions or require
 approval for an action. Dangerous-removal safety checks in bypass mode reject the command with
 the original warning. Claude can use a safe rewrite when the warning supplies one; otherwise it

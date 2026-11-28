@@ -4,6 +4,7 @@ import {
   isProviderWorkspaceSnapshotPending,
   ProviderDriverKind,
   type ProviderInstanceId,
+  type ProviderRuntimeModeLimit,
   type SecretReference,
   type ServerProvider,
   type ServerProviderUpdateState,
@@ -93,6 +94,15 @@ export class ProviderRegistry extends Context.Service<
       readonly scanCwd?: string;
       readonly fresh?: boolean;
     }) => Effect.Effect<ReadonlyArray<ServerProvider>>;
+
+    /**
+     * Modes the instance offers that cannot run in `scanCwd`. Empty for an unknown instance and
+     * for a provider that reports none.
+     */
+    readonly runtimeModeLimits: (input: {
+      readonly instanceId: ProviderInstanceId;
+      readonly scanCwd: string;
+    }) => Effect.Effect<ReadonlyArray<ProviderRuntimeModeLimit>>;
 
     /**
      * Drop T3-owned model caches before an explicit model refresh. Pass the
@@ -712,7 +722,9 @@ export const layer = Layer.effect(
                 const missing = providers
                   .filter((provider) => provider.enabled && !provider.installed)
                   .map((provider) => provider.instanceId);
-                return missing.length === 0 ? Effect.void : instanceRegistryMutator.rebuild(missing);
+                return missing.length === 0
+                  ? Effect.void
+                  : instanceRegistryMutator.rebuild(missing);
               }),
             )
           : Effect.void,
@@ -1240,6 +1252,16 @@ export const layer = Layer.effect(
       ),
     ).pipe(Effect.forkScoped);
 
+    const runtimeModeLimits = Effect.fn("ProviderRegistry.runtimeModeLimits")(function* (input: {
+      readonly instanceId: ProviderInstanceId;
+      readonly scanCwd: string;
+    }) {
+      const instance = yield* instanceRegistry.getInstance(input.instanceId);
+      return instance?.runtimeModeLimitsForCwd === undefined
+        ? []
+        : yield* instance.runtimeModeLimitsForCwd(input.scanCwd);
+    });
+
     const invalidateModelCaches = Effect.fn("ProviderRegistry.invalidateModelCaches")(function* (
       input: Parameters<ProviderRegistry["Service"]["invalidateModelCaches"]>[0],
     ) {
@@ -1292,6 +1314,7 @@ export const layer = Layer.effect(
       refreshWorkspaceSnapshot: (input) =>
         refreshWorkspaceSnapshot(input).pipe(Effect.catchCause(recoverRefreshFailure)),
       refreshAfterUpdate,
+      runtimeModeLimits,
       invalidateModelCaches,
       refreshModelCatalog: refreshModelCatalog().pipe(
         Effect.catchCause(recoverRefreshFailure),

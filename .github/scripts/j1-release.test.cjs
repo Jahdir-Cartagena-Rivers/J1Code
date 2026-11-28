@@ -229,6 +229,45 @@ test("release body validation rejects appended manual sections, wrong links and 
     assert.throws(() => validateReleaseNotes(body, repository, version));
 });
 
+test("supports curated groups while retaining the historical changelog format", (t) => {
+  const { directory } = fixture(t);
+  const file = path.join(directory, "grouped.json");
+  const grouped = {
+    since: "v1.10.0",
+    highlights: [],
+    sections: [
+      { title: "Android", highlights: ["Open side chats beside the current conversation."] },
+      { title: "Permissions", highlights: ["Explain when Claude Auto is unavailable."] },
+    ],
+  };
+  fs.writeFileSync(file, JSON.stringify(grouped));
+  assert.deepEqual(readReleaseHighlights(file), grouped);
+  const notes = [
+    "## What's Changed",
+    "### Android",
+    "* Open side chats beside the current conversation.",
+    "### Permissions",
+    "* Explain when Claude Auto is unavailable.",
+    `**Full Changelog**: https://github.com/${repository}/compare/v1.10.0...v${version}`,
+  ].join("\n\n");
+  const fakeGh = (args) =>
+    args[1].includes("/releases?")
+      ? JSON.stringify([[{ tag_name: "v1.10.0" }]])
+      : JSON.stringify([{ status: "ahead", commits: [{ sha }] }]);
+  assert.equal(releaseNotes(repository, version, sha, fakeGh, grouped).trim(), notes);
+  assert.equal(validateReleaseNotes(notes, repository, version), notes);
+  assert.throws(() =>
+    validateReleaseNotes(notes.replace("### Permissions", "### Android"), repository, version),
+  );
+  assert.throws(() =>
+    validateReleaseNotes(
+      notes.replace("* Explain when Claude Auto is unavailable.", ""),
+      repository,
+      version,
+    ),
+  );
+});
+
 test("validates the complete Windows and matching Linux update set", (t) => {
   const { directory, names } = fixture(t);
   assert.deepEqual(validateArtifacts(directory, version), names);

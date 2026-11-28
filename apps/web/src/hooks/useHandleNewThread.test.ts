@@ -1,9 +1,17 @@
 import { describe, expect, it, vi } from "vite-plus/test";
-import type { EnvironmentId, ProjectId, RuntimeMode } from "@j1code/contracts";
+import type { EnvironmentId, ProjectId, RuntimeMode, ScopedProjectRef } from "@j1code/contracts";
+
+import type { DraftId } from "../composerDraftStore";
+import {
+  applyMovedDraftWorkspaceDefault,
+  readPendingDraftWorkspaceDefault,
+} from "../lib/draftWorkspaceDefaults";
+
+type ProjectFileDefaults = { defaultThreadEnvMode: "local" | "worktree" } | null;
 
 const testState = vi.hoisted(() => {
-  let completeProjectFileRead: (value: null) => void = () => undefined;
-  let projectFileRead = Promise.resolve<null>(null);
+  let completeProjectFileRead: (value: ProjectFileDefaults) => void = () => undefined;
+  let projectFileRead = Promise.resolve<ProjectFileDefaults>(null);
   let projectRemoved = false;
   let connectedEnvironmentIds = ["environment-primary", "environment-ssh"];
   let targetSettings = {
@@ -53,7 +61,7 @@ const testState = vi.hoisted(() => {
   };
 
   return {
-    completeProjectFileRead: (value: null) => completeProjectFileRead(value),
+    completeProjectFileRead: (value: ProjectFileDefaults) => completeProjectFileRead(value),
     draftStore,
     get projectFileRead() {
       return projectFileRead;
@@ -107,7 +115,7 @@ const testState = vi.hoisted(() => {
       draftStore.setDraftThreadContext.mockClear();
       draftStore.setLogicalProjectDraftThreadId.mockClear();
       draftStore.setPrompt.mockClear();
-      projectFileRead = new Promise<null>((resolve) => {
+      projectFileRead = new Promise<ProjectFileDefaults>((resolve) => {
         completeProjectFileRead = resolve;
       });
     },
@@ -404,4 +412,43 @@ describe("default project selection", () => {
       ),
     ).toEqual({ environmentId: "first", projectId: "project" });
   });
+});
+
+describe("moved draft workspace defaults", () => {
+  it.each([false, true])(
+    "waits for the destination and honors a branch chosen meanwhile (%s)",
+    async (chooseBranch) => {
+      testState.reset(null, { envMode: null, startFromOrigin: true });
+      const draftId = "draft-moved" as DraftId;
+      const projectRef = {
+        environmentId: "environment-ssh",
+        projectId: "project-remote",
+      } as ScopedProjectRef;
+      const session = {
+        ...projectRef,
+        promotedTo: null,
+        branch: null,
+        worktreePath: null,
+        envMode: "local",
+        startFromOrigin: false,
+      };
+      const store = testState.draftStore;
+      store.getDraftSession.mockReturnValueOnce(session as never).mockReturnValueOnce({
+        ...session,
+        branch: chooseBranch ? "chosen" : null,
+      } as never);
+      const read = applyMovedDraftWorkspaceDefault(draftId, projectRef);
+      expect(readPendingDraftWorkspaceDefault(draftId)).toBe(read);
+      expect(store.setDraftThreadContext).not.toHaveBeenCalled();
+      testState.completeProjectFileRead({ defaultThreadEnvMode: "worktree" });
+      await read;
+      expect(readPendingDraftWorkspaceDefault(draftId)).toBeUndefined();
+      if (chooseBranch) expect(store.setDraftThreadContext).not.toHaveBeenCalled();
+      else
+        expect(store.setDraftThreadContext).toHaveBeenCalledWith(draftId, {
+          envMode: "worktree",
+          startFromOrigin: true,
+        });
+    },
+  );
 });

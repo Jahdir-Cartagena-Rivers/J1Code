@@ -80,25 +80,51 @@ function validatePublicText(text) {
   return text.trim();
 }
 
+function validateSectionTitle(title) {
+  const value = validatePublicText(title);
+  if (value.length > 48 || !/^\p{L}[\p{L}\p{N} &-]*$/u.test(value))
+    throw new Error("Expected a short public release section title.");
+  return value;
+}
+
 function readReleaseHighlights(file = path.join(__dirname, "../release-highlights.json")) {
   const value = JSON.parse(fs.readFileSync(file, "utf8"));
   if (
     !value ||
-    Object.keys(value).some((key) => !["since", "highlights"].includes(key)) ||
+    Object.keys(value).some((key) => !["since", "highlights", "sections"].includes(key)) ||
     !(
       value.since === null ||
       (typeof value.since === "string" &&
         /^(?:v\d+\.\d+\.\d+|j1-code-\d+\.\d+\.\d+-j1\.\d+)$/u.test(value.since))
     ) ||
     !Array.isArray(value.highlights) ||
-    value.highlights.length < 1 ||
-    value.highlights.length > 20
+    (value.sections !== undefined && !Array.isArray(value.sections))
   ) {
     throw new Error(
       "Expected curated highlights and their previous published release tag (since).",
     );
   }
-  return { since: value.since, highlights: value.highlights.map(validatePublicText) };
+  const sections = value.sections?.map((section) => {
+    if (
+      !section ||
+      Object.keys(section).some((key) => !["title", "highlights"].includes(key)) ||
+      !Array.isArray(section.highlights) ||
+      section.highlights.length === 0
+    )
+      throw new Error("Expected a public section title and at least one change.");
+    return {
+      title: validateSectionTitle(section.title),
+      highlights: section.highlights.map(validatePublicText),
+    };
+  });
+  const count =
+    value.highlights.length + (sections?.reduce((n, part) => n + part.highlights.length, 0) ?? 0);
+  if (count < 1 || count > 20) throw new Error("Expected curated public release highlights.");
+  return {
+    since: value.since,
+    highlights: value.highlights.map(validatePublicText),
+    ...(sections === undefined ? {} : { sections }),
+  };
 }
 
 function validateReleaseNotes(body, repository, version) {
@@ -129,13 +155,26 @@ function validateReleaseNotes(body, repository, version) {
     )
       throw new Error("Invalid release attribution.");
   }
-  if (!lines.length || lines.length > 20)
-    throw new Error("Expected curated public release highlights.");
+  let count = 0;
+  let needsBullet = false;
+  const sections = new Set();
   for (const line of lines) {
-    if (!line.startsWith("* "))
-      throw new Error("Only public change bullets and attribution belong in release notes.");
-    validatePublicText(line.slice(2));
+    if (line.startsWith("### ")) {
+      const title = validateSectionTitle(line.slice(4));
+      if (needsBullet || sections.has(title))
+        throw new Error("Release sections must be distinct and contain changes.");
+      needsBullet = true;
+      sections.add(title);
+    } else {
+      if (!line.startsWith("* "))
+        throw new Error("Only public change bullets and attribution belong in release notes.");
+      validatePublicText(line.slice(2));
+      count++;
+      needsBullet = false;
+    }
   }
+  if (count < 1 || count > 20 || needsBullet)
+    throw new Error("Expected curated public release highlights.");
   return body;
 }
 
@@ -192,7 +231,16 @@ function releaseNotes(repository, version, sha, runGh = gh, curated = readReleas
   const changelog = previousTag
     ? `https://github.com/${repository}/compare/${previousTag}...${releaseTag(version)}`
     : `https://github.com/${repository}/commits/${releaseTag(version)}`;
-  const body = `## What's Changed\n\n${highlights.map((text) => `* ${text}`).join("\n")}\n\n${contributors.length ? `**Contributors**: ${contributors.map((login) => `@${login}`).join(", ")}\n\n` : ""}**Full Changelog**: ${changelog}\n`;
+  const bullets = (items) => items.map((text) => `* ${validatePublicText(text)}`).join("\n");
+  const changes = [
+    bullets(highlights),
+    ...(curated.sections ?? []).map(
+      (section) => `### ${validateSectionTitle(section.title)}\n\n${bullets(section.highlights)}`,
+    ),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  const body = `## What's Changed\n\n${changes}\n\n${contributors.length ? `**Contributors**: ${contributors.map((login) => `@${login}`).join(", ")}\n\n` : ""}**Full Changelog**: ${changelog}\n`;
   return validateReleaseNotes(body, repository, version);
 }
 

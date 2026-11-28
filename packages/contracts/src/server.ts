@@ -156,6 +156,49 @@ export function isProviderWorkspaceSnapshotPending(
   return snapshot.slashCommandsPending === true || snapshot.modelsPending === true;
 }
 
+/** Whose settings keep a provider from running a mode; "settings" when the source is not known. */
+export const ProviderRuntimeModeLimitReason = Schema.Literals([
+  "managed-settings",
+  "user-settings",
+  "project-settings",
+  "settings",
+]);
+export type ProviderRuntimeModeLimitReason = typeof ProviderRuntimeModeLimitReason.Type;
+
+/**
+ * A mode a provider offers that cannot run in one folder. The mode stays selectable by every
+ * caller; clients show it as unavailable with the reason.
+ */
+export const ProviderRuntimeModeLimit = Schema.Struct({
+  mode: RuntimeMode,
+  reason: ProviderRuntimeModeLimitReason,
+});
+export type ProviderRuntimeModeLimit = typeof ProviderRuntimeModeLimit.Type;
+
+const runtimeModeLimitMessages = {
+  "managed-settings": "Your organization’s Claude settings turn Auto off.",
+  "user-settings": "Your Claude settings turn Auto off.",
+  "project-settings": "This project’s Claude settings turn Auto off.",
+  settings: "Claude’s settings turn Auto off.",
+} satisfies Record<ProviderRuntimeModeLimitReason, string>;
+
+export function providerRuntimeModeLimitMessage(
+  limits: ReadonlyArray<ProviderRuntimeModeLimit> | undefined,
+  mode: RuntimeMode,
+): string | undefined {
+  const reason = limits?.find((limit) => limit.mode === mode)?.reason;
+  return reason === undefined ? undefined : runtimeModeLimitMessages[reason];
+}
+
+export const ProviderRuntimeModeLimitsInput = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  cwd: TrimmedNonEmptyString,
+});
+export const ProviderRuntimeModeLimitsResult = Schema.Struct({
+  limits: ForwardCompatibleArray(ProviderRuntimeModeLimit),
+});
+export type ProviderRuntimeModeLimitsResult = typeof ProviderRuntimeModeLimitsResult.Type;
+
 /** Unavailable snapshots must set installed and enabled false. */
 export const ServerProviderAvailability = Schema.Literals(["available", "unavailable"]);
 export type ServerProviderAvailability = typeof ServerProviderAvailability.Type;

@@ -266,7 +266,9 @@ describe("MessagesTimeline work rows", () => {
       ]);
       const toggle = screen.getByRole("button", { name: /^Provide a spec/ });
       await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
-      await expect.element(toggle).toHaveTextContent("Provide a spec");
+      await vi.waitFor(() =>
+        expect(toggle.element().textContent?.trimStart()).toMatch(/^Provide a spec/),
+      );
       await userEvent.click(toggle);
       await expect.element(toggle).toHaveAttribute("aria-expanded", "true");
       await expect.element(screen.getByText("spec.txt", { exact: true }).first()).toBeVisible();
@@ -277,9 +279,13 @@ describe("MessagesTimeline work rows", () => {
       for (const answer of Object.values(answers)) {
         await expect.element(screen.getByText(answer, { exact: true }).first()).toBeVisible();
       }
-      await userEvent.click(toggle);
+      await userEvent.click(
+        toggle.getByText("Provide a spec · Provide a screenshot", { exact: true }),
+      );
       await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
-      await expect.element(toggle).toHaveTextContent("Provide a spec");
+      await vi.waitFor(() =>
+        expect(toggle.element().textContent?.trimStart()).toMatch(/^Provide a spec/),
+      );
     },
   );
 
@@ -298,7 +304,9 @@ describe("MessagesTimeline work rows", () => {
       }),
     ]);
     const toggle = screen.getByRole("button", { name: "Which repository?", exact: true });
-    await expect.element(toggle).toHaveTextContent("Which repository?");
+    await vi.waitFor(() =>
+      expect(toggle.element().textContent?.trimStart()).toMatch(/^Which repository\?/),
+    );
     await userEvent.click(toggle);
     await expect.element(toggle).toHaveAttribute("aria-expanded", "true");
   });

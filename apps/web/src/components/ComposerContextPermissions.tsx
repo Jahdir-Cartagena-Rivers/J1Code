@@ -1,8 +1,13 @@
-import type { EnvironmentId, RuntimeMode } from "@j1code/contracts";
+import type { EnvironmentId, ProviderInstanceId, RuntimeMode } from "@j1code/contracts";
 import { useAtomValue } from "@effect/atom-react";
 
 import { shortcutLabelForCommand } from "../keybindings";
 import { useManagedPolicy } from "../state/managedPolicy";
+import {
+  RuntimeModeLimitsTargetContext,
+  runtimeModeLimitsTarget,
+  useProviderRuntimeModeLimits,
+} from "../state/runtimeModeLimits";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { ComposerControl } from "./chat/ComposerControl";
 import { ComposerPermissionsSection } from "./chat/ComposerFooterControls";
@@ -20,6 +25,9 @@ export function ComposerContextPermissions(props: {
   environmentId: EnvironmentId | null;
   runtimeMode: RuntimeMode;
   supportedRuntimeModes: ReadonlyArray<RuntimeMode> | undefined;
+  /** The one provider this draft sends to and its folder; undefined for a multi-model send. */
+  instanceId: ProviderInstanceId | undefined;
+  cwd: string | null;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
 }) {
   const shortcutLabel = shortcutLabelForCommand(
@@ -30,7 +38,12 @@ export function ComposerContextPermissions(props: {
     props.runtimeMode,
     props.supportedRuntimeModes,
   );
-  const options = resolveRuntimeModeOptions(modes, useManagedPolicy(props.environmentId));
+  const limitsFor = runtimeModeLimitsTarget(props.environmentId, props.instanceId, props.cwd);
+  const options = resolveRuntimeModeOptions(
+    modes,
+    useManagedPolicy(props.environmentId),
+    useProviderRuntimeModeLimits(limitsFor),
+  );
   const composerMenuProps = useComposerMenuProps();
   const { icon: Icon, label } = runtimeModeConfig[mode];
   return (
@@ -56,11 +69,13 @@ export function ComposerContextPermissions(props: {
         <TooltipPopup>Permissions{shortcutLabel ? ` · ${shortcutLabel}` : null}</TooltipPopup>
       </Tooltip>
       <MenuPopup side="top" align="end" {...composerMenuProps}>
-        <ComposerPermissionsSection
-          runtimeMode={mode}
-          runtimeModeOptions={options}
-          onRuntimeModeChange={props.onRuntimeModeChange}
-        />
+        <RuntimeModeLimitsTargetContext value={limitsFor}>
+          <ComposerPermissionsSection
+            runtimeMode={mode}
+            runtimeModeOptions={options}
+            onRuntimeModeChange={props.onRuntimeModeChange}
+          />
+        </RuntimeModeLimitsTargetContext>
       </MenuPopup>
     </Menu>
   );

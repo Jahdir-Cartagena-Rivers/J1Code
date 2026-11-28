@@ -92,7 +92,10 @@ export async function stageMausbot(
       "server/j1-shared-store.test.ts",
       "server/j1-shared-project-routes.test.ts",
       "server/j1-engineering.test.ts",
+      "server/local-apps/starters.test.ts",
+      "server/local-apps/store.test.ts",
       "src/components/openmaus-import.test.ts",
+      "src/components/publish-template.dom.test.ts",
       "src/components/HelperIntro.test.ts",
       "src/components/onboarding/j1-welcome-gate.test.ts",
       "src/components/GrokMovePopup.test.ts",
@@ -153,11 +156,9 @@ export async function stageMausbot(
         NodePath.join(destination, "native/SOURCE.txt"),
         `Cua Driver ${version}: ${sourceUrl}\nOfficial Windows x64 binary release: https://github.com/trycua/cua/releases/tag/cua-driver-rs-v${version}\nArchive SHA256: ${archiveSha256}\nSDK and native libraries are pinned by the enclosed upstream pnpm lockfile.\n`,
       );
-      await NodeFSP.cp(
-        notices,
-        NodePath.join(destination, "licenses/cua-driver-windows"),
-        { recursive: true },
-      );
+      await NodeFSP.cp(notices, NodePath.join(destination, "licenses/cua-driver-windows"), {
+        recursive: true,
+      });
     }
     const store = NodePath.join(stage, "node_modules/.pnpm");
     const collect = async (directory: string) => {

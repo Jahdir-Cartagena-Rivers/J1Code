@@ -31,11 +31,18 @@ $env:T3CODE_HOME = $j1Data
 $env:T3CODE_DISABLE_AUTO_UPDATE = 'true'
 $env:T3CODE_TELEMETRY_ENABLED = 'false'
 
-$baselineName = 'J1-Code-1.101.0-windows-x64-setup.exe'
-$sumsName = 'SHA256SUMS-1.101.0.txt'
+$highlights = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../release-highlights.json') -Raw | ConvertFrom-Json
+$baselineTag = $highlights.since
+if ($baselineTag -notmatch '^v1[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)$') {
+  throw 'The release highlights must identify a published Windows upgrade baseline.'
+}
+$baselineVersion = $baselineTag.Substring(1)
+$baselineName = "J1-Code-$baselineVersion-windows-x64-setup.exe"
+$sumsName = "SHA256SUMS-$baselineVersion.txt"
+Write-Host "Upgrade baseline: $baselineTag"
 if (!$BaselineDirectory) {
   $BaselineDirectory = $qa.FullName
-  gh release download v1.101.0 --repo $env:GITHUB_REPOSITORY --pattern $baselineName --pattern $sumsName --dir $BaselineDirectory
+  gh release download $baselineTag --repo $env:GITHUB_REPOSITORY --pattern $baselineName --pattern $sumsName --dir $BaselineDirectory
   if ($LASTEXITCODE -ne 0) { throw 'Could not download the published baseline installer.' }
 }
 $baseline = Join-Path $BaselineDirectory $baselineName

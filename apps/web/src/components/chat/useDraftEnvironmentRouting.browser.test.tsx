@@ -41,6 +41,7 @@ vi.mock("../../hooks/useLoadBalancedEnvironment", () => ({
 }));
 vi.mock("../../state/entities", () => ({
   useProjects: () => resources.projects,
+  readThreadShells: () => [],
   readProject: (ref: { environmentId: EnvironmentId; projectId: ProjectId }) =>
     resources.projects.find(
       (project) => project.environmentId === ref.environmentId && project.id === ref.projectId,
@@ -176,6 +177,18 @@ function RoutingProbe({ input, onPrepared }: HarnessProps) {
 
 it("refreshes a stored automatic choice before sending an unsent draft", async () => {
   const { a, b, draftId, input, store } = setup();
+  const prepared = vi.fn();
+  resources.projects = [a, b].map((environmentId) => ({
+    id: input.draftThread!.projectId,
+    environmentId,
+    title: "Project",
+    workspaceRoot: "/workspace/project",
+    defaultThreadEnvMode: environmentId === b ? "worktree" : "local",
+    defaultModelSelection: null,
+    scripts: [],
+    createdAt: "2026-11-10T01:00:00.000Z",
+    updatedAt: "2026-11-10T01:00:00.000Z",
+  }));
   const selections = ["model-a", "model-b"].map((model) =>
     createModelSelection(ProviderInstanceId.make("codex"), model),
   );
@@ -190,15 +203,19 @@ it("refreshes a stored automatic choice before sending an unsent draft", async (
   );
   store.setDraftThreadContext(draftId, {
     branch: "main",
-    envMode: "worktree",
+    envMode: "local",
     environmentSelection: "auto",
   });
   await using screen = await render(
-    <Harness input={{ ...input, draftThread: store.getDraftSession(draftId) }} />,
+    <Harness
+      input={{ ...input, draftThread: store.getDraftSession(draftId) }}
+      onPrepared={prepared}
+    />,
   );
   await expect.element(screen.getByText(a)).toBeInTheDocument();
   await screen.getByRole("button", { name: "Send" }).click();
   await expect.element(screen.getByText(b)).toBeInTheDocument();
+  await expect.poll(() => prepared.mock.lastCall).toEqual([true]);
   expect(resources.refreshSelection).toHaveBeenCalledWith([a, b]);
   expect(store.getDraftSession(draftId)).toMatchObject({
     loadBalancedEnvironmentId: b,

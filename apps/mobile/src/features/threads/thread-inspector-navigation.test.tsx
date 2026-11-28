@@ -9,11 +9,11 @@ const harness = vi.hoisted(() => ({
   dispatch: (_action: unknown) => {},
   getState: (): unknown => undefined,
   getRoute: (): unknown => undefined,
+  inspectorSupported: true,
 }));
 
-vi.mock("react-native", () => ({ Platform: { OS: "ios" } }));
 vi.mock("../layout/AdaptiveWorkspaceLayout", () => ({
-  useWorkspacePaneState: () => ({ fileInspector: { supported: true } }),
+  useWorkspacePaneState: () => ({ fileInspector: { supported: harness.inspectorSupported } }),
 }));
 vi.mock("@react-navigation/native", async () => {
   const { createRequire } = await import("node:module");
@@ -38,7 +38,8 @@ const { StackRouter, StackActions } = requireNavigation("@react-navigation/route
   StackActions: typeof import("@react-navigation/native").StackActions;
 };
 
-function setup(fromAgents: boolean, fullscreen = false) {
+function setup(fromAgents: boolean, fullscreen = false, inspectorSupported = true) {
+  harness.inspectorSupported = inspectorSupported;
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const router = StackRouter({});
   const options = {
@@ -119,6 +120,13 @@ it("opens a subagent from the Agents sheet without replacing the parent thread",
     key: screen.parentKey,
     params: { ...screen.source, inspector },
   });
+});
+
+it("leaves narrow layouts to the full-screen inspector route", () => {
+  using screen = setup(false, false, false);
+  const originalState = screen.state;
+  expect(screen.open({ type: "thread", ...screen.source, threadId: "child" })).toBe(false);
+  expect(screen.state).toEqual(originalState);
 });
 
 it("opens a completion link in the parent inspector", () => {
@@ -241,6 +249,8 @@ it("keeps a focused inspector registered across renders and updates its content"
         NavigationContext: navigationContext,
         NavigationRouteContext: routeContext,
       };
+    if (name === "./workspace-presentation-context")
+      return { WorkspaceVisibleRouteContext: React.createContext(null) };
     return {};
   };
   new Function("require", "exports", compiled.code)(load, exports);

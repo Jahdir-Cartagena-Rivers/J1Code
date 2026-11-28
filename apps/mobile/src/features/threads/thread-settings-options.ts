@@ -1,6 +1,8 @@
 import {
   managedRuntimeModeDenial,
+  providerRuntimeModeLimitMessage,
   type ManagedPolicySummary,
+  type ProviderRuntimeModeLimit,
   type RuntimeMode,
 } from "@j1code/contracts";
 
@@ -40,7 +42,7 @@ export function runtimeModeChoicesForSupportedModes(
 }
 
 export type RuntimeModeChoice = (typeof RUNTIME_MODE_CHOICES)[number] & {
-  /** Set when a target environment's managed policy caps runtime modes below this one. */
+  /** Set when a managed policy caps modes below this one, or the provider cannot run it here. */
   readonly disabledReason?: string;
 };
 
@@ -56,6 +58,22 @@ export function withManagedRuntimeModeLimits(
     const reason = policies
       .map((policy) => managedRuntimeModeDenial(policy, choice.mode))
       .find((denial) => denial !== undefined);
+    return reason === undefined ? choice : { ...choice, disabledReason: reason };
+  });
+}
+
+/**
+ * Marks modes the provider cannot run in the thread's folder. They stay listed, and a thread
+ * already in one keeps it, with the reason in place of the description.
+ */
+export function withProviderRuntimeModeLimits(
+  choices: ReadonlyArray<RuntimeModeChoice>,
+  limits: ReadonlyArray<ProviderRuntimeModeLimit> | undefined,
+): ReadonlyArray<RuntimeModeChoice> {
+  if (limits === undefined || limits.length === 0) return choices;
+  return choices.map((choice) => {
+    if (choice.disabledReason !== undefined) return choice;
+    const reason = providerRuntimeModeLimitMessage(limits, choice.mode);
     return reason === undefined ? choice : { ...choice, disabledReason: reason };
   });
 }

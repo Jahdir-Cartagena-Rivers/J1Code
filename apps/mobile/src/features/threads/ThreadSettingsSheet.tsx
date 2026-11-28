@@ -23,10 +23,7 @@ import type {
 import type { LegendListRenderItemProps } from "@legendapp/list/react-native";
 import { RegistryContext, useAtomMount, useAtomValue } from "@effect/atom-react";
 import { AnimatedLegendList } from "@legendapp/list/reanimated";
-import {
-  getProviderOptionCurrentLabel,
-  getProviderOptionCurrentValue,
-} from "@j1code/shared/model";
+import { getProviderOptionCurrentLabel, getProviderOptionCurrentValue } from "@j1code/shared/model";
 import {
   useNavigation,
   useRoute,
@@ -111,6 +108,7 @@ import {
   compatibleRuntimeModeForChoices,
   runtimeModeChoicesForSupportedModes,
   withManagedRuntimeModeLimits,
+  withProviderRuntimeModeLimits,
   type RuntimeModeChoice,
   selectableChoices,
 } from "./thread-settings-options";
@@ -365,7 +363,7 @@ function ThreadSettingsSessionProvider(
     favorites: legacyFavorites,
   }).favorites;
   const saveSettings = useAtomCommand(serverEnvironment.updateSettings, "model favorites update");
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- writes the one-time legacy model favorites migration to server settings once per connection
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- writes the one-time legacy model favorites migration to server settings once per connection
   useEffect(() => {
     if (
       !props.environmentId ||
@@ -506,9 +504,21 @@ function ThreadSettingsSessionProvider(
     pendingModel ??
     props.providerGroups.flatMap((group) => group.models).find((option) => isApplied(option)) ??
     null;
-  const runtimeModeChoices = withManagedRuntimeModeLimits(
-    runtimeModeChoicesForSupportedModes(displayedModel?.supportedRuntimeModes),
-    [config?.managedPolicy],
+  // The sheet mounts when it opens, which asks again once the last answer is a few seconds old.
+  const runtimeModeLimits = useEnvironmentQuery(
+    props.environmentId && props.cwd && displayedModel
+      ? serverEnvironment.providerRuntimeModeLimits({
+          environmentId: props.environmentId,
+          input: { instanceId: displayedModel.selection.instanceId, cwd: props.cwd },
+        })
+      : null,
+  ).data?.limits;
+  const runtimeModeChoices = withProviderRuntimeModeLimits(
+    withManagedRuntimeModeLimits(
+      runtimeModeChoicesForSupportedModes(displayedModel?.supportedRuntimeModes),
+      [config?.managedPolicy],
+    ),
+    runtimeModeLimits,
   );
   const compatibleRuntimeMode = compatibleRuntimeModeForChoices(
     props.runtimeMode,
@@ -957,7 +967,7 @@ function ThreadSettingsMainContent(props: {
     if (config?.environment.capabilities.modelCatalogRefresh !== true) return;
     void refreshProvidersCommand({ environmentId, input: { modelCatalogOnly: true } });
   });
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- asks the server for newly released models when the model list opens
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- asks the server for newly released models when the model list opens
   useEffect(() => {
     refreshModelCatalog();
   }, []);
@@ -1048,7 +1058,7 @@ function ThreadSettingsMainContent(props: {
   };
 
   return (
-    // oxlint-disable-next-line t3code/require-registered-list-scroll -- Sheet content; sheets sit outside workspace columns and keep their own header handling.
+    // oxlint-disable-next-line j1code/require-registered-list-scroll -- Sheet content; sheets sit outside workspace columns and keep their own header handling.
     <AnimatedLegendList
       alwaysBounceVertical
       automaticallyAdjustsScrollIndicatorInsets

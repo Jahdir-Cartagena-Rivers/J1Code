@@ -1,14 +1,41 @@
 {
-  "since": "v1.101.0",
-  "highlights": [
-    "Fix a startup hang when opening a large chat history from an older J1 installation.",
-    "Move the J1 window using the Windows title bar, including while the splash screen is visible.",
-    "Show J1 Code branding on the startup recovery screen.",
-    "Match the Windows title bar and close dialog to J1 and keep chat titles out of the system title bar.",
-    "Show the J1 transfer-file restore option during setup and remove a duplicate composer microphone.",
-    "Open saved MausBot apps in their own J1 windows and add shortcuts on Windows.",
-    "Run workflows with named concurrency pools and view related runs from their pull requests.",
-    "Work in multiple tracked repositories within a task, with separate file rewind for each checkout.",
-    "Open GBK and GB18030 text files and read their changes in the diff panel."
+  "since": "v1.104.0",
+  "highlights": [],
+  "sections": [
+    {
+      "title": "Android",
+      "highlights": [
+        "Open side chats, subagents, and previews beside the current conversation on wide Android layouts. Narrow layouts still open them full screen."
+      ]
+    },
+    {
+      "title": "Agent permissions",
+      "highlights": [
+        "Show when Claude Auto is disabled for the current project, and explain whether the restriction comes from project, user, or organization settings.",
+        "Keep an existing chat usable when Claude cannot start in Auto by falling back to Supervised with a notice."
+      ]
+    },
+    {
+      "title": "Chats and workspaces",
+      "highlights": [
+        "Keep the current line in view when a panel resizes a conversation just after it opens.",
+        "Use the destination project’s workspace default when moving a draft or routing it to another machine, while preserving a branch you choose."
+      ]
+    },
+    {
+      "title": "File previews and pull requests",
+      "highlights": [
+        "Show zero columns for an empty OpenDocument sheet and display notebook output that is saved only as Markdown.",
+        "Use the Text language label for notebooks whose language metadata is blank.",
+        "Show the correct label for a one-byte SQLite BLOB.",
+        "Find pull requests from zero-padded numbers and mark files whose patch GitHub withheld."
+      ]
+    },
+    {
+      "title": "Command line",
+      "highlights": [
+        "Reject negative message counts in thread show. A count of zero still shows thread details without messages."
+      ]
+    }
   ]
 }

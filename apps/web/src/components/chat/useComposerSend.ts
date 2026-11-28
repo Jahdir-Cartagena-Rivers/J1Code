@@ -141,6 +141,7 @@ import type { Dispatch } from "react";
 import type { ComposerThreadTarget } from "../../composerDraftStore";
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import type { SessionPhase } from "../../types";
+import { readPendingDraftWorkspaceDefault } from "../../lib/draftWorkspaceDefaults";
 import type { DraftSessionState } from "../../composerDraftStore";
 import type { ComposerHandleRef } from "../../composerHandleContext";
 import type { useLogicalProjectEnvironments } from "../../hooks/useLogicalProjectEnvironments";
@@ -376,7 +377,7 @@ export function useComposerSend(input: ComposerSendInput) {
   // A send awaits uploads before it declines, so it reads the approvals pending by then.
   const pendingApprovalsRef = useRef(pendingApprovals);
   const respondingRequestIdsRef = useRef(respondingRequestIds);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- mirrors approvals into refs that an async send reads after awaiting uploads
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- mirrors approvals into refs that an async send reads after awaiting uploads
   useLayoutEffect(() => {
     pendingApprovalsRef.current = pendingApprovals;
     respondingRequestIdsRef.current = respondingRequestIds;
@@ -785,7 +786,8 @@ export function useComposerSend(input: ComposerSendInput) {
       return;
     }
     const threadIdForSend = activeThread.id;
-    const autoRoutingForSend = input.autoModelPolicy?.mode === "auto" &&
+    const autoRoutingForSend =
+      input.autoModelPolicy?.mode === "auto" &&
       useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)
         ?.modelSelectionExplicit !== true;
     const sendSnapshot = snapshotComposerSend({
@@ -899,12 +901,17 @@ export function useComposerSend(input: ComposerSendInput) {
     const draftBeforePreparation = useComposerDraftStore
       .getState()
       .getComposerDraft(composerDraftTarget);
-    const interactionModeForSend = draftBeforePreparation?.interactionMode ?? activeThread?.interactionMode ?? DEFAULT_INTERACTION_MODE;
+    const interactionModeForSend =
+      draftBeforePreparation?.interactionMode ??
+      activeThread?.interactionMode ??
+      DEFAULT_INTERACTION_MODE;
     const draftChangedDuringPreparation = () => {
       if (composerRef.current?.hasPendingAttachments() === true) return true;
       const draft = useComposerDraftStore.getState().getComposerDraft(composerDraftTarget);
-      return draft?.interactionMode !== draftBeforePreparation?.interactionMode ||
-        composerDraftContentChanged(draftBeforePreparation, draft);
+      return (
+        draft?.interactionMode !== draftBeforePreparation?.interactionMode ||
+        composerDraftContentChanged(draftBeforePreparation, draft)
+      );
     };
     sendInFlightRef.current = true;
     const sendGeneration = ++composerSendGenerationRef.current;
@@ -1536,42 +1543,55 @@ export function useComposerSend(input: ComposerSendInput) {
           error.message.includes("Home already has a conversation.")
             ? await waitForHomeConversation({
                 read: () =>
-                  appAtomRegistry.get(environmentThreadShells.threadShellsAtom).find(
-                    (thread) =>
-                      thread.environmentId === environmentId &&
-                      thread.projectId === "j1-home" &&
-                      thread.id !== threadIdForSend &&
-                      isListedThreadLineage(thread.lineage) &&
-                      thread.archivedAt === null,
-                  ) ?? null,
+                  appAtomRegistry
+                    .get(environmentThreadShells.threadShellsAtom)
+                    .find(
+                      (thread) =>
+                        thread.environmentId === environmentId &&
+                        thread.projectId === "j1-home" &&
+                        thread.id !== threadIdForSend &&
+                        isListedThreadLineage(thread.lineage) &&
+                        thread.archivedAt === null,
+                    ) ?? null,
                 subscribe: (inspect) =>
                   appAtomRegistry.subscribe(environmentThreadShells.threadShellsAtom, inspect),
               })
             : null;
-        const recoveredHome = existingHome !== null && draftId !== null &&
-          !composerDraftContentChanged(draftBeforeHomeRecovery,
-            useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)) &&
-          useComposerDraftStore.getState().copyDraftContent(
-            draftId,
-            scopeThreadRef(existingHome.environmentId, existingHome.id),
-          );
+        const recoveredHome =
+          existingHome !== null &&
+          draftId !== null &&
+          !composerDraftContentChanged(
+            draftBeforeHomeRecovery,
+            useComposerDraftStore.getState().getComposerDraft(composerDraftTarget),
+          ) &&
+          useComposerDraftStore
+            .getState()
+            .copyDraftContent(draftId, scopeThreadRef(existingHome.environmentId, existingHome.id));
         if (recoveredHome && existingHome !== null) {
-          toastManager.add(stackedThreadToast({
-            type: "info",
-            title: "Home opened in another window",
-            description: "Your unsent message was copied there; the original draft was kept.",
-          }));
-          if (submissionIntent !== "background" && currentRouteThreadKeyRef.current === routeThreadKey) {
+          toastManager.add(
+            stackedThreadToast({
+              type: "info",
+              title: "Home opened in another window",
+              description: "Your unsent message was copied there; the original draft was kept.",
+            }),
+          );
+          if (
+            submissionIntent !== "background" &&
+            currentRouteThreadKeyRef.current === routeThreadKey
+          ) {
             await navigate({
               to: "/$environmentId/$threadId",
-              params: buildThreadRouteParams(scopeThreadRef(existingHome.environmentId, existingHome.id)),
+              params: buildThreadRouteParams(
+                scopeThreadRef(existingHome.environmentId, existingHome.id),
+              ),
             });
           }
         }
-        if (!recoveredHome) setThreadError(
-          threadIdForSend,
-          error instanceof Error ? error.message : "Failed to send message.",
-        );
+        if (!recoveredHome)
+          setThreadError(
+            threadIdForSend,
+            error instanceof Error ? error.message : "Failed to send message.",
+          );
         if (
           !recoveredHome &&
           draftId &&
@@ -1607,7 +1627,7 @@ export function useComposerSend(input: ComposerSendInput) {
   };
 
   const onSendLatest = useStableCallback(onSend);
-  const onSendWithRouting = async (...args: Parameters<typeof onSend>) => {
+  const sendWithRouting = useStableCallback(async (...args: Parameters<typeof onSend>) => {
     args[0]?.preventDefault();
     const refresh =
       args[3] || sendInFlightRef.current || readPendingEnvironmentChange() !== null
@@ -1619,6 +1639,31 @@ export function useComposerSend(input: ComposerSendInput) {
       sendInFlightRef.current = false;
     });
     if (ready) return onSendLatest(...args);
+  });
+  const onSendWithRouting = async (...args: Parameters<typeof onSend>) => {
+    args[0]?.preventDefault();
+    const pending =
+      draftId && !sendInFlightRef.current ? readPendingDraftWorkspaceDefault(draftId) : undefined;
+    if (!pending || !draftId) return sendWithRouting(...args);
+    const store = useComposerDraftStore.getState();
+    const target = store.getDraftSession(draftId);
+    const content = store.getComposerDraft(composerDraftTarget);
+    sendInFlightRef.current = true;
+    await pending.finally(() => {
+      sendInFlightRef.current = false;
+    });
+    const current = store.getDraftSession(draftId);
+    if (
+      currentRouteThreadKeyRef.current !== routeThreadKey ||
+      !current ||
+      current.promotedTo ||
+      current.environmentId !== target?.environmentId ||
+      current.projectId !== target.projectId ||
+      readPendingDraftWorkspaceDefault(draftId) ||
+      store.getComposerDraft(composerDraftTarget) !== content
+    )
+      return;
+    return sendWithRouting(...args);
   };
   return { onSend: onSendWithRouting };
 }

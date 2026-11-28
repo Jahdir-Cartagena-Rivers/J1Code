@@ -9,7 +9,7 @@ import Animated, {
   type SharedValue,
 } from "react-native-reanimated";
 
-import { constrainAuxiliaryPaneWidth, type WorkspacePaneLayout } from "../../lib/layout";
+import type { WorkspacePaneLayout } from "../../lib/layout";
 import { WORKSPACE_PANE_TIMING } from "./workspace-pane-animation";
 import { WorkspacePaneDivider } from "./workspace-pane-divider";
 import { InspectorPanes } from "./inspector-host";
@@ -41,7 +41,7 @@ export function WorkspaceInspectorPane(props: {
   const reduceMotion = useReducedMotion();
 
   const onClosed = props.onClosed;
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- animates the Reanimated inspector progress and width shared values when visibility or width changes
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- animates the Reanimated inspector progress and width shared values when visibility or width changes
   useEffect(() => {
     inspectorProgress.set(
       withTiming(inspectorVisible ? 1 : 0, WORKSPACE_PANE_TIMING, (finished) => {
@@ -84,12 +84,7 @@ export function WorkspaceInspectorPane(props: {
     setResizing(true);
   };
   const resizeBy = (delta: number) => {
-    setAuxiliaryPaneWidth(
-      constrainAuxiliaryPaneWidth({
-        preferredWidth: resizeStartWidth.current + delta,
-        availableWidth: panes.contentPaneWidth,
-      }),
-    );
+    setAuxiliaryPaneWidth(resizeStartWidth.current + delta);
   };
   const endResize = () => {
     setResizing(false);
