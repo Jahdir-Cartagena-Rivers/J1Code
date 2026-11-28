@@ -1,21 +1,14 @@
 import { useEffect, useState, type RefObject } from "react";
 
-/** Host the existing forms in the native modal's flow without mixing the two CSS bundles. */
-export function useMausbotSettingsPortal(
-  frame: RefObject<HTMLIFrameElement | null>,
-  enabled: boolean,
-) {
-  return useMausbotSlotPortal(frame, enabled, "[data-j1-settings-slot]", "settings");
-}
-
 /** Keep integrated navigation in the native document's scrolling and overlay stack. */
 export function useMausbotSlotPortal(
   frame: RefObject<HTMLIFrameElement | null>,
   enabled: boolean,
   selector: string,
-  kind: "settings" | "navigation" | "footer",
+  kind: "navigation" | "footer",
 ) {
   const [target, setTarget] = useState<HTMLElement | null>(null);
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Track the embedded document and dispose its observers when it changes.
   useEffect(() => {
     if (!enabled) return;
     const iframe = frame.current;
@@ -29,6 +22,7 @@ export function useMausbotSlotPortal(
       let mirrorStyles = () => {};
       let mirrorTheme = () => {};
       const sync = () => {
+        if (slot?.isConnected) return;
         const next = source.querySelector<HTMLElement>(selector);
         if (next === slot) return;
         slot = next;
@@ -42,7 +36,6 @@ export function useMausbotSlotPortal(
         const styles = source.createElement("div");
         styles.dataset.j1SettingsStyles = "";
         const root = source.createElement("div");
-        if (kind === "settings") root.dataset.mergedSettings = "";
         root.className =
           kind === "navigation"
             ? "merged-j1-navigation bg-sidebar text-sidebar-foreground"

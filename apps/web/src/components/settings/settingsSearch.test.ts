@@ -15,6 +15,7 @@ import {
   movedSettingsPath,
   searchSettings,
   searchableSetting,
+  settingsSidebarSection,
   SETTINGS_NAV_GROUPS,
   SETTINGS_SEARCH_ITEMS,
   sourceControlHostSearchItems,
@@ -86,6 +87,15 @@ describe("searchSettings", () => {
       id: "scheduled-tasks",
       to: "/settings/scheduled-tasks",
     });
+  });
+
+  it.each([
+    ["keyboard shortcuts", "/settings/keybindings", "/settings/appearance"],
+    ["worktrees", "/settings/worktrees", "/settings/projects"],
+    ["device hosts", "/settings/devices", "/settings/connections"],
+  ])("keeps %s searchable under its consolidated section", (query, path, section) => {
+    expect(searchSettings(query).some((item) => item.to === path)).toBe(true);
+    expect(settingsSidebarSection(path)).toBe(section);
   });
 
   it("matches normalized title substrings", () => {
@@ -333,7 +343,11 @@ describe("searchSettings", () => {
       hasThreadAutoSettlement: true,
     });
     expect(searchSettings("writing style", available)[0]?.id).toBe("source-control-writing-style");
-    expect(searchSettings("auto-settle", available).map(({ id }) => id).sort()).toEqual([
+    expect(
+      searchSettings("auto-settle", available)
+        .map(({ id }) => id)
+        .sort(),
+    ).toEqual([
       "auto-settle-inactive-threads",
       "auto-settle-merged-threads",
       "days-before-auto-settle",

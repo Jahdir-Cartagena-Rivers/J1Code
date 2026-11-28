@@ -93,7 +93,7 @@ it.each([1280, 390])("names each group by a heading outside it at %ipx wide", as
   await page.viewport(width, 800);
   await using _screen = await renderNav();
 
-  for (const name of ["Agents", "Code", "Connections"]) {
+  for (const { heading: name } of SETTINGS_NAV_GROUPS) {
     const heading = page.getByRole("heading", { name, level: 3 });
     await expect.element(heading).toBeInTheDocument();
     const group = page.getByRole("group", { name }).element();

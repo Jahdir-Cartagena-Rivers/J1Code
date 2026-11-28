@@ -60,6 +60,15 @@ export function SettingsScopeNotice({
       ? groups.filter((group) => !search.project || group.projectKey === search.project)
       : [null];
   const projectGroups = projectScopeMenuGroups(groups, search);
+  const displayNameCounts = new Map<string, number>();
+  if (target === "project") {
+    for (const project of projectGroups) {
+      displayNameCounts.set(
+        project.displayName,
+        (displayNameCounts.get(project.displayName) ?? 0) + 1,
+      );
+    }
+  }
   const renderChoices = (group: SidebarProjectSnapshot | null) => {
     const choices: ScopeChoice[] = group
       ? group.memberProjects.map((member) => {
@@ -88,10 +97,7 @@ export function SettingsScopeNotice({
             label: group.displayName,
             secondary: [
               ...(group.archived ? ["Archived"] : []),
-              ...(projectGroups.some(
-                (other) =>
-                  other.projectKey !== group.projectKey && other.displayName === group.displayName,
-              )
+              ...((displayNameCounts.get(group.displayName) ?? 0) > 1
                 ? settingsScopeProjectMachines(group, environments)
                 : []),
               group.workspaceRoot,

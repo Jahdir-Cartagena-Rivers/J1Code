@@ -1520,6 +1520,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     models?: CodexAdapterV2.CodexAdapterV2Options["models"],
     threadIdOverride?: ThreadId,
     newBotTools?: ProviderAdapter.ProviderAdapterV2EnsureThreadInput["newBotTools"],
+    sharedSessionOpener?: ThreadId,
   ) =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -1600,9 +1601,10 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           }),
       });
       const threadId = threadIdOverride ?? ThreadId.make(`thread-${transcript.scenario}`);
+      const providerSessionId = ProviderSessionId.make(`provider-session-${transcript.scenario}`);
       const runtime = yield* adapter.openSession({
-        threadId,
-        providerSessionId: ProviderSessionId.make(`provider-session-${transcript.scenario}`),
+        threadId: sharedSessionOpener ?? threadId,
+        providerSessionId,
         modelSelection: CODEX_TEST_MODEL_SELECTION,
         runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
         promptSuggestions,
@@ -1612,6 +1614,28 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         modelSelection: CODEX_TEST_MODEL_SELECTION,
         runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
         ...(newBotTools === undefined ? {} : { newBotTools }),
+        ...(sharedSessionOpener === undefined
+          ? {}
+          : {
+              providerSessionId,
+              existingProviderThread: {
+                id: ProviderThreadId.make("reserved-shared-bot-thread"),
+                driver: CodexAdapterV2.CODEX_DRIVER_KIND,
+                providerInstanceId: CODEX_TEST_MODEL_SELECTION.instanceId,
+                providerSessionId: null,
+                appThreadId: threadId,
+                ownerNodeId: null,
+                nativeThreadRef: null,
+                nativeConversationHeadRef: null,
+                status: "not_loaded",
+                firstRunOrdinal: null,
+                lastRunOrdinal: null,
+                handoffIds: [],
+                forkedFrom: null,
+                createdAt: yield* DateTime.now,
+                updatedAt: yield* DateTime.now,
+              },
+            }),
       });
       const events: Array<ProviderAdapter.ProviderAdapterV2Event> = [];
       const firstTerminal = yield* Deferred.make<void>();
@@ -1668,182 +1692,185 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       };
     });
 
-  it.effect.each(["registered", "no-registration", "revoked-registration"] as const)(
-    "binds protected Codex tools to the acknowledged turn with $0",
-    (scenario) =>
-      Effect.gen(function* () {
-        const threadId = ThreadId.make("j1-mausbot:bot:protected");
-        const nativeThreadId = "protected-tool-thread";
-        const nativeTurnId = "protected-tool-turn";
-        const prompt = "List this bot's tools.";
-        const tools = [
-          { name: "bot_tools", description: "List tools.", inputSchema: { type: "object" } },
-        ];
-        let authorized = scenario !== "revoked-registration";
-        let guardedRegistration = false;
-        const calls: Array<{ name: string; args: unknown }> = [];
-        const preamble = codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt }).map(
-          (entry) =>
-            entry.type === "expect_outbound" &&
-            entry.label === "thread/start" &&
-            scenario === "registered"
-              ? {
-                  ...entry,
-                  frame: {
-                    id: 2,
-                    method: "thread/start",
-                    params: {
-                      config: CodexAdapterV2.CODEX_THREAD_CONFIG,
-                      dynamicTools: [
-                        {
-                          type: "namespace",
-                          name: "j1_mausbot",
-                          description: "Tools authorized for this J1 bot.",
-                          tools: tools.map((tool) => ({ type: "function", ...tool })),
-                        },
-                      ],
+  it.effect.each([
+    "registered",
+    "second-bot-on-shared-session",
+    "no-registration",
+    "revoked-registration",
+  ] as const)("binds protected Codex tools to the acknowledged turn with $0", (scenario) =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("j1-mausbot:bot:protected");
+      const registered = scenario === "registered" || scenario === "second-bot-on-shared-session";
+      const nativeThreadId = "protected-tool-thread";
+      const nativeTurnId = "protected-tool-turn";
+      const prompt = "List this bot's tools.";
+      const tools = [
+        { name: "bot_tools", description: "List tools.", inputSchema: { type: "object" } },
+      ];
+      let authorized = scenario !== "revoked-registration";
+      let guardedRegistration = false;
+      const calls: Array<{ name: string; args: unknown }> = [];
+      const preamble = codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt }).map((entry) =>
+        entry.type === "expect_outbound" && entry.label === "thread/start" && registered
+          ? {
+              ...entry,
+              frame: {
+                id: 2,
+                method: "thread/start",
+                params: {
+                  config: CodexAdapterV2.CODEX_THREAD_CONFIG,
+                  dynamicTools: [
+                    {
+                      type: "namespace",
+                      name: "j1_mausbot",
+                      description: "Tools authorized for this J1 bot.",
+                      tools: tools.map((tool) => ({ type: "function", ...tool })),
                     },
-                  },
-                }
-              : entry,
-        );
-        const denied = {
-          success: false,
-          contentItems: [{ type: "inputText", text: "The Codex bot tool call is not authorized." }],
-        };
-        const call = (
-          id: number,
-          overrides: Partial<{
-            threadId: string;
-            turnId: string;
-            callId: string;
-            namespace: string;
-            tool: string;
-          }>,
-          result = denied,
-        ): ReadonlyArray<CodexReplay.CodexAppServerReplayEntry> => [
-          {
-            type: "emit_inbound",
-            frame: {
-              id,
-              method: "item/tool/call",
-              params: {
-                threadId: nativeThreadId,
-                turnId: nativeTurnId,
-                callId: String(id),
-                namespace: "j1_mausbot",
-                tool: "bot_tools",
-                arguments: {},
-                ...overrides,
+                  ],
+                },
               },
+            }
+          : entry,
+      );
+      const denied = {
+        success: false,
+        contentItems: [{ type: "inputText", text: "The Codex bot tool call is not authorized." }],
+      };
+      const call = (
+        id: number,
+        overrides: Partial<{
+          threadId: string;
+          turnId: string;
+          callId: string;
+          namespace: string;
+          tool: string;
+        }>,
+        result = denied,
+      ): ReadonlyArray<CodexReplay.CodexAppServerReplayEntry> => [
+        {
+          type: "emit_inbound",
+          frame: {
+            id,
+            method: "item/tool/call",
+            params: {
+              threadId: nativeThreadId,
+              turnId: nativeTurnId,
+              callId: String(id),
+              namespace: "j1_mausbot",
+              tool: "bot_tools",
+              arguments: {},
+              ...overrides,
             },
           },
-          { type: "expect_outbound", frame: { id, result } },
-        ];
-        const entries =
-          scenario === "registered"
-            ? [
-                ...preamble,
-                ...call(
-                  20,
-                  {},
-                  {
-                    success: true,
-                    contentItems: [{ type: "inputText", text: '{"available":true}' }],
-                  },
-                ),
-                ...call(21, { callId: "20" }),
-                ...call(22, { threadId: "foreign-thread" }),
-                ...call(23, { turnId: "previous-turn" }),
-                ...call(24, { namespace: "foreign" }),
-                ...call(25, { callId: "" }),
-                ...call(26, { turnId: "" }),
-                ...call(27, { tool: "bot_call" }),
-                ...call(28, {}),
-                {
-                  type: "emit_inbound" as const,
-                  frame: {
-                    method: "turn/completed",
-                    params: {
-                      threadId: nativeThreadId,
-                      turn: makeCodexReplayTurn({ id: nativeTurnId, status: "completed" }),
-                    },
-                  },
+        },
+        { type: "expect_outbound", frame: { id, result } },
+      ];
+      const entries = registered
+        ? [
+            ...preamble,
+            ...call(
+              20,
+              {},
+              {
+                success: true,
+                contentItems: [{ type: "inputText", text: '{"available":true}' }],
+              },
+            ),
+            ...call(21, { callId: "20" }),
+            ...call(22, { threadId: "foreign-thread" }),
+            ...call(23, { turnId: "previous-turn" }),
+            ...call(24, { namespace: "foreign" }),
+            ...call(25, { callId: "" }),
+            ...call(26, { turnId: "" }),
+            ...call(27, { tool: "bot_call" }),
+            ...call(28, {}),
+            {
+              type: "emit_inbound" as const,
+              frame: {
+                method: "turn/completed",
+                params: {
+                  threadId: nativeThreadId,
+                  turn: makeCodexReplayTurn({ id: nativeTurnId, status: "completed" }),
                 },
-              ]
-            : preamble.slice(0, scenario === "revoked-registration" ? 3 : 5);
-        const authorize = Effect.sync(() => authorized);
-        const prepared = yield* Effect.result(
-          makeCodexReplayHarness(
-            makeCodexReplayTranscript({ scenario: `bot-tool-${scenario}`, entries }),
-            () => Effect.void,
-            (method, _params, guard) =>
-              Effect.sync(() => {
-                if (method === "thread/start") guardedRegistration = guard === authorize;
-              }),
-            undefined,
-            (entry) =>
-              Effect.sync(() => {
-                if ((entry.frame as { id?: number }).id === 28) authorized = false;
-              }),
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            threadId,
-            scenario === "no-registration" ? undefined : { tools, authorize },
-          ),
-        );
-        if (scenario === "revoked-registration") {
-          assert.equal(prepared._tag, "Failure");
-          assert.isTrue(guardedRegistration);
-          assert.deepEqual(calls, []);
-          return;
-        }
-        if (prepared._tag === "Failure") return yield* Effect.die(prepared.failure);
-        const harness = prepared.success;
-        const turnInput = makeCodexTestTurnInput({
-          threadId,
-          providerThread: harness.providerThread,
-          now: yield* DateTime.now,
-          attemptId: RunAttemptId.make("protected-bot-attempt"),
-          text: prompt,
-        });
-        const bot = harness.runtime.botTurnStart;
-        if (bot === undefined) return yield* Effect.die("missing guarded bot startup");
-        const result = yield* Effect.result(
-          bot.start(turnInput, {
-            prompt: "",
-            restrictedTools: false,
-            tools,
-            authorizeNativeWrite: authorize,
-            call: async (name, args) => {
-              calls.push({ name, args });
-              return { available: true };
+              },
             },
-          }),
-        );
-        if (scenario === "registered") {
-          assert.equal(result._tag, "Success");
-          yield* harness.firstTerminal;
-          assert.isTrue(guardedRegistration);
-          assert.deepEqual(calls, [{ name: "bot_tools", args: {} }]);
-        } else {
-          assert.equal(result._tag, "Failure");
-          assert.isFalse(guardedRegistration);
-          assert.deepEqual(calls, []);
-        }
-      }).pipe(
-        Effect.scoped,
-        Effect.provide(
-          Layer.mergeAll(
-            IdAllocator.layer,
-            McpProviderSessions.layer,
-            NodeServices.layer,
-            NodeCrypto.layer,
-          ),
+          ]
+        : preamble.slice(0, scenario === "revoked-registration" ? 3 : 5);
+      const authorize = Effect.sync(() => authorized);
+      const prepared = yield* Effect.result(
+        makeCodexReplayHarness(
+          makeCodexReplayTranscript({ scenario: `bot-tool-${scenario}`, entries }),
+          () => Effect.void,
+          (method, _params, guard) =>
+            Effect.sync(() => {
+              if (method === "thread/start") guardedRegistration = guard === authorize;
+            }),
+          undefined,
+          (entry) =>
+            Effect.sync(() => {
+              if ((entry.frame as { id?: number }).id === 28) authorized = false;
+            }),
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          threadId,
+          scenario === "no-registration" ? undefined : { tools, authorize },
+          scenario === "second-bot-on-shared-session"
+            ? ThreadId.make("j1-mausbot:other:chat")
+            : undefined,
+        ),
+      );
+      if (scenario === "revoked-registration") {
+        assert.equal(prepared._tag, "Failure");
+        assert.isTrue(guardedRegistration);
+        assert.deepEqual(calls, []);
+        return;
+      }
+      if (prepared._tag === "Failure") return yield* Effect.die(prepared.failure);
+      const harness = prepared.success;
+      const turnInput = makeCodexTestTurnInput({
+        threadId,
+        providerThread: harness.providerThread,
+        now: yield* DateTime.now,
+        attemptId: RunAttemptId.make("protected-bot-attempt"),
+        text: prompt,
+      });
+      const bot = harness.runtime.botTurnStart;
+      if (bot === undefined) return yield* Effect.die("missing guarded bot startup");
+      const result = yield* Effect.result(
+        bot.start(turnInput, {
+          prompt: "",
+          restrictedTools: false,
+          tools,
+          authorizeNativeWrite: authorize,
+          call: async (name, args) => {
+            calls.push({ name, args });
+            return { available: true };
+          },
+        }),
+      );
+      if (registered) {
+        assert.equal(result._tag, "Success");
+        yield* harness.firstTerminal;
+        assert.isTrue(guardedRegistration);
+        assert.deepEqual(calls, [{ name: "bot_tools", args: {} }]);
+      } else {
+        assert.equal(result._tag, "Failure");
+        assert.isFalse(guardedRegistration);
+        assert.deepEqual(calls, []);
+      }
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(
+          IdAllocator.layer,
+          McpProviderSessions.layer,
+          NodeServices.layer,
+          NodeCrypto.layer,
         ),
       ),
+    ),
   );
 
   const mcpOrdinaryApproval = { action: "accept", content: { approval: "once" } };

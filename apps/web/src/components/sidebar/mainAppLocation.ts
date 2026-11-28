@@ -44,6 +44,10 @@ export function startMainAppLocationTracking(router: AnyRouter): () => void {
   return router.subscribe("onResolved", record);
 }
 
+export function getAppModalReturnHref() {
+  return appModalReturnHref ?? mainAppHref ?? "/";
+}
+
 /** The thread Settings or Usage opened over, for views mounted while the modal is open. */
 export function getAppModalReturnThreadTarget() {
   return appModalReturnThreadTarget;

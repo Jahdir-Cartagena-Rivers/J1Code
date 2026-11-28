@@ -2,9 +2,10 @@
 // in J1; the original bot harness retains its tool scopes, approvals and UI.
 import * as NodeCrypto from "node:crypto";
 import * as NodePath from "node:path";
-import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import * as NodeFS from "node:fs";
+import * as NodeURL from "node:url";
 import { inSecretFolder } from "../secret-folder.ts";
+import { managedRuntime } from "../j1/managed-runtime.ts";
 import type { ModelCatalog, ProviderDriver, RuntimeEvent, SendTurnInput } from "../contracts.ts";
 import { newEventId } from "../contracts.ts";
 import { mountChatTools, type ChatToolSession } from "./chat-mcp-tools.ts";
@@ -59,22 +60,44 @@ export interface NativeIncidentBatch {
   }[];
 }
 
-export function savedIncidentReports(path: ReadonlyArray<SavedHistoryLine>, ids: readonly string[], recipientThreadId: string, recipientBotId: string) {
-  const rows = path.filter(row => row.kind !== "activity" || row.attachments?.length);
+export function savedIncidentReports(
+  path: ReadonlyArray<SavedHistoryLine>,
+  ids: readonly string[],
+  recipientThreadId: string,
+  recipientBotId: string,
+) {
+  const rows = path.filter((row) => row.kind !== "activity" || row.attachments?.length);
   const suffix = rows.slice(-ids.length);
-  if (!ids.length || new Set(ids).size !== ids.length || suffix.length !== ids.length) return undefined;
+  if (!ids.length || new Set(ids).size !== ids.length || suffix.length !== ids.length)
+    return undefined;
   const reports = [];
   for (const [index, row] of suffix.entries()) {
     const ask = row.peerAsk;
-    if (row.id !== ids[index] || row.role !== "user" || row.kind !== "text" || row.sender ||
-        row.requestCancelled || row.attachments?.length || !row.text?.trim() ||
-        !ask?.unattended || !ask.incident || !ask.botId || !ask.incident.threadId ||
-        ask.incident.threadId === recipientThreadId ||
-        ask.incident.j1Recipient?.threadId !== recipientThreadId ||
-        ask.incident.j1Recipient.botId !== recipientBotId) return undefined;
-    reports.push({ nativeMessageId: row.id, sourceBotId: ask.botId, sourceThreadId: ask.incident.threadId,
-      sourceBotName: ask.name, notified: ask.incident.notified === true,
-      textHash: NodeCrypto.createHash("sha256").update(row.text).digest("hex") });
+    if (
+      row.id !== ids[index] ||
+      row.role !== "user" ||
+      row.kind !== "text" ||
+      row.sender ||
+      row.requestCancelled ||
+      row.attachments?.length ||
+      !row.text?.trim() ||
+      !ask?.unattended ||
+      !ask.incident ||
+      !ask.botId ||
+      !ask.incident.threadId ||
+      ask.incident.threadId === recipientThreadId ||
+      ask.incident.j1Recipient?.threadId !== recipientThreadId ||
+      ask.incident.j1Recipient.botId !== recipientBotId
+    )
+      return undefined;
+    reports.push({
+      nativeMessageId: row.id,
+      sourceBotId: ask.botId,
+      sourceThreadId: ask.incident.threadId,
+      sourceBotName: ask.name,
+      notified: ask.incident.notified === true,
+      textHash: NodeCrypto.createHash("sha256").update(row.text).digest("hex"),
+    });
   }
   return reports;
 }
@@ -82,17 +105,53 @@ export function savedIncidentReports(path: ReadonlyArray<SavedHistoryLine>, ids:
 export interface NativeAssignmentOrigin {
   readonly incidentBatch?: NativeIncidentBatch;
   readonly privateHandoffHash?: string;
-  readonly parkedStatus?: { readonly kind: "team-setup" | "mcp-setup" | "mcp-oauth" | "app-connector" | "signin-ack" | "credential-status"; readonly priorGeneration: string; readonly priorTurnId: string;
-    readonly privateReview?: { readonly person: string; readonly sourceId: string; readonly scopeHash: string };
-    readonly decisions: readonly { cardId: string; requestId: string; actionHash: string;
-      family?: "mcp" | "oauth" | "app" | "signin" | "credential"; flowId?: string; reviewHash?: string; group?: { id: string; cardIds: readonly string[] };
-      state: "applied" | "denied" | "cancelled" | "failed" | "acknowledged" | "saved" }[];
-    readonly mixed?: { readonly cardOrder: readonly string[];
-      readonly questions: readonly { cardId: string; requestId: string; answer: string; person: string }[] }; };
-  readonly consultation?: { readonly reply: "resume" | "poll"; readonly brief: string; readonly envelopeHash: string };
+  readonly parkedStatus?: {
+    readonly kind:
+      | "team-setup"
+      | "mcp-setup"
+      | "mcp-oauth"
+      | "app-connector"
+      | "signin-ack"
+      | "credential-status";
+    readonly priorGeneration: string;
+    readonly priorTurnId: string;
+    readonly privateReview?: {
+      readonly person: string;
+      readonly sourceId: string;
+      readonly scopeHash: string;
+    };
+    readonly decisions: readonly {
+      cardId: string;
+      requestId: string;
+      actionHash: string;
+      family?: "mcp" | "oauth" | "app" | "signin" | "credential";
+      flowId?: string;
+      reviewHash?: string;
+      group?: { id: string; cardIds: readonly string[] };
+      state: "applied" | "denied" | "cancelled" | "failed" | "acknowledged" | "saved";
+    }[];
+    readonly mixed?: {
+      readonly cardOrder: readonly string[];
+      readonly questions: readonly {
+        cardId: string;
+        requestId: string;
+        answer: string;
+        person: string;
+      }[];
+    };
+  };
+  readonly consultation?: {
+    readonly reply: "resume" | "poll";
+    readonly brief: string;
+    readonly envelopeHash: string;
+  };
   readonly privateHandoffGeneration?: string;
   readonly parentResultWake?: {
-    readonly root?: { readonly sourceMessageId: string; readonly sourceHash: string; readonly person: string };
+    readonly root?: {
+      readonly sourceMessageId: string;
+      readonly sourceHash: string;
+      readonly person: string;
+    };
     readonly priorGeneration: string;
     readonly priorTurnId: string;
     readonly execution: number;
@@ -101,8 +160,15 @@ export interface NativeAssignmentOrigin {
     readonly restarts?: number;
     readonly startedAt: number;
     readonly reports: readonly {
-      inboxId: string; childId: string; childBotId: string; childThreadId: string;
-      execution: number; finishedAt: number; reportedAt: number; resultHash: string; report: string;
+      inboxId: string;
+      childId: string;
+      childBotId: string;
+      childThreadId: string;
+      execution: number;
+      finishedAt: number;
+      reportedAt: number;
+      resultHash: string;
+      report: string;
     }[];
   };
   readonly childRestart?: {
@@ -118,7 +184,12 @@ export interface NativeAssignmentOrigin {
   readonly privateAnswers?: {
     readonly priorTurnId: string;
     readonly priorGeneration: string;
-    readonly answers: readonly { cardId: string; requestId: string; person: string; answer: string }[];
+    readonly answers: readonly {
+      cardId: string;
+      requestId: string;
+      person: string;
+      answer: string;
+    }[];
   };
   readonly root?: true;
   readonly nodeId: string;
@@ -158,13 +229,23 @@ interface SavedHistoryLine {
   readonly j1ProviderMessageId?: string;
   readonly j1CoordinatorRootId?: string;
   readonly j1ComputerSelections?: ReadonlyArray<
-    Omit<NonNullable<NativeAssignmentOrigin["computerSelection"]>, "dispatchGeneration"> &
-    { readonly dispatchGeneration?: string }
+    Omit<NonNullable<NativeAssignmentOrigin["computerSelection"]>, "dispatchGeneration"> & {
+      readonly dispatchGeneration?: string;
+    }
   >;
   readonly roomRequest?: { readonly id: string; readonly phase: string };
   readonly requestCancelled?: boolean;
   readonly sender?: unknown;
-  readonly peerAsk?: { botId: string; name: string; unattended?: boolean; incident?: { threadId: string; notified?: boolean; j1Recipient?: { botId: string; threadId: string } } };
+  readonly peerAsk?: {
+    botId: string;
+    name: string;
+    unattended?: boolean;
+    incident?: {
+      threadId: string;
+      notified?: boolean;
+      j1Recipient?: { botId: string; threadId: string };
+    };
+  };
   readonly attachments?: ReadonlyArray<{
     kind: "image" | "audio" | "file";
     path: string;
@@ -175,29 +256,58 @@ interface SavedHistoryLine {
 
 export type NativeRoomMemberRead = (turnId: string) => unknown;
 
-const roomTurns = new Map<string, {
-  botId: string; threadId: string; signal: AbortSignal; read: NativeRoomMemberRead;
-}>();
+const roomTurns = new Map<
+  string,
+  {
+    botId: string;
+    threadId: string;
+    signal: AbortSignal;
+    read: NativeRoomMemberRead;
+  }
+>();
 
 export function readOwnedNativeRoomTurn(
-  owner: { botId: string; threadId: string; signal: AbortSignal; read: NativeRoomMemberRead } | undefined,
-  botId: string, threadId: string, turnId: string,
+  owner:
+    | { botId: string; threadId: string; signal: AbortSignal; read: NativeRoomMemberRead }
+    | undefined,
+  botId: string,
+  threadId: string,
+  turnId: string,
 ) {
-  if (!owner || owner.signal.aborted || owner.botId !== botId || owner.threadId !== threadId) return null;
+  if (!owner || owner.signal.aborted || owner.botId !== botId || owner.threadId !== threadId)
+    return null;
   return owner.read(turnId);
 }
 
 export interface NativeIncidentRetryNote {
-  id: string; chiefId: string; chiefThreadId: string; text: string;
+  id: string;
+  chiefId: string;
+  chiefThreadId: string;
+  text: string;
 }
 
-const resumeTurns = new Map<string, {
-  botId: string; threadId: string; cursor: string; signal: AbortSignal; current(): boolean; incidentFailure?: string; incidentNote?: NativeIncidentRetryNote;
-}>();
+const resumeTurns = new Map<
+  string,
+  {
+    botId: string;
+    threadId: string;
+    cursor: string;
+    signal: AbortSignal;
+    current(): boolean;
+    incidentFailure?: string;
+    incidentNote?: NativeIncidentRetryNote;
+  }
+>();
 
-const historyTurns = new Map<string, {
-  botId: string; threadId: string; anchor: SavedHistoryAnchor; signal: AbortSignal;
-}>();
+const historyTurns = new Map<
+  string,
+  {
+    botId: string;
+    threadId: string;
+    anchor: SavedHistoryAnchor;
+    signal: AbortSignal;
+  }
+>();
 
 type SavedAttachmentRoots = {
   readonly managed: string;
@@ -209,17 +319,35 @@ function ownedAttachmentReference(path: string, roots: SavedAttachmentRoots) {
   const invalid = () => new Error("A saved attachment is outside the native file scope.");
   const segments = (name: string) => {
     const parts = name.split(/[\\\\/]/u);
-    if (inSecretFolder(name) || parts.some(part => !part || part === "." || part === ".." || part.length > 255 ||
-        /^(?:con|prn|aux|nul|conin\$|conout\$|com[1-9\u00b9\u00b2\u00b3]|lpt[1-9\u00b9\u00b2\u00b3])(?:\.|$)/iu.test(part) ||
-        /[:*?"<>|\u0000-\u001f]/u.test(part) || part.endsWith(".") || part.endsWith(" "))) throw invalid();
+    if (
+      inSecretFolder(name) ||
+      parts.some(
+        (part) =>
+          !part ||
+          part === "." ||
+          part === ".." ||
+          part.length > 255 ||
+          /^(?:con|prn|aux|nul|conin\$|conout\$|com[1-9\u00b9\u00b2\u00b3]|lpt[1-9\u00b9\u00b2\u00b3])(?:\.|$)/iu.test(
+            part,
+          ) ||
+          /[:*?"<>|\u0000-\u001f]/u.test(part) ||
+          part.endsWith(".") ||
+          part.endsWith(" "),
+      )
+    )
+      throw invalid();
     return parts;
   };
   const prefix = "/api/attachments/";
   const reference = (root: keyof SavedAttachmentRoots, name: string) => {
     const parts = segments(name);
     const base = roots[root];
-    if (!base || (root === "managed" && parts.length !== 1) ||
-        inSecretFolder(NodePath.join(base, ...parts))) throw invalid();
+    if (
+      !base ||
+      (root === "managed" && parts.length !== 1) ||
+      inSecretFolder(NodePath.join(base, ...parts))
+    )
+      throw invalid();
     return { root, filename: parts.join("/") };
   };
   if (path.startsWith(prefix)) return reference("managed", path.slice(prefix.length));
@@ -231,7 +359,7 @@ function ownedAttachmentReference(path: string, roots: SavedAttachmentRoots) {
   if (asFileUrl) {
     const url = new URL(path);
     if (url.username || url.password || url.port || url.search || url.hash) throw invalid();
-    local = fileURLToPath(url);
+    local = NodeURL.fileURLToPath(url);
   }
   if (/^[\\\\/]{2}[.?][\\\\/]/u.test(local)) throw invalid();
   if (NodePath.isAbsolute(local)) {
@@ -239,17 +367,23 @@ function ownedAttachmentReference(path: string, roots: SavedAttachmentRoots) {
       const base = roots[root];
       if (!base) continue;
       const relative = NodePath.relative(base, local);
-      if (relative && relative !== ".." && !relative.startsWith(".." + NodePath.sep) &&
-          !NodePath.isAbsolute(relative)) return reference(root, relative);
+      if (
+        relative &&
+        relative !== ".." &&
+        !relative.startsWith(".." + NodePath.sep) &&
+        !NodePath.isAbsolute(relative)
+      )
+        return reference(root, relative);
     }
     throw invalid();
   }
   const parts = segments(local);
   // Bare blob names were used by the native upload store before workspace references.
-  if (parts.length === 1 && existsSync(NodePath.join(roots.managed, local))) return reference("managed", local);
+  if (parts.length === 1 && NodeFS.existsSync(NodePath.join(roots.managed, local)))
+    return reference("managed", local);
   for (const root of ["workspace", "bot"] as const) {
     const base = roots[root];
-    if (base && existsSync(NodePath.join(base, ...parts))) return reference(root, local);
+    if (base && NodeFS.existsSync(NodePath.join(base, ...parts))) return reference(root, local);
   }
   if (parts.length === 1) return reference("managed", local);
   throw invalid();
@@ -262,21 +396,34 @@ export function savedHistoryForTurn(
 ) {
   const origin = anchor.origin;
   const authoredRoot = origin?.root === true && origin.dispatch === "first";
-  const index = path.findIndex(line => line.id === anchor.messageId && (origin?.incidentBatch
-    ? line.role === "user" && Boolean(line.peerAsk?.incident)
-    : origin?.root
-    ? line.role === "user" && line.j1CoordinatorRootId === origin.nodeId
-    : origin
-      ? line.role === "bot" && line.roomRequest?.id === origin.requestId && line.roomRequest.phase === "request"
-      : line.role === "user"));
-  if (index < 0 || ((!origin || origin.dispatch === "first") &&
-      path.slice(index + 1).some(line => line.kind !== "activity" || Boolean(line.attachments?.length)))) {
+  const index = path.findIndex(
+    (line) =>
+      line.id === anchor.messageId &&
+      (origin?.incidentBatch
+        ? line.role === "user" && Boolean(line.peerAsk?.incident)
+        : origin?.root
+          ? line.role === "user" && line.j1CoordinatorRootId === origin.nodeId
+          : origin
+            ? line.role === "bot" &&
+              line.roomRequest?.id === origin.requestId &&
+              line.roomRequest.phase === "request"
+            : line.role === "user"),
+  );
+  if (
+    index < 0 ||
+    ((!origin || origin.dispatch === "first") &&
+      path
+        .slice(index + 1)
+        .some((line) => line.kind !== "activity" || Boolean(line.attachments?.length)))
+  ) {
     throw new Error("The active native branch moved beyond the current message.");
   }
   const nativeAttachment = (attachment: NonNullable<SavedHistoryLine["attachments"]>[number]) => {
     const reference = ownedAttachmentReference(attachment.path, attachmentRoots);
     return {
-      ...reference, name: attachment.name ?? NodePath.basename(reference.filename), mime: attachment.mime,
+      ...reference,
+      name: attachment.name ?? NodePath.basename(reference.filename),
+      mime: attachment.mime,
       type: attachment.kind === "image" ? "image" : "file",
     };
   };
@@ -285,41 +432,66 @@ export function savedHistoryForTurn(
   const choiceIndex = (origin?.execution ?? 0) - 2;
   const savedChoice = choices?.[choiceIndex];
   const previousChoice = choiceIndex > 0 ? choices?.[choiceIndex - 1] : undefined;
-  if ((origin?.dispatch === "computer") !== Boolean(choice) ||
-      (choice && (!savedChoice || savedChoice.id !== choice.id ||
-        savedChoice.sourceGeneration !== choice.sourceGeneration || savedChoice.dispatchGeneration !== choice.dispatchGeneration ||
-        savedChoice.selected !== choice.selected || savedChoice.previousSurface !== choice.previousSurface ||
-        savedChoice.sourceSurface !== choice.sourceSurface || savedChoice.previousChoiceId !== choice.previousChoiceId ||
+  if (
+    (origin?.dispatch === "computer") !== Boolean(choice) ||
+    (choice &&
+      (!savedChoice ||
+        savedChoice.id !== choice.id ||
+        savedChoice.sourceGeneration !== choice.sourceGeneration ||
+        savedChoice.dispatchGeneration !== choice.dispatchGeneration ||
+        savedChoice.selected !== choice.selected ||
+        savedChoice.previousSurface !== choice.previousSurface ||
+        savedChoice.sourceSurface !== choice.sourceSurface ||
+        savedChoice.previousChoiceId !== choice.previousChoiceId ||
         (choiceIndex > 0
-          ? !previousChoice || previousChoice.id !== choice.previousChoiceId ||
-            previousChoice.dispatchGeneration !== choice.sourceGeneration || previousChoice.selected !== choice.sourceSurface
+          ? !previousChoice ||
+            previousChoice.id !== choice.previousChoiceId ||
+            previousChoice.dispatchGeneration !== choice.sourceGeneration ||
+            previousChoice.selected !== choice.sourceSurface
           : choice.previousChoiceId !== undefined || choice.sourceGeneration !== origin?.nodeId) ||
-        path.findLast(line => line.role === "user" && line.kind === "text")?.id !== anchor.messageId))) {
+        path.findLast((line) => line.role === "user" && line.kind === "text")?.id !==
+          anchor.messageId))
+  ) {
     throw new Error("The native computer selection no longer owns this branch.");
   }
-  if (origin && (!origin.current() || origin.sourceMessageId !== anchor.messageId ||
-      (!authoredRoot && anchor.currentImages.length))) {
+  if (
+    origin &&
+    (!origin.current() ||
+      origin.sourceMessageId !== anchor.messageId ||
+      (!authoredRoot && anchor.currentImages.length))
+  ) {
     throw new Error("The coordinator assignment does not own this saved input.");
   }
-  const promptAttachments = origin && !authoredRoot ? [] : (path[index]?.attachments ?? []).map(nativeAttachment);
+  const promptAttachments =
+    origin && !authoredRoot ? [] : (path[index]?.attachments ?? []).map(nativeAttachment);
   for (const image of anchor.currentImages) {
     const saved = nativeAttachment({ ...image, kind: "image" });
-    if (!promptAttachments.some(item => item.root === saved.root && item.filename === saved.filename &&
-        item.type === "image" &&
-        item.mime === saved.mime)) {
+    if (
+      !promptAttachments.some(
+        (item) =>
+          item.root === saved.root &&
+          item.filename === saved.filename &&
+          item.type === "image" &&
+          item.mime === saved.mime,
+      )
+    ) {
       throw new Error("The current image was not saved on the anchored native message.");
     }
   }
   const toRow = (line: SavedHistoryLine) => {
-    if (!Number.isSafeInteger(line.at) || (line.turnCompletedAt !== undefined &&
-        (!Number.isSafeInteger(line.turnCompletedAt) || line.turnCompletedAt < line.at))) {
+    if (
+      !Number.isSafeInteger(line.at) ||
+      (line.turnCompletedAt !== undefined &&
+        (!Number.isSafeInteger(line.turnCompletedAt) || line.turnCompletedAt < line.at))
+    ) {
       throw new Error("A saved native message has an invalid timestamp.");
     }
     return {
       nativeMessageId: line.id,
       ...(origin && line.j1ProviderMessageId ? { mirrorMessageId: line.j1ProviderMessageId } : {}),
       createdAt: new Date(line.at).toISOString(),
-      completedAt: line.turnCompletedAt === undefined ? null : new Date(line.turnCompletedAt).toISOString(),
+      completedAt:
+        line.turnCompletedAt === undefined ? null : new Date(line.turnCompletedAt).toISOString(),
       role: line.role === "user" ? "user" : "assistant",
       text: line.text ?? "",
       attachments: (line.attachments ?? []).map(nativeAttachment),
@@ -327,21 +499,39 @@ export function savedHistoryForTurn(
   };
   const messages = (origin && !authoredRoot ? path : path.slice(0, index)).map(toRow);
   return {
-    anchorMessageId: anchor.messageId, promptText: anchor.promptText, promptAttachments, messages,
-    ...(authoredRoot ? { authoredSource: toRow(path[index]!), authoredInputText: anchor.authoredInputText } : {}),
-    ...(origin ? { origin: { ...(origin.root ? { root: true as const } : {}), nodeId: origin.nodeId, requestId: origin.requestId,
-      execution: origin.execution, dispatch: origin.dispatch, restarts: origin.restarts,
-      ...(origin.computerSelection ? { computerSelection: origin.computerSelection } : {}),
-      ...(origin.incidentBatch ? { incidentBatch: origin.incidentBatch } : {}),
-      ...(origin.privateHandoffHash ? { privateHandoffHash: origin.privateHandoffHash } : {}),
-      ...(origin.consultation ? { consultation: origin.consultation } : {}),
-      ...(origin.privateHandoffGeneration ? { privateHandoffGeneration: origin.privateHandoffGeneration } : {}),
-      ...(origin.privateAnswers ? { privateAnswers: origin.privateAnswers } : {}),
-      ...(origin.parkedStatus ? { parkedStatus: origin.parkedStatus } : {}),
-      ...(origin.childRestart ? { childRestart: origin.childRestart } : {}),
-      ...(origin.parentResultWake ? { parentResultWake: origin.parentResultWake } : {}),
-      sourceMessageId: origin.sourceMessageId,
-      approvalMode: origin.approvalMode, restrictedTools: origin.restrictedTools } } : {}),
+    anchorMessageId: anchor.messageId,
+    promptText: anchor.promptText,
+    promptAttachments,
+    messages,
+    ...(authoredRoot
+      ? { authoredSource: toRow(path[index]!), authoredInputText: anchor.authoredInputText }
+      : {}),
+    ...(origin
+      ? {
+          origin: {
+            ...(origin.root ? { root: true as const } : {}),
+            nodeId: origin.nodeId,
+            requestId: origin.requestId,
+            execution: origin.execution,
+            dispatch: origin.dispatch,
+            restarts: origin.restarts,
+            ...(origin.computerSelection ? { computerSelection: origin.computerSelection } : {}),
+            ...(origin.incidentBatch ? { incidentBatch: origin.incidentBatch } : {}),
+            ...(origin.privateHandoffHash ? { privateHandoffHash: origin.privateHandoffHash } : {}),
+            ...(origin.consultation ? { consultation: origin.consultation } : {}),
+            ...(origin.privateHandoffGeneration
+              ? { privateHandoffGeneration: origin.privateHandoffGeneration }
+              : {}),
+            ...(origin.privateAnswers ? { privateAnswers: origin.privateAnswers } : {}),
+            ...(origin.parkedStatus ? { parkedStatus: origin.parkedStatus } : {}),
+            ...(origin.childRestart ? { childRestart: origin.childRestart } : {}),
+            ...(origin.parentResultWake ? { parentResultWake: origin.parentResultWake } : {}),
+            sourceMessageId: origin.sourceMessageId,
+            approvalMode: origin.approvalMode,
+            restrictedTools: origin.restrictedTools,
+          },
+        }
+      : {}),
     workspaceRoot: attachmentRoots.workspace ?? null,
   };
 }
@@ -362,43 +552,81 @@ export function nativeResumeCursor(value: unknown, botId: string, threadId: stri
 }
 
 export function registerSavedBotEnrollmentReader(
-  read: (botId: string, threadId: string, history?: {
-    turnId: string; anchor: SavedHistoryAnchor;
-  }, resumeCursor?: string, incidentFailure?: string, incidentNote?: NativeIncidentRetryNote) => unknown,
+  read: (
+    botId: string,
+    threadId: string,
+    history?: {
+      turnId: string;
+      anchor: SavedHistoryAnchor;
+    },
+    resumeCursor?: string,
+    incidentFailure?: string,
+    incidentNote?: NativeIncidentRetryNote,
+  ) => unknown,
 ) {
-  if (process.env.J1_MAUSBOT_MANAGED !== "1" || !process.send) return;
+  if (!managedRuntime || !process.send) return;
   process.on("message", (message: unknown) => {
     if (!object(message) || message.type !== "j1:saved-bot-enrollment-query") return;
     const { requestId, botId, threadId, turnId, resumeTurnId, roomTurnId } = message;
     if (typeof requestId !== "string" || !/^[a-f0-9-]{36}$/u.test(requestId)) return;
     const id = /^[\w-]{1,120}$/u;
-    if (typeof botId !== "string" || !id.test(botId) ||
-        typeof threadId !== "string" || !id.test(threadId)) return;
+    if (
+      typeof botId !== "string" ||
+      !id.test(botId) ||
+      typeof threadId !== "string" ||
+      !id.test(threadId)
+    )
+      return;
     try {
       if (roomTurnId !== undefined) {
-        const value = typeof roomTurnId === "string" && id.test(roomTurnId) &&
-            turnId === undefined && resumeTurnId === undefined
-          ? readOwnedNativeRoomTurn(roomTurns.get(roomTurnId), botId, threadId, roomTurnId)
-          : null;
+        const value =
+          typeof roomTurnId === "string" &&
+          id.test(roomTurnId) &&
+          turnId === undefined &&
+          resumeTurnId === undefined
+            ? readOwnedNativeRoomTurn(roomTurns.get(roomTurnId), botId, threadId, roomTurnId)
+            : null;
         process.send?.({ type: "j1:saved-bot-enrollment-result", requestId, value });
         return;
       }
       let history: { turnId: string; anchor: SavedHistoryAnchor } | undefined;
       if (turnId !== undefined) {
         const owner = typeof turnId === "string" ? historyTurns.get(turnId) : undefined;
-        if (typeof turnId !== "string" || !owner || owner.signal.aborted ||
-            owner.botId !== botId || owner.threadId !== threadId) {
+        if (
+          typeof turnId !== "string" ||
+          !owner ||
+          owner.signal.aborted ||
+          owner.botId !== botId ||
+          owner.threadId !== threadId
+        ) {
           throw new Error("The saved history request has no current native turn.");
         }
         history = { turnId, anchor: owner.anchor };
       }
       const resume = typeof resumeTurnId === "string" ? resumeTurns.get(resumeTurnId) : undefined;
-      if (resumeTurnId !== undefined && (history || !resume || resume.signal.aborted ||
-          resume.botId !== botId || resume.threadId !== threadId || !resume.current())) {
+      if (
+        resumeTurnId !== undefined &&
+        (history ||
+          !resume ||
+          resume.signal.aborted ||
+          resume.botId !== botId ||
+          resume.threadId !== threadId ||
+          !resume.current())
+      ) {
         throw new Error("The saved continuation does not own this native turn.");
       }
-      process.send?.({ type: "j1:saved-bot-enrollment-result", requestId,
-        value: read(botId, threadId, history, resume?.cursor, resume?.incidentFailure, resume?.incidentNote) });
+      process.send?.({
+        type: "j1:saved-bot-enrollment-result",
+        requestId,
+        value: read(
+          botId,
+          threadId,
+          history,
+          resume?.cursor,
+          resume?.incidentFailure,
+          resume?.incidentNote,
+        ),
+      });
     } catch {
       process.send?.({ type: "j1:saved-bot-enrollment-result", requestId, value: null });
     }
@@ -557,9 +785,16 @@ export const J1SharedDriver: ProviderDriver<Record<string, never>> = {
         turn.sessionAnnounced = true;
         const cursor = payload.resumeCursor;
         const messageId = turn.input.j1SavedHistoryAnchor?.messageId;
-        const anchored = typeof cursor === "string" && messageId ? cursor + "~" + messageId : undefined;
-        const sessionId = anchored && turn.input.botId && nativeResumeCursor(anchored, turn.input.botId, turn.input.threadId)
-          ? anchored : typeof cursor === "string" ? cursor : "j1-shared:" + turn.input.botId + ":" + turn.input.threadId;
+        const anchored =
+          typeof cursor === "string" && messageId ? cursor + "~" + messageId : undefined;
+        const sessionId =
+          anchored &&
+          turn.input.botId &&
+          nativeResumeCursor(anchored, turn.input.botId, turn.input.threadId)
+            ? anchored
+            : typeof cursor === "string"
+              ? cursor
+              : "j1-shared:" + turn.input.botId + ":" + turn.input.threadId;
         send({
           type: "session.started",
           sessionId,
@@ -706,9 +941,12 @@ export const J1SharedDriver: ProviderDriver<Record<string, never>> = {
               payload.state !== "failed" &&
               payload.state !== "interrupted",
             stopReason: payload.errorMessage ?? payload.reason ?? payload.stopReason,
-            ...(event.type === "turn.completed" && payload.state === "failed" &&
-                typeof payload.incidentFailure === "string" && payload.incidentFailure.length <= 4096
-              ? { j1IncidentFailure: payload.incidentFailure } : {}),
+            ...(event.type === "turn.completed" &&
+            payload.state === "failed" &&
+            typeof payload.incidentFailure === "string" &&
+            payload.incidentFailure.length <= 4096
+              ? { j1IncidentFailure: payload.incidentFailure }
+              : {}),
             cost: payload.totalCostUsd,
             ...(object(payload.tokenUsage)
               ? {
@@ -806,15 +1044,17 @@ export const J1SharedDriver: ProviderDriver<Record<string, never>> = {
           const selected = decodeSharedModel(turnInput.model ?? models.default);
           await turnInput.engineAdmission?.("session");
           const controller = new AbortController();
-          const tools = turnInput.j1Consultation ? null : await mountChatTools(
-            turnInput.integrations,
-            controller.signal,
-            true,
-            turnInput.toolScope,
-            turnInput.mcpCallTimeoutMs,
-            undefined,
-            turnInput.toolResultFolder,
-          );
+          const tools = turnInput.j1Consultation
+            ? null
+            : await mountChatTools(
+                turnInput.integrations,
+                controller.signal,
+                true,
+                turnInput.toolScope,
+                turnInput.mcpCallTimeoutMs,
+                undefined,
+                turnInput.toolResultFolder,
+              );
           const turnId = NodeCrypto.randomUUID();
           const approvals = createChatToolApproval({
             signal: controller.signal,
@@ -869,28 +1109,45 @@ export const J1SharedDriver: ProviderDriver<Record<string, never>> = {
           };
           turns.set(turnInput.threadId, turn);
           try {
-            if (turnInput.j1SavedHistoryAnchor && !turnInput.j1ExplicitResume) historyTurns.set(turnId, {
-              botId: turnInput.botId, threadId: turnInput.threadId,
-              anchor: turnInput.j1SavedHistoryAnchor, signal: controller.signal,
-            });
+            if (turnInput.j1SavedHistoryAnchor && !turnInput.j1ExplicitResume)
+              historyTurns.set(turnId, {
+                botId: turnInput.botId,
+                threadId: turnInput.threadId,
+                anchor: turnInput.j1SavedHistoryAnchor,
+                signal: controller.signal,
+              });
             if (turnInput.j1ExplicitResume) {
               const cursor = turnInput.resumeCursor;
               const saved = nativeResumeCursor(cursor, turnInput.botId, turnInput.threadId);
-              if (typeof cursor !== "string" || !saved || saved.messageId !== turnInput.j1SavedHistoryAnchor?.messageId ||
-                  !turnInput.j1ExplicitResume() || turnInput.text !== (turnInput.j1RetryNote?.text ?? "") || turnInput.images?.length ||
-                  turnInput.transcript?.length || turnInput.recoveryText) {
+              if (
+                typeof cursor !== "string" ||
+                !saved ||
+                saved.messageId !== turnInput.j1SavedHistoryAnchor?.messageId ||
+                !turnInput.j1ExplicitResume() ||
+                turnInput.text !== (turnInput.j1RetryNote?.text ?? "") ||
+                turnInput.images?.length ||
+                turnInput.transcript?.length ||
+                turnInput.recoveryText
+              ) {
                 throw new Error("The saved J1 continuation does not match this bot message.");
               }
               resumeTurns.set(turnId, {
-                botId: turnInput.botId, threadId: turnInput.threadId,
-                cursor, signal: controller.signal, current: turnInput.j1ExplicitResume,
-                incidentFailure: turnInput.j1RetryFailure, incidentNote: turnInput.j1RetryNote,
+                botId: turnInput.botId,
+                threadId: turnInput.threadId,
+                cursor,
+                signal: controller.signal,
+                current: turnInput.j1ExplicitResume,
+                incidentFailure: turnInput.j1RetryFailure,
+                incidentNote: turnInput.j1RetryNote,
               });
             }
-            if (turnInput.j1RoomTurn && turnInput.j1RoomMemberRead) roomTurns.set(turnId, {
-              botId: turnInput.botId, threadId: turnInput.threadId,
-              signal: controller.signal, read: turnInput.j1RoomMemberRead,
-            });
+            if (turnInput.j1RoomTurn && turnInput.j1RoomMemberRead)
+              roomTurns.set(turnId, {
+                botId: turnInput.botId,
+                threadId: turnInput.threadId,
+                signal: controller.signal,
+                read: turnInput.j1RoomMemberRead,
+              });
             const origin = turnInput.j1SavedHistoryAnchor?.origin;
             const authoredRoot = origin?.root === true && origin.dispatch === "first";
             const privateCoordinator = origin && !authoredRoot;
@@ -902,7 +1159,9 @@ export const J1SharedDriver: ProviderDriver<Record<string, never>> = {
               title: turnInput.j1BotName ?? "Bot conversation",
               ...(turnInput.j1ProjectId ? { projectId: turnInput.j1ProjectId } : {}),
               cwd: turnInput.cwd ?? process.cwd(),
-              text: privateCoordinator ? turnInput.j1SavedHistoryAnchor!.promptText : turnInput.text,
+              text: privateCoordinator
+                ? turnInput.j1SavedHistoryAnchor!.promptText
+                : turnInput.text,
               system: turnInput.system ?? "",
               turnId,
               ...(privateCoordinator ? { nativeOriginStart: true } : {}),
@@ -911,7 +1170,8 @@ export const J1SharedDriver: ProviderDriver<Record<string, never>> = {
               ...(turnInput.j1RetryNote ? { nativeIncidentNote: true } : {}),
               ...(authoredRoot ? { trackCoordinatorRoot: true } : {}),
               sharedContinuation:
-                !privateCoordinator && typeof turnInput.resumeCursor === "string" &&
+                !privateCoordinator &&
+                typeof turnInput.resumeCursor === "string" &&
                 turnInput.resumeCursor.startsWith("j1-shared:"),
               restrictedTools: turnInput.toolScope !== undefined,
               ...(turnInput.transcript ? { transcript: turnInput.transcript } : {}),
@@ -929,19 +1189,23 @@ export const J1SharedDriver: ProviderDriver<Record<string, never>> = {
               approvalMode: turnInput.approvalModeNow?.() ?? turnInput.approvalMode ?? "ask",
               guestConfined: false,
               images: turnInput.images ?? [],
-              tools: tools?.definitions.map(({ function: fn }) => ({
-                name: fn.name,
-                description: fn.description,
-                inputSchema: fn.parameters,
-              })) ?? [],
+              tools:
+                tools?.definitions.map(({ function: fn }) => ({
+                  name: fn.name,
+                  description: fn.description,
+                  inputSchema: fn.parameters,
+                })) ?? [],
             });
             if (!object(result) || result.turnId !== turnId)
               throw new Error("J1 did not accept the bot turn.");
             if (result.replayed === true) {
               emit(turnInput.threadId, {
-                type: "turn.completed", turnId: result.turnId, ok: false,
+                type: "turn.completed",
+                turnId: result.turnId,
+                ok: false,
                 stopReason: turnInput.j1SavedHistoryAnchor?.origin
-                  ? "This coordinator execution was already admitted." : "Resume was already recorded for this saved run.",
+                  ? "This coordinator execution was already admitted."
+                  : "Resume was already recorded for this saved run.",
               });
               await cleanup(turnInput.threadId);
             }
@@ -960,8 +1224,12 @@ export const J1SharedDriver: ProviderDriver<Record<string, never>> = {
             turn.controller.abort();
             turn.approvals.close();
             const origin = turn.input.j1SavedHistoryAnchor?.origin;
-            const durableStop = origin && (!(origin.root && origin.dispatch === "first") || origin.stopped?.());
-            await sharedExecutionRequest({ action: durableStop ? "stop" : "interrupt", ...source(turn) });
+            const durableStop =
+              origin && (!(origin.root && origin.dispatch === "first") || origin.stopped?.());
+            await sharedExecutionRequest({
+              action: durableStop ? "stop" : "interrupt",
+              ...source(turn),
+            });
           }
         },
         async respondToRequest(threadId, requestId, decision) {

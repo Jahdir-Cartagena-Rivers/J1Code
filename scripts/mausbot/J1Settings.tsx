@@ -17,6 +17,7 @@ import {
   j1Post,
   j1NativeSettings,
   useJ1Navigation,
+  getHostSettingsState,
 } from "./J1Navigation";
 import { j1Request } from "../j1-native-client";
 
@@ -58,9 +59,11 @@ export function j1ExtraPages(pages: { path: string; label: string }[] = [], grou
   return pages.filter((page) => extraPages[page.path as keyof typeof extraPages]?.group === group);
 }
 export function j1OpenSettings(section: AppSettingsSection) {
-  const path = j1SettingsPath(section);
+  const key: string = section;
+  const path = key === "app" || key === "updates" ? "/settings/about" : j1SettingsPath(section);
   if (path) j1Post({ type: "settings-navigate", path });
   else j1NativeSettings();
+  return Boolean(path && typeof getHostSettingsState() === "boolean");
 }
 export function j1Focusable(root: ParentNode): HTMLElement[] {
   const result: HTMLElement[] = [];
@@ -95,11 +98,14 @@ export function J1SettingsBridge() {
   const { dispatch } = useStore();
   const active = navigation?.active;
   const previous = useRef(active);
+  const hostSettingsOpen = navigation?.hostSettingsOpen === true;
   useEffect(() => {
     if (!active) return;
     const leavingJ1Settings = previous.current?.startsWith("/settings/");
     previous.current = active;
-    if (active.startsWith("/settings/")) {
+    if (hostSettingsOpen) {
+      dispatch({ type: "toggleAppSettings", open: false });
+    } else if (active.startsWith("/settings/")) {
       consumeNativeSettingsSelection();
       dispatch({
         type: "toggleAppSettings",
@@ -112,7 +118,7 @@ export function J1SettingsBridge() {
     ) {
       dispatch({ type: "toggleAppSettings", open: false });
     }
-  }, [active, dispatch]);
+  }, [active, dispatch, hostSettingsOpen]);
   useEffect(() => {
     const origin = new URLSearchParams(location.hash.slice(1)).get("j1-origin");
     const receive = (event: MessageEvent) => {

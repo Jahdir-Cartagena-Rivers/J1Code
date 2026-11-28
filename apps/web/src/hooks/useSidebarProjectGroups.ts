@@ -1,4 +1,4 @@
-import { isStandaloneBotProject } from "@j1code/shared/bot-workspace";
+import { isManagedBotProject } from "@j1code/shared/bot-workspace";
 import { getProjectRootChats } from "../components/WorkerChats";
 import { orderItemsByPreferredIds, sortSidebarV2ProjectGroups } from "../components/Sidebar.logic";
 import {
@@ -13,7 +13,7 @@ import { useClientSettings } from "./useSettings";
 
 export function useSidebarProjectGroups() {
   const projects = useProjects().filter(
-    (project) => project.id !== "j1-home" && !isStandaloneBotProject(project.id),
+    (project) => project.id !== "j1-home" && !isManagedBotProject(project),
   );
   // Activity order lags a running thread's streaming ticks until its next
   // real change; reading every tick re-rendered the whole sidebar with it.

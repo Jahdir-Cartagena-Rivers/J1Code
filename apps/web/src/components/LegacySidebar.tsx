@@ -1,4 +1,4 @@
-import { isStandaloneBotProject } from "@j1code/shared/bot-workspace";
+import { isManagedBotProject, isStandaloneBotProject } from "@j1code/shared/bot-workspace";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@j1code/client-runtime/thread-pull-requests";
 import { Spinner } from "~/components/ui/spinner";
@@ -2896,7 +2896,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
 export default function LegacySidebar({ embedded = false }: { embedded?: boolean } = {}) {
   const allProjects = useProjects();
   const projects = allProjects.filter(
-    (project) => project.id !== "j1-home" && !isStandaloneBotProject(project.id),
+    (project) => project.id !== "j1-home" && !isManagedBotProject(project),
   );
   const allSidebarThreads = useRootChatShells();
   const sidebarThreads = allSidebarThreads.filter(

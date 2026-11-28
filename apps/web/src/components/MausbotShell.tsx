@@ -27,17 +27,17 @@ import { openCommandPalette } from "../commandPaletteBus";
 import { isWindowsPlatform, randomUUID } from "../lib/utils";
 import { SETTINGS_SECTION_LABELS, searchSettings } from "./settings/settingsSearch";
 import { useAvailableSettingsSearchItems } from "./settings/useAvailableSettingsSearchItems";
-import { useNavigateToMainApp } from "./sidebar/mainAppLocation";
+import { getAppModalReturnHref, useNavigateToMainApp } from "./sidebar/mainAppLocation";
 import { createPortal } from "react-dom";
-import { useMausbotSettingsPortal, useMausbotSlotPortal } from "./MausbotSettingsPortal";
+import { useMausbotSlotPortal } from "./MausbotSettingsPortal";
 import { PortalContainer } from "./ui/portal-container";
 import { MAUSBOT_THEME_ROLES } from "@j1code/shared/mausbotAppearance";
 import { getThemeColorVariable, setWorkspaceThemes } from "../themePalette";
 import { decodeMausbotThemes } from "./mausbotAppearance";
+import { useStableCallback } from "../hooks/useStableCallback";
 import { useTheme } from "../hooks/useTheme";
 import { useClientSettings } from "../hooks/useSettings";
 import { installMausbotFonts } from "./mausbotFonts";
-import { useMausbotFrameScroll } from "./useMausbotFrameScroll";
 import { isElectron } from "../env";
 import { WorkspacePageHeader } from "./WorkspacePageHeader";
 import { nativeOverlayClip, type FrameOverlay } from "./MausbotShell.layout";
@@ -73,15 +73,12 @@ type ShellBounds = {
   projects: ProjectBounds | null;
   footer: ProjectBounds | null;
   modal: boolean;
-  settings: ProjectBounds | null;
-  settingsCovered: boolean;
   main: { left: number; top: number; width: number; height: number } | null;
 };
 const WorkspaceState = createContext({
   error: "",
   busy: false,
   retry: () => {},
-  settingsHosted: false,
 });
 export const useMausbotWorkspaceState = () => useContext(WorkspaceState);
 function finite(value: unknown): value is number {
@@ -136,14 +133,31 @@ export function MausbotShell({
   const base = connection._tag === "Some" ? connection.value.httpBaseUrl : null;
   const enabled = environment?.serverConfig?.environment.capabilities.mausbot === true;
   const connected = environment?.connection.phase === "connected";
-  const open = useAtomCommand(openMausbot, { reportFailure: false });
+  const open = useStableCallback(useAtomCommand(openMausbot, { reportFailure: false }));
   const setApprovalMode = useAtomCommand(setMausbotApprovalMode, { reportFailure: false });
   const routingList = useAtomCommand(serverEnvironment.routingList, { reportFailure: false });
   const routingPrepare = useAtomCommand(serverEnvironment.routingPrepare, { reportFailure: false });
   const routingConfirm = useAtomCommand(serverEnvironment.routingConfirm, { reportFailure: false });
   const serverOs = environment?.serverConfig?.environment.platform?.os;
   const serverPlatform = serverOs === "windows" ? "win32" : serverOs;
-  const nativeHost = localMausbotHost(window.desktopBridge, base, serverPlatform);
+  const [observedNativeHost, setObservedNativeHost] = useState<{
+    base: string | null;
+    platform: string | undefined;
+    capabilities: ReturnType<typeof localMausbotHost>;
+  } | null>(null);
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Read synchronous Electron IPC when the connected server changes, outside render.
+  useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- The initial desktop capability snapshot comes from Electron IPC.
+    setObservedNativeHost({
+      base,
+      platform: serverPlatform,
+      capabilities: connected ? localMausbotHost(window.desktopBridge, base, serverPlatform) : null,
+    });
+  }, [base, connected, serverPlatform]);
+  const nativeHost =
+    connected && observedNativeHost?.base === base && observedNativeHost.platform === serverPlatform
+      ? observedNativeHost.capabilities
+      : null;
   const capture = useRef<Promise<string | null> | null>(null);
   const navigate = useNavigate();
   const navigateToMainApp = useNavigateToMainApp();
@@ -155,12 +169,11 @@ export function MausbotShell({
   const shell = useRef<HTMLDivElement>(null);
   const projectContent = useRef<HTMLDivElement>(null);
   const footerContent = useRef<HTMLDivElement>(null);
-  const settingsContent = useRef<HTMLDivElement>(null);
+  const lastNavigation = useRef("");
   const [frameAccess, setFrameAccess] = useState(false);
   const [slotHeights, setSlotHeights] = useState({
     projectsHeight: 1,
     footerHeight: 32,
-    settingsHeight: 1,
   });
   const handshake = useRef<number | null>(null);
   const [view, setView] = useState<{ key: string; url: string } | null>(null);
@@ -171,8 +184,9 @@ export function MausbotShell({
   const [finishedStartup, setFinishedStartup] = useState("");
   const [errorState, setErrorState] = useState<{ key: string; message: string } | null>(null);
   const error = errorState?.key === startupKey ? errorState.message : "";
-  const setError = (message: string) =>
-    setErrorState(message ? { key: startupKey, message } : null);
+  const setError = useStableCallback((message: string) =>
+    setErrorState(message ? { key: startupKey, message } : null),
+  );
   const busy = enabled && connected && finishedStartup !== startupKey;
   // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Dispose the iframe handshake timer on unmount.
   useEffect(
@@ -205,7 +219,7 @@ export function MausbotShell({
   }, [current, navigate, savedApp, savedAppWindows]);
   const ready = enabled && current !== null && bounds !== null;
   const initializing = !error && (!environment?.serverConfig || (enabled && !ready));
-  const settingsPortal = useMausbotSettingsPortal(frame, ready && frameAccess);
+  const hostSettingsOpen = pathname === "/settings" || pathname.startsWith("/settings/");
   const projectPortal = useMausbotSlotPortal(
     frame,
     ready && frameAccess,
@@ -238,14 +252,11 @@ export function MausbotShell({
       else root.style.removeProperty("--workspace-controls-top");
     };
   }, [ready, bounds?.top, bounds?.main?.top]);
-  const settingsOverlay = Boolean(
-    ready && !frameAccess && pathname.startsWith("/settings/") && bounds?.settings,
-  );
   const projectsMounted = Boolean(ready && bounds?.projects && sidebarOpen);
   const footerMounted = Boolean(ready && bounds?.footer && sidebarOpen);
   // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Send measured host portal dimensions to the embedded runtime.
   useEffect(() => {
-    if (!projectsMounted && !footerMounted && !settingsOverlay) return;
+    if (!projectsMounted && !footerMounted) return;
     const measure = () => {
       const next = {
         projectsHeight: Math.max(
@@ -256,36 +267,21 @@ export function MausbotShell({
           1,
           Math.ceil(footerContent.current?.getBoundingClientRect().height ?? 40),
         ),
-        settingsHeight: Math.max(
-          1,
-          Math.ceil(settingsContent.current?.getBoundingClientRect().height ?? 1),
-        ),
       };
       setSlotHeights((previous) =>
         previous.projectsHeight === next.projectsHeight &&
-        previous.footerHeight === next.footerHeight &&
-        previous.settingsHeight === next.settingsHeight
+        previous.footerHeight === next.footerHeight
           ? previous
           : next,
       );
     };
-    const elements = [
-      projectContent.current,
-      footerContent.current,
-      settingsOverlay ? settingsContent.current : null,
-    ].filter((element): element is HTMLDivElement => element !== null);
+    const elements = [projectContent.current, footerContent.current].filter(
+      (element): element is HTMLDivElement => element !== null,
+    );
     measure();
     return observeResize(elements, measure);
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Moving a portal changes the underlying observed node.
-  }, [projectsMounted, footerMounted, settingsOverlay, projectPortal, footerPortal]);
-  const scrollSettings = (delta: number) => {
-    if (current)
-      frame.current?.contentWindow?.postMessage(
-        { source: "j1-host", type: "settings-scroll", delta },
-        new URL(current.url).origin,
-      );
-  };
-  useMausbotFrameScroll(settingsContent, settingsOverlay, scrollSettings);
+  }, [projectsMounted, footerMounted, projectPortal, footerPortal]);
   const scrollNavigation = (delta: number) => {
     if (!current) return;
     frame.current?.contentWindow?.postMessage(
@@ -430,60 +426,67 @@ export function MausbotShell({
     window.addEventListener("j1-provider-catalog", receive);
     return () => window.removeEventListener("j1-provider-catalog", receive);
   }, []);
-  const post = () => {
+  const post = useStableCallback(() => {
     if (!current || !frame.current?.contentWindow) return;
     const root = document.documentElement;
     const colors = getComputedStyle(root);
-    frame.current.contentWindow.postMessage(
-      {
-        source: "j1-host",
-        navigation: {
-          active: pathname,
-          providers: providerCatalog,
-          ...(pathname === "/assistants"
-            ? {
-                conversation: {
-                  botId: new URLSearchParams(searchStr).get("botId"),
-                  threadId: new URLSearchParams(searchStr).get("conversation"),
-                },
-              }
-            : {}),
-          sidebarOpen,
-          places: environments.map((item) => ({
-            id: item.environmentId,
-            label: item.environmentId === primaryEnvironmentId ? "This computer" : item.label,
-            connected: item.connection.phase === "connected",
-          })),
-          placeId: environmentId,
-          mobileOpen: openMobile,
-          nativeHost,
-          appearance: {
-            skin: root.dataset.themeId,
-            dark: root.classList.contains("dark"),
-            font: getComputedStyle(document.body).fontFamily,
-            mono: colors.getPropertyValue("--font-mono"),
-            chatWidth,
-            colors: Object.fromEntries(
-              Object.entries(MAUSBOT_THEME_ROLES).map(([role, token]) => [
-                token,
-                colors
-                  .getPropertyValue(getThemeColorVariable(role as keyof typeof MAUSBOT_THEME_ROLES))
-                  .trim() || colors.getPropertyValue(`--maus-${token}`).trim(),
-              ]),
-            ),
-          },
-          settingsPages,
-          settingsPresentation: frameAccess ? "portal" : "overlay",
-          ...slotHeights,
-        },
-      },
-      new URL(current.url).origin,
+    const route = new URL(
+      hostSettingsOpen ? getAppModalReturnHref() : pathname + searchStr,
+      location.href,
     );
-  };
+    const message = {
+      source: "j1-host",
+      navigation: {
+        active: route.pathname,
+        hostSettingsOpen,
+        providers: providerCatalog,
+        ...(route.pathname === "/assistants"
+          ? {
+              conversation: {
+                botId: route.searchParams.get("botId"),
+                threadId: route.searchParams.get("conversation"),
+              },
+            }
+          : {}),
+        sidebarOpen,
+        places: environments.map((item) => ({
+          id: item.environmentId,
+          label: item.environmentId === primaryEnvironmentId ? "This computer" : item.label,
+          connected: item.connection.phase === "connected",
+        })),
+        placeId: environmentId,
+        mobileOpen: openMobile,
+        nativeHost,
+        appearance: {
+          skin: root.dataset.themeId,
+          dark: root.classList.contains("dark"),
+          font: getComputedStyle(document.body).fontFamily,
+          mono: colors.getPropertyValue("--font-mono"),
+          chatWidth,
+          colors: Object.fromEntries(
+            Object.entries(MAUSBOT_THEME_ROLES).map(([role, token]) => [
+              token,
+              colors
+                .getPropertyValue(getThemeColorVariable(role as keyof typeof MAUSBOT_THEME_ROLES))
+                .trim() || colors.getPropertyValue(`--maus-${token}`).trim(),
+            ]),
+          ),
+        },
+        settingsPages,
+        ...slotHeights,
+      },
+    };
+    const signature = JSON.stringify([current.url, message]);
+    if (signature === lastNavigation.current) return;
+    lastNavigation.current = signature;
+    frame.current.contentWindow.postMessage(message, new URL(current.url).origin);
+  });
   // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Report external theme changes to the iframe.
   useEffect(() => {
-    const observer = new MutationObserver(post);
-    observer.observe(document.documentElement, { attributes: true });
+    const observer = new MutationObserver(() => post());
+    observer.observe(document.documentElement, {
+      attributeFilter: ["class", "style", "data-theme-id"],
+    });
     return () => observer.disconnect();
   }, [post]);
   // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Own the authenticated runtime lease for the selected environment.
@@ -515,10 +518,26 @@ export function MausbotShell({
       live = false;
     };
   }, [enabled, connected, environmentId, base, key, open, startupKey, setError]);
-  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Synchronize J1 navigation and theme with the embedded workspace.
+  /* oxlint-disable j1code/no-unreasoned-state-sync, react/exhaustive-effect-dependencies -- Send the current payload when an iframe navigation input changes, using the same handler for frame loads and theme events. */
   useEffect(() => {
     post();
-  }, [post]);
+  }, [
+    post,
+    current,
+    pathname,
+    searchStr,
+    hostSettingsOpen,
+    providerCatalog,
+    sidebarOpen,
+    openMobile,
+    environments,
+    environmentId,
+    primaryEnvironmentId,
+    nativeHost,
+    chatWidth,
+    slotHeights,
+  ]);
+  /* oxlint-enable j1code/no-unreasoned-state-sync, react/exhaustive-effect-dependencies */
   // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Keep the iframe's server-side session alive across idle and network recovery.
   useEffect(() => {
     if (!current || !environmentId || !connected || !base) return;
@@ -701,17 +720,10 @@ export function MausbotShell({
             }),
           );
         }
-      } else if (data.type === "settings-native") {
+      } else if (data.type === "settings-native" && !hostSettingsOpen) {
         void navigate({ to: "/assistants" });
       } else if (data.type === "settings-close" && pathname.startsWith("/settings/")) {
         void navigateToMainApp();
-      } else if (data.type === "settings-focus" && settingsOverlay) {
-        const controls = [
-          ...(settingsContent.current?.querySelectorAll<HTMLElement>(
-            "button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])",
-          ) ?? []),
-        ].filter((node) => node.checkVisibility());
-        (data.edge === "end" ? controls.at(-1) : controls[0])?.focus();
       } else if (
         data.type === "host-call" &&
         typeof data.requestId === "string" &&
@@ -759,8 +771,6 @@ export function MausbotShell({
           left: Math.max(0, data.left),
           top: Math.max(0, data.top),
           modal: data.modal === true,
-          settings: projectBounds(data.settings),
-          settingsCovered: data.settingsCovered === true,
           main:
             data.main && ["left", "top", "width", "height"].every((key) => finite(data.main[key]))
               ? data.main
@@ -768,7 +778,7 @@ export function MausbotShell({
           projects: projectBounds(data.projects),
           footer: projectBounds(data.footer),
         });
-      } else if (data.type === "native") {
+      } else if (data.type === "native" && !hostSettingsOpen) {
         void navigate({ to: "/assistants", search: environmentId ? { environmentId } : {} });
       } else if (data.type === "sidebar-toggle") {
         toggleSidebar();
@@ -802,16 +812,14 @@ export function MausbotShell({
     routingConfirm,
     navigateToMainApp,
     pathname,
+    hostSettingsOpen,
     settingsSearchItems,
     refreshTheme,
-    settingsOverlay,
     environments,
     toggleSidebar,
     providerCatalog,
     setError,
   ]);
-  const settingsHosted =
-    ready && pathname.startsWith("/settings/") && (settingsPortal !== null || settingsOverlay);
   const workspace = {
     error:
       requestedEnvironment && !environment
@@ -819,9 +827,11 @@ export function MausbotShell({
         : error,
     busy,
     retry: () => setAttempt((value) => value + 1),
-    settingsHosted,
   };
-  const native = pathname === "/assistants" || pathname === "/";
+  const shownPath = hostSettingsOpen
+    ? new URL(getAppModalReturnHref(), location.href).pathname
+    : pathname;
+  const native = shownPath === "/assistants" || shownPath === "/";
   return (
     <WorkspaceState value={workspace}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -853,6 +863,7 @@ export function MausbotShell({
               sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals allow-popups allow-popups-to-escape-sandbox"
               referrerPolicy="no-referrer"
               onLoad={() => {
+                lastNavigation.current = "";
                 try {
                   setFrameAccess(
                     Boolean(
@@ -983,35 +994,16 @@ export function MausbotShell({
               ready
                 ? {
                     position: "absolute",
-                    ...(settingsOverlay && bounds.settings
+                    ...(bounds.main
                       ? {
-                          left: bounds.settings.left,
-                          top: bounds.settings.top + bounds.settings.clipTop,
-                          width: bounds.settings.width,
-                          height: Math.max(
-                            0,
-                            bounds.settings.height -
-                              bounds.settings.clipTop -
-                              bounds.settings.clipBottom,
-                          ),
-                          overflow: "clip",
+                          left: bounds.main.left,
+                          top: bounds.main.top,
+                          width: bounds.main.width,
+                          height: bounds.main.height,
+                          clipPath: nativeOverlayClip(bounds.main, bounds.overlays),
                         }
-                      : bounds.main
-                        ? {
-                            left: bounds.main.left,
-                            top: bounds.main.top,
-                            width: bounds.main.width,
-                            height: bounds.main.height,
-                            clipPath: nativeOverlayClip(bounds.main, bounds.overlays),
-                          }
-                        : { inset: `${bounds.top}px 0 0 ${bounds.left}px` }),
-                    visibility: pathname.startsWith("/settings/")
-                      ? settingsOverlay && !bounds.settingsCovered
-                        ? "visible"
-                        : "hidden"
-                      : native || bounds.modal
-                        ? "hidden"
-                        : "visible",
+                      : { inset: `${bounds.top}px 0 0 ${bounds.left}px` }),
+                    visibility: native || bounds.modal ? "hidden" : "visible",
                   }
                 : undefined
             }
@@ -1023,71 +1015,8 @@ export function MausbotShell({
               >
                 Opening bots…
               </div>
-            ) : settingsPortal && settingsHosted ? (
-              createPortal(
-                <PortalContainer value={settingsPortal ?? undefined}>{children}</PortalContainer>,
-                settingsPortal,
-              )
             ) : (
-              <div
-                ref={settingsContent}
-                className="flex min-w-0 flex-1 flex-col"
-                style={
-                  settingsOverlay && bounds?.settings
-                    ? {
-                        flex: "none",
-                        alignSelf: "flex-start",
-                        display: "block",
-                        width: "100%",
-                        transform: `translateY(-${bounds.settings.clipTop}px)`,
-                      }
-                    : undefined
-                }
-                onFocusCapture={(event) => {
-                  if (!settingsOverlay || !bounds?.settings) return;
-                  const rect = event.target.getBoundingClientRect(),
-                    top = bounds.settings.top + bounds.settings.clipTop,
-                    bottom =
-                      bounds.settings.top + bounds.settings.height - bounds.settings.clipBottom;
-                  if (rect.top < top) scrollSettings(rect.top - top);
-                  else if (rect.bottom > bottom) scrollSettings(rect.bottom - bottom);
-                }}
-                onKeyDown={(event) => {
-                  if (!settingsOverlay || event.defaultPrevented || !current) return;
-                  if (event.key === "Tab") {
-                    const controls = [
-                      ...event.currentTarget.querySelectorAll<HTMLElement>(
-                        "button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])",
-                      ),
-                    ].filter((node) => node.checkVisibility());
-                    if (
-                      (!event.shiftKey && event.target === controls.at(-1)) ||
-                      (event.shiftKey && event.target === controls[0])
-                    ) {
-                      event.preventDefault();
-                      frame.current?.contentWindow?.postMessage(
-                        {
-                          source: "j1-host",
-                          type: "settings-focus-source",
-                          edge: event.shiftKey ? "before" : "after",
-                        },
-                        new URL(current.url).origin,
-                      );
-                    }
-                  } else if (
-                    (event.key === "PageDown" || event.key === "PageUp") &&
-                    !(
-                      event.target instanceof Element &&
-                      event.target.closest("input,textarea,[contenteditable=true]")
-                    )
-                  ) {
-                    event.preventDefault();
-                    scrollSettings((event.key === "PageDown" ? 1 : -1) * innerHeight * 0.7);
-                  }
-                }}
-              >
-                {children}
-              </div>
+              children
             )}
           </div>
         </div>

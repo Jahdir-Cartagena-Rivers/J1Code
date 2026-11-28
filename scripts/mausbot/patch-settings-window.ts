@@ -40,7 +40,7 @@ export function SettingsWindow() {`,
     `    if (navigation) {
       const section = next === "ai" ? "engines" : next === "devices" ? "companion"
         : next === "desktops" ? "computer" : next === "transfer" ? "backups" : next;
-      j1OpenSettings(section);
+      if (j1OpenSettings(section)) return;
     }
     dispatch({ type: "toggleAppSettings", open: true, section: next });`,
   );
@@ -97,6 +97,11 @@ import { useJ1Navigation } from "../J1Navigation";
 const hostSettingsGroups = { app: ["you"], place: ["computers", "ai"], account: ["account"] } as const;
 
 export function SettingsNav(`,
+  );
+  await change(
+    navFile,
+    "badge: <AppIcon size={24} />",
+    'badge: j1Navigation ? <span aria-hidden className="flex size-6 items-center justify-center rounded-md bg-ink/[0.1] text-[10px] font-bold text-ink">J1</span> : <AppIcon size={24} />',
   );
   await change(
     navFile,
@@ -161,7 +166,7 @@ export async function patchLegacySettingsWindow(change: Change) {
   await change(
     "src/components/SettingsModal.tsx",
     '  const openSection = (id: AppSettingsSection) => dispatch({ type: "toggleAppSettings", open: true, section: id });',
-    '  const openSection = (id: AppSettingsSection) => { if (j1Navigation) j1OpenSettings(id); dispatch({ type: "toggleAppSettings", open: true, section: id }); };',
+    '  const openSection = (id: AppSettingsSection) => { if (j1Navigation && j1OpenSettings(id)) return; dispatch({ type: "toggleAppSettings", open: true, section: id }); };',
   );
   await change(
     "src/components/SettingsModal.tsx",

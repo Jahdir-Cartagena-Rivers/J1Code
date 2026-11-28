@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeEvent, SendTurnInput } from "../contracts.ts";
 import { mountChatTools } from "./chat-mcp-tools.ts";
+vi.hoisted(() => {
+  process.env.J1_MAUSBOT_MANAGED = "1";
+});
 const tools = vi.hoisted(() => ({
   execute: vi.fn(async () => ({ ok: true, text: "Original bot tool result" })),
   close: vi.fn(async () => {}),
@@ -13,7 +16,7 @@ vi.mock("./chat-mcp-tools.ts", () => ({
     view: () => ({ title: "Team post", input: { text: "Ready" }, ask: true }),
   })),
 }));
-import { J1SharedDriver, decodeSharedModel, encodeSharedModel, nativeResumeCursor, savedHistoryForTurn, savedIncidentReports } from "./j1-shared.ts";
+import { J1SharedDriver, decodeSharedModel, encodeSharedModel, nativeResumeCursor, registerSavedBotEnrollmentReader, savedHistoryForTurn, savedIncidentReports } from "./j1-shared.ts";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -74,6 +77,47 @@ async function fixture() {
 }
 
 describe("J1 shared bot adapter", () => {
+  it("answers room enrollment after removing the managed flag from the environment", async () => {
+    const instance = await fixture();
+    const { turnId } = await instance.adapter.sendTurn({
+      ...turn,
+      j1RoomTurn: true,
+      j1RoomMemberRead: (roomTurnId) => ({ roomTurnId }),
+    });
+    expect(process.env.J1_MAUSBOT_MANAGED).toBeUndefined();
+    const existingListeners = new Set(process.listeners("message"));
+    const reply = vi.fn(() => true);
+    const send = process.send;
+    process.send = reply as typeof process.send;
+    try {
+      registerSavedBotEnrollmentReader(() => null);
+      const request = {
+        type: "j1:saved-bot-enrollment-query",
+        requestId: "0502a989-5b0f-4f99-8b23-aad83e51e3ce",
+        botId: turn.botId,
+        threadId: turn.threadId,
+        roomTurnId: turnId,
+      };
+      process.emit("message", request, undefined);
+      process.emit("message", { ...request, botId: "another-bot" }, undefined);
+      expect(reply).toHaveBeenNthCalledWith(1, {
+        type: "j1:saved-bot-enrollment-result",
+        requestId: request.requestId,
+        value: { roomTurnId: turnId },
+      });
+      expect(reply).toHaveBeenNthCalledWith(2, {
+        type: "j1:saved-bot-enrollment-result",
+        requestId: request.requestId,
+        value: null,
+      });
+    } finally {
+      for (const listener of process.listeners("message")) {
+        if (!existingListeners.has(listener)) process.removeListener("message", listener);
+      }
+      process.send = send;
+    }
+  });
+
   it("admits a tool-free consultation and rejects action calls without mounting tools", async () => {
     const instance = await fixture();
     const events: RuntimeEvent[] = [];

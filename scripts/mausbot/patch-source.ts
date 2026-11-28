@@ -1288,6 +1288,7 @@ describe("what MausBot says first", () => {`,
     "  if (!/^[A-Za-z0-9_.-]{1,96}$/.test(session)) return false;\n  if (J1Browser.managed) { try { return await J1Browser.forget(session); } catch { return false; } }",
   );
   await copy("scripts/mausbot/native-browser.ts", "server/j1/native-browser.ts");
+  await copy("scripts/mausbot/managed-runtime.ts", "server/j1/managed-runtime.ts");
   await copy("scripts/mausbot/native-login-input.ts", "server/j1/native-login-input.ts");
   await copy("apps/server/src/mcp/LightpandaProcess.ts", "server/j1/LightpandaProcess.ts");
   const adapter = await NodeFSP.readFile(

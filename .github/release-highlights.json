@@ -1,40 +1,20 @@
 {
-  "since": "v1.104.0",
+  "since": "v1.106.0",
   "highlights": [],
   "sections": [
     {
-      "title": "Android",
+      "title": "Bot chats",
       "highlights": [
-        "Open side chats, subagents, and previews beside the current conversation on wide Android layouts. Narrow layouts still open them full screen."
+        "Fix a timeout that prevented bots from answering in rooms, including when a new room thread first starts.",
+        "Let direct bot chats start on a shared Codex process while keeping each bot’s conversation and tools scoped to its own thread."
       ]
     },
     {
-      "title": "Agent permissions",
+      "title": "Settings and navigation",
       "highlights": [
-        "Show when Claude Auto is disabled for the current project, and explain whether the restriction comes from project, user, or organization settings.",
-        "Keep an existing chat usable when Claude cannot start in Auto by falling back to Supervised with a notice."
-      ]
-    },
-    {
-      "title": "Chats and workspaces",
-      "highlights": [
-        "Keep the current line in view when a panel resizes a conversation just after it opens.",
-        "Use the destination project’s workspace default when moving a draft or routing it to another machine, while preserving a branch you choose."
-      ]
-    },
-    {
-      "title": "File previews and pull requests",
-      "highlights": [
-        "Show zero columns for an empty OpenDocument sheet and display notebook output that is saved only as Markdown.",
-        "Use the Text language label for notebooks whose language metadata is blank.",
-        "Show the correct label for a one-byte SQLite BLOB.",
-        "Find pull requests from zero-padded numbers and mark files whose patch GitHub withheld."
-      ]
-    },
-    {
-      "title": "Command line",
-      "highlights": [
-        "Reject negative message counts in thread show. A count of zero still shows thread details without messages."
+        "Use a consistent Settings window with related pages grouped together and search across all settings.",
+        "Keep internal bot workspaces out of Projects and show J1 branding and release information under This app.",
+        "Reduce background work during sidebar scrolling and Settings navigation."
       ]
     }
   ]

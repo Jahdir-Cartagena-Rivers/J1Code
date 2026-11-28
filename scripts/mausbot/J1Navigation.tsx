@@ -8,6 +8,7 @@ import { SidebarPopoverMenu } from "./SidebarPopoverMenu";
 
 type Navigation = {
   active: string;
+  hostSettingsOpen?: boolean;
   conversation?: { botId?: string | null; threadId?: string | null };
   sidebarOpen: boolean;
   mobileOpen: boolean;
@@ -63,6 +64,9 @@ export function consumeNativeSettingsSelection() {
   const selected = nativeSettingsSelected;
   nativeSettingsSelected = false;
   return selected;
+}
+export function getHostSettingsState() {
+  return navigation?.hostSettingsOpen;
 }
 export function useJ1Navigation() {
   const [value, setValue] = useState(navigation);
@@ -269,15 +273,18 @@ export function J1ShellBridge() {
       previous = encoded;
       window.parent.postMessage(message, configuredOrigin);
     };
-    const acknowledge = () => {
-      previous = "";
-      report();
-    };
+    const acknowledge = report;
+    let scrollFrame: number | undefined;
     const resize = new ResizeObserver(report);
     if (sidebar) resize.observe(sidebar);
-    // Scroll events are already coalesced by the browser. An extra animation frame
-    // can be suspended in an embedded view while the host's form keeps receiving input.
-    const scroll = report;
+    // Keep startup acknowledgement synchronous, and coalesce scroll geometry once per frame.
+    const scroll = () => {
+      if (scrollFrame !== undefined) return;
+      scrollFrame = window.requestAnimationFrame(() => {
+        scrollFrame = undefined;
+        report();
+      });
+    };
     const mutation = new MutationObserver(() => {
       const slot = document.querySelector("[data-j1-project-slot]");
       if (slot) resize.observe(slot);
@@ -320,6 +327,7 @@ export function J1ShellBridge() {
     document.addEventListener("contextmenu", activate, true);
     report();
     return () => {
+      if (scrollFrame !== undefined) window.cancelAnimationFrame(scrollFrame);
       resize.disconnect();
       mutation.disconnect();
       document.removeEventListener("scroll", scroll, true);

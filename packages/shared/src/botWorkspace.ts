@@ -37,3 +37,20 @@ export function standaloneBotWorkspace(root: string, botId: BotId) {
 export function isStandaloneBotProject(projectId: string): boolean {
   return projectId.startsWith(PREFIX);
 }
+
+const nativeId = "[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}";
+const managedWorkspace = new RegExp(
+  `(?:^|/)userdata/mausbot/(?:workspaces/${nativeId}|task-workspaces/${nativeId}/${nativeId})/?$`,
+  "i",
+);
+
+/** Internal projects created for native bot runs and standalone J1 bots. */
+export function isManagedBotProject(project: {
+  readonly id: string;
+  readonly workspaceRoot: string;
+}) {
+  return (
+    isStandaloneBotProject(project.id) ||
+    managedWorkspace.test(project.workspaceRoot.replaceAll("\\", "/"))
+  );
+}

@@ -4,12 +4,13 @@ import { persistentLightpandaPool } from "./LightpandaProcess.ts";
 import { MausbotLightpandaAdapter } from "./LightpandaAdapter.ts";
 import { browserPageScript, browserActionScript } from "./page-scripts.ts";
 import { nativeLoginInput } from "./native-login-input.ts";
+import { managedRuntime as managed } from "./managed-runtime.ts";
+
+export { managed };
 
 // Consumed before provider children start. This path is supplied by J1's packaged resolver.
 let executable = process.env.J1_MAUSBOT_LIGHTPANDA_PATH ?? "";
-export const managed = process.env.J1_MAUSBOT_MANAGED === "1";
 delete process.env.J1_MAUSBOT_LIGHTPANDA_PATH;
-delete process.env.J1_MAUSBOT_MANAGED;
 export let ready = managed && executable.trim().length > 0;
 export const command = "j1-lightpanda";
 const dataDir = process.env.OMB_DATA_DIR;

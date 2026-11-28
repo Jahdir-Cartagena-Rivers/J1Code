@@ -1,6 +1,10 @@
 import { BotId } from "@j1code/contracts";
 import { describe, expect, it } from "vite-plus/test";
-import { isStandaloneBotProject, standaloneBotWorkspace } from "./botWorkspace.ts";
+import {
+  isManagedBotProject,
+  isStandaloneBotProject,
+  standaloneBotWorkspace,
+} from "./botWorkspace.ts";
 
 describe("standalone bot workspaces", () => {
   it("uses stable, distinct paths for bots on Windows and Unix", () => {
@@ -35,4 +39,31 @@ describe("standalone bot workspaces", () => {
       standaloneBotWorkspace("/bots", BotId.make("\ud801")).projectId,
     );
   });
+});
+
+it("hides generated bot project records without treating other checkouts as bots", () => {
+  const guid = "86458070-402F-409F-9B4B-6FBD643143B6";
+  expect(
+    isManagedBotProject({
+      id: "legacy",
+      workspaceRoot: ["C:", "custom", "userdata", "mausbot", "task-workspaces", guid, guid].join(
+        "\\",
+      ),
+    }),
+  ).toBe(true);
+  expect(
+    isManagedBotProject({
+      id: "legacy",
+      workspaceRoot: `/home/host/j1/userdata/mausbot/workspaces/${guid}`,
+    }),
+  ).toBe(true);
+  expect(
+    isManagedBotProject({ id: "real", workspaceRoot: `/code/mausbot/workspaces/${guid}` }),
+  ).toBe(false);
+  expect(
+    isManagedBotProject({
+      id: "real",
+      workspaceRoot: `/j1/userdata/mausbot/task-workspaces/${guid}/my-checkout`,
+    }),
+  ).toBe(false);
 });

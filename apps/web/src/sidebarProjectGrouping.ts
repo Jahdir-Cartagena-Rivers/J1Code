@@ -1,3 +1,4 @@
+import { isManagedBotProject } from "@j1code/shared/bot-workspace";
 import type {
   EnvironmentId,
   ScopedProjectRef,
@@ -147,7 +148,7 @@ export function buildSidebarProjectSnapshots(input: {
   isWslEnvironment?: (environmentId: EnvironmentId) => boolean;
 }): SidebarProjectSnapshot[] {
   return buildProjectGroups({
-    projects: input.projects,
+    projects: input.projects.filter((project) => !isManagedBotProject(project)),
     groupScratchProjects: input.groupScratchProjects ?? false,
     settings: input.settings,
     preferredEnvironmentId: input.primaryEnvironmentId,

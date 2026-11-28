@@ -18,7 +18,6 @@ import {
   FolderTreeIcon,
   GitBranchIcon,
   GlobeIcon,
-  InfoIcon,
   MessageSquareTextIcon,
   MessagesSquareIcon,
   PanelsTopLeftIcon,
@@ -39,6 +38,7 @@ import { useLocation, useNavigate } from "@tanstack/react-router";
 import { T, useGT, useMessages } from "gt-react";
 
 import { cn } from "../../lib/utils";
+import { J1Wordmark } from "../J1Wordmark";
 import { SidebarUtilityMenu } from "../sidebar/SidebarChrome";
 import { Button } from "../ui/button";
 import { Kbd } from "../ui/kbd";
@@ -54,6 +54,7 @@ import {
 import { scrollToSettingsTarget } from "./settingsLayout";
 import {
   searchSettings,
+  settingsSidebarSection,
   revealSettingsSearchTarget,
   SETTINGS_NAV_GROUPS,
   SETTINGS_SECTION_LABELS,
@@ -112,7 +113,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/secrets": KeyRoundIcon,
   "/settings/maintenance": WrenchIcon,
   "/settings/labs": FlaskConicalIcon,
-  "/settings/about": InfoIcon,
+  "/settings/about": J1Wordmark,
   "/settings/archived": ArchiveIcon,
 };
 
@@ -138,7 +139,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const navArea = workspaceAreaProps("settings-nav", 0, gt("Settings sections"));
   const navigate = useNavigate();
   const currentHash = useLocation({ select: (location) => location.hash });
-  const activePath = SETTINGS_DETAIL_PAGE_PARENTS[pathname] ?? pathname;
+  const activePath = settingsSidebarSection(SETTINGS_DETAIL_PAGE_PARENTS[pathname] ?? pathname);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   // Below md the nav is an icon rail; searching expands it over the page.

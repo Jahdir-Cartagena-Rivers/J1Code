@@ -8271,12 +8271,17 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   : undefined;
               if (isBotThread && saved !== undefined && reservedRoot === undefined)
                 return yield* toProtocolError("Codex cannot adopt a different saved bot thread.");
+              const hasSharedBotReservation =
+                reservedRoot !== undefined &&
+                threadInput.providerSessionId === input.providerSessionId &&
+                (reservedRoot.providerSessionId === null ||
+                  reservedRoot.providerSessionId === input.providerSessionId);
               const offered = threadInput.newBotTools;
               const tools = offered === undefined ? undefined : yield* codexBotTools(offered.tools);
               if (
                 offered !== undefined &&
-                (!threadInput.threadId.startsWith("j1-mausbot:") ||
-                  threadInput.threadId !== input.threadId ||
+                (!isBotThread ||
+                  (threadInput.threadId !== input.threadId && !hasSharedBotReservation) ||
                   threadInput.forceNewNativeThread ||
                   threadInput.existingProviderThread?.nativeThreadRef != null ||
                   threadInput.runtimePolicy.nativeToolPolicy === "consultation-no-tools")

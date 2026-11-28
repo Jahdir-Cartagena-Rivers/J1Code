@@ -19,6 +19,7 @@ import { Button, type ButtonVariant } from "~/components/ui/button";
 import {
   DIALOG_BACKDROP_CLASS,
   DIALOG_MEDIA_BACKDROP_CLASS,
+  DIALOG_SETTINGS_BACKDROP_CLASS,
   DIALOG_MEDIA_POPUP_CLASS,
   DIALOG_MOBILE_SHEET_CLASS,
   DIALOG_POPUP_CLASS,
@@ -84,12 +85,16 @@ function DialogBackdrop({
   className,
   variant = "default",
   ...props
-}: DialogPrimitive.Backdrop.Props & { variant?: "default" | "media" }) {
+}: DialogPrimitive.Backdrop.Props & { variant?: "default" | "media" | "settings" }) {
   return (
     <DialogPrimitive.Backdrop
       forceRender
       className={cn(
-        variant === "media" ? DIALOG_MEDIA_BACKDROP_CLASS : DIALOG_BACKDROP_CLASS,
+        variant === "media"
+          ? DIALOG_MEDIA_BACKDROP_CLASS
+          : variant === "settings"
+            ? DIALOG_SETTINGS_BACKDROP_CLASS
+            : DIALOG_BACKDROP_CLASS,
         className,
       )}
       data-slot="dialog-backdrop"

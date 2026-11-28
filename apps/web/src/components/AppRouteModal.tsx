@@ -54,7 +54,7 @@ export function AppRouteModal({ label, children }: { label: string; children: Re
       }}
     >
       <DialogPrimitive.Portal>
-        <DialogBackdrop />
+        <DialogBackdrop variant={label === "Settings" ? "settings" : "default"} />
         <DialogPrimitive.Viewport
           style={
             {

@@ -1,8 +1,7 @@
 import { workspaceAreaProps } from "../lib/workspaceFocus";
-import { Outlet, createFileRoute, redirect, useLocation } from "@tanstack/react-router";
+import { Link, Outlet, createFileRoute, redirect, useLocation } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
-import { useMausbotWorkspaceState } from "../components/MausbotShell";
-import { MergedSettingsAppearance } from "../components/settings/settingsAppearance";
+import { useMessages } from "gt-react";
 import { RotateCcwIcon } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { useSettingsRestore } from "../components/settings/SettingsPanels";
@@ -24,6 +23,10 @@ import {
 } from "../components/settings/settingsScopeNavigation";
 import {
   getSettingsSearchTargetScope,
+  SETTINGS_RELATED_PAGES,
+  SETTINGS_SECTION_LABELS,
+  settingsSidebarSection,
+  type SettingsPath,
   getThreadAutoSettlementSearchAvailability,
   isSettingsSearchScopeAvailable,
   movedSettingsPath,
@@ -109,7 +112,7 @@ function SettingsScopeBoundary({ pathname, children }: { pathname: string; child
 }
 
 function SettingsContentLayout() {
-  const { settingsHosted } = useMausbotWorkspaceState();
+  const message = useMessages();
   const contentArea = workspaceAreaProps("settings", 1, "Settings content");
   const location = useLocation();
   const { search, environment } = useSettingsScope();
@@ -118,23 +121,50 @@ function SettingsContentLayout() {
       ? environment?.environmentId
       : JSON.stringify(search);
   const [restoreSignal, setRestoreSignal] = useState(0);
-  const restore = location.pathname === "/settings/general" ? (
-    <RestoreDeviceDefaultsButton onRestored={() => setRestoreSignal((value) => value + 1)} />
-  ) : null;
+  const restore =
+    location.pathname === "/settings/general" ? (
+      <RestoreDeviceDefaultsButton onRestored={() => setRestoreSignal((value) => value + 1)} />
+    ) : null;
+  const relatedPages =
+    SETTINGS_RELATED_PAGES[settingsSidebarSection(location.pathname) as SettingsPath];
   const content = (
-    <div data-merged-settings={settingsHosted ? "" : undefined} className="relative flex min-h-0 min-w-0 flex-1 isolate bg-background text-foreground">
-      {!settingsHosted ? <SettingsSidebarNav pathname={location.pathname} /> : null}
+    <div className="relative flex min-h-0 min-w-0 flex-1 isolate bg-background text-foreground">
+      <SettingsSidebarNav pathname={location.pathname} />
       <div {...contentArea} className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {!settingsHosted ? (
-          <header className="flex h-12 shrink-0 items-center gap-3 border-b ps-5 pe-2">
-            <SettingsBreadcrumb pathname={location.pathname} />
-            <div className="ms-auto flex shrink-0 items-center gap-1">
-              {restore}
-              <AppRouteModalClose />
-            </div>
-          </header>
-        ) : restore ? <div className="flex justify-end px-3 py-2">{restore}</div> : null}
-        <div key={String(contentScopeKey) + ":" + restoreSignal} className="min-h-0 flex flex-1 flex-col">
+        <header className="flex h-12 shrink-0 items-center gap-3 border-b ps-5 pe-2">
+          <SettingsBreadcrumb pathname={location.pathname} />
+          <div className="ms-auto flex shrink-0 items-center gap-1">
+            {restore}
+            <AppRouteModalClose />
+          </div>
+        </header>
+        {relatedPages && (
+          <nav
+            aria-label="Related settings"
+            className="flex shrink-0 items-center gap-1 overflow-x-auto border-b px-3 py-1.5"
+          >
+            {relatedPages.map((to) => (
+              <Button
+                key={to}
+                variant={location.pathname === to ? "secondary" : "ghost"}
+                size="xs"
+                render={
+                  <Link
+                    to={to}
+                    replace
+                    aria-current={location.pathname === to ? "page" : undefined}
+                  />
+                }
+              >
+                {message(SETTINGS_SECTION_LABELS[to])}
+              </Button>
+            ))}
+          </nav>
+        )}
+        <div
+          key={String(contentScopeKey) + ":" + restoreSignal}
+          className="min-h-0 flex flex-1 flex-col"
+        >
           <SettingsScopeBoundary pathname={location.pathname}>
             <Outlet />
           </SettingsScopeBoundary>
@@ -142,11 +172,7 @@ function SettingsContentLayout() {
       </div>
     </div>
   );
-  return (
-    <MergedSettingsAppearance value={settingsHosted}>
-      {settingsHosted ? content : <AppRouteModal label="Settings">{content}</AppRouteModal>}
-    </MergedSettingsAppearance>
-  );
+  return <AppRouteModal label="Settings">{content}</AppRouteModal>;
 }
 
 function SettingsRouteLayout() {
@@ -156,7 +182,11 @@ function SettingsRouteLayout() {
   return (
     <SettingsScopeProvider
       search={rawSearch}
-      singleEnvironment={pathname === "/settings/providers" || pathname === "/settings/hive-mind" || pathname === "/settings/secrets"}
+      singleEnvironment={
+        pathname === "/settings/providers" ||
+        pathname === "/settings/hive-mind" ||
+        pathname === "/settings/secrets"
+      }
       deviceOnly={SETTINGS_DEVICE_ONLY_PATHS.has(pathname)}
       onChange={(next) => {
         // Send every axis so retain middleware recognizes "all" as an explicit target.

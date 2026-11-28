@@ -1,6 +1,6 @@
 import { useClientSettings } from "../../hooks/useSettings";
 import { buildSidebarProjectSnapshots } from "../../sidebarProjectGrouping";
-import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
+import { useEnvironmentIdentities, usePrimaryEnvironmentId } from "../../state/environments";
 import { useProjects } from "../../state/entities";
 
 export function useSettingsProjectGroups() {
@@ -13,7 +13,7 @@ export function useSettingsProjectGroups() {
     (settings) => settings.sidebarProjectGroupingOverrides,
   );
   const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const { environments } = useEnvironments();
+  const environments = useEnvironmentIdentities();
   const labels = new Map(environments.map((entry) => [entry.environmentId, entry.label]));
   return buildSidebarProjectSnapshots({
     projects,

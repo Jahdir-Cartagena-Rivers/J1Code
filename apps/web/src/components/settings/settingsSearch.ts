@@ -115,7 +115,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/secrets": msg("Secrets"),
   "/settings/maintenance": msg("Backup & transfer"),
   "/settings/labs": msg("Labs"),
-  "/settings/about": msg("About"),
+  "/settings/about": msg("This app"),
   "/settings/voice": msg("Voice"),
   "/settings/archived": msg("Archive"),
 };
@@ -128,46 +128,45 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
 }> = [
   {
     heading: msg("Preferences"),
-    headingHidden: true,
-    paths: [
-      "/settings/general",
-      "/settings/appearance",
-      "/settings/chat",
-      "/settings/diffs",
-      "/settings/keybindings",
-      "/settings/voice",
-      "/settings/snap-shot",
-    ],
+    paths: ["/settings/general", "/settings/appearance", "/settings/chat"],
   },
   {
     heading: msg("Agents"),
-    paths: [
-      "/settings/providers",
-      "/settings/threads",
-      "/settings/browser",
-      "/settings/devices",
-      "/settings/scheduled-tasks",
-    ],
+    paths: ["/settings/providers", "/settings/scheduled-tasks", "/settings/hive-mind"],
   },
-  {
-    heading: msg("Code"),
-    paths: ["/settings/projects", "/settings/source-control", "/settings/worktrees"],
-  },
-  {
-    heading: msg("Connections"),
-    paths: [
-      "/settings/connections",
-      "/settings/access",
-      "/settings/hive-mind",
-      ...(isSecretsFeatureEnabled ? (["/settings/secrets"] as const) : []),
-    ],
-  },
-  {
-    heading: msg("More"),
-    headingHidden: true,
-    paths: ["/settings/maintenance", "/settings/labs", "/settings/about", "/settings/archived"],
-  },
+  { heading: msg("Workspace"), paths: ["/settings/projects", "/settings/connections"] },
+  { heading: msg("App"), paths: ["/settings/maintenance", "/settings/about"] },
 ];
+
+export const SETTINGS_RELATED_PAGES: Readonly<
+  Partial<Record<SettingsPath, readonly SettingsPath[]>>
+> = {
+  "/settings/appearance": ["/settings/appearance", "/settings/keybindings", "/settings/voice"],
+  "/settings/chat": ["/settings/chat", "/settings/threads", "/settings/archived"],
+  "/settings/projects": [
+    "/settings/projects",
+    "/settings/source-control",
+    "/settings/worktrees",
+    "/settings/diffs",
+    "/settings/snap-shot",
+  ],
+  "/settings/connections": [
+    "/settings/connections",
+    "/settings/access",
+    "/settings/browser",
+    "/settings/devices",
+    ...(isSecretsFeatureEnabled ? (["/settings/secrets"] as const) : []),
+  ],
+  "/settings/maintenance": ["/settings/maintenance", "/settings/labs"],
+};
+
+export function settingsSidebarSection(path: string): string {
+  return (
+    Object.entries(SETTINGS_RELATED_PAGES).find(([, pages]) =>
+      pages.some((page) => page === path),
+    )?.[0] ?? path
+  );
+}
 
 const SECTION_SEARCH_ALIASES: Partial<Record<SettingsPath, string>> = {
   "/settings/connections": "connections environments remote access",
@@ -1393,7 +1392,9 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Linked environments",
     to: "/settings/connections",
     targetId: "linked-environments",
-    searchTerms: ["link peer another machine vps agents work there handoff pairing code connection paths map"],
+    searchTerms: [
+      "link peer another machine vps agents work there handoff pairing code connection paths map",
+    ],
   },
   {
     id: "remote-environments",
