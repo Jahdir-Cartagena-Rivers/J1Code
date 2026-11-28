@@ -1,5 +1,6 @@
 import type { MessageId, ThreadBotIdentity, ThreadId } from "@j1code/contracts";
 import type { CapturedBotExecutionContext } from "../mausbot/ExecutionContext.ts";
+import { MAUSBOT_ROOM_THREAD_PREFIX, mausbotRoomThreadId } from "./MausbotOrigin.ts";
 
 export function botTurnContext(bot: ThreadBotIdentity | null | undefined): string {
   if (!bot) return "";
@@ -20,14 +21,27 @@ export function resolveBotTurnContext(
   captured: CapturedBotExecutionContext | undefined,
 ) {
   const profile = botTurnContext(thread.bot);
-  if (!isMausBotExecutionThread(thread.id))
-    return { type: "profile" as const, prompt: profile };
+  if (!isMausBotExecutionThread(thread.id)) return { type: "profile" as const, prompt: profile };
   const owner = captured?.owner;
-  if (!captured || captured.threadId !== thread.id || !owner ||
-      owner.messageId !== messageId || !captured.isCurrent() ||
-      !thread.id.startsWith(`j1-mausbot:${owner.botId}:`) ||
-      (thread.bot && thread.bot.id !== owner.botId && thread.bot.id !== `mausbot:${owner.botId}`)) {
+  if (
+    !captured ||
+    captured.threadId !== thread.id ||
+    !owner ||
+    owner.messageId !== messageId ||
+    !captured.isCurrent() ||
+    (thread.bot && thread.bot.id !== owner.botId && thread.bot.id !== `mausbot:${owner.botId}`)
+  ) {
     return { type: "stale" as const };
   }
-  return { type: "bridge" as const, context: captured, prompt: [profile.trimEnd(), captured.prompt].filter(Boolean).join("\n\n") };
+  const room = captured.origin?.input.room;
+  const ownsThread = room
+    ? room.memberId === owner.botId && thread.id === mausbotRoomThreadId(room)
+    : !thread.id.startsWith(MAUSBOT_ROOM_THREAD_PREFIX) &&
+      thread.id.startsWith(`j1-mausbot:${owner.botId}:`);
+  if (!ownsThread) return { type: "stale" as const };
+  return {
+    type: "bridge" as const,
+    context: captured,
+    prompt: [profile.trimEnd(), captured.prompt].filter(Boolean).join("\n\n"),
+  };
 }
