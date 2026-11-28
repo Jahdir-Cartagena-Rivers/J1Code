@@ -606,6 +606,7 @@ export interface AcpAdapterV2Flavor {
   readonly promptInactivityTimeout?: Duration.Input;
   /** Grok can retain task_already_running until process exit. */
   readonly restartRuntimeAfterInterrupt?: boolean;
+  readonly resumeSessionOnRuntimeRestart?: boolean;
   /** Prompt failures after which the agent process keeps failing until replaced. */
   readonly restartRuntimeAfterPromptError?: (error: unknown) => boolean;
   readonly restartRuntimeOnEveryInterrupt?: boolean;
@@ -7317,9 +7318,10 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
 
         const restartAcpRuntime = Effect.fnUntraced(function* (
           threadId: ThreadId | null,
-          checkAuthorization: Effect.Effect<void, EffectAcpErrors.AcpTransportError> = Effect.void,
+          checkAuthorization: Effect.Effect<void, EffectAcpErrors.AcpTransportError>,
+          resumeSessionId: string | undefined,
         ) {
-          yield* spawnAcpRuntime(threadId, undefined, checkAuthorization);
+          yield* spawnAcpRuntime(threadId, resumeSessionId, checkAuthorization);
           yield* wireAcpRuntimeHandlers(runtime, yield* Ref.get(runtimeCallbackGeneration));
         });
 
@@ -7558,8 +7560,10 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               prepareClaimableTerminalEnvironment(yield* readMcpContext(input.threadId));
               return yield* startAcpRuntime(input.threadId);
             });
-        if (input.requireExactInitialNativeThread === true &&
-            started.sessionId !== input.initialNativeThreadId) {
+        if (
+          input.requireExactInitialNativeThread === true &&
+          started.sessionId !== input.initialNativeThreadId
+        ) {
           return yield* new ProviderAdapter.ProviderAdapterProtocolError({
             driver,
             detail: "ACP did not reopen the original saved conversation",
@@ -7588,6 +7592,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
         const activateSession = Effect.fnUntraced(function* (
           sessionId: string,
           threadId: ThreadId | null,
+          resumeOnStartup = false,
         ) {
           const initialFailure = yield* Ref.modify(initialSessionActivationFailure, (failure) =>
             failure?.sessionId === sessionId ? [failure.error, null] : [undefined, failure],
@@ -7600,16 +7605,29 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           prepareTerminalEnvironment(mcpContext, sessionId);
           yield* Ref.set(loadingSessionId, sessionId);
           const activated = yield* Effect.gen(function* () {
-            return canLoadSession
-              ? yield* runtime.loadSession(sessionId, activationOptions)
-              : canResumeSession
-                ? yield* runtime.resumeSession(sessionId, activationOptions)
-                : yield* new ProviderAdapter.ProviderAdapterProtocolError({
-                    driver,
-                    detail: `ACP driver cannot load or resume session ${sessionId}`,
-                  });
-          }).pipe(Effect.onError(() => Ref.set(loadingSessionId, null)));
-          if (input.requireExactInitialNativeThread === true && activated.sessionId !== sessionId) {
+            return resumeOnStartup
+              ? yield* runtime.start()
+              : canLoadSession
+                ? yield* runtime.loadSession(sessionId, activationOptions)
+                : canResumeSession
+                  ? yield* runtime.resumeSession(sessionId, activationOptions)
+                  : yield* new ProviderAdapter.ProviderAdapterProtocolError({
+                      driver,
+                      detail: `ACP driver cannot load or resume session ${sessionId}`,
+                    });
+          }).pipe(
+            Effect.onError(() =>
+              Ref.set(loadingSessionId, null).pipe(
+                Effect.andThen(
+                  resumeOnStartup ? Ref.set(runtimeRestartRequired, true) : Effect.void,
+                ),
+              ),
+            ),
+          );
+          if (
+            (resumeOnStartup || input.requireExactInitialNativeThread === true) &&
+            activated.sessionId !== sessionId
+          ) {
             yield* Ref.set(loadingSessionId, null);
             yield* Ref.set(runtimeRestartRequired, true);
             return yield* new ProviderAdapter.ProviderAdapterProtocolError({
@@ -8518,10 +8536,13 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
         const restartRuntimeAfterTeardownIfRequired = Effect.fnUntraced(function* (
           threadId: ThreadId | null,
           checkAuthorization: Effect.Effect<void, EffectAcpErrors.AcpTransportError> = Effect.void,
+          sessionId?: string,
         ) {
           const restartRequired = yield* Ref.get(runtimeRestartRequired);
           if (!restartRequired) return false;
-          yield* restartAcpRuntime(threadId, checkAuthorization);
+          const resumeSessionId =
+            flavor.resumeSessionOnRuntimeRestart === true ? sessionId : undefined;
+          yield* restartAcpRuntime(threadId, checkAuthorization, resumeSessionId);
           yield* Ref.set(runtimeRestartRequired, false);
           yield* Ref.set(activeSessionId, null);
           yield* Ref.set(activeSessionSetup, null);
@@ -8541,21 +8562,38 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             let refusedDelivery = false;
             const authorizeWrite = turnInput.authorizeDelegationWrite?.pipe(
               Effect.catchDefect(() => Effect.succeed(false)),
-              Effect.tap((allowed) => Effect.sync(() => { if (!allowed) refusedDelivery = true; })),
-            );
-            const checkAuthorization = authorizeWrite === undefined ? Effect.void : authorizeWrite.pipe(
-              Effect.flatMap((allowed) => allowed ? Effect.void : Effect.fail(
-                new EffectAcpErrors.AcpTransportError({
-                  detail: "The delegated turn no longer authorizes native delivery.",
-                  cause: "Delegated turn authorization refused.",
+              Effect.tap((allowed) =>
+                Effect.sync(() => {
+                  if (!allowed) refusedDelivery = true;
                 }),
-              )),
+              ),
             );
+            const checkAuthorization =
+              authorizeWrite === undefined
+                ? Effect.void
+                : authorizeWrite.pipe(
+                    Effect.flatMap((allowed) =>
+                      allowed
+                        ? Effect.void
+                        : Effect.fail(
+                            new EffectAcpErrors.AcpTransportError({
+                              detail: "The delegated turn no longer authorizes native delivery.",
+                              cause: "Delegated turn authorization refused.",
+                            }),
+                          ),
+                    ),
+                  );
             const guardNativeRequest = <A, E, R>(
               effect: Effect.Effect<A, E, R>,
               authorization = authorizeWrite,
-            ) => authorization === undefined ? effect :
-              Effect.provideService(effect, EffectAcpProtocol.AcpOutgoingWriteAuthorization, authorization);
+            ) =>
+              authorization === undefined
+                ? effect
+                : Effect.provideService(
+                    effect,
+                    EffectAcpProtocol.AcpOutgoingWriteAuthorization,
+                    authorization,
+                  );
             yield* awaitRuntimeTeardown();
             yield* checkAuthorization;
             const existing = yield* Ref.get(activeTurn);
@@ -8571,19 +8609,31 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             latestRuntimePolicy = turnInput.runtimePolicy;
             const requestedSessionId = yield* nativeThreadId(driver, turnInput.providerThread);
             const restartAfterInterrupt = yield* guardNativeRequest(
-              restartRuntimeAfterTeardownIfRequired(turnInput.threadId, checkAuthorization),
+              restartRuntimeAfterTeardownIfRequired(
+                turnInput.threadId,
+                checkAuthorization,
+                requestedSessionId,
+              ),
             );
             yield* checkAuthorization;
             const needsSessionActivation =
               (yield* Ref.get(activeSessionId)) !== requestedSessionId || restartAfterInterrupt;
             if (needsSessionActivation) {
               yield* checkAuthorization;
-              const activated = yield* guardNativeRequest(activateSession(requestedSessionId, turnInput.threadId));
+              const activated = yield* guardNativeRequest(
+                activateSession(
+                  requestedSessionId,
+                  turnInput.threadId,
+                  restartAfterInterrupt && flavor.resumeSessionOnRuntimeRestart === true,
+                ),
+              );
               yield* checkAuthorization;
               yield* Ref.set(activeSessionId, activated.sessionId);
               yield* Ref.set(loadingSessionId, null);
               yield* setActiveSessionSetup(activated);
-              yield* guardNativeRequest(configureSession(activated, turnInput.modelSelection, turnInput.runtimePolicy));
+              yield* guardNativeRequest(
+                configureSession(activated, turnInput.modelSelection, turnInput.runtimePolicy),
+              );
               yield* checkAuthorization;
               yield* Ref.set(activeSelection, turnInput.modelSelection);
               yield* Ref.set(activeInteractionMode, turnInput.runtimePolicy.interactionMode);
@@ -8603,11 +8653,13 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                   });
                 }
                 yield* checkAuthorization;
-                yield* guardNativeRequest(configureSession(
-                  currentSessionSetup,
-                  turnInput.modelSelection,
-                  turnInput.runtimePolicy,
-                ));
+                yield* guardNativeRequest(
+                  configureSession(
+                    currentSessionSetup,
+                    turnInput.modelSelection,
+                    turnInput.runtimePolicy,
+                  ),
+                );
                 yield* checkAuthorization;
                 yield* Ref.set(activeSelection, turnInput.modelSelection);
                 yield* Ref.set(activeInteractionMode, turnInput.runtimePolicy.interactionMode);
@@ -8890,17 +8942,22 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             const promptOptions = {
               dispatched: context.promptDispatched,
               released: context.foregroundIdle,
-              ...(authorizeWrite === undefined ? {} : {
-                authorizeWrite: Effect.gen(function* () {
-                  const ownsPrompt = Effect.gen(function* () {
-                    return (yield* Ref.get(activeTurn)) === context &&
-                      (yield* Ref.get(runtimeCallbackGeneration)) === promptGeneration;
-                  });
-                  if ((yield* ownsPrompt) && (yield* authorizeWrite) && (yield* ownsPrompt)) return true;
-                  refusedDelivery = true;
-                  return false;
-                }),
-              }),
+              ...(authorizeWrite === undefined
+                ? {}
+                : {
+                    authorizeWrite: Effect.gen(function* () {
+                      const ownsPrompt = Effect.gen(function* () {
+                        return (
+                          (yield* Ref.get(activeTurn)) === context &&
+                          (yield* Ref.get(runtimeCallbackGeneration)) === promptGeneration
+                        );
+                      });
+                      if ((yield* ownsPrompt) && (yield* authorizeWrite) && (yield* ownsPrompt))
+                        return true;
+                      refusedDelivery = true;
+                      return false;
+                    }),
+                  }),
             };
             context.promptSentAt = yield* Clock.currentTimeMillis;
             if (promptInactivityTimeoutMillis !== undefined) {
@@ -8920,10 +8977,12 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                   )
                 : checkAuthorization.pipe(
                     Effect.andThen(Deferred.succeed(context.promptDispatched, undefined)),
-                    Effect.andThen(guardNativeRequest(
-                      compactSession.compact(runtime, requestedSessionId),
-                      promptOptions.authorizeWrite,
-                    )),
+                    Effect.andThen(
+                      guardNativeRequest(
+                        compactSession.compact(runtime, requestedSessionId),
+                        promptOptions.authorizeWrite,
+                      ),
+                    ),
                     Effect.as({ stopReason: "end_turn" } satisfies EffectAcpSchema.PromptResponse),
                   )
             ).pipe(
@@ -9317,12 +9376,15 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                   });
                   const restartAfterInterrupt = yield* restartRuntimeAfterTeardownIfRequired(
                     threadInput.providerThread.appThreadId,
+                    Effect.void,
+                    sessionId,
                   ).pipe(Effect.tapError(() => restorePreviousItemIdentity));
                   if ((yield* Ref.get(activeSessionId)) !== sessionId || restartAfterInterrupt) {
                     yield* Ref.set(snapshot, emptySnapshotState());
                     const activated = yield* activateSession(
                       sessionId,
                       threadInput.providerThread.appThreadId,
+                      restartAfterInterrupt && flavor.resumeSessionOnRuntimeRestart === true,
                     ).pipe(Effect.tapError(() => restorePreviousItemIdentity));
                     yield* Ref.set(activeSessionId, activated.sessionId);
                     yield* Ref.set(loadingSessionId, null);

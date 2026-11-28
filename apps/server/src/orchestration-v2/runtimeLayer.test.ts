@@ -2227,11 +2227,12 @@ it.layer(layerTest)("OrchestrationV2LayerLive", (it) => {
       );
       // Stands in for a long send or delegated bookkeeping holding the busy thread's lock.
       const lockHeld = yield* Deferred.make<void>();
+      const releaseLock = yield* Deferred.make<void>();
       const busyLock = yield* executor
         .withLock(
           busyThreadId,
           Deferred.succeed(lockHeld, undefined).pipe(
-            Effect.andThen(Effect.sleep("1 minute")),
+            Effect.andThen(Deferred.await(releaseLock)),
             Effect.andThen(Effect.sync(() => order.push("busy thread's lock released"))),
           ),
         )
@@ -2349,11 +2350,12 @@ it.layer(layerTest)("OrchestrationV2LayerLive", (it) => {
       );
       // Stands in for a long send or delegated bookkeeping holding the busy coordinator's lock.
       const lockHeld = yield* Deferred.make<void>();
+      const releaseLock = yield* Deferred.make<void>();
       const busyLock = yield* executor
         .withLock(
           busyThreadId,
           Deferred.succeed(lockHeld, undefined).pipe(
-            Effect.andThen(Effect.sleep("1 minute")),
+            Effect.andThen(Deferred.await(releaseLock)),
             Effect.andThen(Effect.sync(() => order.push("busy coordinator's lock released"))),
           ),
         )
@@ -2362,9 +2364,9 @@ it.layer(layerTest)("OrchestrationV2LayerLive", (it) => {
 
       yield* busy.ask;
       yield* idle.ask;
-      yield* TestClock.adjust("1 minute");
-      yield* Fiber.join(busyLock);
       yield* Fiber.join(idleWoken);
+      yield* Deferred.succeed(releaseLock, undefined);
+      yield* Fiber.join(busyLock);
 
       assert.deepEqual(order, ["idle coordinator woken", "busy coordinator's lock released"]);
     }),

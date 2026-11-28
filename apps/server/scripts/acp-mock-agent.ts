@@ -896,7 +896,12 @@ const program = Effect.gen(function* () {
       promptCount += 1;
       if (
         crashOnPrompt &&
-        request.prompt.some((part) => part.type === "text" && part.text === "crash now")
+        request.prompt.some(
+          (part) =>
+            part.type === "text" &&
+            typeof part.text === "string" &&
+            part.text.includes("crash now"),
+        )
       ) {
         return yield* Effect.sync(() => process.exit(23));
       }

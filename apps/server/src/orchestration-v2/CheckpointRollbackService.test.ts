@@ -654,6 +654,7 @@ const seedRollbackHistory = (imported = false) =>
           startedAt: now,
           completedAt: now,
           checkpointId: checkpointId(ordinal),
+          restoreFiles: !imported,
           contextHandoffId: null,
         },
       });
@@ -854,6 +855,7 @@ const seedRollbackHistory = (imported = false) =>
           providerThreadId,
           scopeId,
           checkpointId: checkpointId(ordinal),
+          restoreFiles: !imported,
         });
       }).pipe(Effect.provide(serviceLayer));
 

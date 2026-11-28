@@ -364,6 +364,7 @@ export function makeGrokAcpAdapterFlavor(
     interruptPromptOnCancel: false,
     // User Stop restarts the process group; steering cancels softly to preserve background work.
     restartRuntimeAfterInterrupt: true,
+    resumeSessionOnRuntimeRestart: true,
     restartRuntimeAfterPromptError: (error) =>
       isAcpTransportError(error) || isAcpProcessExitedError(error),
     terminateRuntimeProcessGroupOnInterrupt: true,
@@ -472,10 +473,11 @@ export const makeGrokAdapterV2 = Effect.fn("makeGrokAdapterV2")(function* (
       : { continuationRequests: options.continuationRequests }),
     ...(options.testHooks === undefined ? {} : { testHooks: options.testHooks }),
   });
-  const foreign = () => new ProviderAdapter.ProviderAdapterProtocolError({
-    driver: GROK_PROVIDER,
-    detail: "Grok cannot use a conversation owned by another thread or provider instance.",
-  });
+  const foreign = () =>
+    new ProviderAdapter.ProviderAdapterProtocolError({
+      driver: GROK_PROVIDER,
+      detail: "Grok cannot use a conversation owned by another thread or provider instance.",
+    });
   const owns = (thread: OrchestrationV2ProviderThread, threadId?: ThreadId) =>
     thread.driver === GROK_PROVIDER &&
     thread.providerInstanceId === options.instanceId &&
@@ -483,11 +485,16 @@ export const makeGrokAdapterV2 = Effect.fn("makeGrokAdapterV2")(function* (
     (thread.nativeThreadRef == null || thread.nativeThreadRef.driver === GROK_PROVIDER);
   return {
     ...adapter,
-    openSession: Effect.fn("openSession")(function* (input: ProviderAdapter.ProviderAdapterV2OpenSessionInput) {
-      if (input.modelSelection.instanceId !== options.instanceId ||
-          (input.resumeFromSession !== undefined &&
-            (input.resumeFromSession.providerInstanceId !== options.instanceId ||
-              input.resumeFromSession.driver !== GROK_PROVIDER))) return yield* foreign();
+    openSession: Effect.fn("openSession")(function* (
+      input: ProviderAdapter.ProviderAdapterV2OpenSessionInput,
+    ) {
+      if (
+        input.modelSelection.instanceId !== options.instanceId ||
+        (input.resumeFromSession !== undefined &&
+          (input.resumeFromSession.providerInstanceId !== options.instanceId ||
+            input.resumeFromSession.driver !== GROK_PROVIDER))
+      )
+        return yield* foreign();
       const runtime = yield* adapter.openSession(input);
       return {
         ...runtime,

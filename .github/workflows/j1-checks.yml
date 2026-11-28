@@ -76,6 +76,10 @@ jobs:
           apps/server/src/workspace/WorkspaceFolders.test.ts
           apps/desktop/src/app/MausbotShortcuts.test.ts
           apps/web/src/components/mausbotHost.test.ts
+      - name: Test background service and Grok crash recovery
+        run: |
+          vp test run apps/server/src/cloud/bootService.test.ts
+          vp test run apps/server/src/orchestration-v2/Adapters/AcpAdapterV2.test.ts -t 'uses the original Grok native session on a deliberate retry'
       - name: Test hybrid desktop automation
         run: >-
           vp test run apps/server/src/desktop/DesktopAutomation.test.ts
