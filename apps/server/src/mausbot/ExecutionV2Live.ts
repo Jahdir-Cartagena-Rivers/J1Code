@@ -1,3 +1,5 @@
+// @effect-diagnostics nodeBuiltinImport:off - Share the native runtime's on-disk workspace layout.
+import * as NodePath from "node:path";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schedule from "effect/Schedule";
@@ -27,13 +29,14 @@ export const layer = Layer.effect(
     const instances = yield* ProviderInstanceRegistry;
     const control = yield* ProviderTurnControlServiceV2;
     const settings = yield* ServerSettingsService;
-    const { attachmentsDir } = yield* ServerConfig;
+    const { attachmentsDir, baseDir } = yield* ServerConfig;
+    const mausbotDataDir = NodePath.join(baseDir, "userdata", "mausbot");
     const events = yield* EventSinkV2;
     let cursor = yield* events.latestSequence();
     const catalogChanges = yield* instances.subscribeChanges;
 
     const host = createMausbotExecutionV2(
-      { orchestrator, projects, instances, control, settings, attachmentsDir },
+      { orchestrator, projects, instances, control, settings, attachmentsDir, mausbotDataDir },
       Effect.runPromise,
       "stream",
     );

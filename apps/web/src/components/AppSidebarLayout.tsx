@@ -43,8 +43,7 @@ import LegacyThreadSidebar from "./LegacySidebar";
 import { useProjects } from "../state/entities";
 import ThreadSidebar from "./Sidebar";
 import { MausbotShell } from "./MausbotShell";
-import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
-import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { SidebarChromeFooter } from "./sidebar/SidebarChrome";
 import { SidebarBrandWidthProbe } from "./sidebar/SidebarChrome";
 import { isAppModalPage } from "./sidebar/mainAppLocation";
 import type { SidebarRouteReveal } from "./sidebar/routeReveal";
@@ -331,7 +330,7 @@ function SidebarControl({ showSidebar }: { readonly showSidebar: boolean }) {
     context: { usagePageOpen },
   });
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- window keydown listener that toggles the sidebar on its shortcut
+  // oxlint-disable-next-line j1code/no-unreasoned-state-sync -- Handle the window's sidebar shortcut.
   useEffect(() => {
     // A hidden sidebar would still save the toggle, so the shortcut does nothing without one.
     if (!showSidebar) return;
@@ -436,7 +435,6 @@ export function AppSidebarLayout({
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
   const pathname = useLocation({ select: (location) => location.pathname });
-  const isOnSettings = pathname === "/settings" || pathname.startsWith("/settings/");
   const legacySidebarEnabled = useClientSettings((settings) => settings.legacySidebarEnabled);
   const panelAnimationsSuppressed = usePanelNavigationSuppression(pathname);
   const routePanelAnimationsActive = panelAnimationsActive && !panelAnimationsSuppressed;
@@ -499,7 +497,7 @@ export function AppSidebarLayout({
                   data-app-sidebar=""
                   {...sidebarArea}
                   role="navigation"
-                  aria-label={isOnSettings ? "Settings" : "Threads"}
+                  aria-label="Threads"
                   resizable={{
                     maxWidth: sidebarMaximumWidth,
                     minWidth: sidebarMinimumWidth,
@@ -511,12 +509,7 @@ export function AppSidebarLayout({
                   }}
                   style={windowControlsInsetStyle}
                 >
-                  {isOnSettings ? (
-                    <>
-                      <SidebarChromeHeader isElectron={isElectron} />
-                      <SettingsSidebarNav pathname={pathname} />
-                    </>
-                  ) : legacySidebarEnabled ? (
+                  {legacySidebarEnabled ? (
                     <LegacyThreadSidebar />
                   ) : (
                     <ThreadSidebar routeReveal={sidebarRouteReveal} />

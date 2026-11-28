@@ -33,7 +33,7 @@ import { stableStringify } from "@j1code/shared/relaySigning";
 import { MausbotResume, MAUSBOT_RESUME_CURSOR_PREFIX, findMausbotResumeTarget, findMausbotIncidentFailure,
   readMausbotResumeCursor, mausbotResumeCommandId } from "../orchestration-v2/MausbotResume.ts";
 import { ownedNativeRoomProject, parkedRoomAnswerText, roomProviderSystem, validateColdNativeRoomTurn } from "./NativeBotEnrollment.ts";
-import type { ReadSavedNativeBotEnrollment, ReadSavedNativeRoomMemberEnrollment, StageSavedColdRoomTurn } from "./NativeBotEnrollment.ts";
+import type { ReadSavedNativeBotEnrollment, ReadSavedNativeRoomMemberEnrollment, SavedNativeRoomMemberEnrollment, StageSavedColdRoomTurn } from "./NativeBotEnrollment.ts";
 import type { MausbotExecutionHost, MausbotExecutionOwner } from "./ExecutionHost.ts";
 import type { ServerSettingsService } from "../serverSettings.ts";
 import { nativeDefaultAccount, sharedModelOptions } from "./ExecutionAccounts.ts";
@@ -289,6 +289,7 @@ export interface ExecutionV2Services {
   readonly control: Pick<ProviderTurnControlServiceV2Shape, "interrupt">;
   readonly settings: Pick<ServerSettingsService["Service"], "getSettings" | "managedPolicy" | "insertBotProfileIfAbsent">;
   readonly attachmentsDir: string;
+  readonly mausbotDataDir: string;
 }
 const command = () => CommandId.make(`mausbot:${NodeCrypto.randomUUID()}`);
 const terminal = new Set(["completed", "failed", "cancelled", "interrupted", "rolled_back"]);
@@ -347,6 +348,21 @@ export function createMausbotExecutionV2(
   eventDelivery: "receipts" | "stream" = "receipts",
 ): ExecutionV2Host {
   const turns = new ExecutionV2Turns();
+  const resolveRoomProject = async (
+    profileProject: ProjectId | null | undefined,
+    binding: NonNullable<SavedNativeRoomMemberEnrollment["memberBindings"]>[number] | undefined,
+    requestedProject: ProjectId | undefined,
+    cwd: string,
+  ) => {
+    const bound = ownedNativeRoomProject(profileProject, binding, requestedProject);
+    if (profileProject || requestedProject || binding?.projectId !== null) return bound;
+    const workspace = NodePath.join(deps.mausbotDataDir, "workspaces", binding.memberId);
+    if (!sameWorkspace(binding.workspace, workspace) || !sameWorkspace(cwd, workspace)) return;
+    const matches = (await run(deps.projects.listShells())).filter(project =>
+      project.archivedAt == null && sameWorkspace(project.workspaceRoot, workspace),
+    );
+    if (matches.length === 1) return matches[0]!.id;
+  };
   const subscribers = new Map<MausbotExecutionOwner, { current: () => boolean; emit: Emit }>();
   // Keep the final Stop receipt for as long as the runtime retains its generation.
   const retiredOwners = new WeakMap<MausbotExecutionOwner, Promise<void>>();
@@ -619,7 +635,7 @@ export function createMausbotExecutionV2(
       const settings = await run(deps.settings.getSettings);
       const profile = resolveSavedMausProfile(settings.bots, input.botId, true);
       const roomBinding = snapshot.memberBindings?.find(binding => binding.memberId === input.botId);
-      const projectId = ownedNativeRoomProject(profile?.projectId, roomBinding, input.projectId);
+      const projectId = await resolveRoomProject(profile?.projectId, roomBinding, input.projectId, input.cwd);
       const instance = await run(deps.instances.getInstance(input.instanceId));
       const project = projectId && Option.getOrUndefined(await run(deps.projects.getShell(projectId)));
       const runtimeMode = nativeBotRuntimeMode(input.approvalMode);
@@ -650,8 +666,9 @@ export function createMausbotExecutionV2(
           const selected = await run(deps.instances.getInstance(input.instanceId));
           const selectedSnapshot = selected?.enabled ? await run(selected.snapshot.getSnapshot) : undefined;
           const currentProfile = resolveSavedMausProfile(latest.bots, input.botId, true);
+          const ownerProject = await resolveRoomProject(currentProfile?.projectId, roomBinding, input.projectId, input.cwd);
           return isCurrent() && stableStringify(live) === stableStringify(snapshot) &&
-            ownedNativeRoomProject(currentProfile?.projectId, roomBinding, input.projectId) === projectId &&
+            ownerProject === projectId &&
             Boolean(currentProject && currentProject.archivedAt == null &&
               sameWorkspace(currentProject.workspaceRoot, input.cwd)) &&
             Boolean(selectedSnapshot && supportsBotStart(selectedSnapshot, input) &&
@@ -736,7 +753,7 @@ export function createMausbotExecutionV2(
             const binding = snapshot.memberBindings?.find(row => row.memberId === memberId);
             if (snapshot.memberBindings !== undefined && !binding) return null;
             const sourceProfile = resolveSavedMausProfile(sourceSettings.bots, memberId, true);
-            const sourceProjectId = ownedNativeRoomProject(sourceProfile?.projectId, binding);
+            const sourceProjectId = await resolveRoomProject(sourceProfile?.projectId, binding, undefined, binding?.workspace ?? "");
             if (!sourceProjectId || (sourceProjectId !== projectId &&
                 (binding?.projectId !== sourceProjectId || roomBinding?.projectId !== projectId))) return null;
             const sourceThreadId = ThreadId.make(mausbotRoomThreadId({ ...room, memberId }));

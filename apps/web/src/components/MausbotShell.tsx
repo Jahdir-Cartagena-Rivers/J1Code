@@ -426,7 +426,7 @@ export function MausbotShell({
     window.addEventListener("j1-provider-catalog", receive);
     return () => window.removeEventListener("j1-provider-catalog", receive);
   }, []);
-  const post = useStableCallback(() => {
+  const post = useStableCallback((force = false) => {
     if (!current || !frame.current?.contentWindow) return;
     const root = document.documentElement;
     const colors = getComputedStyle(root);
@@ -477,7 +477,7 @@ export function MausbotShell({
       },
     };
     const signature = JSON.stringify([current.url, message]);
-    if (signature === lastNavigation.current) return;
+    if (!force && signature === lastNavigation.current) return;
     lastNavigation.current = signature;
     frame.current.contentWindow.postMessage(message, new URL(current.url).origin);
   });
@@ -684,7 +684,7 @@ export function MausbotShell({
         return;
       const data = event.data;
       if (data.type === "bootstrap") {
-        post();
+        post(true);
       } else if (data.type === "skin-catalog") {
         installMausbotFonts(data.fonts, current.url);
         const themes = decodeMausbotThemes(data.skins);
@@ -748,7 +748,7 @@ export function MausbotShell({
         );
       } else if (data.type === "ready" && finite(data.left) && finite(data.top)) {
         if (data.navigationReady === false) {
-          post();
+          post(true);
           return;
         }
         if (handshake.current !== null) window.clearTimeout(handshake.current);

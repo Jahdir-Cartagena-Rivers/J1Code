@@ -123,6 +123,7 @@ const owners = {
   stale: { id: "stale-owner" },
 } as const satisfies Record<string, MausbotExecutionOwner>;
 const projectId = ProjectId.make("project-one");
+const mausbotDataDir = NodePath.resolve("fixture-mausbot-data");
 const botId = BotId.make("mausbot:bot-one");
 const at = "2026-11-19T00:00:00.000Z";
 const selected = { instanceId: input().instanceId, model: input().model };
@@ -318,6 +319,7 @@ function fixture(shell: OrchestrationV2ThreadShell | null = null, options: Fixtu
       managedPolicy: options.managedPolicy,
     },
     attachmentsDir: options.attachmentsDir ?? "unused-test-attachments",
+    mausbotDataDir,
   };
   const log = Logger.layer(
     [
@@ -456,125 +458,179 @@ it("refuses native room turns before private task admission or ordinary Resume",
   }
 });
 
-it("rechecks the provider approval mode at staging and admission boundaries for a cold room turn", async () => {
-  const request = { ...input(), nativeRoomTurn: true };
-  const rows = [
-    {
-      id: "room-request",
-      at: 1,
-      role: "user" as const,
-      kind: "text",
-      text: request.text,
-      provenance: { authority: "own" as const, sender: { id: "person", name: "Person" } },
-    },
-  ];
-  const snapshot = readNativeRoomMemberEnrollment(
-    {
-      botId: request.botId,
-      threadId: request.threadId,
-      turnId: request.turnId,
-      groupId: "room",
-      dm: false,
-      roster: [request.botId],
-      enrollment: {
-        name: savedProfile.name,
-        workspace: request.cwd,
-        selection: selected,
-        approvalMode: request.approvalMode,
-        restrictedTools: request.restrictedTools,
+it.each(["bound", "unbound", "foreign-workspace", "ambiguous-workspace"] as const)(
+  "checks workspace ownership and approval boundaries for a %s cold room turn",
+  async (workspaceKind) => {
+    const bound = workspaceKind === "bound";
+    const memberId = input().botId;
+    const nativeWorkspace = NodePath.join(mausbotDataDir, "workspaces", memberId);
+    const request = {
+      ...input(),
+      nativeRoomTurn: true,
+      cwd: bound
+        ? input().cwd
+        : workspaceKind === "foreign-workspace"
+          ? NodePath.join(mausbotDataDir, "workspaces", "another-bot")
+          : nativeWorkspace,
+    };
+    const rows = [
+      {
+        id: "room-request",
+        at: 1,
+        role: "user" as const,
+        kind: "text",
+        text: request.text,
+        provenance: { authority: "own" as const, sender: { id: "person", name: "Person" } },
       },
-      operation: {
-        id: "operation",
-        generation: "generation",
-        kind: "chat",
-        requestId: "room-request",
-        sourceRowIds: ["room-request"],
-        queuedIds: [],
-        renderedWindowIds: ["room-request"],
-        instructionsBeforeHistory: "",
-        historicalInstructionText: "",
-        instructionsAfterHistory: "",
-      },
-      rows,
-    },
-    request.botId,
-    request.threadId,
-    request.turnId,
-  );
-  NodeAssert.ok(snapshot);
-
-  for (const revokeAt of ["stage", "thread.bot.create", "message.dispatch", null] as const) {
-    let modes: ServerProvider["supportedRuntimeModes"] = ["approval-required"];
-    let inAdmission: RoomAdmissionCommand | undefined;
-    const { host, commands, roomAdmissionAttempts, contexts } = fixture(null, {
-      profiles: { [botId]: savedProfile },
-      provider: {
-        ...provider,
-        get supportedRuntimeModes() {
-          return modes;
+    ];
+    const snapshot = readNativeRoomMemberEnrollment(
+      {
+        botId: request.botId,
+        threadId: request.threadId,
+        turnId: request.turnId,
+        groupId: "room",
+        dm: false,
+        roster: [request.botId],
+        ...(!bound
+          ? {
+              memberBindings: [
+                {
+                  memberId,
+                  projectId: null,
+                  workspace: request.cwd,
+                  selection: selected,
+                  approvalMode: request.approvalMode,
+                  restrictedTools: request.restrictedTools,
+                  toolScopeSignature: "0".repeat(64),
+                },
+              ],
+            }
+          : {}),
+        enrollment: {
+          name: savedProfile.name,
+          workspace: request.cwd,
+          selection: selected,
+          approvalMode: request.approvalMode,
+          restrictedTools: request.restrictedTools,
         },
+        operation: {
+          id: "operation",
+          generation: "generation",
+          kind: "chat",
+          requestId: "room-request",
+          sourceRowIds: ["room-request"],
+          queuedIds: [],
+          renderedWindowIds: ["room-request"],
+          instructionsBeforeHistory: "",
+          historicalInstructionText: "",
+          instructionsAfterHistory: "",
+        },
+        rows,
       },
-      beforeRoomAdmission: (commandType) => {
-        inAdmission = commandType;
-      },
-    });
-    const start = host.call(
-      request,
-      () => true,
-      () => {},
-      owners.owner,
-      undefined,
-      async () => {
-        if (inAdmission && inAdmission === revokeAt) modes = ["full-access"];
-        return snapshot;
-      },
-      async () => {
-        if (revokeAt === "stage") modes = ["full-access"];
-        return {
-          ...snapshot,
-          rows: snapshot.rows.map((row) => ({ ...row, stagedAttachments: [] })),
-        };
-      },
+      request.botId,
+      request.threadId,
+      request.turnId,
     );
+    NodeAssert.ok(snapshot);
 
-    if (revokeAt === null) {
-      await start;
-      assert.deepEqual(roomAdmissionAttempts, ["thread.bot.create", "message.dispatch"]);
-      assert.deepEqual(
-        commands.map((command) => command.type),
-        roomAdmissionAttempts,
-      );
-      assert.include(commands[0]!, {
-        threadId: ThreadId.make("j1-mausbot:room:room:thread-one:bot-one"),
+    const currentProject = { ...project, workspaceRoot: request.cwd };
+    if (workspaceKind === "foreign-workspace" || workspaceKind === "ambiguous-workspace") {
+      const { host, commands } = fixture(null, {
+        projects:
+          workspaceKind === "foreign-workspace"
+            ? [currentProject]
+            : [currentProject, { ...currentProject, id: ProjectId.make("other-project") }],
       });
-      assert.lengthOf(contexts, 1);
-      const [owned] = host.turns.forOwner(owners.owner);
-      if (owned) host.turns.release(...owned);
-      continue;
+      await NodeAssert.rejects(
+        host.call(
+          request,
+          () => true,
+          () => {},
+          owners.owner,
+          undefined,
+          async () => snapshot,
+          async () => null,
+        ),
+        /outside its saved J1 project or provider policy/,
+      );
+      assert.deepEqual(commands, []);
+      return;
     }
 
-    await NodeAssert.rejects(
-      start,
-      revokeAt === "stage"
-        ? /room operation changed during staging/
-        : (error: unknown) => isDispatchError(error) && error.commandType === revokeAt,
-    );
-    assert.deepEqual(
-      roomAdmissionAttempts,
-      revokeAt === "stage"
-        ? []
-        : revokeAt === "thread.bot.create"
-          ? ["thread.bot.create"]
-          : ["thread.bot.create", "message.dispatch"],
-    );
-    assert.deepEqual(
-      commands.map((command) => command.type),
-      revokeAt === "message.dispatch" ? ["thread.bot.create"] : [],
-    );
-    assert.deepEqual(contexts, []);
-    assert.lengthOf(host.turns.owners(), 0);
-  }
-});
+    for (const revokeAt of ["stage", "thread.bot.create", "message.dispatch", null] as const) {
+      let modes: ServerProvider["supportedRuntimeModes"] = ["approval-required"];
+      let inAdmission: RoomAdmissionCommand | undefined;
+      const { host, commands, roomAdmissionAttempts, contexts } = fixture(null, {
+        profiles: bound ? { [botId]: savedProfile } : {},
+        projects: [currentProject],
+        provider: {
+          ...provider,
+          get supportedRuntimeModes() {
+            return modes;
+          },
+        },
+        beforeRoomAdmission: (commandType) => {
+          inAdmission = commandType;
+        },
+      });
+      const start = host.call(
+        request,
+        () => true,
+        () => {},
+        owners.owner,
+        undefined,
+        async () => {
+          if (inAdmission && inAdmission === revokeAt) modes = ["full-access"];
+          return snapshot;
+        },
+        async () => {
+          if (revokeAt === "stage") modes = ["full-access"];
+          return {
+            ...snapshot,
+            rows: snapshot.rows.map((row) => ({ ...row, stagedAttachments: [] })),
+          };
+        },
+      );
+
+      if (revokeAt === null) {
+        await start;
+        assert.deepEqual(roomAdmissionAttempts, ["thread.bot.create", "message.dispatch"]);
+        assert.deepEqual(
+          commands.map((command) => command.type),
+          roomAdmissionAttempts,
+        );
+        assert.include(commands[0]!, {
+          threadId: ThreadId.make("j1-mausbot:room:room:thread-one:bot-one"),
+        });
+        assert.lengthOf(contexts, 1);
+        const [owned] = host.turns.forOwner(owners.owner);
+        if (owned) host.turns.release(...owned);
+        continue;
+      }
+
+      await NodeAssert.rejects(
+        start,
+        revokeAt === "stage"
+          ? /room operation changed during staging/
+          : (error: unknown) => isDispatchError(error) && error.commandType === revokeAt,
+      );
+      assert.deepEqual(
+        roomAdmissionAttempts,
+        revokeAt === "stage"
+          ? []
+          : revokeAt === "thread.bot.create"
+            ? ["thread.bot.create"]
+            : ["thread.bot.create", "message.dispatch"],
+      );
+      assert.deepEqual(
+        commands.map((command) => command.type),
+        revokeAt === "message.dispatch" ? ["thread.bot.create"] : [],
+      );
+      assert.deepEqual(contexts, []);
+      assert.lengthOf(host.turns.owners(), 0);
+    }
+  },
+);
 
 it("rejects another connection's controls and repeated active starts", async () => {
   const { host, commands } = fixture();

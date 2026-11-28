@@ -273,7 +273,10 @@ export function J1ShellBridge() {
       previous = encoded;
       window.parent.postMessage(message, configuredOrigin);
     };
-    const acknowledge = report;
+    const acknowledge = () => {
+      previous = "";
+      report();
+    };
     let scrollFrame: number | undefined;
     const resize = new ResizeObserver(report);
     if (sidebar) resize.observe(sidebar);
